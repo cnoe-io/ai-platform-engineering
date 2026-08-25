@@ -82,7 +82,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
 | config.ENABLE_SUBAGENT_CARDS | string | `"true"` |  |
 | config.ENABLE_USER_INFO_TOOL | string | `"false"` |  |
 | config.ENV_BADGE | string | `""` |  |
-| config.GLOBAL_SEARCH_PLACEMENT | string | `"sidebar"` | Global search trigger placement: `sidebar`, `header-right`, or `header-center`. Admin General settings can override this deployment default. |
 | config.KEYCLOAK_REALM | string | `"caipe"` |  |
 | config.KEYCLOAK_RESOURCE_SERVER_ID | string | `"caipe-platform"` |  |
 | config.KEYCLOAK_URL | string | `""` |  |

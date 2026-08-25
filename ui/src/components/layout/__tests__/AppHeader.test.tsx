@@ -176,7 +176,6 @@ jest.mock('@/components/ui/toast', () => ({
 }))
 
 // Mock config
-let mockGlobalSearchPlacement: 'sidebar' | 'header-right' | 'header-center' = 'header-right'
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -197,7 +196,6 @@ jest.mock('@/lib/config', () => ({
     auditLogsEnabled: true,
     credentialsEnabled: true,
     oktaSyncEnabled: true,
-    get globalSearchPlacement() { return mockGlobalSearchPlacement },
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
@@ -436,7 +434,6 @@ describe('AppHeader — application chrome', () => {
     mockKbOrgAdminBypass = true
     mockEnvBadge = ''
     mockProvideFeedbackEnabled = false
-    mockGlobalSearchPlacement = 'header-right'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -491,7 +488,7 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByText('Home')).toBeInTheDocument()
     })
 
-    it('places global search at the header right by default', () => {
+    it('places global search at the header right', () => {
       render(<AppHeader />)
       expect(
         within(applicationNavigation())
@@ -499,34 +496,6 @@ describe('AppHeader — application chrome', () => {
       ).not.toBeInTheDocument()
       expect(screen.getByTestId('application-navigation-search-trigger-compact'))
         .toBeInTheDocument()
-    })
-
-    it('places global search in the left navigation when configured', () => {
-      mockGlobalSearchPlacement = 'sidebar'
-      render(<AppHeader />)
-
-      expect(
-        within(applicationNavigation())
-          .getByTestId('application-navigation-search-trigger-sidebar'),
-      ).toBeInTheDocument()
-      expect(screen.queryByTestId('application-navigation-search-trigger-compact'))
-        .not.toBeInTheDocument()
-      expect(screen.queryByTestId('application-navigation-search-trigger-center'))
-        .not.toBeInTheDocument()
-    })
-
-    it('places a search bar at the header center when configured', () => {
-      mockGlobalSearchPlacement = 'header-center'
-      render(<AppHeader />)
-
-      expect(screen.getByTestId('application-navigation-search-trigger-center'))
-        .toBeInTheDocument()
-      expect(screen.getByTestId('application-navigation-search-trigger-compact'))
-        .toBeInTheDocument()
-      expect(
-        within(applicationNavigation())
-          .queryByTestId('application-navigation-search-trigger-sidebar'),
-      ).not.toBeInTheDocument()
     })
 
     it('Home nav pill links to /', () => {

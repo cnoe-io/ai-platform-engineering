@@ -79,7 +79,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | caipe-ui.config.DESCRIPTION | string | `"Where Humans and AI agents collaborate to deliver high quality outcomes."` |  |
 | caipe-ui.config.ENABLE_SUBAGENT_CARDS | string | `"true"` |  |
 | caipe-ui.config.ENV_BADGE | string | `""` |  |
-| caipe-ui.config.GLOBAL_SEARCH_PLACEMENT | string | `"sidebar"` | Global search trigger placement: `sidebar`, `header-right`, or `header-center`. Admin General settings can override this deployment default. |
 | caipe-ui.config.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS | string | `"false"` |  |
 | caipe-ui.config.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED | string | `"false"` |  |
 | caipe-ui.config.KEYCLOAK_REALM | string | `"caipe"` |  |

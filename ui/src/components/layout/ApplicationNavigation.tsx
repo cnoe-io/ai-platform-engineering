@@ -39,7 +39,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useGlobalSearchPlacement } from "@/hooks/use-global-search-placement";
 import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
@@ -155,7 +154,6 @@ function ApplicationNavigationContents({
    */
   layoutScope: "rail" | "drawer";
 }): React.ReactElement {
-  const globalSearchPlacement = useGlobalSearchPlacement();
   const contextualNavigationId = React.useId();
   const pathname = usePathname();
   const hydrated = useHydrated();
@@ -373,12 +371,6 @@ function ApplicationNavigationContents({
           entries={searchEntries}
           onNavigate={closeMobileNavigation}
         />
-        {globalSearchPlacement === "sidebar" ? (
-          <ApplicationNavigationSearchTrigger
-            collapsed={collapsed}
-            variant="sidebar"
-          />
-        ) : null}
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
