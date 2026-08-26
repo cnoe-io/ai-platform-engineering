@@ -236,6 +236,25 @@ describe('GET /api/chat/conversations — client_type filtering', () => {
     ]));
   });
 
+  it('excludes api-origin conversations from the default listing', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const conversationsCol = createMockCollection();
+    mockCollections['conversations'] = conversationsCol;
+
+    const req = makeRequest('/api/chat/conversations?page_size=100');
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(conversationsCol.countDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({ source: { $nin: ['slack', 'api'] } }),
+        ]),
+      }),
+    );
+  });
+
   it('enriches conversation agent participants with display names', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 

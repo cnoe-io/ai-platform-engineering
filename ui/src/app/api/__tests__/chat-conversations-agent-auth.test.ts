@@ -170,6 +170,42 @@ describe("POST /api/chat/conversations agent authorization", () => {
     );
   });
 
+  it("persists source: 'api' when the caller declares an api origin", async () => {
+    const insertOne = jest.fn().mockResolvedValue({ insertedId: "conv-1" });
+    mockGetCollection.mockResolvedValue({ findOne: jest.fn(), insertOne });
+    const { POST } = await import("../chat/conversations/route");
+
+    const response = await POST(
+      request({
+        title: "ask-forge",
+        client_type: "webui",
+        agent_id: "default",
+        source: "api",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(insertOne).toHaveBeenCalledWith(expect.objectContaining({ source: "api" }));
+  });
+
+  it("ignores an unrecognized source value from the caller", async () => {
+    const insertOne = jest.fn().mockResolvedValue({ insertedId: "conv-1" });
+    mockGetCollection.mockResolvedValue({ findOne: jest.fn(), insertOne });
+    const { POST } = await import("../chat/conversations/route");
+
+    const response = await POST(
+      request({
+        title: "New Conversation",
+        client_type: "webui",
+        agent_id: "foo-bar",
+        source: "autonomous",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(insertOne).toHaveBeenCalledWith(expect.not.objectContaining({ source: expect.anything() }));
+  });
+
   it("does not create the conversation when OpenFGA denies agent use", async () => {
     const insertOne = jest.fn();
     mockGetCollection.mockResolvedValue({ findOne: jest.fn(), insertOne });
