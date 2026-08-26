@@ -519,6 +519,20 @@ describe('AppHeader — application chrome', () => {
       expect(pill).not.toHaveAttribute('aria-current')
     })
 
+    it('keeps the brand static without a hover sparkle', () => {
+      render(<AppHeader />)
+      for (const brand of screen.getAllByRole('link', { name: 'Test App home' })) {
+        expect(brand.querySelector('.brand-sparkle')).toBeNull()
+      }
+    })
+
+    it('left-aligns the rail toggle without a divider', () => {
+      render(<AppHeader />)
+      const footer = screen.getByRole('button', { name: 'Collapse sidebar' }).parentElement
+      expect(footer).toHaveClass('justify-start')
+      expect(footer).not.toHaveClass('justify-center', 'border-t', 'pt-2')
+    })
+
   })
 
   describe('header breadcrumbs', () => {
@@ -675,6 +689,8 @@ describe('AppHeader — application chrome', () => {
       expect(admin).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('button', { name: 'Resources' }))
         .toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('link', { name: 'RAG' }))
+        .toHaveAttribute('href', '/admin/platform/rag')
       expect(screen.getByRole('link', { name: 'Skill Hubs' }))
         .toHaveAttribute('aria-current', 'page')
     })
@@ -903,14 +919,14 @@ describe('AppHeader — application chrome', () => {
       expect(screen.queryByText('Prod')).not.toBeInTheDocument()
     })
 
-    it('shows the environment badge beside the appearance control', () => {
+    it('shows the environment badge immediately before Search', () => {
       mockEnvBadge = 'Preview'
       render(<AppHeader />)
 
       const badge = screen.getByText('Preview')
-      const settingsPanel = screen.getByTestId('settings-panel')
+      const search = screen.getByTestId('application-navigation-search-trigger-compact')
       expect(within(applicationNavigation()).queryByText('Preview')).not.toBeInTheDocument()
-      expect(badge.nextElementSibling).toBe(settingsPanel)
+      expect(badge.nextElementSibling).toBe(search)
     })
   })
 

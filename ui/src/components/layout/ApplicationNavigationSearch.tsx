@@ -124,10 +124,6 @@ export function ApplicationNavigationSearchTrigger({
                   {shortcut}
                 </kbd>
               </>
-            ) : variant === "compact" ? (
-              <kbd className="hidden rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground lg:inline-block">
-                {shortcut}
-              </kbd>
             ) : null}
           </button>
         </TooltipTrigger>

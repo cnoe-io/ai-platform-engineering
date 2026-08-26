@@ -639,11 +639,6 @@ function ApplicationBrand({
               </span>
             ))}
           </span>
-          <Sparkles
-            aria-hidden="true"
-            className="brand-sparkle pointer-events-none absolute -right-3 -top-2 h-4 w-4"
-            strokeWidth={1.75}
-          />
         </span>
       ) : null}
     </GuardedNavigationLink>
@@ -672,10 +667,10 @@ export function ApplicationNavigationRail(): React.ReactElement {
       )}
     >
       <ApplicationBrand collapsed={collapsed} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2">
         <ApplicationNavigationContents collapsed={collapsed} layoutScope="rail" />
       </div>
-      <div className="flex shrink-0 items-center justify-center border-t border-border/50 px-2 pb-3 pt-2">
+      <div className="flex shrink-0 items-center justify-start px-2 pb-3">
         <WorkspaceRailToggle />
       </div>
     </aside>
@@ -741,11 +736,6 @@ export function MobileApplicationBrand(): React.ReactElement {
         <span className="gradient-text truncate text-lg font-bold">
           {config.appName}
         </span>
-        <Sparkles
-          aria-hidden="true"
-          className="brand-sparkle pointer-events-none absolute -right-2.5 -top-1.5 h-3.5 w-3.5"
-          strokeWidth={1.75}
-        />
       </span>
     </GuardedNavigationLink>
   );
