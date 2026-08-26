@@ -462,7 +462,7 @@ scan-images: ## Scan all locally built images with grype (make scan-images GRYPE
 		echo "✓ All images passed grype scan"; \
 	fi
 
-scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-io/mcp-splunk:localtag)
+scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/caipe-io/mcp-splunk:localtag)
 	@command -v grype >/dev/null 2>&1 || { echo "grype not found. Install: brew install grype"; exit 1; }
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"

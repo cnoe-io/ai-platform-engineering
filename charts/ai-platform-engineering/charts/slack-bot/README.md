@@ -15,10 +15,10 @@ Slack bot integration for AI Platform Engineering using the CAIPE UI BFF
 
 ```bash
 # Add and install the chart
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm install slack-bot oci://ghcr.io/caipe-io/charts/slack-bot --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm upgrade slack-bot oci://ghcr.io/caipe-io/charts/slack-bot --version 0.5.68
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68 \
+helm install slack-bot oci://ghcr.io/caipe-io/charts/slack-bot --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68 \
+helm install slack-bot oci://ghcr.io/caipe-io/charts/slack-bot --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/slack-bot --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -58,7 +58,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
 | externalSecrets | object | `{"apiVersion":"v1beta1","data":[],"enabled":false,"secretStoreRef":{"kind":"ClusterSecretStore","name":"vault"}}` | External Secrets configuration for sensitive data (Slack tokens, OAuth2 client secret, etc.) |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"Always"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-slack-bot"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-slack-bot"` |  |
 | image.tag | string | `""` |  |
 | keycloakBot | object | `{"clientSecretFromSecret":{"key":"KC_BOT_CLIENT_SECRET","name":""}}` | Cross-chart binding to the Keycloak bot client_secret used by the Slack bot's RFC 8693 OBO exchange helper. In umbrella installs this usually points at the same Secret/key as oauth2.clientSecretFromSecret. |
 | nameOverride | string | `""` |  |

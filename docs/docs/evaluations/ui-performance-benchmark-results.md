@@ -249,8 +249,8 @@ Runtime:
 | Item | Value |
 |------|-------|
 | Compose file | `docker-compose.dev.yaml` |
-| UI image | `ghcr.io/cnoe-io/caipe-ui:branch-s3-perf-prod` |
-| Audit image | `ghcr.io/cnoe-io/caipe-audit-service:branch-s3-perf` |
+| UI image | `ghcr.io/caipe-io/caipe-ui:branch-s3-perf-prod` |
+| Audit image | `ghcr.io/caipe-io/caipe-audit-service:branch-s3-perf` |
 | Audit mode | `AUDIT_LOG_BACKEND=service` |
 | Audit service backend | `AUDIT_SERVICE_BACKEND=s3` |
 | Users | 1,000 virtual HTTP users |

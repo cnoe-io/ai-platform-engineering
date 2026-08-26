@@ -25,7 +25,7 @@ Please ensure commits conform to the [Commit Guideline](https://www.conventional
 For chart changes, you can test pre-release versions before merging:
 - **Base repo contributors:** Create a branch starting with `prebuild/` for automatic pre-release builds
 - **Fork contributors:** Ask a maintainer to add the `helm-prerelease` label
-- Pre-release charts are published to `ghcr.io/cnoe-io/pre-release-helm-charts`
+- Pre-release charts are published to `ghcr.io/caipe-io/pre-release-helm-charts`
 - Cleanup happens automatically when the PR closes or label is removed
 
 ## Checklist

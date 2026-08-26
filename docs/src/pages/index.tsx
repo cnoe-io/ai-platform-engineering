@@ -5,9 +5,9 @@ import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
-const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.6.0 -f your-values.yaml';
-const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
+const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh)';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\\n    --version 0.6.0 -f your-values.yaml';
+const GIF_URL = 'https://github.com/caipe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
   const [open, setOpen] = useState(false);
@@ -180,7 +180,7 @@ const AGENTS = [
 function HeroSection() {
   const [stars, setStars] = useState<string | null>(null);
   useEffect(() => {
-    fetch('https://api.github.com/repos/cnoe-io/ai-platform-engineering')
+    fetch('https://api.github.com/repos/caipe-io/ai-platform-engineering')
       .then((r) => r.json())
       .then((d) => {
         const n = d.stargazers_count;
@@ -217,7 +217,7 @@ function HeroSection() {
               <Link className={styles.heroSecondary} href="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073">
                 Watch a Demo ▶
               </Link>
-              <Link className={styles.heroSecondary} href="https://github.com/cnoe-io/ai-platform-engineering">
+              <Link className={styles.heroSecondary} href="https://github.com/caipe-io/ai-platform-engineering">
                 GitHub ↗
               </Link>
             </div>
@@ -252,7 +252,7 @@ function HeroSection() {
                   <span className={styles.codeComment}># Or via Helm</span>{'\n'}
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
-                  {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
+                  {'    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\'}{'\n'}
                   {'    --version 0.6.0 -f your-values.yaml'}
                 </code>
               </pre>
@@ -275,7 +275,7 @@ function HeroSection() {
             <span className={styles.heroStatLabel}>Apache 2.0</span>
           </div>
           <a
-            href="https://github.com/cnoe-io/ai-platform-engineering"
+            href="https://github.com/caipe-io/ai-platform-engineering"
             target="_blank"
             rel="noopener noreferrer"
             className={styles.heroStat}
@@ -403,11 +403,11 @@ function QuickStartSection() {
             <code>
               <span className={styles.codeComment}># Install CAIPE via setup script</span>{'\n'}
               <span className={styles.codePrompt}>$</span>{' '}
-              {'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)'}{'\n\n'}
+              {'bash <(curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh)'}{'\n\n'}
               <span className={styles.codeComment}># Or via Helm</span>{'\n'}
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
-              {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
+              {'    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\'}{'\n'}
               {'    --version 0.6.0 -f your-values.yaml'}
             </code>
           </pre>
@@ -478,7 +478,7 @@ function CtaSection() {
         </Link>
         <Link
           className={styles.heroSecondary}
-          href="https://github.com/cnoe-io/ai-platform-engineering"
+          href="https://github.com/caipe-io/ai-platform-engineering"
         >
           Star on GitHub ↗
         </Link>

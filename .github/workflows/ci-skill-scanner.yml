@@ -10,7 +10,7 @@ description: "Build and push Skill Scanner Docker image"
 #
 # Pre-release tags (-rc.N, -hotfix.N) push to ghcr.io/<owner>/pre-release/skill-scanner.
 # Final release / -dev.N tags push to ghcr.io/<owner>/skill-scanner — this is
-# the path the parent chart's `image.repository` (ghcr.io/cnoe-io/skill-scanner)
+# the path the parent chart's `image.repository` (ghcr.io/caipe-io/skill-scanner)
 # expects. -chart.N tags skip image work entirely (chart-only releases).
 #
 # This workflow notifies release-finalize.yml via repository_dispatch so the

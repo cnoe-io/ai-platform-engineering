@@ -21,10 +21,10 @@ Keycloak identity provider for CAIPE RBAC, token exchange, and identity federati
 
 ```bash
 # Add and install the chart
-helm install keycloak oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68
+helm install keycloak oci://ghcr.io/caipe-io/charts/keycloak --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade keycloak oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68
+helm upgrade keycloak oci://ghcr.io/caipe-io/charts/keycloak --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install keycloak oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68 \
+helm install keycloak oci://ghcr.io/caipe-io/charts/keycloak --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install keycloak oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68 \
+helm install keycloak oci://ghcr.io/caipe-io/charts/keycloak --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/keycloak --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -146,7 +146,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/keycloak --version 0.5.68
 | ingress.hosts[0].paths[1].pathType | string | `"Prefix"` |  |
 | ingress.tls | list | `[]` |  |
 | initImage.pullPolicy | string | `"IfNotPresent"` |  |
-| initImage.repository | string | `"ghcr.io/cnoe-io/keycloak-init"` |  |
+| initImage.repository | string | `"ghcr.io/caipe-io/keycloak-init"` |  |
 | initImage.tag | string | `""` |  |
 | nameOverride | string | `""` |  |
 | nodeSelector | object | `{}` |  |

@@ -21,10 +21,10 @@ A Helm chart for Autonomous Agents - Standalone scheduler that fires tasks (cron
 
 ```bash
 # Add and install the chart
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm install autonomous-agents oci://ghcr.io/caipe-io/charts/autonomous-agents --version 0.4.10-dev.1
 
 # Upgrade an existing release
-helm upgrade autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm upgrade autonomous-agents oci://ghcr.io/caipe-io/charts/autonomous-agents --version 0.4.10-dev.1
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
+helm install autonomous-agents oci://ghcr.io/caipe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
+helm install autonomous-agents oci://ghcr.io/caipe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm show values oci://ghcr.io/caipe-io/charts/autonomous-agents --version 0.4.10-dev.1
 ```
 
 ## Reading the Values Table
@@ -72,7 +72,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | externalSecrets.secretStoreRef.name | string | `"vault"` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"Always"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-autonomous-agents"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-autonomous-agents"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | ingress.annotations | object | `{}` |  |

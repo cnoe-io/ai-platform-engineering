@@ -292,7 +292,7 @@ openfgaAuthzBridge:
 
 openfga-authz-bridge:
   image:
-    repository: ghcr.io/cnoe-io/openfga-authz-bridge
+    repository: ghcr.io/caipe-io/openfga-authz-bridge
   openfga:
     httpUrl: "http://{{ .Release.Name }}-openfga:8080"
     storeName: caipe-openfga

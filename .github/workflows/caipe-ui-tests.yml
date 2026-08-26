@@ -303,7 +303,7 @@ jobs:
       packages: read
     container:
       # assisted-by Codex Codex-sonnet-4-6
-      image: ghcr.io/cnoe-io/playwright:v1.61.0-noble
+      image: ghcr.io/caipe-io/playwright:v1.61.0-noble
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}

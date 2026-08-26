@@ -6,12 +6,12 @@ set -euo pipefail
 #   Roles: kind_cluster, metallb, nginx_ingress, caipe_secrets, caipe_helm,
 #   caipe_mongodb. Benefits: idempotency, inventory-driven multi-env deploys
 #   (demo/devnet/prod from one playbook), Ansible Vault for secrets, CI/CD.
-#   Tracking: https://github.com/cnoe-io/ai-platform-engineering/issues/1115
+#   Tracking: https://github.com/caipe-io/ai-platform-engineering/issues/1115
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 CAIPE_CHART_VERSION="${CAIPE_CHART_VERSION:-}"
-CAIPE_OCI_REPO="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
+CAIPE_OCI_REPO="oci://ghcr.io/caipe-io/charts/ai-platform-engineering"
 LANGFUSE_PORT=3100
 DYNAMIC_AGENTS_PORT=8001
 UI_PORT=3000
@@ -685,7 +685,7 @@ check_prerequisites() {
           esac
           warn ""
           warn "Then re-run:"
-          warn "  bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)"
+          warn "  bash <(curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh)"
           exit 1
         fi
       fi
@@ -992,7 +992,7 @@ choose_chart_version() {
   if command -v crane &>/dev/null; then
     while IFS= read -r v; do
       [[ -n "$v" ]] && versions+=("$v")
-    done < <(crane ls ghcr.io/cnoe-io/charts/ai-platform-engineering 2>/dev/null | sort -Vr | head -10)
+    done < <(crane ls ghcr.io/caipe-io/charts/ai-platform-engineering 2>/dev/null | sort -Vr | head -10)
   fi
 
   if [[ ${#versions[@]} -eq 0 && -n "$versions_raw" ]]; then
@@ -2994,9 +2994,9 @@ _update_compose_image_tag() {
   _ensure_compose_env_file "$env_file"
   local latest
   if command -v gh &>/dev/null; then
-    latest=$(gh release view --repo cnoe-io/ai-platform-engineering --json tagName -q .tagName)
+    latest=$(gh release view --repo caipe-io/ai-platform-engineering --json tagName -q .tagName)
   elif command -v curl &>/dev/null; then
-    latest=$(curl -sf "https://api.github.com/repos/cnoe-io/ai-platform-engineering/releases/latest" \
+    latest=$(curl -sf "https://api.github.com/repos/caipe-io/ai-platform-engineering/releases/latest" \
       | jq .tag_name)
   else
     err "Either GitHub CLI (gh) or curl is required to fetch the latest CAIPE release"
@@ -8167,7 +8167,7 @@ BANNER
   echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Multi-Agent System on Kubernetes${NC}             ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
-  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/ai-platform-engineering${NC}   ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/caipe-io/ai-platform-engineering${NC}   ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Powered by cnoe-agent-utils LLMFactory${NC}       ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/cnoe-agent-utils${NC}          ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}╚═══════════════════════════════════════════════╝${NC}"
@@ -8355,7 +8355,7 @@ BANNER
     if [[ ! -f "$_ollama_yaml" ]]; then
       err "deploy/kind/ollama.yaml not found at ${_ollama_yaml}."
       err "When running via 'curl | bash', clone the repo and run setup-caipe.sh directly:"
-      err "  git clone https://github.com/cnoe-io/ai-platform-engineering && cd ai-platform-engineering && bash setup-caipe.sh"
+      err "  git clone https://github.com/caipe-io/ai-platform-engineering && cd ai-platform-engineering && bash setup-caipe.sh"
       exit 1
     fi
     kubectl apply -f "$_ollama_yaml" 2>&1 \

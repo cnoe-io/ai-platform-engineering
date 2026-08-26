@@ -286,7 +286,7 @@ Usage:
   include "agent.imageRepository" (dict "root" . "repository" .Values.image.repository)
 
 The default channel is derived from .Chart.AppVersion: rc/hotfix/dev versions use
-`ghcr.io/cnoe-io/pre-release/*`, final versions use `ghcr.io/cnoe-io/*`.
+`ghcr.io/caipe-io/pre-release/*`, final versions use `ghcr.io/caipe-io/*`.
 Operators may force either channel with global.image.channel=pre-release|release.
 Explicit non-CAIPE repositories are left unchanged.
 */}
@@ -304,10 +304,10 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $channel = "release" -}}
 {{- end -}}
 {{- end -}}
-{{- if and (eq $channel "pre-release") (hasPrefix "ghcr.io/cnoe-io/" $repository) (not (hasPrefix "ghcr.io/cnoe-io/pre-release/" $repository)) -}}
-{{- printf "ghcr.io/cnoe-io/pre-release/%s" (trimPrefix "ghcr.io/cnoe-io/" $repository) -}}
-{{- else if and (eq $channel "release") (hasPrefix "ghcr.io/cnoe-io/pre-release/" $repository) -}}
-{{- printf "ghcr.io/cnoe-io/%s" (trimPrefix "ghcr.io/cnoe-io/pre-release/" $repository) -}}
+{{- if and (eq $channel "pre-release") (hasPrefix "ghcr.io/caipe-io/" $repository) (not (hasPrefix "ghcr.io/caipe-io/pre-release/" $repository)) -}}
+{{- printf "ghcr.io/caipe-io/pre-release/%s" (trimPrefix "ghcr.io/caipe-io/" $repository) -}}
+{{- else if and (eq $channel "release") (hasPrefix "ghcr.io/caipe-io/pre-release/" $repository) -}}
+{{- printf "ghcr.io/caipe-io/%s" (trimPrefix "ghcr.io/caipe-io/pre-release/" $repository) -}}
 {{- else -}}
 {{- $repository -}}
 {{- end -}}

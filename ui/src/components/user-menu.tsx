@@ -19,7 +19,7 @@ import Image from "next/image";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useCallback,useEffect,useRef,useState } from "react";
 
-const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
+const CHANGELOG_URL = "https://github.com/caipe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
 
 export function UserMenu(): React.ReactElement | null {
   const { data: session,status } = useSession();

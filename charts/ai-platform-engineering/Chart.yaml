@@ -4,7 +4,7 @@ appVersion: 0.6.0-dev.4 # Do NOT modify. It will be updated automatically using 
 name: ai-platform-engineering
 description: Parent chart to deploy CAIPE — dynamic agents, per-agent MCP servers, RBAC, and the UI
 sources:
-  - https://github.com/cnoe-io/ai-platform-engineering/charts
+  - https://github.com/caipe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
 version: 0.6.0-dev.4 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:

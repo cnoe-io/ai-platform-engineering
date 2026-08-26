@@ -3,7 +3,7 @@
  */
 import { NextRequest } from "next/server";
 
-const RAW_BASE = "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/docs/releases";
+const RAW_BASE = "https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/docs/releases";
 
 const LISTING = [
   { name: "README.md", type: "file", download_url: `${RAW_BASE}/README.md` },

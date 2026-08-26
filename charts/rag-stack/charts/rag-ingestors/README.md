@@ -15,10 +15,10 @@ Configurable ingestors for RAG system - supports AWS, K8s, ArgoCD, Slack, and We
 
 ```bash
 # Add and install the chart
-helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68
+helm install rag-ingestors oci://ghcr.io/caipe-io/charts/rag-ingestors --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68
+helm upgrade rag-ingestors oci://ghcr.io/caipe-io/charts/rag-ingestors --version 0.5.68
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68 \
+helm install rag-ingestors oci://ghcr.io/caipe-io/charts/rag-ingestors --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68 \
+helm install rag-ingestors oci://ghcr.io/caipe-io/charts/rag-ingestors --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/rag-ingestors --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -59,7 +59,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68
 | defaultResources.requests.ephemeral-storage | string | `"256Mi"` |  |
 | defaultResources.requests.memory | string | `"256Mi"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-rag-ingestors"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | ingestors | list | `[]` |  |

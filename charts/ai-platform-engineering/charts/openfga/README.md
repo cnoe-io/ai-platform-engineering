@@ -15,10 +15,10 @@ OpenFGA authorization service for CAIPE relationship-based access control
 
 ```bash
 # Add and install the chart
-helm install openfga oci://ghcr.io/cnoe-io/charts/openfga --version 0.5.68
+helm install openfga oci://ghcr.io/caipe-io/charts/openfga --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade openfga oci://ghcr.io/cnoe-io/charts/openfga --version 0.5.68
+helm upgrade openfga oci://ghcr.io/caipe-io/charts/openfga --version 0.5.68
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install openfga oci://ghcr.io/cnoe-io/charts/openfga --version 0.5.68 \
+helm install openfga oci://ghcr.io/caipe-io/charts/openfga --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install openfga oci://ghcr.io/cnoe-io/charts/openfga --version 0.5.68 \
+helm install openfga oci://ghcr.io/caipe-io/charts/openfga --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/openfga --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/openfga --version 0.5.68
 ```
 
 ## Reading the Values Table

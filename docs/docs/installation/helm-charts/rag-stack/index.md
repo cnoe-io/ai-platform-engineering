@@ -21,10 +21,10 @@ A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
 ```bash
 # Add and install the chart
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm upgrade rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -63,7 +63,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | agent-ontology.enabled | bool | `true` |  |
 | agent-ontology.fullnameOverride | string | `"agent-ontology"` |  |
 | agent-ontology.image.pullPolicy | string | `"Always"` |  |
-| agent-ontology.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-agent-ontology"` |  |
+| agent-ontology.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-agent-ontology"` |  |
 | agent-ontology.image.tag | string | `""` |  |
 | agent-ontology.livenessProbe.failureThreshold | int | `3` |  |
 | agent-ontology.livenessProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
@@ -212,7 +212,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-server.envFrom | list | `[]` |  |
 | rag-server.fullnameOverride | string | `"rag-server"` |  |
 | rag-server.image.pullPolicy | string | `"Always"` |  |
-| rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
+| rag-server.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-server"` |  |
 | rag-server.image.tag | string | `""` |  |
 | rag-server.podAnnotations | object | `{}` |  |
 | rag-server.resources.limits.cpu | string | `"500m"` |  |

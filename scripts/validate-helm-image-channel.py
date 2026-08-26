@@ -2,7 +2,7 @@
 """Validate CAIPE Helm image channel defaults.
 
 Pre-release charts should default maintained CAIPE images to the
-``ghcr.io/cnoe-io/pre-release`` repository namespace. Operators can opt
+``ghcr.io/caipe-io/pre-release`` repository namespace. Operators can opt
 into root published images with ``global.image.channel=release``.
 """
 
@@ -106,14 +106,14 @@ def chart_app_version(chart: Path) -> str:
 def default_image_prefix(chart: Path) -> str:
     app_version = chart_app_version(chart)
     if re.search(r"(?:^|[-.])(dev|rc|hotfix)(?:[-.]|$)", app_version):
-        return "ghcr.io/cnoe-io/pre-release"
-    return "ghcr.io/cnoe-io"
+        return "ghcr.io/caipe-io/pre-release"
+    return "ghcr.io/caipe-io"
 
 
 def opposite_image_prefix(prefix: str) -> str:
-    if prefix == "ghcr.io/cnoe-io":
-        return "ghcr.io/cnoe-io/pre-release"
-    return "ghcr.io/cnoe-io"
+    if prefix == "ghcr.io/caipe-io":
+        return "ghcr.io/caipe-io/pre-release"
+    return "ghcr.io/caipe-io"
 
 
 def rendered_images(manifest: str) -> set[str]:
@@ -208,11 +208,11 @@ def main() -> int:
     )
     missing_release = require_images(
         release_images,
-        "ghcr.io/cnoe-io",
+        "ghcr.io/caipe-io",
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
         release_rag_images,
-        "ghcr.io/cnoe-io",
+        "ghcr.io/caipe-io",
         RAG_EXPECTED_IMAGE_NAMES,
     )
     forbidden_default = forbid_images(
@@ -235,11 +235,11 @@ def main() -> int:
     )
     forbidden_release = forbid_images(
         release_images,
-        "ghcr.io/cnoe-io/pre-release",
+        "ghcr.io/caipe-io/pre-release",
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
         release_rag_images,
-        "ghcr.io/cnoe-io/pre-release",
+        "ghcr.io/caipe-io/pre-release",
         RAG_EXPECTED_IMAGE_NAMES,
     )
 

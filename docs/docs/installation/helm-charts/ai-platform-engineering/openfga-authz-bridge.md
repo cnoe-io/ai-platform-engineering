@@ -21,10 +21,10 @@ Envoy ext_authz bridge that adapts AgentGateway authorization checks to OpenFGA
 
 ```bash
 # Add and install the chart
-helm install openfga-authz-bridge oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5.68
+helm install openfga-authz-bridge oci://ghcr.io/caipe-io/charts/openfga-authz-bridge --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade openfga-authz-bridge oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5.68
+helm upgrade openfga-authz-bridge oci://ghcr.io/caipe-io/charts/openfga-authz-bridge --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install openfga-authz-bridge oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5.68 \
+helm install openfga-authz-bridge oci://ghcr.io/caipe-io/charts/openfga-authz-bridge --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install openfga-authz-bridge oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5.68 \
+helm install openfga-authz-bridge oci://ghcr.io/caipe-io/charts/openfga-authz-bridge --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/openfga-authz-bridge --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -67,7 +67,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5
 | callerToolCheck.enabled | bool | `false` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/openfga-authz-bridge"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/openfga-authz-bridge"` |  |
 | image.tag | string | `""` |  |
 | nameOverride | string | `""` |  |
 | nodeSelector | object | `{}` |  |

@@ -21,10 +21,10 @@ A Helm chart for CAIPE UI - chat interface for AI Platform Engineering
 
 ```bash
 # Add and install the chart
-helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
+helm install caipe-ui oci://ghcr.io/caipe-io/charts/caipe-ui --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
+helm upgrade caipe-ui oci://ghcr.io/caipe-io/charts/caipe-ui --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68 \
+helm install caipe-ui oci://ghcr.io/caipe-io/charts/caipe-ui --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68 \
+helm install caipe-ui oci://ghcr.io/caipe-io/charts/caipe-ui --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/caipe-ui --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -132,7 +132,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
 | externalSecrets.secretStoreRef.name | string | `"vault"` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"Always"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-ui"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-ui"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | ingress.annotations | object | `{}` |  |
