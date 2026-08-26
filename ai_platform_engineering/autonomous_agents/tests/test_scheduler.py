@@ -21,7 +21,10 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.services.chat_history import conversation_id_for_task
+from autonomous_agents.services.chat_history import (
+    conversation_id_for_task,
+    conversation_id_for_webhook_run,
+)
 from autonomous_agents.services.scheduler import (
     get_scheduler,
     register_scheduler_task,
@@ -688,6 +691,57 @@ class TestFollowUp:
             run = await execute_task(webhook_task)
 
         assert run.parent_run_id is None
+
+    async def test_initial_webhook_deliveries_use_isolated_execution_contexts(
+        self, store: _DictRunStore, webhook_task: TaskDefinition
+    ):
+        """Separate deliveries for one task never share model/checkpointer state."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            first = await execute_task(webhook_task, run_id="delivery-1")
+            second = await execute_task(webhook_task, run_id="delivery-2")
+
+        first_context = invoke.await_args_list[0].kwargs["conversation_id"]
+        second_context = invoke.await_args_list[1].kwargs["conversation_id"]
+        assert first_context == conversation_id_for_webhook_run(
+            webhook_task.id, "delivery-1"
+        )
+        assert second_context == conversation_id_for_webhook_run(
+            webhook_task.id, "delivery-2"
+        )
+        assert first_context != second_context
+        assert first.root_run_id == "delivery-1"
+        assert second.root_run_id == "delivery-2"
+
+    async def test_webhook_followup_reuses_only_selected_run_context(
+        self, store: _DictRunStore, webhook_task: TaskDefinition
+    ):
+        """A follow-up inherits its parent delivery's isolated context."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            parent = await execute_task(webhook_task, run_id="delivery-root")
+            follow_up = await execute_task(
+                webhook_task,
+                follow_up=FollowUpContext(
+                    parent_run_id=parent.run_id,
+                    user_text="look more closely",
+                    transport="webui",
+                ),
+                run_id="delivery-follow-up",
+            )
+
+        assert follow_up.parent_run_id == parent.run_id
+        assert follow_up.root_run_id == parent.run_id
+        assert follow_up.execution_context_id == parent.execution_context_id
+        assert invoke.await_args_list[1].kwargs["conversation_id"] == (
+            parent.execution_context_id
+        )
 
 
 def _job_task(

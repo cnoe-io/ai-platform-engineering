@@ -804,6 +804,83 @@ class TestRunHistory:
         assert runs[0].conversation_id == conversation_id
 
 
+class TestWebhookRunFollowUp:
+    """Authenticated UI continuation stays bound to an explicit webhook run."""
+
+    def test_queues_follow_up_for_selected_run(
+        self, client: TestClient, _swap_run_store, monkeypatch
+    ):
+        owner = "owner@example.com"
+        headers = _user_headers(owner)
+        task_id = _create_task(client, _webhook_task("hook1"), headers=headers)
+        _swap_run_store(
+            _RecordingStore(
+                [_make_run("run-parent", task_id=task_id, owner_id=owner)]
+            )
+        )
+        dispatch = AsyncMock(
+            return_value=webhook_runtime.DispatchOutcome(
+                status_code=202,
+                run_id="run-follow-up",
+                claimed=True,
+                trigger_instance_id=None,
+                dedup_strategy="none",
+            )
+        )
+        monkeypatch.setattr(tasks_route, "dispatch_webhook_run", dispatch)
+
+        response = client.post(
+            f"/api/v1/tasks/{task_id}/runs/run-parent/follow-up",
+            json={"user_text": "Please investigate the failed check."},
+            headers=headers,
+        )
+
+        assert response.status_code == 202
+        assert response.json() == {
+            "status": "accepted",
+            "task_id": task_id,
+            "run_id": "run-follow-up",
+            "parent_run_id": "run-parent",
+        }
+        follow_up = dispatch.await_args.kwargs["follow_up"]
+        assert follow_up.parent_run_id == "run-parent"
+        assert follow_up.user_text == "Please investigate the failed check."
+        assert follow_up.user_ref == owner
+        assert follow_up.transport == "webui"
+
+    def test_rejects_unknown_parent_run(
+        self, client: TestClient, _swap_run_store, monkeypatch
+    ):
+        task_id = _create_task(client, _webhook_task("hook1"))
+        _swap_run_store(_RecordingStore())
+        dispatch = AsyncMock()
+        monkeypatch.setattr(tasks_route, "dispatch_webhook_run", dispatch)
+
+        response = client.post(
+            f"/api/v1/tasks/{task_id}/runs/missing/follow-up",
+            json={"user_text": "Continue"},
+        )
+
+        assert response.status_code == 404
+        dispatch.assert_not_awaited()
+
+    def test_rejects_non_webhook_task(
+        self, client: TestClient, _swap_run_store, monkeypatch
+    ):
+        task_id = _create_task(client, _cron_task("scheduled"))
+        _swap_run_store(_RecordingStore([_make_run("run-parent", task_id=task_id)]))
+        dispatch = AsyncMock()
+        monkeypatch.setattr(tasks_route, "dispatch_webhook_run", dispatch)
+
+        response = client.post(
+            f"/api/v1/tasks/{task_id}/runs/run-parent/follow-up",
+            json={"user_text": "Continue"},
+        )
+
+        assert response.status_code == 400
+        dispatch.assert_not_awaited()
+
+
 class TestRunHistoryOwnership:
     """Codex P1: run-history reads are scoped by task ownership.
 

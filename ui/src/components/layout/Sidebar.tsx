@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { autonomousApi } from "@/components/autonomous/api";
+import type { AutonomousTask } from "@/components/autonomous/types";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getErrorMessage } from "@/lib/error-utils";
@@ -39,6 +41,7 @@ Shield,
 Sparkles,
 TrendingUp,
 Users,
+Webhook,
 X
 } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -64,7 +67,7 @@ interface ConversationTitleBadge {
   title: string;
 }
 
-type ConversationSectionId = "autonomous" | "scheduled" | "history";
+type ConversationSectionId = "autonomous" | "webhook" | "scheduled" | "history";
 
 type ConversationListItem =
   | {
@@ -78,6 +81,11 @@ type ConversationListItem =
       count: number;
       expanded?: boolean;
       onToggle?: () => void;
+      nested?: boolean;
+    }
+  | {
+      kind: "webhook-task";
+      task: AutonomousTask;
     };
 
 function getAutonomousBadge(conv: Conversation): ConversationTitleBadge | null {
@@ -165,7 +173,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [editingTitle, setEditingTitle] = useState("");
   const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
   const [autonomousRunsExpanded, setAutonomousRunsExpanded] = useState(false);
+  const [webhookRunsExpanded, setWebhookRunsExpanded] = useState(false);
   const [scheduledRunsExpanded, setScheduledRunsExpanded] = useState(false);
+  const [webhookTasks, setWebhookTasks] = useState<AutonomousTask[]>([]);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -234,6 +244,40 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
       cancelled = true;
     };
   }, []);
+
+  // Webhook runs are intentionally not mirrored into normal chat
+  // conversations. Load the caller's webhook task summaries separately so the
+  // sidebar can expose one stable task timeline without one row per delivery.
+  useEffect(() => {
+    let cancelled = false;
+    const ownerEmail = session?.user?.email?.trim().toLowerCase();
+    if (activeTab !== "chat" || !ownerEmail) {
+      setWebhookTasks([]);
+      return;
+    }
+
+    void autonomousApi
+      .listTasks()
+      .then((tasks) => {
+        if (cancelled) return;
+        setWebhookTasks(
+          tasks.filter(
+            (task) =>
+              task.trigger.type === "webhook" &&
+              task.owner_id?.trim().toLowerCase() === ownerEmail,
+          ),
+        );
+      })
+      .catch(() => {
+        // Autonomous may be disabled or unavailable. Conversation history
+        // remains usable; simply omit the optional webhook subsection.
+        if (!cancelled) setWebhookTasks([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, session?.user?.email]);
 
   // Handle mouse move for resizing
   useEffect(() => {
@@ -392,7 +436,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           kind: "section",
           id: "autonomous",
           label: "Autonomous Runs",
-          count: autonomousConversations.length,
+          count: autonomousConversations.length + webhookTasks.length,
           expanded: autonomousRunsExpanded,
           onToggle: () => setAutonomousRunsExpanded((expanded) => !expanded),
         },
@@ -400,6 +444,24 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           ? autonomousConversations.map(
               (conversation): ConversationListItem => ({ kind: "conversation", conversation }),
             )
+          : []),
+        ...(autonomousRunsExpanded
+          ? [
+              {
+                kind: "section" as const,
+                id: "webhook" as const,
+                label: "Webhook Runs",
+                count: webhookTasks.length,
+                expanded: webhookRunsExpanded,
+                onToggle: () => setWebhookRunsExpanded((expanded) => !expanded),
+                nested: true,
+              },
+              ...(webhookRunsExpanded
+                ? webhookTasks.map(
+                    (task): ConversationListItem => ({ kind: "webhook-task", task }),
+                  )
+                : []),
+            ]
           : []),
         {
           kind: "section",
@@ -553,7 +615,10 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                     return (
                       <div
                         key={`section-${item.id}`}
-                        className="flex items-center gap-1.5 px-1 pt-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                        className={cn(
+                          "flex items-center gap-1.5 px-1 pt-2 text-xs font-medium uppercase tracking-wider text-muted-foreground",
+                          item.nested && "ml-4 border-l border-border/60 pl-2",
+                        )}
                         data-testid={`conversation-section-${item.id}`}
                       >
                         {item.onToggle ? (
@@ -593,6 +658,39 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           </TooltipProvider>
                         )}
                       </div>
+                    );
+                  }
+
+                  if (item.kind === "webhook-task") {
+                    const provider =
+                      item.task.trigger.type === "webhook"
+                        ? item.task.trigger.provider ?? "webhook"
+                        : "webhook";
+                    return (
+                      <button
+                        key={`webhook-task-${item.task.id}`}
+                        type="button"
+                        className="ml-4 flex w-[calc(100%-1rem)] min-w-0 items-center gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-orange-500/20 hover:bg-orange-500/5"
+                        onClick={() => {
+                          startTransition(() => {
+                            router.push(`/chat/webhooks/${encodeURIComponent(item.task.id)}`);
+                          });
+                        }}
+                        aria-label={`Open webhook runs for ${item.task.name}`}
+                        data-testid={`webhook-task-${item.task.id}`}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-500/10">
+                          <Webhook className="h-4 w-4 text-orange-600 dark:text-orange-300" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {item.task.name}
+                          </span>
+                          <span className="block truncate text-[10px] capitalize text-muted-foreground">
+                            {provider}
+                          </span>
+                        </span>
+                      </button>
                     );
                   }
 

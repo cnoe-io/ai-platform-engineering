@@ -10,14 +10,16 @@ import asyncio
 import logging
 import secrets
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.models import (
     Acknowledgement,
+    FollowUpContext,
     TaskCreate,
     TaskDefinition,
     TaskRun,
+    TaskRunFollowUpCreate,
     WebhookTrigger,
 )
 from autonomous_agents.services.chat_history import conversation_id_for_task
@@ -42,6 +44,8 @@ from autonomous_agents.services.task_runner import (
     get_run_store,
     task_chat_history_publishing_enabled,
 )
+from autonomous_agents.services.trigger_instances import DedupKey
+from autonomous_agents.services.webhook_runtime import dispatch_webhook_run
 
 logger = logging.getLogger("autonomous_agents")
 
@@ -574,6 +578,87 @@ async def get_task_runs(task_id: str, request: Request) -> list[TaskRun]:
     # Task exists and access was asserted above: every run for this task
     # belongs to its owner, so the whole history is the caller's to see.
     return _hide_unpublished_chat_links(history)
+
+
+@router.post(
+    "/tasks/{task_id}/runs/{run_id}/follow-up",
+    response_model=dict,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def follow_up_task_run(
+    task_id: str,
+    run_id: str,
+    payload: TaskRunFollowUpCreate,
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Continue one webhook run from the authenticated UI.
+
+    The task timeline is only a display grouping. This endpoint binds the new
+    message to the explicitly selected parent run, and ``execute_task`` reuses
+    that run's execution context while keeping unrelated webhook deliveries
+    isolated. Provider HMAC is intentionally not used here: the UI proxy has
+    already authenticated the caller and ownership is enforced below.
+    """
+    task = await get_task_store().get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    caller_email, is_admin, _ = _get_caller(request)
+    _assert_task_access(task, caller_email, is_admin)
+    if not isinstance(task.trigger, WebhookTrigger):
+        raise HTTPException(
+            status_code=400,
+            detail="Only webhook task runs can be continued from this endpoint.",
+        )
+    if not task.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="This webhook task is disabled. Enable it before continuing a run.",
+        )
+
+    recent = await get_run_store().list_by_task(task_id, limit=_MAX_TASK_RUNS)
+    if not any(candidate.run_id == run_id for candidate in recent):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run '{run_id}' not found for task '{task_id}'",
+        )
+
+    user_text = payload.user_text.strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Follow-up message cannot be blank.")
+
+    follow_up = FollowUpContext(
+        parent_run_id=run_id,
+        user_text=user_text,
+        user_ref=caller_email,
+        transport="webui",
+    )
+    settings = get_settings()
+    outcome = await dispatch_webhook_run(
+        task=task,
+        dedup_key=DedupKey(key=None, strategy="none"),
+        body=follow_up.model_dump_json().encode("utf-8"),
+        context={},
+        follow_up=follow_up,
+        background_tasks=background_tasks,
+        max_pending_per_task=settings.webhook_max_pending_per_task,
+        max_pending_per_owner=settings.webhook_max_pending_per_owner,
+        max_pending_global=settings.webhook_max_pending_global,
+        max_pending_payload_bytes_global=(
+            settings.webhook_max_pending_payload_bytes_global
+        ),
+        max_concurrent_per_owner=settings.webhook_max_concurrent_per_owner,
+        max_concurrent_global=settings.webhook_max_concurrent_global,
+    )
+    response.status_code = outcome.status_code
+    return {
+        "status": "accepted",
+        "task_id": task_id,
+        "run_id": outcome.run_id,
+        "parent_run_id": run_id,
+    }
 
 
 @router.post("/tasks/{task_id}/run", response_model=dict)

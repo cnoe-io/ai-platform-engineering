@@ -1,7 +1,13 @@
 // Copyright CAIPE Contributors (https://caipe.io)
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AutonomousRuntimeSettings, AutonomousTask, TaskRun, TaskSaveResult } from './types';
+import type {
+  AutonomousRuntimeSettings,
+  AutonomousTask,
+  TaskRun,
+  TaskRunFollowUpResult,
+  TaskSaveResult,
+} from './types';
 // Note: ``TaskRun`` is exported because consumers like ``RunHistory``
 // type-narrow on it. Keep this barrel-style re-export below in mind
 // when adjusting the API surface.
@@ -111,4 +117,16 @@ export const autonomousApi = {
     request(`/tasks/${encodeURIComponent(id)}/run`, { method: 'POST' }),
   listRuns: (id: string): Promise<TaskRun[]> =>
     request(`/tasks/${encodeURIComponent(id)}/runs`),
+  followUpRun: (
+    taskId: string,
+    runId: string,
+    userText: string,
+  ): Promise<TaskRunFollowUpResult> =>
+    request(
+      `/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/follow-up`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ user_text: userText }),
+      },
+    ),
 };

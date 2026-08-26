@@ -310,6 +310,17 @@ class FollowUpContext(BaseModel):
     )
 
 
+class TaskRunFollowUpCreate(BaseModel):
+    """Authenticated UI request to continue one webhook run."""
+
+    user_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=10_000,
+        description="Operator message to send in the selected run's context.",
+    )
+
+
 
 class TaskCreate(TaskDefinition):
     """Request body for ``POST /tasks``.
@@ -340,6 +351,18 @@ class TaskRun(BaseModel):
     # threaded timeline instead of unrelated rows. ``None`` for the
     # original webhook fire and for cron / interval / manual runs.
     parent_run_id: str | None = None
+    # Root delivery for a webhook conversation branch. Initial deliveries set
+    # this to their own run_id; follow-ups inherit it from the selected parent.
+    # None for cron/interval runs and legacy webhook records.
+    root_run_id: str | None = None
+    # Dynamic Agents conversation/checkpointer id used for execution. This is
+    # intentionally distinct from ``conversation_id`` below: the latter is a
+    # UI chat-history link, while this field protects execution isolation.
+    execution_context_id: str | None = None
+    # Exact operator message for a follow-up run. Stored separately from the
+    # augmented request_prompt so timeline clients can render a clean user turn.
+    follow_up_text: str | None = None
+    follow_up_transport: str | None = None
     # Prompt materialised for this specific run. For normal scheduled
     # runs this is the task prompt; for inbound follow-ups it includes
     # the operator reply appended by task_runner. The UI's autonomous

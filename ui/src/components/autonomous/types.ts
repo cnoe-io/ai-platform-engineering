@@ -162,6 +162,13 @@ export interface TaskRun {
    * manual runs.
    */
   parent_run_id?: string | null;
+  /** Root webhook delivery shared by this run and its follow-ups. */
+  root_run_id?: string | null;
+  /** Backend execution context; unrelated webhook deliveries use different ids. */
+  execution_context_id?: string | null;
+  /** Exact operator turn for follow-up runs, without the task-prompt prefix. */
+  follow_up_text?: string | null;
+  follow_up_transport?: string | null;
   /**
    * Prompt materialised for this specific run. Follow-up runs include
    * the inbound operator reply appended by the autonomous-agents
@@ -189,6 +196,13 @@ export interface TaskRun {
    */
   response_full?: string | null;
   events?: Record<string, unknown>[];
+}
+
+export interface TaskRunFollowUpResult {
+  status: "accepted";
+  task_id: string;
+  run_id: string;
+  parent_run_id: string;
 }
 
 /**
