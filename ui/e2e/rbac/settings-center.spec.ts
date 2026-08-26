@@ -70,7 +70,7 @@ function createState(): SettingsMockState {
       gradient_theme: "default",
       memory_enabled: "true",
       releaseNotesNotificationsEnabled: true,
-      releaseNotesDismissedVersions: ["playwright"],
+      releaseNotesDismissedVersions: ["0.5.67"],
       show_thinking_enabled: "true",
       show_timestamps_enabled: "false",
       theme: "dark",
@@ -93,6 +93,47 @@ async function installSettingsCenterMocks(
   isAdmin = false,
 ): Promise<void> {
   const handler: MockRouteHandler = async ({ method,path,route }) => {
+    if (path === "/api/version" && method === "GET") {
+      await fulfillJson(route,{
+        version: "0.5.67",
+        gitCommit: "abc1234",
+        buildDate: "2026-08-20T12:00:00.000Z",
+        packageVersion: "0.5.67",
+      });
+      return true;
+    }
+
+    if (path === "/api/platform/health" && method === "GET") {
+      await fulfillJson(route,{
+        status: "healthy",
+        checked_at: "2026-08-20T12:00:00.000Z",
+        summary: { total: 2,healthy: 2,degraded: 0,down: 0,disabled: 0 },
+        capabilities: [
+          {
+            id: "chat-runtime",
+            label: "Chat Runtime",
+            group: "runtime",
+            status: "healthy",
+            required: true,
+            description: "Chat runtime availability.",
+            detail: "Runtime reachable",
+            latency_ms: 12,
+          },
+          {
+            id: "authentication",
+            label: "Authentication",
+            group: "identity",
+            status: "healthy",
+            required: true,
+            description: "Authentication availability.",
+            detail: "SSO enabled",
+            latency_ms: null,
+          },
+        ],
+      });
+      return true;
+    }
+
     if (path === "/api/settings/preferences" && method === "PATCH") {
       const body = (await postJson(route)) as Record<string,unknown>;
       state.settingsPreferenceWrites.push(body);
@@ -231,6 +272,19 @@ test.describe("mocked routed Settings browser regression",() => {
       !mockedRbacEnabled(),
       "Set RUN_RBAC_REGRESSION=1 to run the mocked routed Settings regression.",
     );
+  });
+
+  test("shows the version in About instead of the navigation footer",async ({ page }) => {
+    const state = createState();
+    await installSettingsCenterMocks(page,state);
+    await openSettings(page,"Notifications");
+
+    await expect(page.getByTestId("application-version")).toHaveCount(0);
+    await page.getByRole("button",{ name: /user menu for/i }).click();
+    await page.getByRole("button",{ name: "About" }).click();
+    await expect(page.getByTestId("application-version")).toContainText("Version: v0.5.67");
+    await expect(page.getByTestId("application-version")).not.toHaveAttribute("href");
+    await expect(page.getByRole("link",{ name: "System health" })).toHaveCount(0);
   });
 
   test("opens Appearance from the header without hydration errors or a duplicate dialog",async ({ page }) => {
