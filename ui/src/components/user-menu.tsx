@@ -20,7 +20,7 @@ import Image from "next/image";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useCallback,useEffect,useRef,useState } from "react";
 
-const RELEASES_URL = "https://caipe.io/releases";
+const RELEASES_URL = "https://github.com/caipe-io/ai-platform-engineering/releases";
 
 export function UserMenu(): React.ReactElement | null {
   const { data: session,status } = useSession();
