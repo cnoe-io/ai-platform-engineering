@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\\n    --version 0.6.0 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\\n    --version 1.0.0 -f your-values.yaml';
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -375,7 +375,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.6.0 -f your-values.yaml'}
+              {'    --version 1.0.0 -f your-values.yaml'}
             </code>
           </pre>
         </div>
