@@ -16,7 +16,11 @@ import {
   installMcpBrowserMocks,
   openAddMcpServerEditor,
 } from "./_mcp-browser-fixtures";
-import { dismissReleaseUpgradeDialog, installTestSession } from "./_helpers";
+import {
+  chooseSearchablePickerOption,
+  dismissReleaseUpgradeDialog,
+  installTestSession,
+} from "./_helpers";
 import { mockedRbacEnabled } from "./_mocked-rbac";
 
 function minimalSessionEnv() {
@@ -360,7 +364,11 @@ test.describe("mocked credentials workspace browser regression", () => {
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential header/i).selectOption("Authorization");
-      await page.getByLabel(/^Secret$/).selectOption("secret-jira-token");
+      await chooseSearchablePickerOption(
+        page,
+        page.getByLabel(/^Secret$/),
+        "Jira API token",
+      );
 
       await page.getByRole("button", { name: "Create Server" }).click();
 

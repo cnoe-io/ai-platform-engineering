@@ -24,6 +24,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
 AccessSubjectMultiPicker,
@@ -917,7 +918,7 @@ export function IngestionSourceForm({
           {displayMode === "dialog" && (
           <div className="space-y-1.5">
             <Label htmlFor="source-type">Source Type</Label>
-            <select
+            <Select
               id="source-type"
               value={values.source_type}
               onChange={(e) =>
@@ -931,7 +932,7 @@ export function IngestionSourceForm({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           )}
 
@@ -1162,7 +1163,7 @@ export function IngestionSourceForm({
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="crawl-mode">Crawl mode</Label>
-                  <select
+                  <Select
                     id="crawl-mode"
                     value={values.crawl_mode}
                     onChange={(e) =>
@@ -1176,7 +1177,7 @@ export function IngestionSourceForm({
                     <option value="single">Single page</option>
                     <option value="sitemap">Sitemap</option>
                     <option value="recursive">Recursive</option>
-                  </select>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="max-pages">Maximum pages</Label>

@@ -554,7 +554,9 @@ it("discovers Webex bot spaces, auto-selects new ones, and submits verified onbo
   ).not.toBeChecked();
   await pickTeam("Team for Incident War Room", "platform-engineering");
   await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
-  expect(screen.getByRole("combobox", { name: "Webex bot" })).toHaveValue("primary");
+  expect(screen.getByRole("combobox", { name: "Webex bot" })).toHaveTextContent(
+    "Primary bot",
+  );
 
   fireEvent.click(screen.getByRole("button", { name: /^Submit \d+ spaces?$/ }));
 
@@ -655,13 +657,17 @@ it("uses one top-level Webex bot selector for space discovery", async () => {
   render(<WebexSpaceRebacPanel />);
 
   await clickFindSpaces();
+  await screen.findByRole("status", {
+    name: /Discovered: 2 .* Configured: 1/i,
+  });
   const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
   expect(screen.queryByRole("combobox", { name: /Webex bot for / })).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([url]) =>
     new URL(String(url), "http://localhost").searchParams.get("bot_id") === "primary",
   )).toBe(true);
 
-  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  fireEvent.click(botSelector);
+  fireEvent.click(await screen.findByRole("option", { name: "Secondary bot" }));
   await clickFindSpaces();
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) =>
     new URL(String(url), "http://localhost").searchParams.get("bot_id") === "secondary",
@@ -754,7 +760,7 @@ it("onboards deployment users independently for the bot selected above the table
   expect(await screen.findByText("Example User")).toBeInTheDocument();
   expect(screen.getByText("Allowlist")).toBeInTheDocument();
   const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
-  expect(botSelector).toHaveValue("primary");
+  expect(botSelector).toHaveTextContent("Primary bot");
   expect(screen.queryByRole("combobox", { name: "Webex bot for user@example.com" })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Allow direct messages for user@example.com" }));
@@ -773,7 +779,8 @@ it("onboards deployment users independently for the bot selected above the table
     });
   });
 
-  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  fireEvent.click(botSelector);
+  fireEvent.click(await screen.findByRole("option", { name: "Secondary bot" }));
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => {
     const parsed = new URL(String(url), "http://localhost");
     return parsed.pathname === "/api/admin/webex/direct-users" &&
@@ -880,7 +887,9 @@ it("probes legacy botless ownership from the migration tab", async () => {
     "/api/admin/webex/migrations/bot-ownership",
     { cache: "no-store" },
   );
-  expect(screen.getByRole("combobox", { name: "Webex bot for Legacy Space" })).toHaveValue("");
+  expect(
+    screen.getByRole("combobox", { name: "Webex bot for Legacy Space" }),
+  ).toHaveTextContent("Select a bot");
 
   fireEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();

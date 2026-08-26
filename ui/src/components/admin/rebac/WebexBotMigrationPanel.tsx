@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import {
   Dialog,
   DialogContent,
@@ -254,20 +255,20 @@ export function WebexBotMigrationPanel({ disabled }: { disabled: boolean }) {
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <select
-                        className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                      <ConnectorIdentityPicker
+                        options={bots.map((bot) => ({
+                          id: bot.id,
+                          label: `${bot.name}${bot.available ? "" : " (token unavailable)"}`,
+                        }))}
                         value={botByRow[key] ?? ""}
-                        onChange={(event) => setBotByRow((current) => ({ ...current, [key]: event.target.value }))}
+                        onChange={(value) =>
+                          setBotByRow((current) => ({ ...current, [key]: value }))
+                        }
                         disabled={disabled || applying || deleting}
-                        aria-label={`Webex bot for ${row.space_name}`}
-                      >
-                        <option value="">Select a bot</option>
-                        {bots.map((bot) => (
-                          <option key={bot.id} value={bot.id}>
-                            {bot.name}{bot.available ? "" : " (token unavailable)"}
-                          </option>
-                        ))}
-                      </select>
+                        ariaLabel={`Webex bot for ${row.space_name}`}
+                        allowClear
+                        triggerClassName="h-9 text-sm"
+                      />
                     </td>
                     </tr>
                     {isExpanded && (

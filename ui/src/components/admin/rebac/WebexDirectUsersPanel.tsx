@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
@@ -199,25 +200,24 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     <div className="space-y-3" role="region" aria-label="Webex 1:1 message access">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex min-w-64 flex-col gap-1 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+          <div className="flex min-w-64 flex-col gap-1 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
             <span className="text-xs font-medium text-muted-foreground">Webex bot</span>
-            <select
-              className="h-8 bg-transparent text-sm font-medium outline-none"
+            <ConnectorIdentityPicker
+              options={bots
+                .filter((bot) => bot.available)
+                .map((bot) => ({ id: bot.id, label: bot.name }))}
               value={selectedBotId}
-              onChange={(event) => {
-                setSelectedBotId(event.target.value);
+              onChange={(value) => {
+                setSelectedBotId(value);
                 setData(null);
                 setRows([]);
               }}
               disabled={disabled || savingUserId !== null}
-              aria-label="Webex bot"
-            >
-              <option value="">Select a bot</option>
-              {bots.filter((bot) => bot.available).map((bot) => (
-                <option key={bot.id} value={bot.id}>{bot.name}</option>
-              ))}
-            </select>
-          </label>
+              ariaLabel="Webex bot"
+              allowClear
+              triggerClassName="h-8 bg-transparent text-sm font-medium outline-none"
+            />
+          </div>
           <Badge variant={data?.dm_access_mode === "disabled" ? "outline" : "secondary"}>{modeLabel}</Badge>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId)} disabled={disabled || loading || !selectedBotId}>

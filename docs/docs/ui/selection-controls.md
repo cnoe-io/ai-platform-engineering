@@ -82,73 +82,31 @@ outcome.
 ## Inventory
 
 The `origin/main` snapshot at `6139fb6e4` contained 62 direct native-select
-instances across 37 production files. This first bounded migration moves the
-six repeated sharing and user-filter enums to `Select`, replaces the custom
-provider listbox with a native-backed adapter, and consolidates the duplicated
-single-entity behavior in `AgentPicker`, `TeamPicker`, and the Slack
-service-account adapter. The bounded migration leaves 56 direct instances
-across 35 production files for later contract-specific work.
+instances across 37 production files. All 62 now route through a canonical
+shared primitive or a thin domain adapter. Production feature code no longer
+renders a literal `<select>`; `ui/src/components/ui/select.tsx` owns that
+element.
 
-### Direct native selects by contract
-
-| Contract | Current sites |
+| Migrated contract | Examples |
 |---|---|
-| Small static enum/value | Sharing permission; audit status, range, and outcome; role/relation; source, visibility, schedule, severity, page-size, webhook, crawl, and error-handling controls. |
-| Entity or resource | Bot, workflow, repository, identity provider, model, secret, provider connection, collection, agent tool/namespace, and Access Explorer resource controls. These require a bounded migration if the list can grow. |
-| Schema-driven value | Chat metadata, skill inputs, middleware parameters, and RAG filter keys. Keep native-backed behavior when the schema guarantees a small set; use a domain adapter when it does not. |
+| Small static or schema-bounded values | Sharing permissions, audit filters, source and crawl modes, schedules, statuses, severity, page size, webhook providers, credential fields, and workflow error handling use `Select`. |
+| Searchable entities and growing filters | Repositories, identity providers, secrets, collections, resources, workflow filters, skill categories and tags, namespaces, tools, and RAG metadata keys use `SearchablePicker` directly or through an adapter. |
+| Repeated domain entities | Models use `ModelPicker`; Webex connector identities use `ConnectorIdentityPicker`; RAG filter keys use `MetadataFilterKeyPicker`; agents, teams, providers, and Slack service accounts keep their existing adapters. |
 
-Current direct-native files:
-
-<details>
-<summary>Show the inventory</summary>
-
-- `ui/src/app/(app)/admin/page.tsx`
-- `ui/src/app/(app)/skills/scan-history/page.tsx`
-- `ui/src/components/admin/UnlinkedServiceAccountModal.tsx`
-- `ui/src/components/admin/rebac/ConnectorAdminPanel.tsx`
-- `ui/src/components/admin/rebac/ConnectorOnboardingWizard.tsx`
-- `ui/src/components/admin/rebac/WebexBotMigrationPanel.tsx`
-- `ui/src/components/admin/rebac/WebexDirectUsersPanel.tsx`
-- `ui/src/components/admin/rebac/slack/SlackConfiguredChannelDetail.tsx`
-- `ui/src/components/admin/security/AccessExplorerTab.tsx`
-- `ui/src/components/admin/security/AuditLogsTab.tsx`
-- `ui/src/components/admin/security/UnifiedAuditTab.tsx`
-- `ui/src/components/admin/settings/ImportRagSourcesFromConfigCard.tsx`
-- `ui/src/components/admin/settings/ReviewConfigEditor.tsx`
-- `ui/src/components/admin/teams/GroupRoleMappingDialog.tsx`
-- `ui/src/components/admin/teams/IdentitySyncPanel.tsx`
-- `ui/src/components/admin/teams/TeamDetailsDialog.tsx`
-- `ui/src/components/autonomous/TaskFormDialog.tsx`
-- `ui/src/components/chat/MetadataInputForm.tsx`
-- `ui/src/components/credentials/OAuthConnectorAdminPanel.tsx`
-- `ui/src/components/dynamic-agents/ConversationsTab.tsx`
-- `ui/src/components/dynamic-agents/DynamicAgentEditor.tsx`
-- `ui/src/components/dynamic-agents/DynamicAgentsTab.tsx`
-- `ui/src/components/dynamic-agents/InterruptConfigPicker.tsx`
-- `ui/src/components/dynamic-agents/MCPServerEditor.tsx`
-- `ui/src/components/dynamic-agents/MiddlewarePicker.tsx`
-- `ui/src/components/dynamic-agents/SkillsSelector.tsx`
-- `ui/src/components/layout/WorkspaceNavigation.tsx`
-- `ui/src/components/rag/IngestView.tsx`
-- `ui/src/components/rag/IngestionSourceForm.tsx`
-- `ui/src/components/rag/MCPToolsView.tsx`
-- `ui/src/components/rag/SearchView.tsx`
-- `ui/src/components/skills/SkillsRunner.tsx`
-- `ui/src/components/skills/TrySkillsGateway.tsx`
-- `ui/src/components/workflows/WorkflowSidebar.tsx`
-- `ui/src/components/workflows/WorkflowStepSidebar.tsx`
-
-</details>
+The migration also removes one-off search state, popover composition, option
+rendering, and empty-state behavior from the migrated Skills Gallery, Webex,
+model, resource, collection, secret, repository, and filter controls.
 
 ### Searchable and custom controls
 
 | Group | Inventory |
 |---|---|
 | Shared bases | `Select`, `SearchablePicker`, `MultiSelect`, and `Popover`. |
-| Thin entity adapters | `AgentPicker`, `TeamPicker`, `ProviderSelect`, and the Slack `ServiceAccountSelect`. |
+| Thin entity adapters | `AgentPicker`, `TeamPicker`, `ModelPicker`, `ProviderSelect`, `ConnectorIdentityPicker`, `MetadataFilterKeyPicker`, and the Slack `ServiceAccountSelect`. |
 | Domain multi-select | `TeamMultiPicker` preserves team slugs, stale subjects, compact chips, and per-screen selection limits. |
 | Permission adapter | `AccessSubjectPicker` and `AccessSubjectMultiPicker`. |
-| Specialized async controls | ReBAC principal search, application navigation search, Slack emoji search, and chat share-subject search. Keep their domain loading behavior local; reuse the base interaction where their contract permits. |
+| Specialized async controls | ReBAC principal search, application navigation search, Slack emoji search, chat share-subject search, and the team-member control that accepts either a directory result or new free text. Keep their domain loading behavior local. |
+| Action and navigation menus | Workflow execution, widget customization, notifications, navigation flyouts, and file-tree actions invoke commands rather than persist a selected value, so they remain focused menu/popover components. |
 | Structured multi-pickers | Dynamic-agent tools, skills, middleware, data sources, subagents, and workflow tools. These select structured configuration rather than one entity value and remain domain components. |
 
 The targeted team and agent migrations already present on `main` remain the

@@ -2,6 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { chooseSearchablePickerOption } from "./_helpers";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -934,11 +935,13 @@ test.describe("mocked service accounts browser regression", () => {
     await expect(dialog).toBeVisible();
 
     await dialog.getByLabel("Scope type").selectOption("tool");
-    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: search");
-    await expect(dialog.getByLabel("Scope ref")).toContainText("github: all tools");
     await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveCount(0);
 
-    await dialog.getByLabel("Scope ref").selectOption("jira/search");
+    await chooseSearchablePickerOption(
+      page,
+      dialog.getByLabel("Scope ref"),
+      "jira: search",
+    );
     await dialog.getByRole("button", { name: "Add" }).click();
 
     await expect

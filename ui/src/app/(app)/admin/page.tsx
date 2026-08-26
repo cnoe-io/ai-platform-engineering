@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/built-in-resource-hint";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import {
 Dialog,
 DialogContent,
@@ -1506,7 +1507,7 @@ function AdminPage() {
                         <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-type">
                           Subject type
                         </label>
-                        <select
+                        <Select
                           id="simulate-type"
                           value={simulationType}
                           onChange={(event) => {
@@ -1521,14 +1522,14 @@ function AdminPage() {
                         >
                           <option value="team">Team</option>
                           <option value="user">User</option>
-                        </select>
+                        </Select>
                       </div>
                       {simulationType === "team" && (
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-relation">
                             Role / relation
                           </label>
-                          <select
+                          <Select
                             id="simulate-relation"
                             value={simulationRelation}
                             onChange={(event) => setSimulationRelation(event.target.value as "member" | "admin")}
@@ -1536,7 +1537,7 @@ function AdminPage() {
                           >
                             <option value="admin">Manager/Admin</option>
                             <option value="member">Reader/Member</option>
-                          </select>
+                          </Select>
                         </div>
                       )}
                     </div>
@@ -2028,7 +2029,7 @@ function AdminPage() {
                       ))}
                     </div>
                     <div className="h-5 w-px bg-border" />
-                    <select
+                    <Select
                       value={sourceFilter}
                       onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack')}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
@@ -2036,7 +2037,7 @@ function AdminPage() {
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
-                    </select>
+                    </Select>
                     {sourceFilter === 'slack' && feedbackChannels.length > 0 && (
                       <>
                         <div className="h-5 w-px bg-border" />
@@ -2260,7 +2261,7 @@ function AdminPage() {
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <select
+                    <Select
                       value={sourceFilter}
                       onChange={(e) => {
                         const src = e.target.value as 'all' | 'web' | 'slack';
@@ -2274,7 +2275,7 @@ function AdminPage() {
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
-                    </select>
+                    </Select>
                     {sourceFilter === 'slack' && statsChannels.length > 0 && (
                       <MultiSelect
                         options={statsChannels}
