@@ -5,7 +5,7 @@ import path from "path";
 export const dynamic = "force-dynamic";
 
 const CHANGELOG_URL =
-  "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/CHANGELOG.md";
+  "https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/CHANGELOG.md";
 const STABLE_RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 const RELEASE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
 

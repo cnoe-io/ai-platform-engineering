@@ -80,7 +80,7 @@ AI agents operating in this repository **must** follow these rules on every comm
 
 This project uses **GitHub Issues** for issue tracking.
 
-- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Create follow-up work as GitHub Issues in `caipe-io/ai-platform-engineering`.
 - Reference related issues in PR descriptions when applicable.
 - Do not use repo-local Beads or `bd` issue tracking.
 
