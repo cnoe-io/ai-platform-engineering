@@ -412,7 +412,6 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1">
-          <ApplicationNavigationSearchTrigger />
           {config.envBadge ? (
             <span
               className="mr-1 inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
@@ -421,6 +420,7 @@ export function AppHeader() {
               {config.envBadge}
             </span>
           ) : null}
+          <ApplicationNavigationSearchTrigger />
           {config.provideFeedbackEnabled ? (
             <>
               <Button

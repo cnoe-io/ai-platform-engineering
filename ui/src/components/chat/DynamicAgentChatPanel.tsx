@@ -1143,7 +1143,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     const pending = takePendingFirstMessage(conversationId);
     if (pending) {
       pendingFirstMessageSentRef.current = true;
-      void submitMessage(pending);
+      void submitMessage(pending.text, pending.files);
     }
   }, [conversationId, readOnly, submitMessage]);
 

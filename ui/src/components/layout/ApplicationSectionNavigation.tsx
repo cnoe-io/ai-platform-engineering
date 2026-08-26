@@ -81,6 +81,7 @@ function AdminApplicationNavigation(): React.ReactElement | null {
     credentials: Boolean(gates.credentials && config.credentialsEnabled),
     agents: isAdmin,
     mcp: isAdmin,
+    rag: isAdmin,
     identity_sync: Boolean(gates.identity_group_sync && config.oktaSyncEnabled),
   });
   const visibleDestinations = categories.flatMap(

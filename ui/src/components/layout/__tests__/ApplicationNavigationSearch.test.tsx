@@ -67,8 +67,9 @@ function response(body: unknown,ok = true): Promise<Response> {
 describe("ApplicationNavigationSearch", () => {
   it("renders compact, sidebar, and centered triggers for one shared palette", () => {
     const { rerender } = render(<ApplicationNavigationSearchTrigger />);
-    expect(screen.getByTestId("application-navigation-search-trigger-compact"))
-      .toBeInTheDocument();
+    const compact = screen.getByTestId("application-navigation-search-trigger-compact");
+    expect(compact).toBeInTheDocument();
+    expect(compact.querySelector("kbd")).toBeNull();
 
     rerender(<ApplicationNavigationSearchTrigger variant="sidebar" />);
     expect(screen.getByTestId("application-navigation-search-trigger-sidebar"))

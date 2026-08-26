@@ -17,6 +17,24 @@ jest.mock("@/store/unsaved-changes-store", () => ({
 
 import { NotificationBell } from "../NotificationBell";
 
+it("shows a friendly empty state",async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      notifications: [],
+      unread_count: 0,
+      pagination: { page: 1,page_size: 10,total: 0,total_pages: 1 },
+    }),
+  })) as jest.Mock;
+
+  render(<NotificationBell enabled />);
+  fireEvent.click(await screen.findByRole("button",{ name: "Notifications" }));
+
+  expect(await screen.findByText("You’re all caught up ✅")).toBeInTheDocument();
+  expect(screen.getByText("No notifications yet... but why not try to change that?"))
+    .toBeInTheDocument();
+});
+
 it("shows unread approval outcomes and marks one read when opened", async () => {
   const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
     const url = String(input);

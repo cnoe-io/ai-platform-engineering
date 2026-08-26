@@ -1672,16 +1672,7 @@ export function IngestionSourceForm({
               : "Configure the source and who can manage it."}
           </DialogDescription>
         </DialogHeader>
-        <div
-          className={cn(
-            "min-h-0 overflow-y-auto pr-1",
-            isEdit && [
-              "[&_input:focus-visible]:border-foreground/50 [&_input:focus-visible]:ring-0 [&_input:focus-visible]:ring-offset-0",
-              "[&_textarea:focus-visible]:border-foreground/50 [&_textarea:focus-visible]:ring-0 [&_textarea:focus-visible]:ring-offset-0",
-              "[&_select:focus-visible]:border-foreground/50 [&_select:focus-visible]:ring-0 [&_select:focus-visible]:ring-offset-0",
-            ],
-          )}
-        >
+        <div className="min-h-0 overflow-y-auto pr-1">
           {formFields}
         </div>
       </DialogContent>

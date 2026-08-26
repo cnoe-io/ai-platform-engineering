@@ -1190,8 +1190,8 @@ export function DynamicAgentEditor({
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
           // New agents follow the combined collection + datasource hand
-          // exactly. Empty arrays keep the MCP server selected but scope its
-          // RAG tools to no indexed content.
+          // exactly. Empty arrays keep RAG tools available with no indexed
+          // content in scope.
           datasource_ids: datasourceIds,
           rag_collection_ids: ragCollectionIds,
           model: { id: modelId, provider: modelProvider },
