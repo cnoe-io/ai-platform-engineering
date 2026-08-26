@@ -151,7 +151,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const projectIds = results.map((p) => String(p._id));
   const pageCountMap = new Map<string, number>();
   const lastIngestMap = new Map<string, Date | null>();
+  const lastEditMap = new Map<string, Date | null>();
   const activeRunsMap = new Map<string, ActiveIngestRun[]>();
+
+  // Revisions written by the ingest pipeline itself use these fixed authors,
+  // so excluding them isolates revisions a human actually made in the editor.
+  const SYSTEM_REVISION_AUTHORS = ["tome", "tome-ingest"];
 
   if (projectIds.length > 0) {
     try {
@@ -159,12 +164,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         getCollection("tome_page_revisions"),
         getCollection("tome_ingest_runs"),
       ]);
-      const [pageCounts, lastIngests, activeRuns] = await Promise.all([
+      const [pageCounts, lastEdits, lastIngests, activeRuns] = await Promise.all([
         pageRevisions.aggregate([
           { $match: { project_id: { $in: projectIds }, deleted: { $ne: true } } },
           { $sort: { project_id: 1, path: 1, created_at: -1 } },
           { $group: { _id: { project_id: "$project_id", path: "$path" } } },
           { $group: { _id: "$_id.project_id", count: { $sum: 1 } } },
+        ]).toArray(),
+        pageRevisions.aggregate([
+          {
+            $match: {
+              project_id: { $in: projectIds },
+              author: { $nin: SYSTEM_REVISION_AUTHORS },
+            },
+          },
+          { $group: { _id: "$project_id", last_edited_at: { $max: "$created_at" } } },
         ]).toArray(),
         ingestRuns.aggregate([
           { $match: { project_id: { $in: projectIds }, status: "succeeded" } },
@@ -180,6 +194,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ]);
       for (const row of pageCounts) {
         pageCountMap.set(String(row._id), row.count as number);
+      }
+      for (const row of lastEdits) {
+        lastEditMap.set(String(row._id), row.last_edited_at as Date);
       }
       for (const row of lastIngests) {
         lastIngestMap.set(String(row._id), row.last_ingested_at as Date);
@@ -212,6 +229,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         _id: id,
         page_count: pageCountMap.get(id) ?? null,
         last_ingested_at: lastIngestMap.get(id) ?? null,
+        last_edited_at: lastEditMap.get(id) ?? null,
         active_ingests: activeRunsMap.get(id) ?? [],
       };
     }),

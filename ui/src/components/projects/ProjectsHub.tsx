@@ -60,6 +60,7 @@ const ACTIVE_INGEST_POLL_MS = 15_000;
 type EnrichedProject = ProjectDocument & {
   page_count?: number | null;
   last_ingested_at?: string | Date | null;
+  last_edited_at?: string | Date | null;
   active_ingests?: ActiveIngestRun[];
 };
 
@@ -161,33 +162,61 @@ interface OnboardingHeroConfig {
   description: string;
 }
 
-function freshnessLabel(lastIngestedAt: string | Date | null | undefined): {
-  text: string;
-  tooltip: string;
-  className: string;
-} {
-  if (!lastIngestedAt) {
-    return { text: "—", tooltip: "Never ingested", className: "text-muted-foreground/30" };
-  }
-  const date = lastIngestedAt instanceof Date ? lastIngestedAt : new Date(lastIngestedAt);
+function relativeAgo(date: Date): string {
   const diffMs = Date.now() - date.getTime();
   const diffH = diffMs / (1000 * 60 * 60);
   const diffD = diffMs / (1000 * 60 * 60 * 24);
 
-  if (diffH < 24) {
-    const h = Math.max(0, Math.floor(diffH));
-    return { text: `${h}h ago`, tooltip: `Last ingested ${h}h ago`, className: "text-muted-foreground" };
-  }
-  if (diffD < 7) {
-    const d = Math.floor(diffD);
-    return { text: `${d}d ago`, tooltip: `Last ingested ${d}d ago`, className: "text-muted-foreground" };
-  }
+  if (diffH < 1) return "just now";
+  if (diffH < 24) return `${Math.floor(diffH)}h ago`;
+  if (diffD < 7) return `${Math.floor(diffD)}d ago`;
   if (diffD < 30) {
     const w = Math.floor(diffD / 7);
-    return { text: `${w}w ago`, tooltip: `Last ingested ${w} week${w === 1 ? "" : "s"} ago. Consider re-ingesting.`, className: "text-amber-500" };
+    return `${w} week${w === 1 ? "" : "s"} ago`;
   }
   const mo = Math.floor(diffD / 30);
-  return { text: `${mo}mo ago`, tooltip: `Last ingested ${mo} month${mo === 1 ? "" : "s"} ago. Likely stale.`, className: "text-amber-500" };
+  return `${mo} month${mo === 1 ? "" : "s"} ago`;
+}
+
+function toDate(value: string | Date | null | undefined): Date | null {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
+/** The card shows one headline number: whichever of "ingested" or "edited" is
+ * more recent, since that's the freshness signal a viewer actually cares
+ * about. Staleness coloring stays keyed to ingest specifically, since an
+ * edit doesn't make out-of-date source content any less stale. */
+function activityLabel(
+  lastIngestedAt: string | Date | null | undefined,
+  lastEditedAt: string | Date | null | undefined,
+): { text: string; tooltip: string; className: string } {
+  const ingested = toDate(lastIngestedAt);
+  const edited = toDate(lastEditedAt);
+
+  if (!ingested && !edited) {
+    return { text: "—", tooltip: "Never ingested or edited", className: "text-muted-foreground/30" };
+  }
+
+  const latest = !ingested || (edited && edited.getTime() > ingested.getTime()) ? edited! : ingested;
+  const text = `${relativeAgo(latest)}`;
+
+  const tooltipLines = [
+    ingested ? `Ingested ${relativeAgo(ingested)}` : "Never ingested",
+    edited ? `Edited ${relativeAgo(edited)}` : "No manual edits",
+  ];
+
+  const diffD = ingested ? (Date.now() - ingested.getTime()) / (1000 * 60 * 60 * 24) : null;
+  const className =
+    diffD !== null && diffD >= 30
+      ? "text-amber-500"
+      : diffD !== null && diffD >= 7
+        ? "text-amber-500"
+        : "text-muted-foreground";
+  if (diffD !== null && diffD >= 30) tooltipLines.push("Content likely stale.");
+  else if (diffD !== null && diffD >= 7) tooltipLines.push("Consider re-ingesting.");
+
+  return { text, tooltip: tooltipLines.join(" · "), className };
 }
 
 function groupProjects(
@@ -265,7 +294,7 @@ function stewardInitials(email: string): string {
 
 function ProjectCard({ project }: { project: EnrichedProject }) {
   const steward = dataStewardLabel(project.data_steward);
-  const freshness = freshnessLabel(project.last_ingested_at);
+  const freshness = activityLabel(project.last_ingested_at, project.last_edited_at);
   const activeRun = project.active_ingests?.[0];
   const repoCount = project.sources?.repos?.length ?? 0;
   const webexCount = project.sources?.webex_rooms?.length ?? 0;
