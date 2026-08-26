@@ -333,6 +333,15 @@ describe("<IngestionSourceForm /> — edit", () => {
     expect(screen.getByLabelText(/channel id/i)).toBeDisabled();
   });
 
+  it("uses a neutral field focus state without the dialog focus glow", () => {
+    render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={initial} />);
+
+    const fieldContainer = screen.getByLabelText(/^name/i).closest(".overflow-y-auto");
+    expect(fieldContainer?.className).toContain("[&_input:focus-visible]:border-foreground/50");
+    expect(fieldContainer?.className).toContain("[&_input:focus-visible]:ring-0");
+    expect(fieldContainer?.className).toContain("[&_input:focus-visible]:ring-offset-0");
+  });
+
   it("offers membership teams for an existing source ownership transfer", async () => {
     render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={initial} />);
 
