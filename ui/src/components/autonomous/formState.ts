@@ -40,8 +40,6 @@ export const EMPTY_FORM: TaskFormState = {
   intervalHours: "",
   webhookProvider: "github",
   webhookSecret: "",
-  timeoutSeconds: "",
-  maxRetries: "",
 };
 
 /** Convert API model -> form state. */
@@ -64,8 +62,6 @@ export function toFormState(task: AutonomousTask | null | undefined): TaskFormSt
     llm_provider: task.llm_provider ?? "",
     enabled: task.enabled,
     triggerType: task.trigger.type,
-    timeoutSeconds: task.timeout_seconds == null ? "" : String(task.timeout_seconds),
-    maxRetries: task.max_retries == null ? "" : String(task.max_retries),
   };
   if (task.trigger.type === "cron") {
     base.cronSchedule = task.trigger.schedule;
@@ -152,24 +148,6 @@ export function fromFormState(
     };
   }
 
-  let timeoutSeconds: number | null = null;
-  if (form.timeoutSeconds.trim()) {
-    const n = Number(form.timeoutSeconds);
-    if (!Number.isFinite(n) || n <= 0) {
-      return { error: "Timeout must be a positive number of seconds." };
-    }
-    timeoutSeconds = n;
-  }
-
-  let maxRetries: number | null = null;
-  if (form.maxRetries.trim()) {
-    const n = Number(form.maxRetries);
-    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-      return { error: "Max retries must be a non-negative integer." };
-    }
-    maxRetries = n;
-  }
-
   const task: AutonomousTask = {
     id,
     name,
@@ -186,8 +164,6 @@ export function fromFormState(
     llm_provider: form.llm_provider.trim() || null,
     trigger,
     enabled: form.enabled,
-    timeout_seconds: timeoutSeconds,
-    max_retries: maxRetries,
   };
   return { task };
 }

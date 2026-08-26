@@ -422,7 +422,6 @@ async def execute_task(
             owner_sub=_owner_sub,
             conversation_id=execution_context_id,
             context=context,
-            timeout=effective_task.timeout_seconds,
         )
         response_text = response
         run.status = TaskStatus.SUCCESS

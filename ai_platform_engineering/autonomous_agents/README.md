@@ -146,7 +146,6 @@ tasks:
       type: cron
       schedule: "0 9 * * *"
     enabled: true
-    timeout_seconds: 600             # optional: override DYNAMIC_AGENTS_TIMEOUT_SECONDS
 ```
 
 > **Note:** the legacy `agent` (sub-agent hint) and `llm_provider` fields are
@@ -160,7 +159,7 @@ tasks:
 | Variable | Default | Description |
 |---|---|---|
 | `DYNAMIC_AGENTS_URL` | `None` | Dynamic-agents service base URL (e.g. `http://dynamic-agents:8001`). Required to run tasks. |
-| `DYNAMIC_AGENTS_TIMEOUT_SECONDS` | `300` | Per-call timeout for the dynamic-agents streaming call. Overridable per task via `timeout_seconds`. |
+| `DYNAMIC_AGENTS_TIMEOUT_SECONDS` | `300` | Deployment-wide timeout for each dynamic-agents streaming call. |
 | `DYNAMIC_AGENTS_PREFLIGHT_TIMEOUT_SECONDS` | `10` | Timeout budget for the preflight check. |
 | `DYNAMIC_AGENTS_SYSTEM_EMAIL` | `autonomous@system` | Fallback identity for tasks created before per-user ownership existed. |
 | `MINIMUM_SCHEDULE_INTERVAL_SECONDS` | `1800` | Minimum allowed gap between cron/interval fires. Webhook triggers are exempt. |
@@ -316,10 +315,6 @@ How the streaming caller classifies failures:
 | In-band SSE `error` event | Run recorded `FAILED` with the streamed error. |
 | Missing agent | Run recorded `FAILED` with an actionable message. |
 | Owner no longer eligible or authorized for the agent | Run recorded `FAILED` and the task is automatically disabled until the owner explicitly re-enables it after access is restored. |
-
-The per-task override on `TaskDefinition`:
-
-- `timeout_seconds`: raise it for known long-running synthesis prompts.
 
 ---
 

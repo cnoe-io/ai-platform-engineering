@@ -19,8 +19,6 @@ describe("formState.toFormState", () => {
       llm_provider: "anthropic",
       trigger: { type: "cron", schedule: "0 0 * * *" },
       enabled: false,
-      timeout_seconds: 30,
-      max_retries: 2,
     };
     expect(toFormState(task)).toEqual(
       expect.objectContaining({
@@ -28,8 +26,6 @@ describe("formState.toFormState", () => {
         triggerType: "cron",
         cronSchedule: "0 0 * * *",
         enabled: false,
-        timeoutSeconds: "30",
-        maxRetries: "2",
       }),
     );
   });
@@ -167,28 +163,6 @@ describe("formState.fromFormState", () => {
         trigger: { type: "webhook", provider: "jira", secret: "s3cret" },
       }),
     });
-  });
-
-  it("parses optional timeout and maxRetries", () => {
-    const result = fromFormState({
-      ...base,
-      triggerType: "cron",
-      cronSchedule: "0 9 * * *",
-      timeoutSeconds: "60",
-      maxRetries: "3",
-    });
-    expect(result).toEqual({
-      task: expect.objectContaining({ timeout_seconds: 60, max_retries: 3 }),
-    });
-  });
-
-  it("rejects invalid timeout and maxRetries", () => {
-    expect(
-      fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *", timeoutSeconds: "-1" }),
-    ).toEqual({ error: expect.stringMatching(/Timeout/) });
-    expect(
-      fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *", maxRetries: "1.5" }),
-    ).toEqual({ error: expect.stringMatching(/Max retries/) });
   });
 
   it("converts empty agent to null", () => {

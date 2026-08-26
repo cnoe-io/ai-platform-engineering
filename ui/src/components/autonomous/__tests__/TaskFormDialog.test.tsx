@@ -39,6 +39,13 @@ it("renders no ID input in create mode", () => {
   expect(screen.queryByLabelText(/^ID$/i)).not.toBeInTheDocument();
 });
 
+it("does not expose obsolete per-task timeout or retry controls", () => {
+  renderDialog();
+  expect(screen.queryByLabelText(/timeout/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/max retries/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/A2A_(TIMEOUT_SECONDS|MAX_RETRIES)/i)).not.toBeInTheDocument();
+});
+
 it("shows the id as read-only text in edit mode", () => {
   renderDialog({ task: existingTask() });
   expect(screen.getByTestId("task-id-readonly")).toHaveTextContent("daily-report-a3f9");

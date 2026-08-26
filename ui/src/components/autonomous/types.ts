@@ -103,8 +103,6 @@ export interface AutonomousTask {
   llm_provider?: string | null;
   trigger: Trigger;
   enabled: boolean;
-  timeout_seconds?: number | null;
-  max_retries?: number | null;
   /** ISO-8601 string from APScheduler; null for webhook/disabled. */
   next_run?: string | null;
   /**
@@ -241,6 +239,4 @@ export interface TaskFormState {
   webhookProvider: string;
   /** Used only to rotate provider-issued Slack/PagerDuty secrets on edit. */
   webhookSecret: string;
-  timeoutSeconds: string;
-  maxRetries: string;
 }

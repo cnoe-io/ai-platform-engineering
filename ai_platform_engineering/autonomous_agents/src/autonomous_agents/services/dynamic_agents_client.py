@@ -213,7 +213,6 @@ async def invoke_dynamic_agent(
     owner_sub: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
-    timeout: float | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Invoke a dynamic agent synchronously and return (content, events).
 
@@ -231,9 +230,6 @@ async def invoke_dynamic_agent(
             in the same ``Context:\n{...}`` format used by the supervisor
             path. Dynamic agents do not need a supervisor routing directive,
             so the formatter is called with ``agent=None``.
-        timeout: Per-call HTTP timeout in seconds. Defaults to
-            ``Settings.dynamic_agents_timeout_seconds`` when ``None``.
-
     Returns:
         A 2-tuple ``(content, events)``. ``events`` is intentionally
         always ``[]`` for the sync ``/chat/invoke`` path -- a follow-up
@@ -261,9 +257,7 @@ async def invoke_dynamic_agent(
             uuid.uuid5(uuid.NAMESPACE_URL, f"autonomous-task:{task_id}")
         )
 
-    effective_timeout = (
-        timeout if timeout is not None else settings.dynamic_agents_timeout_seconds
-    )
+    effective_timeout = settings.dynamic_agents_timeout_seconds
 
     base = _normalize_base_url(settings.dynamic_agents_url)
     # The dynamic-agents service mounts its routers under ``/api/v1``
@@ -533,7 +527,6 @@ async def invoke_dynamic_agent_streaming(
     owner_sub: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
-    timeout: float | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Invoke a dynamic agent via SSE streaming and return ``(content, events)``.
 
@@ -566,9 +559,7 @@ async def invoke_dynamic_agent_streaming(
             uuid.uuid5(uuid.NAMESPACE_URL, f"autonomous-task:{task_id}")
         )
 
-    effective_timeout = (
-        timeout if timeout is not None else settings.dynamic_agents_timeout_seconds
-    )
+    effective_timeout = settings.dynamic_agents_timeout_seconds
 
     base = _normalize_base_url(settings.dynamic_agents_url)
     url = f"{base}/api/v1/chat/stream/start"

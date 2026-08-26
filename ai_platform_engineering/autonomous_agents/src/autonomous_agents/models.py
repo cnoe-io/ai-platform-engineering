@@ -2,10 +2,9 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from math import isfinite
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class TriggerType(str, Enum):
@@ -201,14 +200,6 @@ class TaskDefinition(BaseModel):
     )
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Override the dynamic-agents call timeout for this task "
-            "(seconds, > 0). Defaults to DYNAMIC_AGENTS_TIMEOUT_SECONDS."
-        ),
-    )
     owner_id: str | None = Field(
         default=None,
         description=(
@@ -231,16 +222,6 @@ class TaskDefinition(BaseModel):
             "recreated."
         ),
     )
-
-    @field_validator("timeout_seconds")
-    @classmethod
-    def _timeout_must_be_finite(cls, v: float | None) -> float | None:
-        """Reject non-finite values that would break httpx timeouts at runtime."""
-        if v is None:
-            return v
-        if not isfinite(v):
-            raise ValueError("timeout_seconds must be a finite number")
-        return v
 
     @model_validator(mode="after")
     def _drop_deprecated_agent_hint(self) -> "TaskDefinition":

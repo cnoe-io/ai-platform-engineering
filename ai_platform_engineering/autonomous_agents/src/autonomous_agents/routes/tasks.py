@@ -182,7 +182,6 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "llm_provider": task.llm_provider,
         "trigger": _serialize_trigger(task),
         "enabled": task.enabled,
-        "timeout_seconds": task.timeout_seconds,
         "next_run": next_run_iso,
         "last_ack": ack_dump,
         "chat_conversation_id": (

@@ -375,29 +375,6 @@ export function TaskFormDialog({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="task-timeout">Timeout (seconds, optional)</Label>
-              <Input
-                id="task-timeout"
-                value={form.timeoutSeconds}
-                onChange={(e) => update("timeoutSeconds", e.target.value)}
-                inputMode="decimal"
-                placeholder="defaults to A2A_TIMEOUT_SECONDS"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="task-retries">Max retries (optional)</Label>
-              <Input
-                id="task-retries"
-                value={form.maxRetries}
-                onChange={(e) => update("maxRetries", e.target.value)}
-                inputMode="numeric"
-                placeholder="defaults to A2A_MAX_RETRIES"
-              />
-            </div>
-          </div>
-
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
