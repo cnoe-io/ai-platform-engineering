@@ -315,8 +315,6 @@ describe('getServerConfig', () => {
     });
   });
 
-  // ---------- Ticket Integration ----------
-
   describe('ticket integration env vars', () => {
     beforeEach(() => {
       clearEnv(

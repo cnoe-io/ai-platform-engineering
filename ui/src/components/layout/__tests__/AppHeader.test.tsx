@@ -488,6 +488,16 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByText('Home')).toBeInTheDocument()
     })
 
+    it('places global search at the header right', () => {
+      render(<AppHeader />)
+      expect(
+        within(applicationNavigation())
+          .queryByTestId('application-navigation-search-trigger-sidebar'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByTestId('application-navigation-search-trigger-compact'))
+        .toBeInTheDocument()
+    })
+
     it('Home nav pill links to /', () => {
       render(<AppHeader />)
       const pill = getHomeNavPill()
