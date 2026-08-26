@@ -187,7 +187,7 @@ export default function FeaturesPage() {
               </Link>
               <Link
                 className={styles.secondaryBtn}
-                href="https://github.com/cnoe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
+                href="https://github.com/caipe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
               >
                 Submit a Feature Request ↗
               </Link>
@@ -225,12 +225,12 @@ export default function FeaturesPage() {
             <Link className={styles.primaryBtn} to="/docs/installation">
               Installation Guide →
             </Link>
-            <Link className={styles.secondaryBtn} href="https://github.com/cnoe-io/ai-platform-engineering">
+            <Link className={styles.secondaryBtn} href="https://github.com/caipe-io/ai-platform-engineering">
               GitHub ↗
             </Link>
             <Link
               className={styles.secondaryBtn}
-              href="https://github.com/cnoe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
+              href="https://github.com/caipe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
             >
               Submit a Feature Request ↗
             </Link>
