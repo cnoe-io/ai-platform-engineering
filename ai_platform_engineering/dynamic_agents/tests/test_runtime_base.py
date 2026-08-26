@@ -14,6 +14,7 @@ If you change the Protocol, update this test file in the same PR.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
@@ -75,42 +76,61 @@ def test_runtime_must_have_non_empty_name() -> None:
     assert isinstance(rt.name, str)
 
 
-@pytest.mark.asyncio
-async def test_run_yields_at_least_one_event() -> None:
+def test_run_yields_at_least_one_event() -> None:
     rt = _TrivialRuntime()
-    events = await _collect(rt.run(messages=(), config=_config()))
+
+    async def _drive() -> list[dict[str, object]]:
+        return await _collect(rt.run(messages=(), config=_config()))
+
+    events = asyncio.run(_drive())
     assert events
     assert any(e["type"] == "done" for e in events)
 
 
-@pytest.mark.asyncio
-async def test_get_state_unknown_conversation_raises_keyerror() -> None:
+def test_get_state_unknown_conversation_raises_keyerror() -> None:
     rt = _TrivialRuntime()
+
+    async def _drive() -> AgentState:
+        return await rt.get_state("missing")
+
     with pytest.raises(KeyError):
-        await rt.get_state("missing")
+        asyncio.run(_drive())
 
 
-@pytest.mark.asyncio
-async def test_get_state_known_conversation_returns_snapshot() -> None:
+def test_get_state_known_conversation_returns_snapshot() -> None:
     rt = _TrivialRuntime()
-    state = await rt.get_state("conv-1")
+
+    async def _drive() -> AgentState:
+        return await rt.get_state("conv-1")
+
+    state = asyncio.run(_drive())
     assert state.conversation_id == "conv-1"
     assert state.messages == ()
 
 
-@pytest.mark.asyncio
-async def test_list_tools_returns_sequence() -> None:
+def test_list_tools_returns_sequence() -> None:
     rt = _TrivialRuntime()
-    tools = await rt.list_tools(_config())
+
+    async def _drive() -> Sequence[ToolDefinition]:
+        return await rt.list_tools(_config())
+
+    tools = asyncio.run(_drive())
     assert isinstance(tools, Sequence)
 
 
-@pytest.mark.asyncio
-async def test_healthcheck_returns_bool() -> None:
+def test_healthcheck_returns_bool() -> None:
     rt = _TrivialRuntime(healthy=True)
-    assert await rt.healthcheck() is True
+
+    async def _drive_true() -> bool:
+        return await rt.healthcheck()
+
+    assert asyncio.run(_drive_true()) is True
     rt.healthy = False
-    assert await rt.healthcheck() is False
+
+    async def _drive_false() -> bool:
+        return await rt.healthcheck()
+
+    assert asyncio.run(_drive_false()) is False
 
 
 # ---------------------------------------------------------------------------
