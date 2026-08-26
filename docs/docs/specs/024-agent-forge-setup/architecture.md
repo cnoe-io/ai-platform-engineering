@@ -213,7 +213,7 @@ EXPOSE 7007
 
 ### In Docker Run:
 ```bash
-docker run -p 7007:3000 ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+docker run -p 7007:3000 ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 ### In Workflow (if needed):
@@ -274,7 +274,7 @@ No additional configuration needed!
 
 **Registry:** GitHub Container Registry (ghcr.io)
 
-**Image Name:** `ghcr.io/cnoe-io/backstage-plugin-agent-forge`
+**Image Name:** `ghcr.io/caipe-io/backstage-plugin-agent-forge`
 
 **Available Tags:**
 - `latest` - Latest stable build
@@ -285,7 +285,7 @@ No additional configuration needed!
 ### Pull the Image
 
 ```bash
-docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+docker pull ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 ### Run the Container
@@ -294,7 +294,7 @@ docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
 docker run -d \
   -p 7007:3000 \
   --name agent-forge-plugin \
-  ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+  ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 
@@ -337,7 +337,7 @@ The main workflow file that orchestrates the build and push process.
 - ✅ Sets up Node.js 20 environment with Yarn
 - ✅ Installs dependencies and builds the project
 - ✅ Builds multi-platform Docker image (amd64 & arm64)
-- ✅ Pushes to `ghcr.io/cnoe-io/backstage-plugin-agent-forge`
+- ✅ Pushes to `ghcr.io/caipe-io/backstage-plugin-agent-forge`
 - ✅ Automatic tagging (latest, branch name, SHA, semantic versions)
 - ✅ Build caching for faster subsequent runs
 - ✅ Supply chain security with attestations
@@ -355,7 +355,7 @@ Comprehensive documentation including:
 
 **Registry:** GitHub Container Registry (ghcr.io)
 
-**Image Name:** `ghcr.io/cnoe-io/backstage-plugin-agent-forge`
+**Image Name:** `ghcr.io/caipe-io/backstage-plugin-agent-forge`
 
 **Available Tags:**
 - `latest` - Latest stable build
@@ -369,7 +369,7 @@ Comprehensive documentation including:
 ### Pull the Image
 
 ```bash
-docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+docker pull ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 ### Run the Container
@@ -378,7 +378,7 @@ docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
 docker run -d \
   -p 7007:7007 \
   --name agent-forge-plugin \
-  ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+  ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 
@@ -540,7 +540,7 @@ Solution: Ensure build/agent-forge/Dockerfile exists in your repository
 2. **Configure** repository permissions for package publishing
 3. **Trigger** the workflow manually or via push
 4. **Monitor** the build in the Actions tab
-5. **Verify** the image is available at `ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest`
+5. **Verify** the image is available at `ghcr.io/caipe-io/backstage-plugin-agent-forge:latest`
 
 
 ## Related

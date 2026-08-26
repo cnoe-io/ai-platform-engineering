@@ -17,11 +17,11 @@ Deploy AI Platform Engineering on any Kubernetes cluster using the official Helm
 The chart is published as an OCI artifact:
 
 ```
-oci://ghcr.io/cnoe-io/charts/ai-platform-engineering
+oci://ghcr.io/caipe-io/charts/ai-platform-engineering
 ```
 
 Browse available versions (stable releases only, no RCs):
-👉 **[ghcr.io/cnoe-io/charts/ai-platform-engineering](https://github.com/cnoe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering)**
+👉 **[ghcr.io/caipe-io/charts/ai-platform-engineering](https://github.com/caipe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering)**
 
 ## Chart structure
 
@@ -56,10 +56,10 @@ Full parameter tables for each chart (auto-generated — regenerate with `make d
 Pull the chart locally to access the bundled example values files:
 
 ```bash
-helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version <VERSION> --untar
+helm pull oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version <VERSION> --untar
 ```
 
-Replace `<VERSION>` with the latest stable version from the [registry page](https://github.com/cnoe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering).
+Replace `<VERSION>` with the latest stable version from the [registry page](https://github.com/caipe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering).
 
 ## Step 2 — Configure secrets
 
@@ -107,20 +107,20 @@ MCP integrations are enabled via Helm tags. Common profiles:
 ```bash
 # Minimal chart install
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml
 
 # With basic MCP integrations
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
   --set tags.basic=true
 
 # With External Secrets Operator
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-external-secrets.yaml
 ```
@@ -156,7 +156,7 @@ minikube addons enable ingress
 
 # Deploy with ingress
 helm upgrade ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
   --values ai-platform-engineering/values-ingress.yaml.example
@@ -170,7 +170,7 @@ echo "$(minikube ip) dynamic-agents.local" | sudo tee -a /etc/hosts
 ```bash
 # Upgrade to a new version
 helm upgrade ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <NEW_VERSION> \
   --values values-secrets.yaml
 
@@ -188,7 +188,7 @@ helm uninstall ai-platform-engineering
 
 ```bash
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
   --set promptConfigType=deep_agent
@@ -217,7 +217,7 @@ dynamic-agents:
 
 ```bash
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
   --values values-persistence.yaml
@@ -227,7 +227,7 @@ Or as `--set` flags:
 
 ```bash
 helm install ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
   --set tags.caipe-ui=true \

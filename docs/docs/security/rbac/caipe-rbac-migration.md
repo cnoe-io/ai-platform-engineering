@@ -18,7 +18,7 @@ The `caipe/rbac` ApplicationSet currently deploys:
 
 ```yaml
 chart_name: ai-platform-engineering
-chart_repo_url: ghcr.io/cnoe-io/pre-release-helm-charts
+chart_repo_url: ghcr.io/caipe-io/pre-release-helm-charts
 chart_version: 0.5.1-rc.25
 namespace: caipe-rbac
 ```
@@ -286,7 +286,7 @@ From the `ai-platform-engineering` repo:
 
 ```bash
 helm template a-caipe-rbac-argoapp \
-  oci://ghcr.io/cnoe-io/pre-release-helm-charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/pre-release-helm-charts/ai-platform-engineering \
   --version 0.5.1-rc.25 \
   -n caipe-rbac \
   -f /Users/sraradhy/outshift/platform-apps-deployment/applications/caipe/rbac/a/values.yaml

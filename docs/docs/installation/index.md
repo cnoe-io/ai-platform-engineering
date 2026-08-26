@@ -38,14 +38,14 @@ The minimal install (UI + Dynamic Agents + MongoDB) is enough to run chat with c
 
 ```bash
 # Interactive setup script — detects Docker or Kubernetes automatically
-bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh)
 ```
 
 Or via Helm directly:
 
 ```bash
 helm upgrade --install ai-platform-engineering \
-    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+    oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
     --version 0.4.8 -f your-values.yaml
 ```
 

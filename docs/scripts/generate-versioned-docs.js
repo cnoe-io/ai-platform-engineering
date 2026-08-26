@@ -39,7 +39,7 @@ const VERSIONS_CONFIG_JSON = path.join(DOCS_DIR, 'versions-config.json');
 const NODE_MODULES = path.join(DOCS_DIR, 'node_modules');
 
 // Docs content lives at repo `docs/docs/`; links are authored relative to that.
-const GITHUB_BASE = 'https://github.com/cnoe-io/ai-platform-engineering';
+const GITHUB_BASE = 'https://github.com/caipe-io/ai-platform-engineering';
 const DOC_CONTENT_ROOT = '/docs/docs';
 
 function run(cmd, opts = {}) {

@@ -21,10 +21,10 @@ A Helm chart for Dynamic Agents - Standalone agent builder service with MCP tool
 
 ```bash
 # Add and install the chart
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm install dynamic-agents oci://ghcr.io/caipe-io/charts/dynamic-agents --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm upgrade dynamic-agents oci://ghcr.io/caipe-io/charts/dynamic-agents --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68 \
+helm install dynamic-agents oci://ghcr.io/caipe-io/charts/dynamic-agents --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68 \
+helm install dynamic-agents oci://ghcr.io/caipe-io/charts/dynamic-agents --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/dynamic-agents --version 0.5.68
 ```
 
 ## Reading the Values Table

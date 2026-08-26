@@ -150,9 +150,9 @@
 
 - [ ] T041 Run `uv run ruff check` on all modified files and fix any linting issues in `ai_platform_engineering/integrations/slack_bot/`
 - [ ] T042 Run `uv run pytest tests/ -v` and confirm zero failures in `ai_platform_engineering/integrations/slack_bot/tests/`
-- [ ] T043 Verify A2A code removal — confirm zero references to `a2a_client`, `A2AClient`, `send_message_stream`, `event_parser` in Slack bot codebase
+- [x] T043 Verify A2A code removal — confirm zero references to `a2a_client`, `A2AClient`, `send_message_stream`, `event_parser` in Slack bot codebase
 - [ ] T044 Run quickstart.md validation scenarios (Scenarios 1–8) against a running environment
-- [ ] T045 Update `docs/docs/specs/100-slack-agui-migration/` status from Draft to Complete
+- [x] T045 Update `docs/docs/specs/100-slack-agui-migration/` status from Draft to Complete
 
 ---
 

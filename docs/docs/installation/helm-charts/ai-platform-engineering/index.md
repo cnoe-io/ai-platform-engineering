@@ -21,10 +21,10 @@ Parent chart to deploy CAIPE — dynamic agents, per-agent MCP servers, RBAC, an
 
 ```bash
 # Add and install the chart
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.5.68
+helm install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.5.68
+helm upgrade ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.5.68 \
+helm install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.5.68 \
+helm install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/ai-platform-engineering --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -372,7 +372,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-aws.env.RESTRICT_KUBECTL_PROXY | string | `"true"` | Block kubectl proxy, which exposes the entire Kubernetes API server. Defaults to true (on). |
 | mcp-aws.env.RESTRICT_KUBECTL_SECRETS | string | `"true"` | Block kubectl get/describe secret(s) and redact Secret data from output. Defaults to true (on). |
 | mcp-aws.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-aws.image.repository | string | `"ghcr.io/cnoe-io/agent-aws"` |  |
+| mcp-aws.image.repository | string | `"ghcr.io/caipe-io/agent-aws"` |  |
 | mcp-aws.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-aws.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-aws.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -382,7 +382,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-aws.mcp.port | int | `8000` |  |
 | mcp-aws.nameOverride | string | `"mcp-aws"` |  |
 | mcp-backstage.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-backstage.image.repository | string | `"ghcr.io/cnoe-io/agent-backstage"` |  |
+| mcp-backstage.image.repository | string | `"ghcr.io/caipe-io/agent-backstage"` |  |
 | mcp-backstage.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-backstage.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-backstage.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -392,7 +392,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-backstage.mcp.port | int | `8000` |  |
 | mcp-backstage.nameOverride | string | `"mcp-backstage"` |  |
 | mcp-confluence.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-confluence.image.repository | string | `"ghcr.io/cnoe-io/agent-confluence"` |  |
+| mcp-confluence.image.repository | string | `"ghcr.io/caipe-io/agent-confluence"` |  |
 | mcp-confluence.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-confluence.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-confluence.mcp.env.TRANSPORT | string | `"streamable-http"` |  |
@@ -415,7 +415,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-gitlab.env.GIT_COMMITTER_EMAIL | string | `"ai-agent@cnoe.io"` |  |
 | mcp-gitlab.env.GIT_COMMITTER_NAME | string | `"AI Agent"` |  |
 | mcp-gitlab.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-gitlab.image.repository | string | `"ghcr.io/cnoe-io/agent-gitlab"` |  |
+| mcp-gitlab.image.repository | string | `"ghcr.io/caipe-io/agent-gitlab"` |  |
 | mcp-gitlab.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-gitlab.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-gitlab.mcp.agentgateway.providerTokenAuth | bool | `true` |  |
@@ -433,7 +433,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-gitlab.mcp.port | int | `8000` |  |
 | mcp-gitlab.nameOverride | string | `"mcp-gitlab"` |  |
 | mcp-jira.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-jira.image.repository | string | `"ghcr.io/cnoe-io/agent-jira"` |  |
+| mcp-jira.image.repository | string | `"ghcr.io/caipe-io/agent-jira"` |  |
 | mcp-jira.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-jira.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-jira.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -443,7 +443,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-jira.mcp.port | int | `8000` |  |
 | mcp-jira.nameOverride | string | `"mcp-jira"` |  |
 | mcp-komodor.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-komodor.image.repository | string | `"ghcr.io/cnoe-io/agent-komodor"` |  |
+| mcp-komodor.image.repository | string | `"ghcr.io/caipe-io/agent-komodor"` |  |
 | mcp-komodor.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-komodor.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-komodor.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -454,7 +454,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-komodor.nameOverride | string | `"mcp-komodor"` |  |
 | mcp-netutils.agentSecrets.requiresSecret | bool | `false` |  |
 | mcp-netutils.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-netutils.image.repository | string | `"ghcr.io/cnoe-io/agent-netutils"` |  |
+| mcp-netutils.image.repository | string | `"ghcr.io/caipe-io/agent-netutils"` |  |
 | mcp-netutils.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-netutils.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-netutils.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -464,7 +464,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-netutils.mcp.port | int | `8000` |  |
 | mcp-netutils.nameOverride | string | `"mcp-netutils"` |  |
 | mcp-pagerduty.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-pagerduty.image.repository | string | `"ghcr.io/cnoe-io/agent-pagerduty"` |  |
+| mcp-pagerduty.image.repository | string | `"ghcr.io/caipe-io/agent-pagerduty"` |  |
 | mcp-pagerduty.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-pagerduty.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-pagerduty.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -474,7 +474,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-pagerduty.mcp.port | int | `8000` |  |
 | mcp-pagerduty.nameOverride | string | `"mcp-pagerduty"` |  |
 | mcp-slack.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-slack.image.repository | string | `"ghcr.io/cnoe-io/agent-slack"` |  |
+| mcp-slack.image.repository | string | `"ghcr.io/caipe-io/agent-slack"` |  |
 | mcp-slack.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-slack.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-slack.mcp.command[0] | string | `"--transport"` |  |
@@ -488,7 +488,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-slack.mcp.port | int | `3001` |  |
 | mcp-slack.nameOverride | string | `"mcp-slack"` |  |
 | mcp-splunk.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-splunk.image.repository | string | `"ghcr.io/cnoe-io/agent-splunk"` |  |
+| mcp-splunk.image.repository | string | `"ghcr.io/caipe-io/agent-splunk"` |  |
 | mcp-splunk.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-splunk.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-splunk.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -498,7 +498,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-splunk.mcp.port | int | `8000` |  |
 | mcp-splunk.nameOverride | string | `"mcp-splunk"` |  |
 | mcp-victorops.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-victorops.image.repository | string | `"ghcr.io/cnoe-io/agent-victorops"` |  |
+| mcp-victorops.image.repository | string | `"ghcr.io/caipe-io/agent-victorops"` |  |
 | mcp-victorops.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-victorops.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-victorops.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -523,7 +523,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-webex-meetings.mcpSecrets.requiresSecret | bool | `false` |  |
 | mcp-webex-meetings.nameOverride | string | `"mcp-webex-meetings"` |  |
 | mcp-webex.image.pullPolicy | string | `"IfNotPresent"` |  |
-| mcp-webex.image.repository | string | `"ghcr.io/cnoe-io/agent-webex"` |  |
+| mcp-webex.image.repository | string | `"ghcr.io/caipe-io/agent-webex"` |  |
 | mcp-webex.mcp.agentgateway.enabled | bool | `false` |  |
 | mcp-webex.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
 | mcp-webex.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |

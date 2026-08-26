@@ -12,7 +12,7 @@ sidebar_position: 1
 
 Build a Bash script (`scripts/generate-helm-chart-docs.sh`) invoked by `make docs-helm-charts` that:
 
-1. Fetches the latest published chart version from the OCI registry (`oci://ghcr.io/cnoe-io/charts/ai-platform-engineering`), with `CHART_VERSION` override and local `appVersion` fallback
+1. Fetches the latest published chart version from the OCI registry (`oci://ghcr.io/caipe-io/charts/ai-platform-engineering`), with `CHART_VERSION` override and local `appVersion` fallback
 2. Runs `helm-docs` to regenerate the values tables from `values.yaml` comments
 3. Enriches each chart's source `README.md` with usage examples, "Reading the Values Table" guidance, dependency tables, and an auto-generated marker
 4. Generates Docusaurus-compatible pages in `docs/docs/installation/helm-charts/<parent>/<chart>.md` with correct frontmatter and MDX-safe content

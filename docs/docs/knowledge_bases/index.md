@@ -59,13 +59,13 @@ The [Ontology Agent](ontology-agent.md) automatically discovers relationships be
 ### Prerequisites
 
 - Docker and Docker Compose
-- Environment variables configured (see [Server README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md))
+- Environment variables configured (see [Server README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md))
 
 ### Start All Services
 
 ```bash
 # Clone the repository
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
+git clone https://github.com/caipe-io/ai-platform-engineering.git
 cd ai-platform-engineering/ai_platform_engineering/knowledge_bases/rag
 
 # Start all services using Docker Compose
@@ -110,5 +110,5 @@ CAIPE RAG includes ingestors for various data sources. See [Ingestors](ingestors
 
 - [Architecture Overview](architecture.md) - Detailed system design and data flows
 - [RAG API Reference](api-reference.md) - REST, graph, ingestion, and MCP route reference
-- [Server README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md) - Configuration and deployment
-- [GitHub Discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions/196) - Unified RAG design discussion
+- [Server README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md) - Configuration and deployment
+- [GitHub Discussion](https://github.com/caipe-io/ai-platform-engineering/discussions/196) - Unified RAG design discussion

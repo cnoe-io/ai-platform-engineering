@@ -15,7 +15,31 @@ flowchart LR
 ```
 
 The bot calls the UI/BFF through `CAIPE_API_URL`. The BFF enforces access,
-creates or resumes conversations, and streams responses through Dynamic Agents.
+creates or resumes conversations, and streams responses through Dynamic Agents
+using the AG-UI protocol. The deprecated supervisor/A2A path is not used.
+
+## AG-UI Migration Verification
+
+The transition is independently verifiable from this repository:
+
+- `sse_client.py` identifies the client as Dynamic Agents AG-UI streaming and
+  sends `protocol: "agui"` with stream and invoke requests.
+- `utils/ai.py` owns the AG-UI streaming and non-streaming invoke paths.
+- `test_sse_client.py`, `test_hitl_handler.py`, and
+  `test_metadata_leak_e2e.py` exercise the protocol client, human-in-the-loop
+  events, and streaming path.
+
+From the repository root, run:
+
+```bash
+uv run pytest ai_platform_engineering/integrations/slack_bot/tests/test_sse_client.py \
+  ai_platform_engineering/integrations/slack_bot/tests/test_hitl_handler.py \
+  ai_platform_engineering/integrations/slack_bot/tests/test_metadata_leak_e2e.py
+rg -n -i 'supervisor|a2a' ai_platform_engineering/integrations/slack_bot --glob '*.py'
+```
+
+The second command should produce no matches; the test command verifies the
+remaining AG-UI behavior.
 
 ## Core Features
 

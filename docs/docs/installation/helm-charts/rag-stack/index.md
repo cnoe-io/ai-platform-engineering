@@ -21,10 +21,10 @@ A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
 ```bash
 # Add and install the chart
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm upgrade rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Reading the Values Table

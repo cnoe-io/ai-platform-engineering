@@ -50,7 +50,7 @@ Trigger `release-finalize.yml` via GitHub Actions or CLI:
 
 ```bash
 gh workflow run release-finalize.yml \
-  --repo cnoe-io/ai-platform-engineering \
+  --repo caipe-io/ai-platform-engineering \
   -f version=x.y.z
 ```
 
