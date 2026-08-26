@@ -42,6 +42,35 @@ it("requires a team before loading service accounts", () => {
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("shows non-interactive guidance when the team has no active accounts", async () => {
+  global.fetch = jest.fn().mockResolvedValue(
+    mockResponse({
+      success: true,
+      data: {
+        items: [
+          { id: "sub-revoked", name: "revoked-bot", status: "revoked" },
+        ],
+      },
+    }),
+  );
+
+  render(
+    <ServiceAccountSelect value="" onChange={jest.fn()} teamSlug="primary" />,
+  );
+
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/admin/service-accounts?team=primary",
+    ),
+  );
+  expect(
+    await screen.findByText(/no active service accounts found for team:primary/i),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("combobox", { name: "Service account" }),
+  ).not.toBeInTheDocument();
+});
+
 it("loads active accounts for the team and maps the selected identity", async () => {
   global.fetch = jest.fn().mockResolvedValue(mockResponse(serviceAccountPayload()));
   const onChange = jest.fn();
@@ -88,6 +117,26 @@ it("keeps a saved selection available when it is outside the fetched team list",
   const picker = screen.getByRole("combobox", { name: "Service account" });
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   expect(picker).toHaveTextContent("saved-bot");
+});
+
+it("keeps a saved display name when the legacy route has no subject", async () => {
+  global.fetch = jest.fn().mockResolvedValue(
+    mockResponse({ success: true, data: { items: [] } }),
+  );
+
+  render(
+    <ServiceAccountSelect
+      value=""
+      onChange={jest.fn()}
+      teamSlug="primary"
+      displayName="saved-bot"
+    />,
+  );
+
+  const picker = screen.getByRole("combobox", { name: "Service account" });
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  expect(picker).toHaveTextContent("saved-bot");
+  expect(screen.queryByText(/no active service accounts/i)).not.toBeInTheDocument();
 });
 
 it("does not expose options loaded for a previous team while the next team loads", async () => {

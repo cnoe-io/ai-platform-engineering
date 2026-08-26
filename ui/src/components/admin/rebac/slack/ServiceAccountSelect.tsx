@@ -96,24 +96,32 @@ export function ServiceAccountSelect({
   const fetchedSelection = serviceAccounts.find(
     (serviceAccount) => serviceAccount.sa_sub === value,
   );
+  const fallbackName = displayName?.trim() || value;
   const fallbackSelection =
-    value && !fetchedSelection
+    fallbackName && !fetchedSelection
       ? {
           sa_sub: value,
-          name: displayName?.trim() || value,
+          name: fallbackName,
           status: "active" as const,
         }
       : undefined;
-  const options = fallbackSelection
+  const options = value && fallbackSelection
     ? [fallbackSelection, ...serviceAccounts]
     : serviceAccounts;
   const selected = fetchedSelection ?? fallbackSelection;
 
-  if (!teamSlug && !selected) {
+  const unavailableMessage =
+    !loading && !fetchError && serviceAccounts.length === 0 && !selected
+      ? teamSlug
+        ? `No active service accounts found for team:${teamSlug}. Create one in the Service Accounts tab.`
+        : "No team assigned to this channel — assign a team first."
+      : null;
+
+  if (unavailableMessage) {
     return (
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">
-          No team assigned to this channel — assign a team first.
+          {unavailableMessage}
         </p>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
@@ -136,11 +144,7 @@ export function ServiceAccountSelect({
         ]}
         placeholder="Select service account..."
         searchPlaceholder="Search service accounts..."
-        emptyLabel={
-          serviceAccounts.length === 0 && !value
-            ? `No active service accounts found for team:${teamSlug}. Create one in the Service Accounts tab.`
-            : "No service accounts match"
-        }
+        emptyLabel="No service accounts match"
         id={id}
         ariaLabel={label}
         ariaInvalid={Boolean(error || fetchError)}
