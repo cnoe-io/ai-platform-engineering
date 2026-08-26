@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChangelogRelease } from "@/app/api/changelog/route";
+import { ApplicationVersion } from "@/components/layout/ApplicationVersion";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -255,6 +256,9 @@ export function UserMenu(): React.ReactElement | null {
             </div>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto p-6">
+            <div className="mb-5 rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <ApplicationVersion />
+            </div>
             <div className="mb-4 flex items-center justify-between gap-4">
               <h3 className="text-sm font-semibold">Recent changes</h3>
               <a className="flex items-center gap-1 text-xs text-primary hover:underline" href={RELEASES_URL} rel="noopener noreferrer" target="_blank">
