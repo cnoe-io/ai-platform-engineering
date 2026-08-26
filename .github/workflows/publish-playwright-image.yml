@@ -1,0 +1,33 @@
+name: Publish Playwright Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Playwright version to mirror from Microsoft Container Registry
+        required: true
+        default: "1.62.1"
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c367d42b9c213d7f0c2c6a77 # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Mirror the multi-platform Playwright image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker buildx imagetools create \
+            --tag "ghcr.io/${{ github.repository_owner }}/playwright:v${VERSION}-noble" \
+            "mcr.microsoft.com/playwright:v${VERSION}-noble"
