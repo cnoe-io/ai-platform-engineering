@@ -31,6 +31,8 @@ interface AgentPickerProps {
   hideIdSuffix?: boolean;
   /** Value emitted by the clear action. Defaults to an empty selection. */
   clearValue?: string;
+  /** Whether the selected value can be cleared from the trigger. */
+  allowClear?: boolean;
 }
 
 export function AgentPicker({
@@ -47,6 +49,7 @@ export function AgentPicker({
   ariaLabel,
   hideIdSuffix = false,
   clearValue = "",
+  allowClear = true,
 }: AgentPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -124,7 +127,7 @@ export function AgentPicker({
               <span className="text-muted-foreground">{placeholder}</span>
             )}
           </div>
-          {selected && selected.value !== clearValue && !disabled && (
+          {allowClear && selected && selected.value !== clearValue && !disabled && (
             <X
               role="button"
               aria-label="Clear agent selection"

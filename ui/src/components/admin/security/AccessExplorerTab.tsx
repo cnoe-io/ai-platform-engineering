@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AgentPicker } from "@/components/ui/agent-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { RebacGraphFilters, subjectPrefix, type RebacGraphUserOption } from "../rebac/RebacGraphFilters";
@@ -1219,22 +1220,22 @@ function FeatureCheckPanel({
           </select>
         </FeatureSelectField>
         <FeatureSelectField label="Agent">
-          <select
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60"
+          <AgentPicker
+            ariaLabel="Feature check agent"
             value={selectedAgentRef}
-            onChange={(event) => onAgentChange(event.target.value)}
+            onChange={onAgentChange}
+            options={agentOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
             disabled={agentLocked || agentOptions.length === 0}
-          >
-            {agentOptions.length === 0 ? (
-              <option value="">No reachable agents</option>
-            ) : (
-              agentOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))
-            )}
-          </select>
+            placeholder={agentOptions.length === 0 ? "No reachable agents" : "Select an agent"}
+            searchPlaceholder="Search reachable agents..."
+            emptyLabel="No reachable agents match"
+            triggerClassName="h-10"
+            hideIdSuffix
+            allowClear={false}
+          />
         </FeatureSelectField>
         {showResourcePicker && (
           <FeatureSelectField label={activeFeature.targetLabel} className="lg:col-span-3">

@@ -228,7 +228,7 @@ export interface UserSettings {
   _id?: ObjectId;
   user_id: string; // User email
   preferences: {
-    theme: 'light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
+    theme: 'light' | 'legacy-light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
     gradient_theme: 'default' | 'minimal' | 'professional' | 'ocean' | 'sunset' | 'cyberpunk' | 'tron' | 'matrix';
     font_family: 'inter' | 'source-sans' | 'ibm-plex' | 'system';
     font_size: 'small' | 'medium' | 'large' | 'x-large';
@@ -248,12 +248,25 @@ export interface UserSettings {
     releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
+    /** Ids of Home page widgets the user has enabled, in display order. */
+    home_widgets?: string[];
+    /** Schema version used to migrate widget defaults without undoing explicit removals. */
+    home_widgets_version?: number;
+    /** Which Home page layout the user sees — the new default, or the previous fixed layout. */
+    home_experience?: "new" | "classic";
   };
   notifications: {
     email_enabled: boolean;
     in_app_enabled: boolean;
     conversation_shared: boolean;
     weekly_summary: boolean;
+    /** Show an OS-level alert when an agent turn completes in the background. */
+    agent_completion_browser_enabled: boolean;
+    /** Play the optional completion chime with a background completion alert. */
+    agent_completion_chime_enabled: boolean;
+    // Per-user visibility for globally owned platform health events. Turning
+    // this off never changes or resolves the underlying platform incident.
+    platform_health: boolean;
   };
   defaults: {
     default_model: string;
@@ -289,6 +302,9 @@ export const DEFAULT_USER_SETTINGS: Omit<
     in_app_enabled: true,
     conversation_shared: true,
     weekly_summary: false,
+    agent_completion_browser_enabled: false,
+    agent_completion_chime_enabled: false,
+    platform_health: true,
   },
   defaults: {
     default_model: "gpt-4o",

@@ -315,7 +315,7 @@ sequenceDiagram
 - **Canonical subject namespacing is applied at FOUR layers**, all using the same T002 rule
   (`preferred_username` starts `service-account-` → `service_account:<sub>`, else `user:<sub>`):
   (1) BFF resource-authz, (2) **BFF agent-use check `requireAgentUsePermission`** (the layer the SA
-  invoke path hits — added for #35), (3) Dynamic Agents backend (`openfga_authz.py`, WS-G), and
+  invoke path hits — added for #35), (3) Dynamic Agents CAS client (`auth/authz.py`, WS-G), and
   (4) the AgentGateway bridge (WS-F). For SA subjects the BFF agent-use check also **skips** the
   email-principal and team-union fallbacks — those are human concepts; an SA's access is its own direct
   grants only (FR-020 static access).
@@ -344,8 +344,8 @@ Subject namespacing is consistent across every enforcement layer: a token is a
 **service account** iff its `preferred_username` claim starts with
 `service-account-` (Keycloak client-credentials tokens). Such callers are graphed
 as `service_account:<sub>`; everyone else is `user:<sub>`. The same rule is used
-by the BFF (`ui/src/lib/jwt-validation.ts`), the Dynamic Agents backend
-(`auth/openfga_authz.py`), and the bridge (`deploy/openfga/bridge/main.py`).
+by the BFF (`ui/src/lib/jwt-validation.ts`), the Dynamic Agents CAS client
+(`auth/authz.py`), and the bridge (`deploy/openfga/bridge/main.py`).
 
 The bridge's per-`tools/call` decision (replaces the single agent-tool check above):
 

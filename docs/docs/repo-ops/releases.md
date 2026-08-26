@@ -56,7 +56,7 @@ gh workflow run release-finalize.yml \
 
 This workflow:
 - Promotes `x.y.z-rc.N` → `x.y.z`
-- Publishes the Helm chart to `oci://ghcr.io/cnoe-io/charts/ai-platform-engineering`
+- Publishes the Helm chart to `oci://ghcr.io/caipe-io/charts/ai-platform-engineering`
 - Creates a GitHub Release with auto-generated notes
 
 ---
@@ -104,7 +104,7 @@ See [Skills → Overview](./skills/) for the full checklist.
 
 | Channel | What to post |
 |---|---|
-| `#cnoe-sig-agentic-ai` Slack | Link to release blog post + one-line highlight |
+| CAIPE community Slack channel | Link to release blog post + one-line highlight |
 | GitHub Discussions | Announce new release with upgrade notes link |
 | Weekly community meeting | Demo new features if significant |
 

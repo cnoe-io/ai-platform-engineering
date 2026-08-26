@@ -76,6 +76,7 @@ describe('getServerConfig', () => {
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
         'AUTONOMOUS_AGENTS_ENABLED', 'ENABLE_AUTONOMOUS_AGENTS',
+        'PROVIDE_FEEDBACK_ENABLED',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -125,6 +126,7 @@ describe('getServerConfig', () => {
     it('should return default ticket integration values', () => {
       const cfg = getServerConfig();
       expect(cfg.reportProblemEnabled).toBe(true);
+      expect(cfg.provideFeedbackEnabled).toBe(false);
       expect(cfg.jiraTicketEnabled).toBe(false);
       expect(cfg.jiraTicketProject).toBeNull();
       expect(cfg.jiraTicketLabel).toBe('caipe-reported');
@@ -154,6 +156,7 @@ describe('getServerConfig', () => {
         'dynamicAgentsUrl',
         'autonomousAgentsEnabled',
         'reportProblemEnabled',
+        'provideFeedbackEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
@@ -318,6 +321,7 @@ describe('getServerConfig', () => {
     beforeEach(() => {
       clearEnv(
         'REPORT_PROBLEM_ENABLED',
+        'PROVIDE_FEEDBACK_ENABLED',
         'JIRA_TICKET_ENABLED', 'JIRA_TICKET_PROJECT', 'JIRA_TICKET_LABEL',
         'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL',
       );
@@ -375,6 +379,12 @@ describe('getServerConfig', () => {
     it('should enable report problem by default', () => {
       const cfg = getServerConfig();
       expect(cfg.reportProblemEnabled).toBe(true);
+    });
+
+    it('should keep the header feedback shortcut opt-in', () => {
+      expect(getServerConfig().provideFeedbackEnabled).toBe(false);
+      process.env.PROVIDE_FEEDBACK_ENABLED = 'true';
+      expect(getServerConfig().provideFeedbackEnabled).toBe(true);
     });
 
     it('should derive ticketEnabled=false when no provider is enabled', () => {
@@ -613,7 +623,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultTheme).toBe('dark');
     });
 
-    it.each(['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+    it.each(['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (theme) => {
         process.env.DEFAULT_THEME = theme;
@@ -895,6 +905,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'dynamicAgentsUrl',
       'autonomousAgentsEnabled',
       'reportProblemEnabled',
+      'provideFeedbackEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',

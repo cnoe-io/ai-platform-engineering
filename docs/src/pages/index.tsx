@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.6.0 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 1.0.0 -f your-values.yaml';
 const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
@@ -169,15 +169,6 @@ const USE_CASES = [
     label: 'Cisco Outshift',
     external: true,
   },
-  {
-    title: 'CAIPE Hands-On Workshop',
-    description:
-      'Step-by-step labs covering single-agent design, multi-agent orchestration, RAG knowledge bases, and distributed tracing — learn by building.',
-    image: 'https://outshift-headless-cms-s3.s3.us-east-2.amazonaws.com/INSIDEOUTSHIFT_1.png',
-    href: '/docs/workshop/caipeintro',
-    label: 'CAIPE Labs',
-    external: false,
-  },
 ];
 
 const AGENTS = [
@@ -262,7 +253,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.6.0 -f your-values.yaml'}
+                  {'    --version 1.0.0 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -417,7 +408,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.6.0 -f your-values.yaml'}
+              {'    --version 1.0.0 -f your-values.yaml'}
             </code>
           </pre>
         </div>

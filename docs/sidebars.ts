@@ -204,6 +204,17 @@ const sidebars: SidebarsConfig = {
         { type: 'doc', id: 'repo-ops/issue-triage', label: 'Issue Triage Dashboard' },
         {
           type: 'category',
+          label: 'Advanced',
+          items: [
+            {
+              type: 'doc',
+              id: 'development/advanced/ci-infrastructure',
+              label: 'CI Infrastructure',
+            },
+          ],
+        },
+        {
+          type: 'category',
           label: 'Skills',
           items: [
             { type: 'doc', id: 'repo-ops/skills/index', label: 'Overview' },
@@ -378,43 +389,6 @@ const sidebars: SidebarsConfig = {
         },
       ],
     },
-    {
-      type: 'category',
-      label: 'CAIPE Labs',
-      items: [
-        {
-          type: 'doc',
-          id: 'workshop/caipeintro',
-          label: 'Introduction to CAIPE',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/agent',
-          label: 'Introduction to AI Agents',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/mas',
-          label: 'Multi-Agent System',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/rag',
-          label: 'RAG (Retrieval-Augmented Generation)',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/tracing',
-          label: 'Tracing',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/conclusion',
-          label: 'Conclusion',
-        }
-      ],
-    },
-
   ],
   communitySidebar: [
     {

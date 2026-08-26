@@ -34,7 +34,7 @@ on:
         type: string
         default: ''
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-ui
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
 
 permissions:
   contents: read
@@ -90,6 +90,7 @@ jobs:
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+      (github.event_name == 'workflow_call' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.action != 'closed'
     permissions:
       contents: write
@@ -241,6 +242,7 @@ jobs:
       needs.determine-changes.result == 'success' &&
       needs.determine-changes.outputs.should_build == 'true' &&
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+      (github.event_name == 'workflow_call' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.action != 'closed'
     permissions:
       contents: write
