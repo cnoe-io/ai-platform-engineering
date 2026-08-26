@@ -14,6 +14,7 @@ import {
   githubSourceFromValue,
 } from "@/lib/projects/github-repository";
 import { getCollection } from "@/lib/mongodb";
+import { AGENT_IDENTITIES } from "./agent-identities";
 import type {
   GitHubRepositorySource,
   ProjectDocument,
@@ -146,7 +147,7 @@ async function defaultDependencies(): Promise<ReconciliationDependencies> {
     listPages: (projectId) => store.listPages(projectId),
     deletePage: (projectId, path) =>
       store.deletePage(projectId, path, {
-        author: "tome-ingest",
+        author: AGENT_IDENTITIES.ingestor,
         message: "tombstone obsolete GitHub source subtree",
       }),
     persistSources: async (projectId, sources) => {

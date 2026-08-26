@@ -29,6 +29,7 @@ import {
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
+import { SYSTEM_AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import {
@@ -154,10 +155,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const lastEditMap = new Map<string, Date | null>();
   const activeRunsMap = new Map<string, ActiveIngestRun[]>();
 
-  // Revisions written by the ingest pipeline itself use these fixed authors,
-  // so excluding them isolates revisions a human actually made in the editor.
-  const SYSTEM_REVISION_AUTHORS = ["tome", "tome-ingest"];
-
   if (projectIds.length > 0) {
     try {
       const [pageRevisions, ingestRuns] = await Promise.all([
@@ -175,7 +172,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           {
             $match: {
               project_id: { $in: projectIds },
-              author: { $nin: SYSTEM_REVISION_AUTHORS },
+              author: { $nin: SYSTEM_AGENT_IDENTITIES },
             },
           },
           { $group: { _id: "$project_id", last_edited_at: { $max: "$created_at" } } },

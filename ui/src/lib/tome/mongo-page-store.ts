@@ -9,11 +9,12 @@
 
 import { ObjectId, type Filter } from "mongodb";
 
+import { AGENT_IDENTITIES } from "./agent-identities";
 import { getTomePageRevisionsCollection } from "./mongo-collections";
 import { safePagePath, type PageStore, type WritePageOpts } from "./page-store";
 import type { PageRevision } from "@/types/tome";
 
-const DEFAULT_AUTHOR = "tome";
+const DEFAULT_AUTHOR = AGENT_IDENTITIES.default;
 
 export class MongoPageStore implements PageStore {
   async writePage(

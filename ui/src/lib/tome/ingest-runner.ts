@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import { ObjectId } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
+import { AGENT_IDENTITIES } from "./agent-identities";
 import { getPageStore } from "./page-store";
 import { getTomeIngestRunsCollection, getTomeReportsCollection } from "./mongo-collections";
 import {
@@ -234,7 +235,7 @@ async function seedGreenfieldStablePages(
   }
   await store.writePages(project._id, seeds, {
     message: "seed stable pages (founding templates)",
-    author: "tome-ingest",
+    author: AGENT_IDENTITIES.ingestor,
     reportId,
   });
   await appendLog(
@@ -654,7 +655,7 @@ async function auditRunLifecycle(
                 ? `${label} draft rejected`
                 : `${label} failed: ${String(extra?.error ?? "unknown error")}`;
       await postEvent(project.slug, {
-        sender_handle: "tome",
+        sender_handle: AGENT_IDENTITIES.default,
         content,
         kind: "ingest_event",
         payload: { run_id: runId, mode, status, triggered_by: run.triggered_by ?? "manual" },
