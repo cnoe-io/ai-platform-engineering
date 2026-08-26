@@ -164,7 +164,9 @@ describe('RunHistory webhook results', () => {
 
     expect(screen.getByText('Result')).toBeInTheDocument();
     expect(screen.queryByText('Response preview')).not.toBeInTheDocument();
-    expect(screen.getByTestId('markdown-renderer')).toHaveTextContent(
+    expect(
+      screen.getByTestId('webhook-run-result').querySelector('[data-testid="markdown-renderer"]'),
+    ).toHaveTextContent(
       '# Full result - first - second',
     );
     expect(screen.queryByText('Short **preview**')).not.toBeInTheDocument();
@@ -181,7 +183,9 @@ describe('RunHistory webhook results', () => {
     render(<RunHistory taskId="t-1" triggerType="webhook" />);
     fireEvent.click(await screen.findByText(run.run_id));
 
-    expect(screen.getByTestId('markdown-renderer')).toHaveTextContent('**Legacy result**');
+    expect(
+      screen.getByTestId('webhook-run-result').querySelector('[data-testid="markdown-renderer"]'),
+    ).toHaveTextContent('**Legacy result**');
   });
 
   it('keeps the compact preview for non-webhook runs', async () => {

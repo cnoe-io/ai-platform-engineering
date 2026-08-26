@@ -113,6 +113,7 @@ jest.mock('lucide-react', () => ({
   Users: (props: unknown) => <span data-testid="icon-users" {...props} />,
   TrendingUp: (props: unknown) => <span data-testid="icon-trending-up" {...props} />,
   RefreshCw: (props: unknown) => <span data-testid="icon-refresh" {...props} />,
+  Webhook: (props: unknown) => <span data-testid="icon-webhook" {...props} />,
   X: (props: unknown) => <span data-testid="icon-x" {...props} />,
 }))
 
@@ -197,6 +198,13 @@ jest.mock('@/lib/api-client', () => ({
   },
 }))
 
+const mockListAutonomousTasks = jest.fn()
+jest.mock('@/components/autonomous/api', () => ({
+  autonomousApi: {
+    listTasks: (...args: unknown[]) => mockListAutonomousTasks(...args),
+  },
+}))
+
 // ============================================================================
 // Imports — after mocks
 // ============================================================================
@@ -232,6 +240,8 @@ const defaultProps = {
 describe('Sidebar — Live Status Indicator', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockListAutonomousTasks.mockReset()
+    mockListAutonomousTasks.mockReturnValue(new Promise(() => {}))
     mockLoadConversationsFromServer.mockReturnValue(new Promise<void>(() => {}))
     global.fetch = jest.fn(
       () => new Promise<Response>(() => {}),
@@ -586,6 +596,51 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(autonomous).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByText('Review alerts')).toBeInTheDocument()
       expect(screen.queryByText('Nightly report')).not.toBeInTheDocument()
+    })
+
+    it('groups the current user webhook tasks in a nested collapsed section', async () => {
+      mockLoadConversationsFromServer.mockResolvedValueOnce(undefined)
+      mockListAutonomousTasks.mockResolvedValue([
+        {
+          id: 'daily-branch-summary-41a9',
+          name: 'Daily branch summary',
+          agent: null,
+          dynamic_agent_id: 'agent-1',
+          prompt: 'Summarize the delivery.',
+          trigger: { type: 'webhook', provider: 'github', has_secret: true },
+          enabled: true,
+          owner_id: 'test@test.com',
+        },
+        {
+          id: 'other-owner-hook',
+          name: 'Other owner hook',
+          agent: null,
+          dynamic_agent_id: 'agent-1',
+          prompt: 'Ignore this task.',
+          trigger: { type: 'webhook', provider: 'jira', has_secret: true },
+          enabled: true,
+          owner_id: 'other@test.com',
+        },
+      ])
+
+      render(<Sidebar {...defaultProps} />)
+
+      const autonomous = await screen.findByRole('button', { name: /Autonomous Runs/i })
+      expect(mockListAutonomousTasks).toHaveBeenCalledTimes(1)
+      fireEvent.click(autonomous)
+
+      const webhookRuns = screen.getByRole('button', { name: /Webhook Runs/i })
+      expect(webhookRuns).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('Daily branch summary')).not.toBeInTheDocument()
+
+      fireEvent.click(webhookRuns)
+      expect(await screen.findByText('Daily branch summary')).toBeInTheDocument()
+      expect(screen.queryByText('Other owner hook')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('webhook-task-daily-branch-summary-41a9'))
+      expect(mockPush).toHaveBeenCalledWith(
+        '/chat/webhooks/daily-branch-summary-41a9',
+      )
     })
 
     it('does not show "Live" or "New response" for normal conversations', () => {
