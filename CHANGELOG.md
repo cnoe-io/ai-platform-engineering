@@ -1,3 +1,59 @@
+## 1.0.0-dev.7 (2026-08-26)
+
+### Feat
+
+- **ui**: add global command palette (#2463)
+
+### Fix
+
+- **ui**: show deployed version in about, refresh homepage, and consolidate release docs (#2595)
+- **ui**: hide API-created conversations from chat history (#2588)
+
+## 1.0.0-dev.6 (2026-08-26)
+
+### Feat
+
+- **ui**: add global platform health notifications (#2416)
+
+## 1.0.0-dev.5 (2026-08-25)
+
+### Feat
+
+- **ui**: restore feature-gated feedback shortcut (#2435)
+- **ui**: add agent completion browser alerts (#2413)
+
+### Fix
+
+- **ui**: redirect personal insights to filtered admin statistics (#2586)
+- **ui**: align new chat agent resolution (#2464)
+- **ui**: support legacy conversation identifiers (#2466)
+
+## 1.0.0-dev.4 (2026-08-25)
+
+### Feat
+
+- **ui**: improve global navigation and breadcrumbs (#2407)
+- **ui**: standardize searchable agent pickers (#2403)
+
+## 1.0.0-dev.3 (2026-08-25)
+
+## 1.0.0-dev.2 (2026-08-25)
+
+### Feat
+
+- **ui**: customizable Home page with Quick Start and optional widgets (#2408)
+
+### Fix
+
+- update README.md (#2472)
+- **ci**: remove unused Helm publish app token (#2399)
+
+### Refactor
+
+- **ui**: retire legacy agent builder (#2443)
+
+## 1.0.0-dev.1 (2026-08-24)
+
 ## 1.0.0-rc.1 (2026-08-24)
 
 ### Fix
