@@ -296,7 +296,7 @@ export async function searchApplicationResources(
       label: workflow.name,
       description: workflow.description,
       group: "Workflow",
-      href: "/workflows",
+      href: `/workflows?workflow=${encodeURIComponent(workflow._id)}`,
       icon: Workflow,
       section: "resources",
     }));

@@ -181,7 +181,7 @@ describe("ApplicationNavigationSearch", () => {
       "/dynamic-agents?tab=agents&agent=agent-visible",
       "/chat/conversation-visible",
       "/skills/workspace/skill-visible",
-      "/workflows",
+      "/workflows?workflow=workflow-visible",
     ]);
   });
 
