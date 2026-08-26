@@ -49,17 +49,22 @@ def build_runtime(environ: Mapping[str, str] | None = None) -> SlackRuntime:
   env = environ or os.environ
   app_name = env.get("SLACK_INTEGRATION_APP_NAME", env.get("APP_NAME", "CAIPE"))
   workspace_url = env.get("SLACK_WORKSPACE_URL", "")
-  api_url = env.get("CAIPE_API_URL")
-  if not api_url:
-    raise ValueError("CAIPE_API_URL environment variable is required")
 
   auth_client = None
   auth_enabled = env.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
   if auth_enabled:
-    auth_client = OAuth2ClientCredentials.from_env()
-    logger.info("OAuth2 client credentials auth enabled for dynamic agents requests")
+    try:
+      auth_client = OAuth2ClientCredentials.from_env()
+      logger.info("OAuth2 client credentials auth enabled for dynamic agents requests")
+    except RuntimeError as exc:
+      logger.error("Failed to initialize OAuth2 auth: {}", exc)
+      raise
   else:
     logger.info("Auth disabled (set SLACK_INTEGRATION_ENABLE_AUTH=true to enable)")
+
+  api_url = env.get("CAIPE_API_URL")
+  if not api_url:
+    raise ValueError("CAIPE_API_URL environment variable is required")
 
   bolt_app = App(
     token=env.get("SLACK_INTEGRATION_BOT_TOKEN", env.get("SLACK_BOT_TOKEN", ""))
@@ -117,7 +122,7 @@ def wait_for_api(runtime: SlackRuntime, environ: Mapping[str, str] | None = None
         )
       logger.info("Connected to {} API (status {})", runtime.app_name, response.status_code)
       return
-    except (requests.RequestException, RuntimeError) as exc:
+    except Exception as exc:
       if attempt < max_retries:
         logger.warning(
           "{} API not ready, retrying in {}s...", runtime.app_name, retry_delay

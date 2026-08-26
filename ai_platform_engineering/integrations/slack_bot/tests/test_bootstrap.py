@@ -9,6 +9,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 import requests
 
 _APP_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -55,11 +56,41 @@ def test_build_runtime_constructs_dependencies_without_health_call(monkeypatch) 
   health_call.assert_not_called()
 
 
+def test_build_runtime_logs_oauth_failure_before_api_url_validation(monkeypatch) -> None:
+  auth_error = RuntimeError("credentials unavailable")
+  from_env = MagicMock(side_effect=auth_error)
+  log_error = MagicMock()
+  monkeypatch.setattr(bootstrap.OAuth2ClientCredentials, "from_env", from_env)
+  monkeypatch.setattr(bootstrap.logger, "error", log_error)
+
+  with pytest.raises(RuntimeError, match="credentials unavailable"):
+    bootstrap.build_runtime({"SLACK_INTEGRATION_ENABLE_AUTH": "true"})
+
+  from_env.assert_called_once_with()
+  log_error.assert_called_once_with("Failed to initialize OAuth2 auth: {}", auth_error)
+
+
 def test_wait_for_api_preserves_retry_behavior(monkeypatch) -> None:
   response = SimpleNamespace(ok=True, status_code=200, text="ok")
   health_call = MagicMock(
     side_effect=[requests.ConnectionError("not ready"), response]
   )
+  sleep = MagicMock()
+  monkeypatch.setattr(bootstrap.requests, "get", health_call)
+  monkeypatch.setattr(bootstrap.time, "sleep", sleep)
+
+  bootstrap.wait_for_api(
+    SimpleNamespace(app_name="Example", api_url="https://api.example.com"),
+    {"CAIPE_CONNECT_RETRIES": "2", "CAIPE_CONNECT_RETRY_DELAY": "3"},
+  )
+
+  assert health_call.call_count == 2
+  sleep.assert_called_once_with(3)
+
+
+def test_wait_for_api_retries_unexpected_exceptions(monkeypatch) -> None:
+  response = SimpleNamespace(ok=True, status_code=200, text="ok")
+  health_call = MagicMock(side_effect=[ValueError("unexpected"), response])
   sleep = MagicMock()
   monkeypatch.setattr(bootstrap.requests, "get", health_call)
   monkeypatch.setattr(bootstrap.time, "sleep", sleep)
