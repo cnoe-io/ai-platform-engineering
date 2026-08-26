@@ -7,11 +7,9 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useVersion } from "@/hooks/use-version";
 import { config } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { AnimatePresence,motion } from "framer-motion";
@@ -33,7 +31,6 @@ export function UserMenu(): React.ReactElement | null {
   const [changelogError,setChangelogError] = useState<string | null>(null);
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { versionInfo } = useVersion();
 
   const fetchChangelog = useCallback(async () => {
     if (changelogFetched.current) return;
@@ -247,12 +244,7 @@ export function UserMenu(): React.ReactElement | null {
           <DialogHeader className="border-b border-border p-6 pb-4">
             <div className="flex items-center gap-3">
               <span className="gradient-primary-br rounded-xl p-2"><Info className="h-5 w-5 text-white" /></span>
-              <div>
-                <DialogTitle>About</DialogTitle>
-                <DialogDescription>
-                  {versionInfo ? `Version ${versionInfo.version}` : "Resolving version…"}
-                </DialogDescription>
-              </div>
+              <DialogTitle>About</DialogTitle>
             </div>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto p-6">
