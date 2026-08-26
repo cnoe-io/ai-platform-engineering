@@ -579,12 +579,7 @@ export function ApplicationNavigationRail(): React.ReactElement {
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
         <ApplicationNavigationContents collapsed={collapsed} layoutScope="rail" />
       </div>
-      <div
-        className={cn(
-          "flex shrink-0 pb-3 pt-2",
-          collapsed ? "justify-center px-2" : "px-4",
-        )}
-      >
+      <div className="flex shrink-0 items-center justify-center border-t border-border/50 px-2 pb-3 pt-2">
         <WorkspaceRailToggle />
       </div>
     </aside>

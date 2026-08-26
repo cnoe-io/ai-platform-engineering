@@ -264,6 +264,9 @@ export interface UserSettings {
     agent_completion_browser_enabled: boolean;
     /** Play the optional completion chime with a background completion alert. */
     agent_completion_chime_enabled: boolean;
+    // Per-user visibility for globally owned platform health events. Turning
+    // this off never changes or resolves the underlying platform incident.
+    platform_health: boolean;
   };
   defaults: {
     default_model: string;
@@ -301,6 +304,7 @@ export const DEFAULT_USER_SETTINGS: Omit<
     weekly_summary: false,
     agent_completion_browser_enabled: false,
     agent_completion_chime_enabled: false,
+    platform_health: true,
   },
   defaults: {
     default_model: "gpt-4o",
