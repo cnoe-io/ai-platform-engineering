@@ -232,7 +232,7 @@ async def create_task(payload: TaskCreate, request: Request) -> dict:
         )
 
     # The server owns the id. Whatever the client sent is discarded
-    
+
     task = payload.model_copy(update={"id": generate_task_id(payload.name)})
 
     # last_ack is server-managed

@@ -134,7 +134,7 @@ The Ontology Agent automatically discovers relationships between entity types. S
 
 | Technology | Purpose |
 |------------|---------|
-| **Python 3.13+** | Primary language with UV package manager |
+| **Python 3.14** | Primary language with UV package manager |
 | **FastAPI** | REST API framework |
 | **LangChain** | Document processing and LLM integration |
 | **LangGraph** | Agent workflows for ontology discovery |
