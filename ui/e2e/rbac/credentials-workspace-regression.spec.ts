@@ -240,7 +240,7 @@ test.describe("mocked credentials workspace browser regression", () => {
       await page.getByRole("button", { name: /share github token/i }).click();
       const sharePanel = page.getByRole("region", { name: /github token team access/i });
       await expect(sharePanel).toBeVisible();
-      await sharePanel.getByRole("button", { name: /team access/i }).click();
+      await sharePanel.getByRole("combobox", { name: /team access/i }).click();
       await page.getByRole("option", { name: /Ops Team/ }).click();
       await sharePanel.getByRole("button", { name: /grant access/i }).click();
       await expect.poll(() => credentialsMocks.shareRequests.length).toBe(1);

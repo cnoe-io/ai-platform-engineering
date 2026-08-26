@@ -250,7 +250,7 @@ describe("MCPServerEditor credential sources", () => {
   });
 
 
-  it("lets users search and select an AgentGateway target", async () => {
+  it("updates the endpoint from the selected AgentGateway target", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {
         return response({
@@ -279,7 +279,6 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.click(await screen.findByRole("combobox", { name: /agentgateway target/i }));
-    await user.type(screen.getByPlaceholderText(/search targets/i), "test");
     await user.click(screen.getByRole("option", { name: /Test ArgoCD/i }));
 
     expect(screen.getByLabelText(/upstream url|endpoint url/i)).toHaveValue("http://mcp-argocd:8000/mcp");
