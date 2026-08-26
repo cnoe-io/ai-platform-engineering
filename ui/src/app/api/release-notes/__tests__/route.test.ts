@@ -3,18 +3,18 @@
  */
 import { NextRequest } from "next/server";
 
-const RAW_BASE = "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/docs/releases";
+const RAW_BASE = "https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/docs/releases";
 
 const LISTING = [
   { name: "README.md", type: "file", download_url: `${RAW_BASE}/README.md` },
-  { name: "2026-05-26-release-0-5-x.md", type: "file", download_url: `${RAW_BASE}/2026-05-26-release-0-5-x.md` },
-  { name: "2026-06-01-release-0-6-x.md", type: "file", download_url: `${RAW_BASE}/2026-06-01-release-0-6-x.md` },
+  { name: "2026-05-26-release-0-5-0.md", type: "file", download_url: `${RAW_BASE}/2026-05-26-release-0-5-0.md` },
+  { name: "2026-06-01-release-0-6-0.md", type: "file", download_url: `${RAW_BASE}/2026-06-01-release-0-6-0.md` },
   { name: "subdir", type: "dir", download_url: null },
 ];
 
 const BODY_050 = `---
-slug: release-0.5.x
-title: "Release 0.5.x — Admin UI Polish"
+slug: release-0.5.0
+title: "Release 0.5.0 — Admin UI Polish"
 date: 2026-05-26
 ---
 
@@ -30,13 +30,13 @@ A small maintenance release.
 
 - **Admin UI**: shared pickers
 
-## Upgrade Guide: 0.4.x → 0.5.x
+## Upgrade Guide: 0.4.0 → 0.5.0
 
 Run the migration runbook before applying schema changes.
 `;
 
 const BODY_060 = `---
-title: "Release 0.6.x — Big Stuff"
+title: "Release 0.6.0 — Big Stuff"
 date: 2026-06-01
 ---
 
@@ -57,10 +57,10 @@ function mockGithub() {
     if (hostname === "api.github.com") {
       return { ok: true, json: async () => LISTING } as unknown as Response;
     }
-    if (u.endsWith("0-5-x.md")) {
+    if (u.endsWith("0-5-0.md")) {
       return { ok: true, text: async () => BODY_050 } as unknown as Response;
     }
-    if (u.endsWith("0-6-x.md")) {
+    if (u.endsWith("0-6-0.md")) {
       return { ok: true, text: async () => BODY_060 } as unknown as Response;
     }
     return { ok: false, status: 404, text: async () => "", json: async () => ({}) } as unknown as Response;
@@ -81,9 +81,9 @@ describe("/api/release-notes", () => {
   it("returns the series notes with frontmatter and truncate marker stripped", async () => {
     const data = await callGet("0.5.0");
     expect(data.matchedVersion).toBe("0.5.0");
-    expect(data.title).toBe("Release 0.5.x — Admin UI Polish");
+    expect(data.title).toBe("Release 0.5.0 — Admin UI Polish");
     // Frontmatter is removed.
-    expect(data.body).not.toContain("slug: release-0.5.x");
+    expect(data.body).not.toContain("slug: release-0.5.0");
     // Docusaurus truncate marker is removed.
     expect(data.body).not.toContain("<!-- truncate -->");
     // Real markdown content is preserved.
@@ -94,13 +94,13 @@ describe("/api/release-notes", () => {
   it("resolves a patch version to its minor series post", async () => {
     const data = await callGet("0.5.42");
     expect(data.matchedVersion).toBe("0.5.0");
-    expect(data.title).toBe("Release 0.5.x — Admin UI Polish");
+    expect(data.title).toBe("Release 0.5.0 — Admin UI Polish");
   });
 
   it("resolves a prerelease to its own series post", async () => {
     const data = await callGet("0.6.1-dev.14");
     expect(data.matchedVersion).toBe("0.6.0");
-    expect(data.title).toBe("Release 0.6.x — Big Stuff");
+    expect(data.title).toBe("Release 0.6.0 — Big Stuff");
   });
 
   it("does not fall back to an older series when the requested series has no post", async () => {

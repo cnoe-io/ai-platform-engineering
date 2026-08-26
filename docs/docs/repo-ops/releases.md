@@ -50,7 +50,7 @@ Trigger `release-finalize.yml` via GitHub Actions or CLI:
 
 ```bash
 gh workflow run release-finalize.yml \
-  --repo cnoe-io/ai-platform-engineering \
+  --repo caipe-io/ai-platform-engineering \
   -f version=x.y.z
 ```
 
@@ -73,9 +73,9 @@ To run manually:
 ```
 
 The `/release-docs` skill maintains one post per minor series,
-`docs/releases/YYYY-MM-DD-release-x-y-x.md`, with release notes and the upgrade guide
-inline. An `x.y.0` tag starts a new series post; a patch tag updates the existing one
-instead of adding a post.
+`docs/releases/YYYY-MM-DD-release-x-y-0.md`, with release notes and the upgrade guide
+inline. Each post covers the cumulative diff since the previous minor's `.0`. An `x.y.0`
+tag starts a new post; a patch tag updates the existing one instead of adding a post.
 
 ---
 

@@ -11,9 +11,9 @@ const RELEASES_DIR = "docs/releases";
 const CONTENTS_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${RELEASES_DIR}?ref=${GITHUB_REF}`;
 const RAW_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_REF}/${RELEASES_DIR}`;
 
-// One curated post per minor series, named `YYYY-MM-DD-release-X-Y-x.md`. The
-// numeric trailing segment also matches the retired per-patch posts.
-const RELEASE_FILE_PATTERN = /release-(\d+)-(\d+)-(?:x|\d+)\.mdx?$/i;
+// One curated post per minor series, named `YYYY-MM-DD-release-X-Y-0.md`. Retired
+// per-patch posts share the shape, so only the major and minor are used.
+const RELEASE_FILE_PATTERN = /release-(\d+)-(\d+)-(\d+)\.mdx?$/i;
 
 const LISTING_TTL_MS = 10 * 60 * 1000;
 const CONTENT_TTL_MS = 10 * 60 * 1000;

@@ -39,7 +39,7 @@ const VERSIONS_CONFIG_JSON = path.join(DOCS_DIR, 'versions-config.json');
 const NODE_MODULES = path.join(DOCS_DIR, 'node_modules');
 
 // Docs content lives at repo `docs/docs/`; links are authored relative to that.
-const GITHUB_BASE = 'https://github.com/cnoe-io/ai-platform-engineering';
+const GITHUB_BASE = 'https://github.com/caipe-io/ai-platform-engineering';
 const DOC_CONTENT_ROOT = '/docs/docs';
 
 function run(cmd, opts = {}) {
@@ -298,18 +298,14 @@ try {
 fs.writeFileSync(VERSIONS_JSON, JSON.stringify(versions, null, 2) + '\n');
 
 // versions-config.json: latest at root path, others under their version path.
-// One version is published per minor series, so the dropdown is labelled by series
-// (`0.5.x`) while still serving that series' latest patch content.
-const seriesLabel = (version) => `${version.split('.').slice(0, 2).join('.')}.x`;
-
 const latest = versions[0];
 const versionsBlock = {
   current: { label: 'main 🚧', path: 'next', badge: true },
 };
 if (latest) {
-  versionsBlock[latest] = { label: `${seriesLabel(latest)} (Latest)`, path: '', badge: false };
+  versionsBlock[latest] = { label: `${latest} (Latest)`, path: '', badge: false };
   for (const v of versions.slice(1)) {
-    versionsBlock[v] = { label: seriesLabel(v), path: v, badge: false };
+    versionsBlock[v] = { label: v, path: v, badge: false };
   }
 }
 

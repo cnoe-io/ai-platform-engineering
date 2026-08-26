@@ -20,14 +20,15 @@ Generate a combined release blog post for a new version.
 
 **Use when:** cutting a release or when someone asks "what changed in 0.4.x"
 
-**Produces:** `docs/releases/YYYY-MM-DD-release-X-Y-x.md` — one post per minor series
-(`release-0.5.x`), containing the series narrative and upgrade guide, picked up by the
-Docusaurus releases plugin. A new `X.Y.0` tag starts a new post; patch releases are folded
-into the existing series post rather than getting one of their own.
+**Produces:** `docs/releases/YYYY-MM-DD-release-X-Y-0.md`, one post per minor series,
+slugged `release-X.Y.0`, containing the narrative and upgrade guide, picked up by the
+Docusaurus releases plugin. Each post covers the cumulative diff since the previous
+minor's `.0`. An `X.Y.0` tag starts a new post; patch releases fold into the existing post
+rather than getting one of their own.
 
 **Inputs:** to-version, from-version (auto-detected from git tags if omitted), optional `values.yaml` for personal impact analysis.
 
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/release-docs/SKILL.md)
+→ [View skill source](https://github.com/caipe-io/ai-platform-engineering/blob/main/.claude/skills/release-docs/SKILL.md)
 
 ---
 
@@ -49,7 +50,7 @@ Audit and sync all documentation surfaces after a release or feature addition.
 | 6 | Sidebar | Doc directory not in `sidebars.ts` |
 | 7 | Navbar label | Version label behind latest tag |
 
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/update-docs/SKILL.md)
+→ [View skill source](https://github.com/caipe-io/ai-platform-engineering/blob/main/.claude/skills/update-docs/SKILL.md)
 
 ---
 
@@ -59,7 +60,7 @@ Run the full end-to-end integration test suite against a running Docker Compose 
 
 **Use when:** validating a feature branch before raising a PR, or after a major refactor.
 
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/integration-testing/SKILL.md)
+→ [View skill source](https://github.com/caipe-io/ai-platform-engineering/blob/main/.claude/skills/integration-testing/SKILL.md)
 
 ---
 
@@ -77,7 +78,7 @@ Run all pre-commit quality gates — lint, Python tests, UI tests — in one com
 ./skills/quality-gates/run_all.sh --fix
 ```
 
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/quality-gates/)
+→ [View skill source](https://github.com/caipe-io/ai-platform-engineering/blob/main/.claude/skills/quality-gates/)
 
 ---
 
