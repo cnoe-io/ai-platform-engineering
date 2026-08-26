@@ -17,7 +17,7 @@ This guide walks you through creating an **Amazon EKS** (Elastic Kubernetes Serv
 You need the repo to use the EKS cluster configuration example and to follow the same paths as this guide.
 
 ```bash
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
+git clone https://github.com/caipe-io/ai-platform-engineering.git
 cd ai-platform-engineering
 ```
 
@@ -115,7 +115,7 @@ You have two main options:
 Install the CAIPE Helm chart directly on the cluster. Configure secrets and LLM settings as described in the Helm guide.
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+helm install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \

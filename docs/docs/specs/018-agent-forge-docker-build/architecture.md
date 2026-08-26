@@ -213,7 +213,7 @@ EXPOSE 7007
 
 ### In Docker Run:
 ```bash
-docker run -p 7007:3000 ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+docker run -p 7007:3000 ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 ### In Workflow (if needed):
@@ -274,7 +274,7 @@ No additional configuration needed!
 
 **Registry:** GitHub Container Registry (ghcr.io)
 
-**Image Name:** `ghcr.io/cnoe-io/backstage-plugin-agent-forge`
+**Image Name:** `ghcr.io/caipe-io/backstage-plugin-agent-forge`
 
 **Available Tags:**
 - `latest` - Latest stable build
@@ -285,7 +285,7 @@ No additional configuration needed!
 ### Pull the Image
 
 ```bash
-docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+docker pull ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 ### Run the Container
@@ -294,7 +294,7 @@ docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
 docker run -d \
   -p 7007:3000 \
   --name agent-forge-plugin \
-  ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+  ghcr.io/caipe-io/backstage-plugin-agent-forge:latest
 ```
 
 

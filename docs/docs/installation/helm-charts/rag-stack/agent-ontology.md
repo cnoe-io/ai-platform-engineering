@@ -21,10 +21,10 @@ A Helm chart for Kubernetes
 
 ```bash
 # Add and install the chart
-helm install agent-ontology oci://ghcr.io/cnoe-io/charts/agent-ontology --version 0.5.68
+helm install agent-ontology oci://ghcr.io/caipe-io/charts/agent-ontology --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade agent-ontology oci://ghcr.io/cnoe-io/charts/agent-ontology --version 0.5.68
+helm upgrade agent-ontology oci://ghcr.io/caipe-io/charts/agent-ontology --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install agent-ontology oci://ghcr.io/cnoe-io/charts/agent-ontology --version 0.5.68 \
+helm install agent-ontology oci://ghcr.io/caipe-io/charts/agent-ontology --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install agent-ontology oci://ghcr.io/cnoe-io/charts/agent-ontology --version 0.5.68 \
+helm install agent-ontology oci://ghcr.io/caipe-io/charts/agent-ontology --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/agent-ontology --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/agent-ontology --version 0.5.68
 ```
 
 ## Reading the Values Table

@@ -24,10 +24,10 @@ cluster-internal (ClusterIP only — no Ingress).
 
 ```bash
 # Add and install the chart
-helm install skill-scanner oci://ghcr.io/cnoe-io/charts/skill-scanner --version 0.5.68
+helm install skill-scanner oci://ghcr.io/caipe-io/charts/skill-scanner --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade skill-scanner oci://ghcr.io/cnoe-io/charts/skill-scanner --version 0.5.68
+helm upgrade skill-scanner oci://ghcr.io/caipe-io/charts/skill-scanner --version 0.5.68
 ```
 
 ## Customizing Values
@@ -36,15 +36,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install skill-scanner oci://ghcr.io/cnoe-io/charts/skill-scanner --version 0.5.68 \
+helm install skill-scanner oci://ghcr.io/caipe-io/charts/skill-scanner --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install skill-scanner oci://ghcr.io/cnoe-io/charts/skill-scanner --version 0.5.68 \
+helm install skill-scanner oci://ghcr.io/caipe-io/charts/skill-scanner --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/skill-scanner --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/skill-scanner --version 0.5.68
 ```
 
 ## Reading the Values Table

@@ -7,7 +7,7 @@ tags: [release]
 ---
 
 > Released: 2026-07-15
-> Chart: `oci://ghcr.io/cnoe-io/charts/ai-platform-engineering:0.5.52`
+> Chart: `oci://ghcr.io/caipe-io/charts/ai-platform-engineering:0.5.52`
 > Previous release: 0.5.51
 
 ## Highlights
@@ -26,13 +26,13 @@ The Agents surface now uses URL-backed deep links throughout, so resource editor
 - MCP Servers: `?tab=mcp-servers&server=<id>`
 - LLM Models: `?tab=llm-models&model=<id>`
 
-([#2212](https://github.com/cnoe-io/ai-platform-engineering/pull/2212))
+([#2212](https://github.com/caipe-io/ai-platform-engineering/pull/2212))
 
 ### Dynamic-agents Prometheus metrics port configurable
 
 A new `METRICS_PORT` env var (and corresponding Helm value) lets the dynamic-agents Prometheus `/metrics` endpoint be served on a dedicated port, separate from the main API port. This unblocks running the main API port under strict mTLS while keeping the metrics endpoint accessible to Prometheus without mTLS.
 
-([#2135](https://github.com/cnoe-io/ai-platform-engineering/pull/2135))
+([#2135](https://github.com/caipe-io/ai-platform-engineering/pull/2135))
 
 ## Bug Fixes
 
@@ -40,25 +40,25 @@ A new `METRICS_PORT` env var (and corresponding Helm value) lets the dynamic-age
 
 `TokenExpiryGuard` was treating any transient silent-refresh failure as a terminal logout trigger. Users in `caipe-preview` environments were being kicked out and forced to sign in again despite the UI banner claiming a refresh was in progress. The guard now tolerates transient failures and only forces logout after exhausting retries.
 
-([#2220](https://github.com/cnoe-io/ai-platform-engineering/pull/2220))
+([#2220](https://github.com/caipe-io/ai-platform-engineering/pull/2220))
 
 ### Slack escalation and message-delete no longer fail with HTTP 400
 
 `_resolve_conversation_id` performs a get-or-create lookup keyed by `thread_ts`, but the conversation-creation API validates that `agent_id` is non-empty before reaching the lookup. The Slack bot's "Get help" escalation and message-delete handlers were calling `_resolve_conversation_id` without passing `agent_id`, causing an HTTP 400 on every call. The `agent_id` is now passed correctly in both handlers.
 
-([#2222](https://github.com/cnoe-io/ai-platform-engineering/pull/2222))
+([#2222](https://github.com/caipe-io/ai-platform-engineering/pull/2222))
 
 ### Admin view-as access preview repaired
 
 The Admin **View as** flow now provides an accurate read-only access preview. The previous implementation was showing an opaque user ID or blank page. The fix uses access simulation (not session impersonation) — the signed-in admin session is unchanged, no target-user token is minted, and no session state is altered.
 
-([#2206](https://github.com/cnoe-io/ai-platform-engineering/pull/2206))
+([#2206](https://github.com/caipe-io/ai-platform-engineering/pull/2206))
 
 ### Unlinked access modal scrolls instead of overflowing
 
 The "Unlinked Access" modal (Platform Settings tab) now wraps its scopes list and add-scope form in a scrollable container (`max-h-[65vh] overflow-y-auto`) instead of growing the dialog past the viewport.
 
-([#2224](https://github.com/cnoe-io/ai-platform-engineering/pull/2224))
+([#2224](https://github.com/caipe-io/ai-platform-engineering/pull/2224))
 
 ## Breaking Changes
 
@@ -78,7 +78,7 @@ dynamic-agents:
 
 ```bash
 helm upgrade ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version 0.5.52 \
   -f your-values.yaml
 ```

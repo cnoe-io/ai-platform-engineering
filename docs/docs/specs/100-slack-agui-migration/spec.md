@@ -2,8 +2,23 @@
 
 **Feature Branch**: `100-slack-agui-migration`  
 **Created**: 2026-04-13  
-**Status**: Draft  
+**Status**: Complete
 **Input**: User description: "Migrate the CAIPE Slack bot from supervisor (A2A protocol) to dynamic agents (AG-UI protocol) for release 0.4.0. The supervisor is deprecated; the Slack bot will exclusively use dynamic agents. This includes rewriting the SSE client for AG-UI endpoints, replacing the A2A streaming handler with AG-UI event mapping, updating HITL support for AG-UI interrupt format, rewiring app.py event handlers, updating Docker/config, and replacing tests. Slack conversations do NOT appear in web UI. Conversation IDs are deterministic UUID v5 from thread_ts. Both streaming (real users) and invoke (bot users) paths are supported. A2A code is removed entirely."
+
+## Completion Evidence
+
+The completed implementation is verifiable in the repository, independent of
+this specification:
+
+- `ai_platform_engineering/integrations/slack_bot/sse_client.py` implements
+  Dynamic Agents AG-UI stream and invoke requests with `protocol: "agui"`.
+- `ai_platform_engineering/integrations/slack_bot/utils/ai.py` implements
+  AG-UI streaming, invoke, and interrupt handling for Slack.
+- `test_sse_client.py`, `test_hitl_handler.py`, and
+  `test_metadata_leak_e2e.py` cover the protocol client, interrupt parsing,
+  and Slack streaming behavior.
+- A repository search for `supervisor` or `a2a` in the Slack bot Python source
+  returns no matches.
 
 ## User Scenarios & Testing *(mandatory)*
 

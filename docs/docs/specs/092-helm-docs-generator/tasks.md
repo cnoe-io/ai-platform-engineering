@@ -36,7 +36,7 @@ sidebar_position: 6
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T004 Implement version resolution function in `scripts/generate-helm-chart-docs.sh`: (1) check `CHART_VERSION` env var, (2) query `helm show chart oci://ghcr.io/cnoe-io/charts/ai-platform-engineering` for latest published version, (3) fall back to local `appVersion` from `charts/ai-platform-engineering/Chart.yaml` with stderr warning
+- [x] T004 Implement version resolution function in `scripts/generate-helm-chart-docs.sh`: (1) check `CHART_VERSION` env var, (2) query `helm show chart oci://ghcr.io/caipe-io/charts/ai-platform-engineering` for latest published version, (3) fall back to local `appVersion` from `charts/ai-platform-engineering/Chart.yaml` with stderr warning
 - [x] T005 Implement RC version stripping function in `scripts/generate-helm-chart-docs.sh`: `strip_rc_version()` that removes `-rc.*`, `-alpha.*`, `-beta.*`, `-pre.*` suffixes from version strings
 - [x] T006 Implement chart discovery function in `scripts/generate-helm-chart-docs.sh`: auto-discover all chart directories under `charts/ai-platform-engineering/charts/*/` and `charts/rag-stack/charts/*/`, plus the two parent chart directories, by checking for `Chart.yaml` existence
 - [x] T007 Implement `Chart.yaml` parsing function in `scripts/generate-helm-chart-docs.sh`: extract name, description (default: "A Helm chart for Kubernetes"), version, appVersion, type, sources, dependencies using `yq`

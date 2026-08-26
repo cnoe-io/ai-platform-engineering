@@ -94,7 +94,7 @@ export CAIPE_VERSION=<release-version>
 Minimal install — UI, Dynamic Agents, MongoDB, and a starter MCP server:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+helm install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \
@@ -106,7 +106,7 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
 With GitHub, ArgoCD, and RAG:
 
 ```bash
-helm upgrade --install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+helm upgrade --install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \
@@ -145,7 +145,7 @@ caipe-ui:
 ```
 
 ```bash
-helm upgrade --install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+helm upgrade --install ai-platform-engineering oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \

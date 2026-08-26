@@ -7,7 +7,7 @@ sidebar_position: 3
 
 ## R1: OCI Registry Version Lookup
 
-**Decision**: Use `helm show chart oci://ghcr.io/cnoe-io/charts/ai-platform-engineering | yq '.version'` to get the latest published version.
+**Decision**: Use `helm show chart oci://ghcr.io/caipe-io/charts/ai-platform-engineering | yq '.version'` to get the latest published version.
 
 **Rationale**: The `helm show chart` command fetches the latest tag from the OCI registry without downloading the full chart. Combined with `yq` for YAML parsing, this gives us the published `version` field. Since published releases don't contain RC suffixes, this directly satisfies FR-007. If the command fails (no network, no auth), we fall back to the local `appVersion` from `Chart.yaml`.
 

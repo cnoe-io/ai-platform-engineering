@@ -126,7 +126,7 @@ const config: Config = {
           routeBasePath: '/docs',
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
+            'https://github.com/caipe-io/ai-platform-engineering/tree/main/docs',
           ...(versionsConfig
             ? {
                 lastVersion: versionsConfig.lastVersion,
@@ -143,7 +143,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
+            'https://github.com/caipe-io/ai-platform-engineering/tree/main/docs',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
@@ -187,13 +187,13 @@ const config: Config = {
         {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/blog', label: 'Blog', position: 'left'},
         {
-          href: 'https://github.com/cnoe-io/ai-platform-engineering',
+          href: 'https://github.com/caipe-io/ai-platform-engineering',
           label: '⭐ Star Repo',
           position: 'right',
           className: 'navbar-star-btn',
         },
         {
-          href: 'https://github.com/cnoe-io/ai-platform-engineering',
+          href: 'https://github.com/caipe-io/ai-platform-engineering',
           position: 'right',
           className: 'header-github-link',
           'aria-label': 'GitHub repository',
@@ -233,7 +233,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub Repository',
-              href: 'https://github.com/cnoe-io/ai-platform-engineering',
+              href: 'https://github.com/caipe-io/ai-platform-engineering',
             },
             {
               label: 'Project Roadmap',
@@ -241,7 +241,7 @@ const config: Config = {
             },
             {
               label: 'Github Issue Tracker',
-              href: 'https://github.com/cnoe-io/ai-platform-engineering/issues',
+              href: 'https://github.com/caipe-io/ai-platform-engineering/issues',
             },
             {
               label: 'Community Meeting',
