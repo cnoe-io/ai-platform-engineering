@@ -156,6 +156,12 @@ describe("ApplicationNavigationSearch", () => {
           meta: { total: 1 },
         });
       }
+      if (url.startsWith("/api/workflow-configs")) {
+        return response([
+          { _id: "workflow-visible",name: "Release workflow",description: "Ship a release" },
+          { _id: "workflow-unmatched",name: "Incident workflow",description: "Triage incidents" },
+        ]);
+      }
       return response({},false);
     });
 
@@ -169,11 +175,13 @@ describe("ApplicationNavigationSearch", () => {
       "resource-agent-agent-visible",
       "resource-conversation-conversation-visible",
       "resource-skill-skill-visible",
+      "resource-workflow-workflow-visible",
     ]);
     expect(results.map((result) => result.href)).toEqual([
       "/dynamic-agents?tab=agents&agent=agent-visible",
       "/chat/conversation-visible",
       "/skills/workspace/skill-visible",
+      "/workflows",
     ]);
   });
 

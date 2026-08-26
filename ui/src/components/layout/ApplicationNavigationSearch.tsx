@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Search,
   Zap,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import React from "react";
@@ -50,6 +51,12 @@ interface ConversationSearchResult {
 interface SkillSearchResult {
   description?: string;
   id: string;
+  name: string;
+}
+
+interface WorkflowSearchResult {
+  _id: string;
+  description?: string;
   name: string;
 }
 
@@ -199,6 +206,10 @@ export async function searchApplicationResources(
       credentials: "same-origin",
       signal,
     }).then(responseJson),
+    fetchImplementation("/api/workflow-configs", {
+      credentials: "same-origin",
+      signal,
+    }).then(responseJson),
   ]);
 
   if (signal?.aborted) return [];
@@ -268,7 +279,29 @@ export async function searchApplicationResources(
       section: "resources",
     }));
 
-  return [...agents,...conversations,...skills];
+  const workflows = records(fulfilled(3))
+    .map((workflow): WorkflowSearchResult => ({
+      _id: stringValue(workflow._id),
+      name: stringValue(workflow.name),
+      description: stringValue(workflow.description),
+    }))
+    .filter((workflow) => workflow._id && workflow.name)
+    .filter((workflow) => {
+      const haystack = `${workflow.name} ${workflow.description ?? ""}`.toLocaleLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    })
+    .slice(0,8)
+    .map((workflow): ApplicationNavigationSearchEntry => ({
+      id: `resource-workflow-${workflow._id}`,
+      label: workflow.name,
+      description: workflow.description,
+      group: "Workflow",
+      href: "/workflows",
+      icon: Workflow,
+      section: "resources",
+    }));
+
+  return [...agents,...conversations,...skills,...workflows];
 }
 
 function SearchResult({

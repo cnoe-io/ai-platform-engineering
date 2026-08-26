@@ -20,7 +20,7 @@ knowledge bases, credentials, RBAC, audit logs, and platform health.
 
 ## Global Search and Command Palette
 
-- Select **Search** above Home, or press **Command+K** on macOS and
+- Select the **Search** control in the top-right application header, or press **Command+K** on macOS and
   **Ctrl+K** on Windows or Linux.
 - Navigation results are built from the same feature flags and admin tab gates
   as the sidebar. Hidden or disabled destinations are not added to the index.
@@ -35,13 +35,14 @@ Initial resource coverage:
 | Agents | OpenFGA `agent#use` filtering | Agent editor |
 | Conversations | Ownership, sharing, and OpenFGA discovery filtering | Chat thread |
 | Skills | Skill catalog OpenFGA read filtering | Skill workspace |
+| Workflows | Workflow visibility and OpenFGA read filtering | Workflows |
 
 Deferred resource types:
 
 - Knowledge Base collections: add after the collection page supports a stable
   item deep link.
-- Workflows, schedules, MCP servers, and models: add after their list APIs
-  expose user-scoped search contracts and stable item deep links.
+- Schedules, MCP servers, and models: add after their list APIs expose
+  user-scoped search contracts and stable item deep links.
 - A dedicated search service is intentionally deferred. The palette performs
   small parallel queries against authoritative APIs and tolerates a partial
   endpoint failure.
