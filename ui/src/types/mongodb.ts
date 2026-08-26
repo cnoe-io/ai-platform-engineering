@@ -114,13 +114,17 @@ export interface Conversation {
   is_pinned: boolean;
   deleted_at?: Date | null; // Soft-delete timestamp; null = not deleted; auto-purged after 7 days
   // Origin marker. The chat sidebar's "All" view shows both human-typed
-  // and autonomous conversations; only `slack` is excluded from the
-  // default listing because Slack threads have their own dedicated UI.
-  // The autonomous_agents service writes conversations with
-  // `source: 'autonomous'` so operators can also pivot the sidebar to
+  // and autonomous conversations; `slack` and `api` are excluded from the
+  // default listing because Slack threads have their own dedicated UI and
+  // `api` conversations (e.g. scripts calling /api/chat/conversations +
+  // /api/v1/chat/invoke directly, like the ask-forge CLI) have no UI
+  // transcript to show. The autonomous_agents service writes conversations
+  // with `source: 'autonomous'` so operators can also pivot the sidebar to
   // "what did the autonomous agent do today?" via the Autonomous filter
-  // chip. Undefined = legacy human-typed conversation.
-  source?: 'web' | 'slack' | 'autonomous';
+  // chip. Undefined = legacy human-typed conversation. Stats/insights
+  // endpoints intentionally do not filter on `source`, so `api` conversations
+  // are hidden from chat history but still counted there.
+  source?: 'web' | 'slack' | 'autonomous' | 'api';
   // Set when `source === 'autonomous'`: the upstream autonomous task
   // and the specific run that produced this conversation. Lets the
   // run-history UI deep-link from a run row into the chat thread.
@@ -354,6 +358,12 @@ export interface CreateConversationRequest {
   idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
   metadata?: Record<string, unknown>; // Optional: arbitrary key/values from client
   tags?: string[];
+  // Optional: caller-declared origin. Only 'api' is honored here — it marks a
+  // conversation created by a direct API caller (script/CLI) rather than the
+  // web UI, so the sidebar can hide it while insights/stats keep counting it.
+  // Other values are ignored; 'web'/'slack'/'autonomous' are still assigned
+  // by their respective server-side paths, not the client.
+  source?: 'api';
 }
 
 /** Response from POST /api/chat/conversations */
