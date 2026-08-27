@@ -269,14 +269,12 @@ data/
 !.cursor/hooks/
 !.cursor/hooks.json
 
-# Claude Code — track commands, skills, and docs, ignore everything else
+# Claude Code — track commands and skills, ignore everything else
 .claude/*
 !.claude/commands/
 !.claude/commands/**
 !.claude/skills
 !.claude/skills/**
-!.claude/docs
-!.claude/docs/**
 
 # .agents/skills symlinks to .claude/skills for ~/.agents/skills compatibility
 !.agents/

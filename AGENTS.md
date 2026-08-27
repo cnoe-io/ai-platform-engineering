@@ -44,8 +44,6 @@ RBAC integration and browser coverage is in `tests/rbac/` and `ui/e2e/rbac/`.
 
 Each component has its own environment variables - see `env.example` in `ui/` and READMEs in `ai_platform_engineering/knowledge_bases/rag/`.
 
-For deeper Dynamic Agents write-API mechanics (creation validation, owner-team gotchas, cross-environment copying), see [.claude/docs/API.md](.claude/docs/API.md).
-
 ## Documentation
 
 - **Architecture & concepts** - Keep updated in `docs/`
