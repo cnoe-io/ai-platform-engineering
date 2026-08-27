@@ -87,12 +87,15 @@ function AdminApplicationNavigation(): React.ReactElement | null {
   const visibleDestinations = categories.flatMap(
     (category) => category.destinations,
   );
+  const onAdminRoute = pathname?.startsWith("/admin") ?? false;
   const requestedDestination = findAdminDestinationByPath(pathname);
-  const activeDestination = requestedDestination && visibleDestinations.some(
+  const activeDestination = onAdminRoute && requestedDestination && visibleDestinations.some(
     (destination) => destination.id === requestedDestination.id,
   )
     ? requestedDestination
-    : visibleDestinations[0];
+    : onAdminRoute
+      ? visibleDestinations[0]
+      : undefined;
 
   return categories.length > 0 ? (
     <AdminNavigation
