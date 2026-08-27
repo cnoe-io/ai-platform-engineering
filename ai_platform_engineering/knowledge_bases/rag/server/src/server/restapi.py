@@ -890,9 +890,33 @@ async def list_datasource_documents(
       return None
 
     async def _fetch_total_documents():
-      try:
-        res = await asyncio.to_thread(
-          vector_db.client.query,
+      def _iterate_distinct_docs():
+        # Use query_iterator if available to stream document_id without QueryNode result size limits
+        if hasattr(vector_db.client, "query_iterator") and callable(getattr(vector_db.client, "query_iterator")):
+          try:
+            iterator = vector_db.client.query_iterator(
+              collection_name=default_collection_name_docs,
+              filter=f"datasource_id == '{datasource_id}'",
+              output_fields=["document_id"],
+              batch_size=1000,
+            )
+            unique_docs = set()
+            while True:
+              rows = iterator.next()
+              if not rows or not isinstance(rows, (list, tuple)):
+                break
+              for row in rows:
+                if isinstance(row, dict) and (doc_id := row.get("document_id")):
+                  unique_docs.add(doc_id)
+            if hasattr(iterator, "close") and callable(getattr(iterator, "close")):
+              iterator.close()
+            if unique_docs:
+              return len(unique_docs)
+          except Exception:
+            logger.exception("query_iterator failed, falling back to group_by query")
+
+        # Fallback to standard query with group_by_field
+        res = vector_db.client.query(
           collection_name=default_collection_name_docs,
           filter=f"datasource_id == '{datasource_id}'",
           output_fields=["document_id"],
@@ -902,9 +926,12 @@ async def list_datasource_documents(
         if not res:
           return 0
         return len(res)
+
+      try:
+        return await asyncio.to_thread(_iterate_distinct_docs)
       except Exception:
         logger.exception("Failed to query unique document count from Milvus")
-      return None
+        return None
 
     results, milvus_total_chunks, milvus_total_docs = await asyncio.gather(
       _fetch_chunks(),
@@ -953,14 +980,8 @@ async def list_datasource_documents(
     # Convert to list and sort by document_id
     documents = sorted(documents_map.values(), key=lambda d: d.document_id)
 
-    if milvus_total_chunks is None or milvus_total_docs is None:
-      raise HTTPException(
-        status_code=500,
-        detail="Failed to compute total_documents/total_chunks from Milvus",
-      )
-
-    actual_total_chunks = milvus_total_chunks
-    actual_total_documents = milvus_total_docs
+    actual_total_chunks = milvus_total_chunks if milvus_total_chunks is not None else len(actual_results)
+    actual_total_documents = milvus_total_docs if milvus_total_docs is not None else (milvus_total_chunks if milvus_total_chunks is not None else len(documents))
 
     return DatasourceDocumentsResponse(
       datasource_id=datasource_id,
