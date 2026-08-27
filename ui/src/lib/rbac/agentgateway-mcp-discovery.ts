@@ -34,6 +34,15 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       fallback_env: "GITLAB_PERSONAL_ACCESS_TOKEN",
     },
   ],
+  figma: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "figma",
+      target: "header",
+      fallback_env: "FIGMA_ACCESS_TOKEN",
+    },
+  ],
   jira: [
     {
       kind: "provider_connection",

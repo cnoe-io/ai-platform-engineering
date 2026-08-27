@@ -403,6 +403,19 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-confluence.mcp.mode | string | `"http"` |  |
 | mcp-confluence.mcp.port | int | `8000` |  |
 | mcp-confluence.nameOverride | string | `"mcp-confluence"` |  |
+| mcp-figma.image.pullPolicy | string | `"IfNotPresent"` |  |
+| mcp-figma.image.repository | string | `"ghcr.io/cnoe-io/mcp-figma"` |  |
+| mcp-figma.mcp.agentgateway.enabled | bool | `true` |  |
+| mcp-figma.mcp.agentgateway.protocol | string | `"StreamableHTTP"` |  |
+| mcp-figma.mcp.env.FIGMA_AUTH_MODE | string | `"pat"` |  |
+| mcp-figma.mcp.env.FIGMA_BASE_URL | string | `"https://api.figma.com"` |  |
+| mcp-figma.mcp.env.FIGMA_TIMEOUT_SECONDS | string | `"30"` |  |
+| mcp-figma.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
+| mcp-figma.mcp.image.repository | string | `"ghcr.io/cnoe-io/mcp-figma"` |  |
+| mcp-figma.mcp.image.tag | string | `""` |  |
+| mcp-figma.mcp.mode | string | `"http"` |  |
+| mcp-figma.mcp.port | int | `8000` |  |
+| mcp-figma.nameOverride | string | `"mcp-figma"` |  |
 | mcp-github.image.pullPolicy | string | `"IfNotPresent"` |  |
 | mcp-github.image.repository | string | `"ghcr.io/cnoe-io/mcp-github"` |  |
 | mcp-github.mcp.agentgateway.enabled | bool | `false` |  |
@@ -649,6 +662,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | tags.mcp-aws | bool | `false` |  |
 | tags.mcp-backstage | bool | `false` |  |
 | tags.mcp-confluence | bool | `false` |  |
+| tags.mcp-figma | bool | `false` |  |
 | tags.mcp-github | bool | `false` |  |
 | tags.mcp-gitlab | bool | `false` |  |
 | tags.mcp-jira | bool | `false` |  |
@@ -707,6 +721,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | mcp-aws (mcp-server) | `0.5.68` | tags: mcp-aws, complete |
 | mcp-backstage (mcp-server) | `0.5.68` | tags: mcp-backstage, basic, complete |
 | mcp-confluence (mcp-server) | `0.5.68` | tags: mcp-confluence, complete |
+| mcp-figma (mcp-server) | `0.5.68` | tags: mcp-figma |
 | mcp-github (mcp-server) | `0.5.68` | tags: mcp-github, basic, complete |
 | mcp-gitlab (mcp-server) | `0.5.68` | tags: mcp-gitlab, complete |
 | mcp-jira (mcp-server) | `0.5.68` | tags: mcp-jira, complete |

@@ -71,6 +71,19 @@ mcp_servers:
         target: header
         fallback_env: GITLAB_PERSONAL_ACCESS_TOKEN
 
+  - description: Figma files, design nodes, comments, folders, libraries, and developer resources
+    enabled: true
+    endpoint: ${FIGMA_MCP_URL:-http://localhost:18014/mcp}
+    id: figma
+    name: Figma
+    transport: http
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: figma
+        target: header
+        fallback_env: FIGMA_ACCESS_TOKEN
+
   - description: ArgoCD application and deployment management
     enabled: true
     endpoint: ${ARGOCD_MCP_URL:-http://localhost:18002/mcp}

@@ -8,6 +8,7 @@ tags:
   mcp-aws: false
   mcp-backstage: false
   mcp-confluence: false
+  mcp-figma: false
   mcp-github: false
   mcp-gitlab: false
   mcp-jira: false
@@ -456,6 +457,30 @@ mcp-confluence:
       protocol: StreamableHTTP
     env:
       TRANSPORT: "streamable-http"
+
+mcp-figma:
+  nameOverride: "mcp-figma"
+  image:
+    repository: "ghcr.io/cnoe-io/mcp-figma"
+    pullPolicy: "IfNotPresent"
+  agentSecrets:
+    requiresSecret: true
+    secretName: "figma-mcp-secret"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-figma"
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    mode: "http"
+    port: 8000
+    agentgateway:
+      enabled: true
+      protocol: StreamableHTTP
+      providerTokenAuth: true
+    env:
+      FIGMA_BASE_URL: "https://api.figma.com"
+      FIGMA_AUTH_MODE: "pat"
+      FIGMA_TIMEOUT_SECONDS: "30"
 
 mcp-github:
   nameOverride: "mcp-github"

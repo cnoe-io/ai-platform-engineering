@@ -283,6 +283,7 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
             { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
             { type: 'doc', id: 'integrations/webex-meetings-mcp', label: 'Webex Meetings MCP' },
+            { type: 'doc', id: 'integrations/figma-mcp', label: 'Figma MCP' },
             { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
             { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
           ],

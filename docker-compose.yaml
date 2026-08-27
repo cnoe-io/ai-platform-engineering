@@ -26,6 +26,30 @@ services:
       - github
       - mcp-servers
 
+  # Figma REST API MCP server (custom CAIPE implementation).
+  mcp-figma:
+    image: ghcr.io/cnoe-io/mcp-figma:${IMAGE_TAG:-0.5.69}
+    container_name: mcp-figma
+    env_file: [.env]
+    ports: ["18014:8000"]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - FIGMA_BASE_URL=${FIGMA_BASE_URL:-https://api.figma.com}
+      - FIGMA_AUTH_MODE=${FIGMA_AUTH_MODE:-pat}
+      - FIGMA_TIMEOUT_SECONDS=${FIGMA_TIMEOUT_SECONDS:-30}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - figma
+      - all-agents
+      - mcp-servers
+
   mcp-backstage:
     image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-0.5.66}
     container_name: mcp-backstage

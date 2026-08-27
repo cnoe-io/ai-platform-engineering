@@ -81,13 +81,33 @@ export async function exchangeOAuthToken(
   tokenUrl: string,
   body: Record<string, string>,
 ): Promise<TokenClientResponse> {
-  const response = await fetch(tokenUrl, {
+  const parsedUrl = new URL(tokenUrl);
+  const isFigmaOAuth =
+    parsedUrl.hostname === "api.figma.com" &&
+    (parsedUrl.pathname === "/v1/oauth/token" || parsedUrl.pathname === "/v1/oauth/refresh");
+  const requestUrl =
+    isFigmaOAuth && body.grant_type === "refresh_token"
+      ? `${parsedUrl.origin}/v1/oauth/refresh`
+      : tokenUrl;
+  const requestBody = { ...body };
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  // Figma requires client credentials via HTTP Basic authentication for both
+  // authorization-code exchange and refresh. Other providers retain the
+  // existing client_id/client_secret form-body behavior.
+  if (isFigmaOAuth) {
+    const clientId = requestBody.client_id ?? "";
+    const clientSecret = requestBody.client_secret ?? "";
+    headers.authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+    delete requestBody.client_id;
+    delete requestBody.client_secret;
+  }
+  const response = await fetch(requestUrl, {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams(body),
+    headers,
+    body: new URLSearchParams(requestBody),
   });
   if (!response.ok) {
     throw new Error(`OAuth token exchange failed with ${response.status}`);
