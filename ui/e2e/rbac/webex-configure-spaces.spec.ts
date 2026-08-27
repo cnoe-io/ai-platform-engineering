@@ -379,7 +379,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
 
     await ttlInput.fill("30");
     await page.getByTestId("discovery-cache-ttl-save-webex").click();
-    await expect(page.getByText("Saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     expect(state.platformConfigPatches).toContainEqual({
       webex_discovery_cache_ttl_minutes: 30,
     });

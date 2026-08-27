@@ -357,7 +357,9 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       ),
     ).toBeVisible();
     await page.getByText("Incident Bridge").click();
-    await expect(page.getByText(workflowAgent.id)).toBeVisible();
+    await expect(
+      page.getByText(`agent:${workflowAgent.id}`, { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("tab", { name: "Onboard spaces" })).toHaveCount(
       0,
     );

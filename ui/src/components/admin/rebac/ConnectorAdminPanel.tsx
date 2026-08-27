@@ -689,7 +689,7 @@ export function ConnectorAdminPanel({
   }, [singlePanelView, adapter.directMessagesPanel, adapter.migrationPanel]);
   const [singlePanelViewState, setSinglePanelViewState] = useSubtabParam(
     singlePanelValidViews,
-    "channels",
+    singlePanelView ?? "channels",
   );
   const panelView: PanelView = selfService
     ? (view === "onboard" ? "onboard" : "channels")

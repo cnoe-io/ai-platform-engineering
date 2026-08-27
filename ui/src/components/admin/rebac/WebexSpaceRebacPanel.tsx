@@ -12,6 +12,7 @@ import { WebexConfiguredSpaceDetail } from "./webex/WebexConfiguredSpaceDetail";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
+ItemAgentRoute,
 ItemDiagnostics,
 ItemSummary,
 } from "./connector-admin-adapter";
@@ -250,16 +251,34 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   ),
 
   diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
-    Boolean(route.route_metadata && !route.openfga_tuple),
+    Boolean(route.route_metadata && !route.openfga_tuple) ||
+    Boolean(route.openfga_tuple && route.listen !== "all"),
 
-  fixDiagnosticRoute: async ({ item, route }) => {
+  fixDiagnosticRoute: async ({ item, route, routes }) => {
     const routeUrl = `/api/admin/webex/spaces/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes?bot_id=${encodeURIComponent(item.bot_id ?? "")}`;
+    if (route.route_metadata && !route.openfga_tuple) {
+      const res = await fetch(routeUrl, {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: route.agent_id }),
+      });
+      if (!res.ok) throw new Error(await responseErrorMessage(res, `Failed to fix agent:${route.agent_id}`));
+      return { toast: `Removed stale route metadata for agent:${route.agent_id}.` };
+    }
+    const currentRoute = routes.find((r) => r.agent_id === route.agent_id);
+    const nextRoutes: ItemAgentRoute[] = [
+      ...routes.filter((r) => r.agent_id !== route.agent_id),
+      { agent_id: route.agent_id, enabled: true, priority: currentRoute?.priority ?? 100, users: { enabled: true, listen: "all" } },
+    ];
     const res = await fetch(routeUrl, {
-      method: "DELETE", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent_id: route.agent_id }),
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routes: nextRoutes }),
     });
     if (!res.ok) throw new Error(await responseErrorMessage(res, `Failed to fix agent:${route.agent_id}`));
-    return { toast: `Removed stale route metadata for agent:${route.agent_id}.` };
+    const data = apiData<{ routes: ItemAgentRoute[] }>(await res.json());
+    return {
+      toast: `Updated agent:${route.agent_id} to listen to mentions and plain messages.`,
+      nextRoutes: data.routes ?? [],
+    };
   },
 
   applyOnboarding: async ({ rows, defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn }) => {
