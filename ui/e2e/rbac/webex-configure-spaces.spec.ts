@@ -344,6 +344,9 @@ async function gotoConfigureSpaces(page: Page) {
   await page.goto("/admin/integrations/webex", {
     waitUntil: "domcontentloaded",
   });
+  // Default landing tab is "Configured spaces" (matches Slack's tab order);
+  // switch to "Configure spaces" for onboarding coverage.
+  await page.getByRole("tab", { name: "Configure spaces" }).click();
   await expect(
     page.getByRole("region", { name: "Configure spaces" }),
   ).toBeVisible();
@@ -409,8 +412,8 @@ test.describe("mocked Webex Configure spaces UI", () => {
     await gotoConfigureSpaces(page);
 
     // Webex admin uses the single-panel switcher: two tabs ("Configure spaces"
-    // ↔ "Configured spaces"), not the full three-view tab bar. Landing tab is
-    // Configure spaces.
+    // ↔ "Configured spaces"), not the full three-view tab bar.
+    // gotoConfigureSpaces already switched to Configure spaces above.
     const adminViews = page.getByRole("tablist", { name: "Webex admin views" });
     await expect(adminViews.getByRole("tab", { name: "Configure spaces" })).toBeVisible();
     await expect(adminViews.getByRole("tab", { name: "Configured spaces" })).toBeVisible();
