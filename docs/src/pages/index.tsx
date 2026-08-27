@@ -196,14 +196,13 @@ function HeroSection() {
           {/* Left: copy + CTAs */}
           <div className={styles.heroLeft}>
             <Heading as="h1" className={styles.heroTitle}>
-              Open Source AI Platform for{' '}
-              <span className={styles.heroAccent}>All</span>
+              Open source AI platform for everyone
             </Heading>
             <p className={styles.heroSubtitle}>
               <span className={styles.heroLine}>
-                Build, govern, and operate secure AI agents and agentic workflows
-              </span>{' '}
-              <span className={styles.heroLine}>for enterprises and individuals</span>
+                Build, host, govern, and operate secure AI agents and agentic workflows for cloud
+                native teams, enterprises, and individuals.
+              </span>
             </p>
             <p className={styles.heroPronunciation}>
               <span className={styles.heroLine}>
@@ -464,7 +463,7 @@ export default function Home() {
   return (
     <Layout
       title={siteConfig.title}
-      description="Open Source AI Platform for All. Build, govern, and operate secure AI agents and agentic workflows for enterprises and individuals."
+      description="Open source AI platform for everyone. Build, host, govern, and operate secure AI agents and agentic workflows for cloud native teams, enterprises, and individuals."
     >
       <main>
         <HeroSection />
