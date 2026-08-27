@@ -386,7 +386,7 @@ export function WorkspaceNavigationList({
                               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                               density === "descriptive" ? "min-h-14" : "min-h-12",
                               active
-                                ? "bg-muted/50 font-medium text-foreground"
+                                ? "workspace-navigation-active font-medium text-foreground"
                                 : "hover:bg-muted/60 hover:text-foreground",
                             )}
                             onClick={() => {
@@ -676,10 +676,10 @@ export function WorkspaceHierarchicalNavigationList({
               aria-controls={destinationsId}
               aria-expanded={expanded}
               className={cn(
-                "group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left outline-none transition-colors",
+                "group flex min-h-11 w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 active
-                  ? "bg-muted/60 font-medium text-foreground"
+                  ? "workspace-navigation-active font-medium text-foreground"
                   : expanded
                     ? "text-foreground"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -706,7 +706,7 @@ export function WorkspaceHierarchicalNavigationList({
                 aria-hidden="true"
                 className={cn(
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors",
-                  active && "bg-primary/10 text-primary",
+                  active && "gradient-primary-br text-white shadow-sm",
                   !active && "group-hover:bg-background group-hover:text-foreground",
                 )}
               >

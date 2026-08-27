@@ -201,13 +201,21 @@ function ApplicationNavigationContents({
   const [expansionPreference,setExpansionPreference] = React.useState<{
     activeArea: string | null;
     expandedArea: string | null;
-  }>({ activeArea: null,expandedArea: null });
+    userInitiated: boolean;
+  }>({ activeArea: null,expandedArea: null,userInitiated: false });
   const routeExpandedArea = activeHasSectionNavigation ? activeArea : null;
   const hasUserExpansionPreference =
-    expansionPreference.activeArea === activeArea;
+    expansionPreference.userInitiated
+      && expansionPreference.activeArea === activeArea;
   const expandedArea = hasUserExpansionPreference
     ? expansionPreference.expandedArea
     : routeExpandedArea;
+
+  React.useEffect(() => {
+    setExpansionPreference((current) => current.activeArea === activeArea
+      ? current
+      : { activeArea,expandedArea: routeExpandedArea,userInitiated: false });
+  }, [activeArea,routeExpandedArea]);
 
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
@@ -480,6 +488,7 @@ function ApplicationNavigationContents({
             setExpansionPreference({
               activeArea,
               expandedArea: contextExpanded ? null : item.key,
+              userInitiated: true,
             });
           };
           const control = item.disabled ? (

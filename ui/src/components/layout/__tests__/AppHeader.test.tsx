@@ -636,6 +636,26 @@ describe('AppHeader — application chrome', () => {
       expect(knowledgePanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
     })
 
+    it('collapses section navigation when navigation moves to a page without sections', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AdminNavigationFixture />)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+
+      mockPathname = '/chat'
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
+
+      mockPathname = '/'
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
+    })
+
     it('keeps Admin expanded while its registered destination changes', () => {
       mockStorageMode = 'mongodb'
       mockIsAdmin = true
@@ -734,8 +754,10 @@ describe('AppHeader — application chrome', () => {
       const resourcesPanel = document.getElementById(
         resources.getAttribute('aria-controls')!,
       )
+      const people = screen.getByRole('button', { name: 'People group' })
 
       expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
+      expect(people).toHaveClass('workspace-navigation-active')
       fireEvent.click(resources)
       expect(resourcesPanel).toHaveClass('transition-[grid-template-rows,opacity]')
 
