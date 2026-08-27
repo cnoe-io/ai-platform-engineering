@@ -196,15 +196,22 @@ function HeroSection() {
           {/* Left: copy + CTAs */}
           <div className={styles.heroLeft}>
             <Heading as="h1" className={styles.heroTitle}>
-              Hosted open source AI agents for{' '}
-              <span className={styles.heroAccent}>platform engineering</span>
+              Open Source AI Platform for{' '}
+              <span className={styles.heroAccent}>All</span>
             </Heading>
             <p className={styles.heroSubtitle}>
-              All-in-one, self-hostable AI agents with security built in, for
-              enterprise or personal.
+              <span className={styles.heroLine}>
+                Build, govern, and operate secure AI agents and agentic workflows
+              </span>{' '}
+              <span className={styles.heroLine}>for enterprises and individuals</span>
             </p>
             <p className={styles.heroPronunciation}>
-              💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero, CAIPE empowers teams with 🤖 agentic AI automation.
+              <span className={styles.heroLine}>
+                💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero,
+              </span>{' '}
+              <span className={styles.heroLine}>
+                CAIPE empowers teams with 🤖 agentic AI automation.
+              </span>
             </p>
             <div className={styles.heroButtons}>
               <Link className={styles.heroPrimary} to="/docs/getting-started/quick-start">
@@ -457,7 +464,7 @@ export default function Home() {
   return (
     <Layout
       title={siteConfig.title}
-      description="Hosted open source AI agents for platform engineering. All-in-one, self-hostable, with security built in, for enterprise or personal."
+      description="Open Source AI Platform for All. Build, govern, and operate secure AI agents and agentic workflows for enterprises and individuals."
     >
       <main>
         <HeroSection />
