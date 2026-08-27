@@ -115,12 +115,17 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     }
   }
 
-  const status = await draftStatusForWrite({
-    reportId: body.report_id ?? undefined,
-    reviewMode: project.review_mode,
-    path: body.path,
-    markdown: body.body,
-  });
+  // Chat writes are explicit, data-steward-authorized user requests. They do
+  // not have an ingest report or a review surface, so publishing them as
+  // drafts would create revisions that neither the user nor agent can resolve.
+  const status = body.report_id
+    ? await draftStatusForWrite({
+        reportId: body.report_id,
+        reviewMode: project.review_mode,
+        path: body.path,
+        markdown: body.body,
+      })
+    : "live";
 
   const store = await getPageStore();
   await store.writePage(project._id, body.path, body.body, {
@@ -153,8 +158,9 @@ function isStableWrite(path: string, markdown: string): boolean {
  *    owns `reportId`, if any — bypasses project review.
  * 3. The project's own `review_mode` setting (#291): `none` never drafts,
  *    `all` always drafts, `stable_only` (the default) drafts only when the
- *    write targets a stable/hidden page. Applies to every write path (chat,
- *    MCP edit, ingest) since they all funnel through this one endpoint.
+ *    write targets a stable/hidden page. This applies to report-backed
+ *    automation (ingest, compact, and synthesis); authorized chat edits
+ *    publish live because chat has no draft-review lifecycle.
  */
 async function draftStatusForWrite(args: {
   reportId: string | undefined;

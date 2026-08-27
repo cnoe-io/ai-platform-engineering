@@ -112,7 +112,7 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     });
   });
 
-  it("writes and returns 200 when actor_sub has can_write", async () => {
+  it("publishes a chat write live when actor_sub has can_write", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
     const mockWritePage = jest.fn().mockResolvedValue(undefined);
     mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
@@ -120,8 +120,8 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     const { POST } = await import("../route");
     const res = await POST(
       postRequest({
-        path: "pages/test.md",
-        body: "# Hello",
+        path: "charter.md",
+        body: "---\nkind: stable\n---\n# Charter",
         actor_sub: "steward-sub-456",
       }),
       ctx(),
@@ -129,10 +129,11 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     expect(res.status).toBe(200);
     expect(mockWritePage).toHaveBeenCalledWith(
       "proj-1",
-      "pages/test.md",
-      "# Hello",
+      "charter.md",
+      "---\nkind: stable\n---\n# Charter",
       expect.objectContaining({ author: "tome-agent" }),
     );
+    expect(mockWritePage.mock.calls[0][3]).not.toHaveProperty("status");
   });
 
   it("skips FGA check for ingest writes (report_id present)", async () => {
