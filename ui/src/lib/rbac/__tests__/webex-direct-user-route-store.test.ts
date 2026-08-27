@@ -27,7 +27,6 @@ describe("Webex direct-user route ownership", () => {
     const common = {
       keycloakUserId: "user-1",
       userEmail: "user@example.com",
-      expectedWebexEmail: "user@example.com",
       agentId: "agent-1",
       actor: "admin@example.com",
     };

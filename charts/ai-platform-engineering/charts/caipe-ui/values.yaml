@@ -487,10 +487,6 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: WEBEX_BOT_ADMIN_CLIENT_SECRET
-    # - secretKey: WEBEX_LINK_HMAC_SECRET
-    #   remoteRef:
-    #     key: dev/caipe-ui
-    #     property: WEBEX_LINK_HMAC_SECRET
     # Credential OAuth connector bootstrap fields. These are consumed only when
     # config.CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=true.
     # - secretKey: GITHUB_CLIENT_ID

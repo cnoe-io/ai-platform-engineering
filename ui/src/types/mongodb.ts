@@ -527,14 +527,6 @@ export interface AuditLogFilters {
 // Webex Bot Collections
 // ============================================================================
 
-/** Single-use nonce for Webex user ↔ Keycloak linking (expires after 10 minutes). */
-export interface WebexLinkNonce {
-  nonce: string;
-  webex_user_id: string;
-  created_at: Date;
-  consumed?: boolean;
-}
-
 /** Operational metrics for Webex bot usage (space-level aggregates). */
 export interface WebexUserMetrics {
   webex_user_id: string;

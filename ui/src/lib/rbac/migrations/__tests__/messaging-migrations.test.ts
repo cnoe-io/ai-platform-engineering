@@ -248,7 +248,6 @@ describe("messaging RBAC migration derivation", () => {
         expect.objectContaining({ collection: "webex_space_team_mappings" }),
         expect.objectContaining({ collection: "webex_space_agent_routes" }),
         expect.objectContaining({ collection: "webex_space_grants" }),
-        expect.objectContaining({ collection: "webex_link_nonces" }),
       ]),
     );
   });

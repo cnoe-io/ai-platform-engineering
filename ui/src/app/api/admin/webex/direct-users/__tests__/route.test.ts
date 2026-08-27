@@ -3,6 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { ApiError } from "@/lib/api-middleware";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
@@ -90,7 +91,26 @@ beforeEach(() => {
 });
 
 describe("/api/admin/webex/direct-users", () => {
-  it("saves a direct-user route without accepting or resolving a team", async () => {
+  it.each([
+    ["GET", () => request("GET")],
+    ["PUT", () => request("PUT", { bot_id: "primary", keycloak_user_id: "user-1", agent_id: "agent-1", enabled: true })],
+    ["DELETE", () => request("PUT", { bot_id: "primary", keycloak_user_id: "user-1" })],
+  ] as const)("%s requires admin_ui:admin and rejects when the caller lacks it", async (method, buildRequest) => {
+    const handlers = await import("../route");
+    const handler = method === "GET" ? handlers.GET : method === "PUT" ? handlers.PUT : handlers.DELETE;
+
+    await handler(buildRequest());
+    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+      { sub: "admin-user" },
+      "admin_ui",
+      "admin",
+    );
+
+    mockRequireRbacPermission.mockRejectedValueOnce(new ApiError("Forbidden", 403));
+    await expect(handler(buildRequest())).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("saves a direct-user route without accepting or resolving a team or an expected Webex email", async () => {
     const { PUT } = await import("../route");
 
     const response = await PUT(request("PUT", {
@@ -98,7 +118,7 @@ describe("/api/admin/webex/direct-users", () => {
       keycloak_user_id: "user-1",
       agent_id: "agent-1",
       enabled: true,
-      expected_webex_email: "user@example.com",
+      expected_webex_email: "attacker@example.com",
       team_slug: "must-not-be-used",
     }));
 
@@ -109,7 +129,7 @@ describe("/api/admin/webex/direct-users", () => {
       botId: "primary",
       keycloakUserId: "user-1",
       userEmail: "user@example.com",
-      expectedWebexEmail: "user@example.com",
+      webexUserId: undefined,
       agentId: "agent-1",
       enabled: true,
       actor: "admin@example.com",

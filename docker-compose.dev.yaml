@@ -656,8 +656,6 @@ services:
       # chart values file — see the comment in
       # charts/.../caipe-ui/values.yaml.
       - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
-      # 098 Slack identity linking HMAC secret (shared with slack-bot)
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
@@ -863,7 +861,6 @@ services:
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
@@ -1970,14 +1967,13 @@ services:
       # Slack bot's OBO (token-exchange) credentials — separate flow, separate client.
       - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
       - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
-      - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:3000}
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       # Spec 103: Just-In-Time Keycloak user creation. Default ON in dev so
       # first-time Slack DMs work without an admin handshake. Set to "false"
       # in production to require explicit web-UI onboarding before Slack use,
-      # in which case the bot falls back to sending an HMAC-signed linking
-      # URL. Provisioning flows through the CAIPE UI BFF using the bot's own
-      # service account — no Keycloak Admin credential needed on the bot.
+      # in which case an unmatched user is treated as unlinked and told to
+      # contact an admin. Provisioning flows through the CAIPE UI BFF using
+      # the bot's own service account — no Keycloak Admin credential needed
+      # on the bot.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
       # Optional comma-separated allowlist of email domains eligible for JIT.
       # Empty/unset => any domain. Recommended for prod when the federated

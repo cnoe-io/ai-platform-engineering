@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -504,6 +505,35 @@ async function expandChannelRow(channelName: string): Promise<void> {
   fireEvent.click(row);
 }
 
+// Popover-based pickers (AgentPicker) render a `<button>` trigger with a
+// portaled `listbox`, not a native `<select>` — so they need a click-trigger
+// / click-option adapter instead of `fireEvent.change`. `index` disambiguates
+// duplicate triggers, e.g. the "Users" vs "Bots" Listen pickers.
+async function selectPopoverOption(
+  triggerLabel: string | RegExp,
+  optionName: string,
+  index = 0,
+) {
+  let trigger: HTMLElement | null = null;
+  await waitFor(() => {
+    const nodes = screen.getAllByRole("button", { name: triggerLabel });
+    const node = nodes[index];
+    if (!node)
+      throw new Error(`No trigger at index ${index} for "${String(triggerLabel)}".`);
+    if ((node as HTMLButtonElement).disabled) {
+      throw new Error(`Trigger labelled "${String(triggerLabel)}" at index ${index} is still disabled.`);
+    }
+    trigger = node;
+  });
+  await act(async () => {
+    fireEvent.click(trigger as HTMLElement);
+  });
+  const listbox = await screen.findByRole("listbox");
+  await act(async () => {
+    fireEvent.click(within(listbox).getByRole("option", { name: optionName }));
+  });
+}
+
 it("uses enabled Dynamic Agents dropdown for Slack channel-agent associations", async () => {
   render(<SlackChannelRebacPanel />);
 
@@ -853,12 +883,7 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   const editor = screen.getByRole("dialog", {
     name: /edit agent:incident-agent/i,
   });
-  fireEvent.change(
-    within(editor).getAllByRole("combobox", { name: "Listen" })[0],
-    {
-      target: { value: "message" },
-    },
-  );
+  await selectPopoverOption("Listen", "message", 0);
   fireEvent.change(within(editor).getByLabelText("Priority"), {
     target: { value: "25" },
   });

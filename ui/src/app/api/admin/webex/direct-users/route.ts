@@ -122,12 +122,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         display_name:
           [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
           String(user.username ?? email),
-        webex_user_id: firstAttribute(attributes, "webex_user_id") ?? null,
+        linked: Boolean(firstAttribute(attributes, "webex_user_id")),
         enabled,
         configured: Boolean(route),
         inherited,
         state,
-        expected_webex_email: route?.expected_webex_email ?? email,
         agent_id: route?.agent_id ?? (accessMode === "all_users" ? defaultAgentId ?? "" : ""),
       };
     })
@@ -164,10 +163,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const realmUser = await getRealmUserById(keycloakUserId);
   if (realmUser.enabled === false) throw new ApiError("Disabled users cannot be onboarded", 400);
   const email = requireEmail(realmUser.email, "user email");
-  const expectedWebexEmail =
-    typeof body.expected_webex_email === "string" && body.expected_webex_email.trim()
-      ? requireEmail(body.expected_webex_email, "expected_webex_email")
-      : email;
   const agents = await getCollection("dynamic_agents");
   const agent = await agents.findOne({ _id: agentId, enabled: { $ne: false } } as never);
   if (!agent) throw new ApiError("The selected agent does not exist or is disabled", 400);
@@ -176,7 +171,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     botId: bot.id,
     keycloakUserId,
     userEmail: email,
-    expectedWebexEmail,
     webexUserId: firstAttribute(attributes, "webex_user_id"),
     agentId,
     enabled,

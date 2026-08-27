@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const mockToast = jest.fn();
 jest.mock("@/components/ui/toast", () => ({
@@ -137,12 +137,11 @@ function setupFetchMock() {
               keycloak_user_id: "user-1",
               email: "user@example.com",
               display_name: "Example User",
-              webex_user_id: null,
+              linked: false,
               enabled: false,
               configured: false,
               inherited: false,
               state: "not_allowed",
-              expected_webex_email: "user@example.com",
               agent_id: "",
             },
           ],
@@ -317,7 +316,15 @@ function response(payload: unknown): Response {
   } as Response;
 }
 
+async function ensureConfigureSpacesTabActive() {
+  const tab = await screen.findByRole("tab", { name: "Configure spaces" });
+  if (tab.getAttribute("aria-selected") !== "true") {
+    fireEvent.click(tab);
+  }
+}
+
 async function clickFindSpaces() {
+  await ensureConfigureSpacesTabActive();
   const discoverButton = await screen.findByRole("button", {
     name: "Find spaces",
   });
@@ -331,6 +338,27 @@ async function clickRefreshSpaces() {
   });
   await waitFor(() => expect(refreshButton).toBeEnabled());
   fireEvent.click(refreshButton);
+}
+
+// Popover-based pickers (ProviderSelect, AgentPicker) render a `<button>`
+// trigger with a portaled `listbox`, not a native `<select>` — so they need a
+// click-trigger / click-option adapter instead of `fireEvent.change`.
+async function selectPopoverOption(triggerLabel: string | RegExp, optionName: string) {
+  let trigger: HTMLElement | null = null;
+  await waitFor(() => {
+    const node = screen.getByRole("button", { name: triggerLabel });
+    if ((node as HTMLButtonElement).disabled) {
+      throw new Error(`Trigger labelled "${String(triggerLabel)}" is still disabled.`);
+    }
+    trigger = node;
+  });
+  await act(async () => {
+    fireEvent.click(trigger as HTMLElement);
+  });
+  const listbox = await screen.findByRole("listbox");
+  await act(async () => {
+    fireEvent.click(within(listbox).getByRole("option", { name: optionName }));
+  });
 }
 
 it("scopes the configured space list to the simulated user", async () => {
@@ -365,6 +393,10 @@ it("shows the onboarding loading state while configured spaces seed the table", 
   });
 
   render(<WebexSpaceRebacPanel />);
+  // Query synchronously (no `findBy`/await) so this capture happens on the
+  // same tick as render, before the mocked bots/dynamic-agents fetches
+  // resolve — matching the timing this test is actually asserting on.
+  fireEvent.click(screen.getByRole("tab", { name: "Configure spaces" }));
   expect(screen.getByTestId("discovery-loading")).toBeInTheDocument();
   expect(screen.getByText("Loading configured spaces…")).toBeInTheDocument();
   expect(
@@ -382,25 +414,26 @@ it("shows the onboarding loading state while configured spaces seed the table", 
 it("renders Webex with Configure, Configured, and 1:1 tabs but no Advanced tab", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  // Default landing tab is "Configure spaces"
+  // Default landing tab is "Configured spaces", matching Slack's tab order
   expect(
-    await screen.findByRole("tab", { name: "Configure spaces" }),
-  ).toBeInTheDocument();
-  // "Configured spaces" tab is present for navigation back to the configured table
+    await screen.findByRole("tab", { name: "Configured spaces" }),
+  ).toHaveAttribute("aria-selected", "true");
+  // "Configure spaces" tab is present for navigating to onboarding
   expect(
-    screen.getByRole("tab", { name: "Configured spaces" }),
+    screen.getByRole("tab", { name: "Configure spaces" }),
   ).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "1:1 Messages" })).toBeInTheDocument();
   // The focused Webex switcher does not expose the generic Advanced tab.
   expect(
     screen.queryByRole("tab", { name: "Advanced" }),
   ).not.toBeInTheDocument();
+  // Configured table renders on the default tab
   expect(
-    screen.getByRole("button", { name: "Find spaces" }),
+    await screen.findByRole("region", { name: "Configured Webex spaces" }),
   ).toBeInTheDocument();
-  // Configured table and Advanced section are not visible on the default tab
+  // Onboarding-only controls and the Advanced section are not visible on the default tab
   expect(
-    screen.queryByRole("region", { name: "Configured Webex spaces" }),
+    screen.queryByRole("button", { name: "Find spaces" }),
   ).not.toBeInTheDocument();
   expect(
     screen.queryByRole("region", {
@@ -432,6 +465,8 @@ it("opens Configure spaces from the empty configured-spaces action", async () =>
 it("refreshes configured spaces when the tab opens and on explicit refresh", async () => {
   render(<WebexSpaceRebacPanel />);
 
+  await screen.findByRole("region", { name: "Configured Webex spaces" });
+  fireEvent.click(screen.getByRole("tab", { name: "Configure spaces" }));
   await screen.findByRole("button", { name: "Find spaces" });
   const callsBeforeTab = fetchMock.mock.calls.filter(([url]) =>
     String(url).startsWith("/api/admin/webex/spaces?health=1"),
@@ -455,16 +490,18 @@ it("refreshes configured spaces when the tab opens and on explicit refresh", asy
   ).toBeGreaterThan(callsBeforeRefresh));
 });
 
-it("ignores stale Webex subtab URL params and stays on onboarding", async () => {
+it("falls back to the default configured-spaces tab for a subtab value foreign to Webex", async () => {
+  // "advanced" is a valid subtab for Slack's tab bar but Webex has no
+  // Advanced tab, so it must not be treated as one of this switcher's values.
   currentSearchParams = new URLSearchParams("subtab=advanced");
   render(<WebexSpaceRebacPanel />);
 
   expect(
-    await screen.findByRole("tab", { name: "Configure spaces" }),
-  ).toBeInTheDocument();
+    await screen.findByRole("tab", { name: "Configured spaces" }),
+  ).toHaveAttribute("aria-selected", "true");
   expect(
-    screen.getByRole("button", { name: "Find spaces" }),
-  ).toBeInTheDocument();
+    screen.queryByRole("button", { name: "Find spaces" }),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByRole("region", {
       name: "Advanced Setup - Import/Sync with Webex Bot",
@@ -473,10 +510,53 @@ it("ignores stale Webex subtab URL params and stays on onboarding", async () => 
   expect(replaceMock).not.toHaveBeenCalled();
 });
 
+it.each([
+  ["onboard", "Configure spaces"],
+  ["direct", "1:1 Messages"],
+  ["migration", "Legacy migration"],
+] as const)(
+  "opens the Webex %s tab named by the subtab URL param on load",
+  async (subtab, tabName) => {
+    currentSearchParams = new URLSearchParams(`subtab=${subtab}`);
+    render(<WebexSpaceRebacPanel />);
+
+    expect(await screen.findByRole("tab", { name: tabName })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  },
+);
+
+it("writes the active Webex sub-tab to the subtab URL param when clicked", async () => {
+  render(<WebexSpaceRebacPanel />);
+  await screen.findByRole("tab", { name: "Configured spaces" });
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Configure spaces" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", {
+    scroll: false,
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: "1:1 Messages" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=direct", {
+    scroll: false,
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: "Legacy migration" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=migration", {
+    scroll: false,
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: "Configured spaces" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", {
+    scroll: false,
+  });
+});
+
 // ── Discovery + onboarding ─────────────────────────────────────────────────
 
 it("seeds configured Webex spaces on the onboard tab before discovery", async () => {
   render(<WebexSpaceRebacPanel />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Configure spaces" }));
 
   expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
   expect(screen.getByText("Configured by Platform Engineering")).toBeInTheDocument();
@@ -518,6 +598,7 @@ it("filters configured Webex spaces locally before live discovery runs", async (
   });
 
   render(<WebexSpaceRebacPanel />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Configure spaces" }));
 
   expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
   expect(screen.getByText("CAIPE Demo")).toBeInTheDocument();
@@ -533,6 +614,36 @@ it("filters configured Webex spaces locally before live discovery runs", async (
       String(url).startsWith("/api/admin/webex/available-spaces"),
     ),
   ).toBe(false);
+});
+
+it("deep-links and updates the configured Webex space search", async () => {
+  currentSearchParams = new URLSearchParams(
+    "subtab=channels&webexSpaceSearch=Platform",
+  );
+  const { rerender } = render(<WebexSpaceRebacPanel />);
+
+  const searchInput = await screen.findByRole("textbox", {
+    name: "Search configured spaces",
+  });
+  expect(searchInput).toHaveValue("Platform");
+  expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
+
+  fireEvent.change(searchInput, { target: { value: "nonexistent" } });
+  expect(replaceMock).toHaveBeenLastCalledWith(
+    "/admin?subtab=channels&webexSpaceSearch=nonexistent",
+    { scroll: false },
+  );
+
+  currentSearchParams = new URLSearchParams(
+    "subtab=channels&webexSpaceSearch=space-abc",
+  );
+  rerender(<WebexSpaceRebacPanel />);
+  expect(searchInput).toHaveValue("space-abc");
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", {
+    scroll: false,
+  });
 });
 
 it("discovers Webex bot spaces, auto-selects new ones, and submits verified onboarding", async () => {
@@ -554,7 +665,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and submits verified onbo
   ).not.toBeChecked();
   await pickTeam("Team for Incident War Room", "platform-engineering");
   await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
-  expect(screen.getByRole("combobox", { name: "Webex bot" })).toHaveValue("primary");
+  expect(screen.getByRole("button", { name: "Webex bot" })).toHaveTextContent("Primary bot");
 
   fireEvent.click(screen.getByRole("button", { name: /^Submit \d+ spaces?$/ }));
 
@@ -655,13 +766,13 @@ it("uses one top-level Webex bot selector for space discovery", async () => {
   render(<WebexSpaceRebacPanel />);
 
   await clickFindSpaces();
-  const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
-  expect(screen.queryByRole("combobox", { name: /Webex bot for / })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Webex bot" })).toHaveTextContent("Primary bot");
+  expect(screen.queryByRole("button", { name: /Webex bot for / })).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([url]) =>
     new URL(String(url), "http://localhost").searchParams.get("bot_id") === "primary",
   )).toBe(true);
 
-  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  await selectPopoverOption("Webex bot", "Secondary bot");
   await clickFindSpaces();
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) =>
     new URL(String(url), "http://localhost").searchParams.get("bot_id") === "secondary",
@@ -752,10 +863,9 @@ it("onboards deployment users independently for the bot selected above the table
 
   fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
   expect(await screen.findByText("Example User")).toBeInTheDocument();
-  expect(screen.getByText("Allowlist")).toBeInTheDocument();
-  const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
-  expect(botSelector).toHaveValue("primary");
-  expect(screen.queryByRole("combobox", { name: "Webex bot for user@example.com" })).not.toBeInTheDocument();
+  expect(screen.getByText("not allowed")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Webex bot" })).toHaveTextContent("Primary bot");
+  expect(screen.queryByRole("button", { name: "Webex bot for user@example.com" })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Allow direct messages for user@example.com" }));
   await pickAgent("Agent for user@example.com", "incident-agent");
@@ -773,7 +883,7 @@ it("onboards deployment users independently for the bot selected above the table
     });
   });
 
-  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  await selectPopoverOption("Webex bot", "Secondary bot");
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => {
     const parsed = new URL(String(url), "http://localhost");
     return parsed.pathname === "/api/admin/webex/direct-users" &&
@@ -846,12 +956,11 @@ it("shows inherited defaults and allows overrides in all-users mode", async () =
               keycloak_user_id: "user-1",
               email: "user@example.com",
               display_name: "Example User",
-              webex_user_id: null,
+              linked: false,
               enabled: true,
               configured: false,
               inherited: true,
               state: "inherited",
-              expected_webex_email: "user@example.com",
               agent_id: "fallback-agent",
             },
           ],
@@ -868,7 +977,9 @@ it("shows inherited defaults and allows overrides in all-users mode", async () =
 
   fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
 
-  expect(await screen.findByText("All deployment users")).toBeInTheDocument();
+  expect(
+    await screen.findByText(/All enabled deployment users can message this bot/),
+  ).toBeInTheDocument();
   expect(
     screen.getByText(/configured default unless an admin saves an explicit override/i),
   ).toBeInTheDocument();
@@ -981,4 +1092,126 @@ it("deletes a configured Webex space after confirmation", async () => {
   await waitFor(() =>
     expect(mockToast).toHaveBeenCalledWith("Removed Platform Alerts from CAIPE.", "success"),
   );
+});
+
+// ── Route editor (agent only — Mercury only ever delivers @mentions, so
+// priority and listen mode are fixed rather than editable) ─────────────────
+
+it("adds an agent to an empty Webex space via the route editor dialog", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
+      return response({
+        data: {
+          spaces: [
+            {
+              workspace_id: "WEBEX-WORKSPACE",
+              space_id: "space-empty",
+              space_name: "Empty Space",
+              bot_id: "primary",
+              active_grants: 0,
+            },
+          ],
+        },
+      });
+    }
+    if (String(url).includes("/space-empty/routes?")) {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body ?? "{}"));
+        return response({ data: { routes: body.routes } });
+      }
+      return response({ data: { routes: [] } });
+    }
+    if (String(url).includes("/space-empty/diagnostics?")) {
+      return response({
+        data: { openfga: { reachable: true, tuple_count: 0 }, warnings: [], routes: [] },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Configured spaces" }));
+  fireEvent.click(await screen.findByText("Empty Space"));
+
+  expect(await screen.findByText("No agent responds in Empty Space yet.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add Agent" }));
+
+  expect(screen.getByRole("dialog", { name: "Add Agent to Empty Space" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Priority")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Listen" })).not.toBeInTheDocument();
+  await pickAgent("Dynamic Agent", "incident-agent");
+  fireEvent.click(screen.getByRole("button", { name: "Add Agent" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-empty/routes?bot_id=primary",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          routes: [{
+            agent_id: "incident-agent",
+            enabled: true,
+            priority: 100,
+            users: { enabled: true, listen: "mention" },
+          }],
+        }),
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith("Webex space agent added.", "success"),
+  );
+});
+
+it("edits an existing Webex space route's agent, keeping priority and listen mode fixed", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Configured spaces" }));
+  fireEvent.click(await screen.findByText("Platform Alerts"));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit agent:incident-agent" }));
+
+  const editor = screen.getByRole("dialog", { name: "Edit agent:incident-agent" });
+  expect(within(editor).queryByLabelText("Priority")).not.toBeInTheDocument();
+  expect(within(editor).queryByRole("button", { name: "Listen" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Update Agent" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc/routes?bot_id=primary",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          routes: [{
+            agent_id: "incident-agent",
+            enabled: true,
+            priority: 100,
+            users: { enabled: true, listen: "mention" },
+          }],
+        }),
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith("Webex space agent updated.", "success"),
+  );
+});
+
+it("no longer offers a routing fix for a route that only differs by listen mode", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Configured spaces" }));
+  fireEvent.click(await screen.findByText("Platform Alerts"));
+
+  // foo-bar: stale route metadata with no OpenFGA tuple — still a real,
+  // fixable orphan.
+  expect(
+    await screen.findByRole("button", { name: "Fix routing for foo-bar" }),
+  ).toBeInTheDocument();
+  // incident-agent: has its OpenFGA tuple and only differs by listen mode
+  // ("mention" vs "all") — that is an intentional choice now, not a bug.
+  expect(
+    screen.queryByRole("button", { name: "Fix routing for incident-agent" }),
+  ).not.toBeInTheDocument();
 });

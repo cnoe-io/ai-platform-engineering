@@ -19,6 +19,8 @@ export interface ProviderOption {
   provider: string;
   /** Human label rendered in the trigger and list (e.g. "GitLab"). */
   name: string;
+  /** When true, the option is listed but not selectable (e.g. a bot that's no longer installed). */
+  disabled?: boolean;
 }
 
 interface ProviderSelectProps {
@@ -29,6 +31,8 @@ interface ProviderSelectProps {
   /** Accessible name for the trigger (defaults to "Provider"). */
   ariaLabel?: string;
   placeholder?: string;
+  /** Shown in the list when `options` is empty (defaults to "No providers available"). */
+  emptyMessage?: string;
   className?: string;
 }
 
@@ -39,6 +43,7 @@ export function ProviderSelect({
   disabled = false,
   ariaLabel = "Provider",
   placeholder = "Select a provider…",
+  emptyMessage = "No providers available",
   className,
 }: ProviderSelectProps) {
   const [open, setOpen] = React.useState(false);
@@ -72,7 +77,7 @@ export function ProviderSelect({
         <ul id={listboxId} role="listbox" className="max-h-64 overflow-y-auto">
           {options.length === 0 ? (
             <li role="none" className="px-2 py-1.5 text-sm text-muted-foreground">
-              No providers available
+              {emptyMessage}
             </li>
           ) : (
             options.map((option) => {
@@ -85,12 +90,16 @@ export function ProviderSelect({
                     type="button"
                     role="option"
                     aria-selected={isSelected}
+                    aria-disabled={option.disabled}
+                    disabled={option.disabled}
                     className={cn(
                       "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm",
                       "hover:bg-accent hover:text-accent-foreground",
                       isSelected && "bg-accent/50",
+                      option.disabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-inherit",
                     )}
                     onClick={() => {
+                      if (option.disabled) return;
                       onChange(option.provider);
                       setOpen(false);
                     }}

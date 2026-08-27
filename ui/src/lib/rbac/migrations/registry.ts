@@ -2190,11 +2190,6 @@ const MESSAGING_REBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> 
     keys: { workspace_id: 1, space_id: 1, "resource.type": 1, "resource.id": 1, status: 1 },
     options: { name: "webex_space_grant_lookup" },
   },
-  {
-    collection: "webex_link_nonces",
-    keys: { expires_at: 1 },
-    options: { expireAfterSeconds: 0, name: "webex_link_nonce_expiry" },
-  },
 ];
 
 function deriveIndexPlan(): MigrationRuntimePlan {
