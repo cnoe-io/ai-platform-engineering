@@ -1,9 +1,13 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { NextRequest } from "next/server";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { evaluateAppAccess } from "@/lib/agentic-apps/access";
+import {
+  evaluateAgenticAppCasCompatibility,
+  type AgenticAppCasCompatibilityResult,
+} from "@/lib/agentic-apps/cas-compat";
 import {
   buildProxyTargetUrl,
   httpErrorForBlockedReason,
@@ -11,23 +15,23 @@ import {
   isExecutableProxyRuntimeManifest,
   resolveEffectiveRuntimeOrigin,
 } from "@/lib/agentic-apps/execution-gateway";
+import { resolveAgenticAppExecutionBinding } from "@/lib/agentic-apps/execution-binding";
+import {
+  deriveAgenticAppSubjectId,
+  hashAgenticAppIdentifier,
+} from "@/lib/agentic-apps/identity";
 import { buildPdpDecisionRecord, decideAgenticAppPdp } from "@/lib/agentic-apps/pdp";
-import { getAgenticAppById } from "@/lib/agentic-apps/registry";
+import { resolveAgenticAppHttpPolicyAction } from "@/lib/agentic-apps/policy-routing";
+import { buildAgenticAppRuntimePath } from "@/lib/agentic-apps/runtime-path";
 import {
   appendAppTokenGrant,
   appendPdpDecision,
-  listAppInstallations,
-  listAppPackages,
 } from "@/lib/agentic-apps/store";
 import { mintAppScopedToken } from "@/lib/agentic-apps/tokens";
 import { ApiError } from "@/lib/api-error";
 import { getAuthenticatedUser } from "@/lib/api-middleware";
-import { isMongoDBConfigured } from "@/lib/mongodb";
 import type {
   AgenticAppBlockedReason,
-  AgenticAppInstallationRecord,
-  AgenticAppManifest,
-  AgenticAppPackageRecord,
 } from "@/types/agentic-app";
 
 const BLOCKED_RESPONSE_HEADERS = new Set([
@@ -51,8 +55,8 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "trailer",
   "transfer-encoding",
   // The gateway is the only legitimate source of Authorization to the upstream
-  // app. We strip any client-supplied Authorization to prevent JWT smuggling
-  // and replace it with the user's id_token (if available).
+  // app. Strip client-supplied credentials to prevent JWT smuggling, then add
+  // the short-lived, app-audience token minted for this decision.
   "authorization",
   // Defense-in-depth: never let a client smuggle the identity hint headers;
   // the gateway is the only legitimate source. These hints are
@@ -61,6 +65,8 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "x-caipe-app-id",
   "x-caipe-user",
   "x-caipe-roles",
+  "x-forwarded-prefix",
+  "x-caipe-surface",
 ]);
 
 interface ProxyContext {
@@ -127,7 +133,7 @@ async function proxyAgenticAppRequest(
   const appId = params.appId;
   const correlationId = request.headers.get("x-correlation-id") ?? randomUUID();
 
-  const binding = await resolveExecutionBinding(appId);
+  const binding = await resolveAgenticAppExecutionBinding(appId);
   if (binding.error) {
     return Response.json({ error: binding.error }, { status: binding.status });
   }
@@ -138,10 +144,6 @@ async function proxyAgenticAppRequest(
 
   if (!isExecutableProxyRuntimeManifest(pkg.manifest)) {
     return Response.json({ error: "unsupported_runtime" }, { status: 501 });
-  }
-
-  if (shouldRedirectTopLevelIframeChromeRequest(request, pkg.manifest, params.path ?? [])) {
-    return Response.redirect(new URL(`/apps/embed/${appId}`, request.url), 307);
   }
 
   const accessResult = evaluateAppAccess({
@@ -159,42 +161,83 @@ async function proxyAgenticAppRequest(
     return Response.json({ error }, { status });
   }
 
-  const subjectId = deriveUserId({ session: session as Record<string, unknown>, email: user.email });
-  const action = `proxy:${request.method.toUpperCase()}`;
-  const pdpDecision = decideAgenticAppPdp({
+  const subjectId = deriveAgenticAppSubjectId(
+    session as Record<string, unknown>,
+    user.email,
+  );
+  const runtimePath = `/${(params.path ?? []).join("/")}`;
+  const policyAction = resolveAgenticAppHttpPolicyAction(
+    pkg.manifest,
+    request.method,
+    runtimePath,
+  );
+  const action = policyAction?.action ?? `undeclared:${request.method.toUpperCase()}:${runtimePath}`;
+  const localDecision = decideAgenticAppPdp({
     action,
     user,
     session,
     pkg,
     installation,
     metadata: {
-      path: `/${(params.path ?? []).join("/")}`,
+      path: runtimePath,
       method: request.method.toUpperCase(),
     },
   });
+  const casCompatibility: AgenticAppCasCompatibilityResult = pkg.manifest.authorization
+    ? await evaluateAgenticAppCasCompatibility({
+        appId,
+        subjectId,
+        localEffect: localDecision.effect,
+        correlationId,
+        action: policyAction?.casAction ?? "use",
+      })
+    : {
+        mode: "off" as const,
+        casDecision: "NOT_EVALUATED" as const,
+        effectiveEffect: localDecision.effect,
+      };
+  const pdpDecision = {
+    ...localDecision,
+    effect: casCompatibility.effectiveEffect,
+    reasonCode:
+      casCompatibility.effectiveEffect === "deny" && localDecision.effect === "allow"
+        ? `cas_${(casCompatibility.casReason ?? "NO_CAPABILITY").toLowerCase()}`
+        : localDecision.reasonCode,
+    scopes: casCompatibility.effectiveEffect === "allow" ? localDecision.scopes : [],
+    metadata: {
+      ...localDecision.metadata,
+      casMode: casCompatibility.mode,
+      casDecision: casCompatibility.casDecision,
+      ...(casCompatibility.casReason ? { casReason: casCompatibility.casReason } : {}),
+    },
+  };
   await appendPdpDecision(
     buildPdpDecisionRecord({
       appId,
       action,
       decision: pdpDecision,
       correlationId,
-      userSubjectHash: hashStableIdentifier(subjectId),
+      userSubjectHash: hashAgenticAppIdentifier(subjectId),
       route: request.url,
       method: request.method.toUpperCase(),
     }),
   );
   if (pdpDecision.effect !== "allow") {
+    const unavailable = casCompatibility.casReason === "AUTHZ_UNAVAILABLE";
     return Response.json(
       {
-        error: "pdp_denied",
+        error: unavailable ? "authorization_unavailable" : "pdp_denied",
         decisionId: pdpDecision.decisionId,
         reasonCode: pdpDecision.reasonCode,
       },
       {
-        status: 403,
+        status: unavailable ? 503 : 403,
         headers: {
+          "cache-control": "no-store",
           "x-caipe-decision-id": pdpDecision.decisionId,
           "x-correlation-id": correlationId,
+          "x-caipe-cas-mode": casCompatibility.mode,
+          "x-caipe-cas-decision": casCompatibility.casDecision,
         },
       },
     );
@@ -217,7 +260,7 @@ async function proxyAgenticAppRequest(
     scopes: pdpDecision.scopes,
     issuedAt: new Date().toISOString(),
     expiresAt: appToken.expiresAt,
-    subject: { subjectHash: hashStableIdentifier(subjectId) },
+    subject: { subjectHash: hashAgenticAppIdentifier(subjectId) },
     tokenHash: appToken.tokenHash,
   });
 
@@ -258,109 +301,19 @@ async function proxyAgenticAppRequest(
     return Response.json({ error: "upstream_unavailable" }, { status: 502 });
   }
 
+  const responseHeaders = withGatewayResponseHeaders(
+    filterResponseHeaders(upstream.headers),
+    pdpDecision.decisionId,
+    correlationId,
+  );
+  responseHeaders.set("x-caipe-cas-mode", casCompatibility.mode);
+  responseHeaders.set("x-caipe-cas-decision", casCompatibility.casDecision);
+
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: withGatewayResponseHeaders(
-      filterResponseHeaders(upstream.headers),
-      pdpDecision.decisionId,
-      correlationId,
-    ),
+    headers: responseHeaders,
   });
-}
-
-type ExecutionBindingResult =
-  | {
-      installation: AgenticAppInstallationRecord;
-      pkg: AgenticAppPackageRecord;
-      error?: undefined;
-      status?: undefined;
-    }
-  | {
-      installation?: undefined;
-      pkg?: undefined;
-      error: string;
-      status: number;
-    };
-
-async function resolveExecutionBinding(appId: string): Promise<ExecutionBindingResult> {
-  if (isMongoDBConfigured) {
-    let installations: Awaited<ReturnType<typeof listAppInstallations>>;
-    let packages: Awaited<ReturnType<typeof listAppPackages>>;
-    try {
-      [installations, packages] = await Promise.all([listAppInstallations(), listAppPackages()]);
-    } catch {
-      return { error: "gateway_store_unavailable", status: 503 };
-    }
-
-    const installation = installations.find((i) => i.appId === appId) ?? null;
-    const pkg =
-      installation !== null
-        ? packages.find((p) => p.packageId === installation.packageId) ?? null
-        : null;
-
-    if (installation && pkg) {
-      return { installation, pkg };
-    }
-  }
-
-  const manifest = getAgenticAppById(appId);
-  if (!manifest) {
-    if (!isMongoDBConfigured) {
-      return { error: "mongodb_required", status: 503 };
-    }
-    return { error: "app_not_found", status: 404 };
-  }
-
-  return buildEnvConfiguredExecutionBinding(manifest);
-}
-
-function buildEnvConfiguredExecutionBinding(manifest: AgenticAppManifest): ExecutionBindingResult {
-  const now = new Date().toISOString();
-  return {
-    pkg: {
-      packageId: manifest.id,
-      source: "builtin",
-      manifest,
-      importedAt: now,
-      importedBy: "env-registry",
-      ...(manifest.catalog ? { catalog: manifest.catalog } : {}),
-    },
-    installation: {
-      appId: manifest.id,
-      packageId: manifest.id,
-      installed: true,
-      enabled: true,
-      visible: true,
-      runtimeMountPath: manifest.runtime.mountPath,
-      runtimeHealth: "unknown",
-      healthPolicy: {
-        blockLaunchWhen: manifest.health.blockLaunchWhen ?? ["degraded", "unreachable"],
-      },
-      routeOwnership: { normalizedMountPath: manifest.runtime.mountPath },
-      updatedAt: now,
-      updatedBy: "env-registry",
-    },
-  };
-}
-
-function shouldRedirectTopLevelIframeChromeRequest(
-  request: Request,
-  manifest: AgenticAppManifest,
-  path: string[],
-): boolean {
-  if (manifest.runtime.chrome !== "iframe") {
-    return false;
-  }
-  if (isOAuthCallbackPath(path)) {
-    return false;
-  }
-  const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
-  return fetchDest === "document";
-}
-
-function isOAuthCallbackPath(path: string[]): boolean {
-  return path.length >= 3 && path[0] === "oauth" && path[path.length - 1] === "callback";
 }
 
 function isDocumentNavigation(request: Request): boolean {
@@ -417,6 +370,10 @@ function buildForwardHeaders(input: {
   if (input.roles.length > 0) headers.set("x-caipe-roles", input.roles.join(","));
   headers.set("x-caipe-decision-id", input.decisionId);
   headers.set("x-correlation-id", input.correlationId);
+  // The runtime uses this trusted gateway-owned prefix when generating its
+  // in-frame API and navigation URLs. Client-supplied values are stripped.
+  headers.set("x-forwarded-prefix", buildAgenticAppRuntimePath(input.appId));
+  headers.set("x-caipe-surface", "hosted");
 
   // Authoritative identity: short-lived app-scoped token minted by CAIPE.
   headers.set("authorization", `Bearer ${input.appToken}`);
@@ -460,17 +417,6 @@ function toArrayBuffer(buffer: Buffer): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function deriveUserId(input: { session: Record<string, unknown>; email: string }): string {
-  const rawSub = input.session.sub;
-  const sub = typeof rawSub === "string" ? rawSub.trim() : "";
-  if (sub && sub.length > 0) {
-    return sub;
-  }
-  // Fallback: hash the email so PII never leaves the host. We keep the full
-  // 64-char digest so collisions remain astronomical.
-  return createHash("sha256").update(input.email).digest("hex");
-}
-
 function deriveRoles(input: {
   session: Record<string, unknown>;
   role: string;
@@ -485,8 +431,4 @@ function deriveRoles(input: {
     set.add("user");
   }
   return Array.from(set).sort();
-}
-
-function hashStableIdentifier(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

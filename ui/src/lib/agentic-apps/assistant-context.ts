@@ -113,7 +113,7 @@ export function validateAssistantContextMessage(
     expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
     ...(typeof context.title === "string" ? { title: context.title.slice(0, 240) } : {}),
     ...(typeof context.summary === "string" ? { summary: context.summary.slice(0, 4096) } : {}),
-    ...(typeof context.selection === "string" ? { selection: context.selection.slice(0, 2048) } : {}),
+    ...(typeof context.selection === "string" ? { selection: context.selection.slice(0, 8192) } : {}),
     ...(Array.isArray(context.resourceRefs) ? { resourceRefs: context.resourceRefs.slice(0, 20) } : {}),
     ...(Array.isArray(context.suggestedPrompts)
       ? { suggestedPrompts: context.suggestedPrompts.slice(0, 8) }

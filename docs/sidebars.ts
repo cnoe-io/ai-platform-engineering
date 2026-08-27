@@ -221,10 +221,11 @@ const sidebars: SidebarsConfig = {
       link: {
         type: 'generated-index',
         description:
-          'Solution architecture, gateway, identity federation, Slack authorization, scheduler, and streaming.',
+          'Solution architecture, Agentic Apps, gateway, identity federation, Slack authorization, scheduler, and streaming.',
       },
       items: [
         { type: 'doc', id: 'architecture/index', label: 'Solution Architecture' },
+        { type: 'doc', id: 'architecture/agentic-apps', label: 'Agentic Apps' },
         { type: 'doc', id: 'architecture/gateway', label: 'AgentGateway' },
         {
           type: 'doc',

@@ -33,6 +33,33 @@ env:
   LOCAL_IMAGE: caipe-agentic-app-runtime:ci
 
 jobs:
+  contract-test:
+    name: Browser client and static example contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install locked UI dependencies
+        run: npm ci --prefix ui --ignore-scripts
+
+      - name: Test browser client, runtime paths, and static examples
+        run: node --test ui/apps/_lib/*.test.mjs ui/apps/agentic-apps/weather/*.test.mjs
+
   smoke-test:
     name: Smoke test ${{ matrix.app }}
     runs-on: ubuntu-latest
@@ -44,22 +71,44 @@ jobs:
             port: 3010
             command: node apps/agentic-apps/finops/server.mjs
             portEnv: FINOPS_APP_PORT
-            jwtSkipEnv: AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY
+            jwtDisabledEnv: AGENTIC_APP_FINOPS_JWT_DISABLED
+            pagePath: /
           - app: weather
             port: 3020
             command: node apps/agentic-apps/weather/server.mjs
             portEnv: WEATHER_APP_PORT
-            jwtSkipEnv: AGENTIC_APP_WEATHER_JWT_SKIP_VERIFY
+            jwtDisabledEnv: AGENTIC_APP_WEATHER_JWT_DISABLED
+            pagePath: /
+          - app: agentic-sdlc
+            port: 3030
+            command: node apps/agentic-sdlc/server.mjs
+            portEnv: AGENTIC_SDLC_APP_PORT
+            jwtDisabledEnv: AGENTIC_APP_AGENTIC_SDLC_JWT_DISABLED
+            pagePath: /
           - app: oss-repo-management
             port: 3040
             command: node apps/agentic-apps/oss-repo-management/server.mjs
             portEnv: OSS_REPO_MANAGEMENT_APP_PORT
-            jwtSkipEnv: AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_SKIP_VERIFY
+            jwtDisabledEnv: AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_DISABLED
+            pagePath: /
           - app: jira-project-dashboard
             port: 3041
             command: node apps/agentic-apps/jira-project-dashboard/server.mjs
             portEnv: JIRA_PROJECT_DASHBOARD_APP_PORT
-            jwtSkipEnv: AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_SKIP_VERIFY
+            jwtDisabledEnv: AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_DISABLED
+            pagePath: /
+          - app: litellm
+            port: 3042
+            command: node apps/agentic-apps/litellm/server.mjs
+            portEnv: LITELLM_APP_PORT
+            jwtDisabledEnv: AGENTIC_APP_LITELLM_JWT_DISABLED
+            pagePath: /
+          - app: speakers-collective
+            port: 3043
+            command: node apps/agentic-apps/speakers-collective/server.mjs
+            portEnv: SPEAKERS_COLLECTIVE_APP_PORT
+            jwtDisabledEnv: AGENTIC_APP_SPEAKERS_COLLECTIVE_JWT_DISABLED
+            pagePath: /
 
     steps:
       - name: Harden runner
@@ -94,7 +143,7 @@ jobs:
           COMMAND: ${{ matrix.command }}
           PORT: ${{ matrix.port }}
           PORT_ENV: ${{ matrix.portEnv }}
-          JWT_SKIP_ENV: ${{ matrix.jwtSkipEnv }}
+          JWT_DISABLED_ENV: ${{ matrix.jwtDisabledEnv }}
         run: |
           set -euo pipefail
           docker run -d \
@@ -102,7 +151,7 @@ jobs:
             -p "127.0.0.1:${PORT}:${PORT}" \
             -e NODE_ENV=test \
             -e "${PORT_ENV}=${PORT}" \
-            -e "${JWT_SKIP_ENV}=true" \
+            -e "${JWT_DISABLED_ENV}=true" \
             "${LOCAL_IMAGE}" \
             sh -c "${COMMAND}"
 
@@ -125,6 +174,31 @@ jobs:
           docker logs "agentic-app-${APP}" || true
           exit 1
 
+      - name: Check ${{ matrix.app }} browser contract
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+          PAGE_PATH: ${{ matrix.pagePath }}
+          PORT: ${{ matrix.port }}
+        run: |
+          set -euo pipefail
+          PAGE_HTML=$(curl --fail --silent --show-error "http://127.0.0.1:${PORT}${PAGE_PATH}")
+          case "$APP" in
+            finops|weather|oss-repo-management|litellm)
+              grep --fixed-strings --quiet "createAgenticAppConversation" <<< "$PAGE_HTML"
+              EXAMPLE_HTML=$(curl --fail --silent --show-error "http://127.0.0.1:${PORT}/example")
+              grep --fixed-strings --quiet "STATIC EXAMPLE · SAMPLE DATA · NO LIVE CONNECTION" <<< "$EXAMPLE_HTML"
+              ;;
+            speakers-collective)
+              grep --fixed-strings --quiet "caipe.agenticApp.context.v1" <<< "$PAGE_HTML"
+              EXAMPLE_HTML=$(curl --fail --silent --show-error "http://127.0.0.1:${PORT}/example")
+              grep --fixed-strings --quiet "STATIC EXAMPLE · SAMPLE DATA · NO LIVE CONNECTION" <<< "$EXAMPLE_HTML"
+              ;;
+            *)
+              grep --fixed-strings --quiet "createAgenticAppConversation" <<< "$PAGE_HTML"
+              ;;
+          esac
+
       - name: Stop ${{ matrix.app }} server
         if: always()
         shell: bash
@@ -137,7 +211,7 @@ jobs:
   build-and-push:
     name: Build runtime image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: smoke-test
+    needs: [contract-test, smoke-test]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     timeout-minutes: 45
     permissions:

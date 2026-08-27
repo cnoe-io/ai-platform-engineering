@@ -6,9 +6,8 @@ import type { AgenticAppManifest } from "@/types/agentic-app";
  * Resolve the user-facing URL for launching an Agentic App.
  *
  * Apps that opt into `runtime.chrome === "iframe"` are rendered inside the
- * standard CAIPE shell at `/apps/embed/<id>`. The shell page wraps the
- * upstream mountPath in an `<iframe>` so users see the CAIPE header above the
- * app.
+ * standard CAIPE shell at the canonical `/apps/<id>` URL. The shell loads the
+ * upstream through the private runtime gateway under `/api`.
  *
  * Apps with `runtime.chrome === "fullscreen"` (default) launch directly at
  * `physicalHref ?? mountPath` — the upstream owns the entire viewport. This
@@ -18,15 +17,15 @@ import type { AgenticAppManifest } from "@/types/agentic-app";
  * @param manifest    The app's manifest.
  * @param physicalHref Optional physical mount path (e.g. installation override
  *                    via `runtimeMountPath`). Used only for fullscreen apps;
- *                    iframe-chrome apps always launch through the shell page,
- *                    which itself reads the override at render time.
+ *                    iframe-chrome apps always launch through the canonical
+ *                    shell page.
  */
 export function resolveAgenticAppLaunchUrl(
   manifest: AgenticAppManifest,
   physicalHref?: string,
 ): string {
-  if (manifest.runtime.chrome === "iframe") {
-    return `/apps/embed/${manifest.id}`;
+  if (manifest.ui?.surface === "hosted" || manifest.runtime.chrome === "iframe") {
+    return `/apps/${manifest.id}`;
   }
   return physicalHref || manifest.runtime.mountPath;
 }

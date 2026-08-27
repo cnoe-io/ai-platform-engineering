@@ -37,6 +37,7 @@ describe("universal ReBAC resource model", () => {
       "webex_workspace",
       "webex_space",
       "agent",
+      "agentic_app",
       "llm_model",
       "mcp_gateway",
       "mcp_server",
@@ -71,6 +72,7 @@ describe("universal ReBAC resource model", () => {
     expect(isSupportedResourceAction("tool", "call")).toBe(true);
     expect(isSupportedResourceAction("mcp_server", "invoke")).toBe(true);
     expect(isSupportedResourceAction("mcp_server", "create")).toBe(true);
+    expect(isSupportedResourceAction("agentic_app", "use")).toBe(true);
     expect(isSupportedResourceAction("llm_model", "write")).toBe(true);
     expect(isSupportedResourceAction("user_profile", "read")).toBe(true);
     expect(isSupportedResourceAction("user_profile", "create")).toBe(true);

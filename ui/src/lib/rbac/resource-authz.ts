@@ -13,6 +13,7 @@ export type ResourcePermissionAction =
   | "read-metadata"
   | "use"
   | "write"
+  | "approve"
   | "admin"
   | "manage"
   | "share"
@@ -204,6 +205,8 @@ export function openFgaRelationForResourceAction(action: ResourcePermissionActio
       return "can_use";
     case "write":
       return "can_write";
+    case "approve":
+      return "can_approve";
     case "admin":
     case "manage":
       return "can_manage";

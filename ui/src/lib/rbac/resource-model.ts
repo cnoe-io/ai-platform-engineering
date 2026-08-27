@@ -70,6 +70,11 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
     description: "Agent execution and configuration resource.",
   },
   {
+    type: "agentic_app",
+    actions: ["discover", "read", "use", "write", "approve", "manage", "audit"],
+    description: "Hosted or standalone Agentic App surface and its user preferences.",
+  },
+  {
     type: "llm_model",
     actions: ["discover", "read", "write", "create", "delete", "manage", "audit"],
     description: "LLM model registration available to Dynamic Agents.",

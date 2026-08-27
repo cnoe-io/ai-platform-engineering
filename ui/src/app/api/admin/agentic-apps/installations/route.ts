@@ -133,6 +133,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ...(accessOverrides !== undefined ? { accessOverrides } : {}),
       ...(healthPolicy !== undefined ? { healthPolicy } : {}),
       routeOwnership: { normalizedMountPath },
+      createdBy: user.email,
+      ...(typeof session.sub === "string"
+        ? { creatorSubject: session.sub, ownerSubject: session.sub }
+        : {}),
+      visibility: "global",
       updatedBy: user.email,
     });
     await appendAgenticAppEvent({

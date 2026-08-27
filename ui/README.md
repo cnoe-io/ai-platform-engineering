@@ -35,6 +35,7 @@ Open http://localhost:3000.
 | `SSO_ENABLED` | `false` | Enables OIDC-backed auth |
 | `AGENTIC_APPS_INSTALL_ENABLED` | `false` | Enables Agentic Apps user, admin, and proxy routes when set to `true` |
 | `AGENTIC_APPS_CONFIG_PATH` | unset | Optional path to a dedicated YAML file containing deploy-managed Agentic App packages and installations |
+| `AGENTIC_APPS_CAS_MODE` | `enforce` | CAS mode: `enforce`, `shadow`, or `off`. Enforce fails closed; built-in `agentic_app:<id>#user` grants are reconciled at startup. |
 
 Browser chat traffic goes through the BFF routes under
 `/api/v1/chat/stream/*`; the browser does not call the Dynamic Agents service
@@ -63,6 +64,13 @@ agentic_apps:
           mountPath: /apps/example-app
           origin: ${EXAMPLE_APP_ORIGIN}
           chrome: iframe
+        ui:
+          contractVersion: "1.0"
+          surface: hosted
+          routes: ["/"]
+        authorization:
+          resourceType: agentic_app
+          launchAction: use
         surfaces:
           showInHub: true
           showInTopNav: true

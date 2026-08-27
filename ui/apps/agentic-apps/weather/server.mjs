@@ -3,19 +3,34 @@
 // assisted-by Codex Codex-sonnet-4-6
 import { createServer } from "node:http";
 
-import { createAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { handleAppMcpRequest } from "../../_lib/app-mcp-server.mjs";
+import { renderAgenticAppConversationClient } from "../../_lib/conversation-client.mjs";
+import { createRequiredAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { renderMicrofrontendClient } from "../../_lib/microfrontend-client.mjs";
+import { authorizeAgenticAppRuntimeRequest } from "../../_lib/runtime-authorization.mjs";
+import {
+  resolveAgenticAppRuntimeBasePath,
+  resolveAgenticAppSurface,
+} from "../../_lib/runtime-base-path.mjs";
+import { renderStaticDashboardExample } from "../../_lib/static-dashboard-examples.mjs";
+import { fetchWeatherDashboard } from "./provider.mjs";
+import { registerWeatherMcpTools } from "./mcp.mjs";
 
 const port = Number(process.env.WEATHER_APP_PORT ?? "3020");
-const basePath = normalizeBasePath(process.env.WEATHER_APP_BASE_PATH ?? "/apps/weather");
+const configuredBasePath = normalizeBasePath(process.env.WEATHER_APP_BASE_PATH ?? "/apps/weather");
 const defaultCity = "San Jose";
-const defaultAgentId = process.env.WEATHER_AGENT_ID ?? "agent-weather-agent";
-const verifier =
-  process.env.AGENTIC_APP_WEATHER_JWT_DISABLED === "true"
-    ? null
-    : createAgenticAppJwtVerifier({ appId: "weather" });
+const configuredWeatherAgentId = String(process.env.WEATHER_AGENT_ID || "").trim();
+const defaultAgentId = configuredWeatherAgentId || "agent-weather-agent";
+const weatherAgentConfigured = configuredWeatherAgentId.length > 0;
+const verifier = createRequiredAgenticAppJwtVerifier({
+  appId: "weather",
+  disabled: process.env.AGENTIC_APP_WEATHER_JWT_DISABLED === "true",
+});
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+  const basePath = resolveAgenticAppRuntimeBasePath(request.headers, configuredBasePath, "weather");
+  const surface = resolveAgenticAppSurface(request.headers);
 
   if (url.pathname === "/healthz") {
     sendJson(response, 200, {
@@ -25,6 +40,22 @@ const server = createServer(async (request, response) => {
       dataSource: "caipe-weather-agent",
       copilotKit: "embedded-caipe-agent-action-panel",
       agentId: defaultAgentId,
+      agentConfigured: weatherAgentConfigured,
+      mcp: { endpoint: "/mcp", authentication: "forwarded-bearer" },
+    });
+    return;
+  }
+
+  if (url.pathname === "/mcp") {
+    await handleAppMcpRequest(request, response, {
+      name: "weather-app",
+      authenticationDisabled: process.env.AGENTIC_APP_WEATHER_MCP_AUTH_DISABLED === "true",
+      registerTools(mcpServer) {
+        registerWeatherMcpTools(mcpServer, {
+          fetchDashboard: fetchWeatherDashboard,
+          buildResponse: buildProviderWeatherResponse,
+        });
+      },
     });
     return;
   }
@@ -37,6 +68,21 @@ const server = createServer(async (request, response) => {
     }
     request.caipeIdentity = result.identity;
   }
+  const authorization = authorizeAgenticAppRuntimeRequest({
+    identity: request.caipeIdentity,
+    appId: "weather",
+    method: request.method,
+    readScope: "weather:read",
+    invokeScope: "weather:agent",
+    allowDevelopmentBypass: verifier === null,
+  });
+  if (!authorization.ok) {
+    sendJson(response, authorization.status, {
+      error: authorization.error,
+      requiredScope: authorization.requiredScope,
+    });
+    return;
+  }
 
   if (url.pathname === "/api/copilotkit/weather-agent" && request.method === "POST") {
     try {
@@ -44,11 +90,12 @@ const server = createServer(async (request, response) => {
       const city = normalizeCity(body?.city);
       const intent = normalizeIntent(body?.intent);
       const question = String(body?.question || "").trim();
-      sendJson(response, 200, buildCopilotWeatherResponse(city, intent, question));
+      const forecast = await fetchWeatherDashboard(city);
+      sendJson(response, 200, buildProviderWeatherResponse(forecast, intent, question));
     } catch (error) {
-      sendJson(response, 400, {
-        error: "invalid_weather_agent_request",
-        message: error instanceof Error ? error.message : "Could not run weather agent",
+      sendJson(response, 502, {
+        error: "weather_provider_unavailable",
+        message: error instanceof Error ? error.message : "Could not load live weather providers",
       });
     }
     return;
@@ -60,12 +107,12 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === "/embed") {
+  if (url.pathname === "/example") {
     response.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    response.end(renderDashboard({ compact: true }));
+    response.end(renderStaticDashboardExample("weather", authorization.summary));
     return;
   }
 
@@ -74,7 +121,7 @@ const server = createServer(async (request, response) => {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    response.end(renderDashboard({ compact: false }));
+    response.end(renderDashboard({ compact: surface === "hosted", basePath, appPath: configuredBasePath }));
     return;
   }
 
@@ -95,11 +142,11 @@ function buildAgentUnavailableWeatherDashboard(city, reason = "No Weather struct
     country: "",
     observedAt: new Date().toISOString(),
     current: {
-      temperatureC: 0,
-      apparentC: 0,
-      humidity: 0,
-      windKmh: 0,
-      code: 0,
+      temperatureC: null,
+      apparentC: null,
+      humidity: null,
+      windKmh: null,
+      code: null,
       condition: "Agent output pending",
     },
     daily: [],
@@ -125,21 +172,22 @@ function buildAgentUnavailableWeatherDashboard(city, reason = "No Weather struct
   };
 }
 
-function buildCopilotWeatherResponse(city, intent, question = "") {
-  const forecast = buildAgentUnavailableWeatherDashboard(city);
+function buildProviderWeatherResponse(forecast, intent, question = "") {
+  const summary = forecast.dailyGuidance?.howIsMyDay || `${forecast.city}: live weather loaded.`;
   return {
     message: [
-      forecast.dailyGuidance.howIsMyDay,
+      summary,
       question ? `Question: ${question}` : "",
-      `Recommendation: ${forecast.recommendations[0]}`,
+      forecast.recommendations?.[0] ? `Recommendation: ${forecast.recommendations[0]}` : "",
     ].filter(Boolean).join(" "),
     intent,
     forecast,
+    provider_fallback: true,
     agUi: buildAgUiWeatherEnvelope(forecast, intent),
     copilotKit: {
       pattern: "useCopilotAction",
       actionName: "renderWeatherInsight",
-      status: "agent-unavailable",
+      status: "provider-fallback",
     },
   };
 }
@@ -195,7 +243,7 @@ function buildWeatherDashboardResponseFormat() {
   };
 }
 
-function renderDashboard({ compact }) {
+function renderDashboard({ compact, basePath, appPath }) {
   const city = escapeHtml(defaultCity);
   return `<!doctype html>
 <html lang="en">
@@ -207,7 +255,7 @@ function renderDashboard({ compact }) {
       :root {
         color-scheme: dark;
         --app-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --app-font-scale: 0.8;
+        --app-font-scale: 1;
         font-size: calc(16px * var(--app-font-scale));
         font-family: var(--app-font-family);
         background: #020617;
@@ -254,8 +302,8 @@ function renderDashboard({ compact }) {
         gap: 7px;
       }
       h1 { margin: 0; font-size: 1.28rem; line-height: 1.15; letter-spacing: -0.025em; font-weight: 800; }
-      h2 { margin: 0 0 8px; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; }
-      .subtitle { color: #94a3b8; line-height: 1.4; font-size: 0.78rem; max-width: 720px; }
+      h2 { margin: 0 0 8px; font-size: 0.86rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; }
+      .subtitle { color: #94a3b8; line-height: 1.5; font-size: 0.86rem; max-width: 720px; }
       .hero-status { display: inline-flex; }
       .dashboard-status {
         display: inline-flex;
@@ -334,7 +382,7 @@ function renderDashboard({ compact }) {
         font-family: inherit;
         font-size: 0.78rem;
       }
-      .controls input, .controls select, .controls button { padding: 6px 12px; font-size: 0.78rem; }
+      .controls input, .controls select, .controls button { min-height: 38px; padding: 7px 12px; font-size: 0.84rem; }
       .weather-question-input {
         display: block;
         width: 100%;
@@ -375,10 +423,10 @@ function renderDashboard({ compact }) {
       .kpi.accent-attention { border-color: rgba(56, 189, 248, 0.30); }
       .kpi.accent-warn { border-color: rgba(248, 191, 36, 0.32); }
       .kpi.accent-danger { border-color: rgba(248, 113, 113, 0.32); }
-      .kpi .kpi-label { color: #94a3b8; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+      .kpi .kpi-label { color: #94a3b8; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
       .kpi .kpi-value { color: #f8fafc; font-size: 1.42rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05; display: flex; align-items: center; gap: 6px; }
       .kpi .kpi-icon { font-size: 1.14rem; }
-      .kpi .kpi-sub { color: #94a3b8; font-size: 0.72rem; font-weight: 600; }
+      .kpi .kpi-sub { color: #94a3b8; font-size: 0.78rem; font-weight: 600; }
       .insights-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
       .insight {
         flex: 1 1 200px;
@@ -404,14 +452,14 @@ function renderDashboard({ compact }) {
         padding: 10px 12px;
       }
       .metric .icon { display: block; font-size: 0.92rem; margin-bottom: 4px; }
-      .label { color: #94a3b8; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase; }
+      .label { color: #94a3b8; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase; }
       .value { margin-top: 4px; font-size: 1.28rem; font-weight: 800; color: white; letter-spacing: -0.025em; }
       .insight-card {
         border-color: rgba(125, 211, 252, 0.22);
         background: linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(20, 184, 166, 0.08));
       }
       .insight-card strong { color: #f8fafc; font-size: 0.92rem; font-weight: 700; }
-      .insight-card p { margin: 5px 0 0; color: #cbd5e1; line-height: 1.5; font-size: 0.78rem; }
+      .insight-card p { margin: 5px 0 0; color: #cbd5e1; line-height: 1.55; font-size: 0.84rem; }
       .risk-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .risk-pill {
         border-radius: 999px;
@@ -462,7 +510,7 @@ function renderDashboard({ compact }) {
       .copilot button { width: 100%; }
       .copilot button + button { margin-top: 6px; }
       .copilot input, .copilot select { width: 100%; }
-      .message { margin-top: 8px; color: #cbd5e1; line-height: 1.5; font-size: 0.78rem; padding: 10px 12px; }
+      .message { margin-top: 8px; color: #cbd5e1; line-height: 1.55; font-size: 0.84rem; padding: 10px 12px; }
       .message strong { color: #bae6fd; }
       .markdown-report h1, .markdown-report h2, .markdown-report h3 { margin: 0.45rem 0 0.25rem; color: #e0f2fe; }
       .markdown-report p { margin: 0.35rem 0; }
@@ -613,6 +661,10 @@ function renderDashboard({ compact }) {
         background: #34d399;
         box-shadow: 0 0 0 6px rgba(52,211,153,0.14);
       }
+      :is(a, button, input, select, textarea, summary):focus-visible {
+        outline: 3px solid rgba(103, 232, 249, 0.78);
+        outline-offset: 2px;
+      }
       @media (max-width: 1100px) {
         .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -628,23 +680,31 @@ function renderDashboard({ compact }) {
         .dashboard-status { max-width: none; }
         .font-customizer { position: static; margin: 12px 0 0; }
       }
+      .example-link { color: #7dd3fc; font-size: 0.8rem; font-weight: 800; text-decoration: none; }
+      .example-link:hover { text-decoration: underline; }
+      body.compact .font-customizer,
+      body.compact .run-history,
+      body.compact .secondary-panel,
+      body.compact #agentId { display: none; }
+      .panel[hidden] { display: none; }
       @media (max-width: 480px) {
         .metrics, .air-grid { grid-template-columns: 1fr; }
         .days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+      }
     </style>
   </head>
-  <body>
+  <body class="${compact ? "compact" : "standalone"}">
     <main>
       <section class="hero">
         <div class="hero-row">
           <div class="hero-title">
             <p class="eyebrow"><span class="pulse"></span>Weather Lab • Open-Meteo • Embedded Agent</p>
             <h1 id="locationTitle">Loading ${city}</h1>
-            <p class="subtitle">
-              This external app renders real weather data from Open-Meteo and exposes an app-local
-              weather action surface. It also publishes concise, non-sensitive context to CAIPE.
-            </p>
+            <p class="subtitle">Current conditions, forecast, and practical guidance from live weather providers${weatherAgentConfigured ? " and the configured CAIPE Weather Agent" : ""}.</p>
+            <a class="example-link" href="${basePath}/example">View static example</a>
           </div>
           <div class="controls">
             <input id="cityInput" value="${city}" aria-label="City" />
@@ -652,9 +712,9 @@ function renderDashboard({ compact }) {
               <option value="fahrenheit" selected>Fahrenheit</option>
               <option value="celsius">Celsius</option>
             </select>
-            <button id="loadWeather">Refresh with agent</button>
+            <button id="loadWeather">${weatherAgentConfigured ? "Refresh with agent" : "Refresh live weather"}</button>
             <span class="hero-status">
-              <span class="dashboard-status" id="dashboardStatus" title="No forecast loaded yet.">
+              <span class="dashboard-status" id="dashboardStatus" title="No forecast loaded yet." role="status" aria-live="polite">
                 <span class="status-dot" aria-hidden="true"></span>
                 Updated: loading
               </span>
@@ -706,7 +766,7 @@ function renderDashboard({ compact }) {
               <p>Forecast, air quality, and alert context will appear here.</p>
             </div>
           </div>
-          <div class="panel">
+          <div class="panel secondary-panel">
             <h2>Live conditions detail</h2>
             <div class="metrics" id="metrics"></div>
           </div>
@@ -730,8 +790,8 @@ function renderDashboard({ compact }) {
 
         <aside class="copilot">
           <p class="eyebrow">Weather Intelligence</p>
-          <h2>Weather Agent</h2>
-          <p class="subtitle">Ask the embedded weather panel to call your CAIPE Weather Agent and turn the forecast into an operational dashboard recommendation.</p>
+          <h2>${weatherAgentConfigured ? "Weather Agent" : "Weather Intelligence"}</h2>
+          <p class="subtitle">${weatherAgentConfigured ? "Ask the embedded weather panel to call your CAIPE Weather Agent and turn the forecast into an operational dashboard recommendation." : "Use live Open-Meteo forecast and air-quality data to build an operational dashboard recommendation."}</p>
           <input id="agentId" aria-label="Weather agent id" value="${escapeHtml(defaultAgentId)}" style="margin: 8px 0;" />
           <select id="intent">
             <option value="forecast-summary">Forecast summary</option>
@@ -747,7 +807,7 @@ function renderDashboard({ compact }) {
             rows="3"
             placeholder="Ask a question, e.g. What are the snow conditions in Denver?"
           ></textarea>
-          <button id="askCopilot" style="margin-top: 8px;">Run Weather Agent</button>
+          <button id="askCopilot" style="margin-top: 8px;">${weatherAgentConfigured ? "Run Weather Agent" : "Refresh live weather"}</button>
           <button id="openAssistantChat" class="ghost" type="button">Open Ask Weather Chat</button>
           <div class="message" id="copilotMessage">Load a forecast, then ask for an insight.</div>
         </aside>
@@ -760,19 +820,19 @@ function renderDashboard({ compact }) {
               Ready
             </span>
             <span class="activity-summary" id="activitySummary">
-              Weather Agent activity appears here during a live run.
+              ${weatherAgentConfigured ? "Weather Agent activity appears here during a live run." : "Live provider activity appears here during a refresh."}
             </span>
             <span class="activity-toggle-hint">Details</span>
           </summary>
           <div class="activity-drawer-body">
             <section>
-              <h2>Live Agent Activity</h2>
+              <h2>${weatherAgentConfigured ? "Live Agent Activity" : "Live Provider Activity"}</h2>
               <ol class="timeline" id="agentProgress">
                 <li data-step="idle" class="done">
                   <span class="activity-icon" aria-hidden="true">✓</span>
                   <span class="activity-content">
                     <span class="activity-time">Idle</span>
-                    <span>Ready to run live Weather Agent analysis</span>
+                    <span>${weatherAgentConfigured ? "Ready to run live Weather Agent analysis" : "Ready to refresh live weather providers"}</span>
                   </span>
                 </li>
               </ol>
@@ -792,8 +852,12 @@ function renderDashboard({ compact }) {
       </footer>
     </main>
 
+    ${renderAgenticAppConversationClient()}
+    ${renderMicrofrontendClient("weather")}
     <script>
       const basePath = ${JSON.stringify(basePath)};
+      const appPath = ${JSON.stringify(appPath)};
+      const weatherAgentConfigured = ${JSON.stringify(weatherAgentConfigured)};
       const state = {
         forecast: null,
         lastAgentMessage: "",
@@ -832,6 +896,13 @@ function renderDashboard({ compact }) {
         state.unit = unitToggle.value === "celsius" ? "celsius" : "fahrenheit";
         if (state.forecast) renderForecast(state.forecast);
       });
+      window.addEventListener("caipe:microfrontend-initialize", (event) => {
+        const preferredUnits = event.detail?.preferences?.units;
+        if (preferredUnits !== "us" && preferredUnits !== "metric") return;
+        state.unit = preferredUnits === "metric" ? "celsius" : "fahrenheit";
+        unitToggle.value = state.unit;
+        if (state.forecast) renderForecast(state.forecast);
+      });
       cityInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") runWeatherAgent();
       });
@@ -842,24 +913,25 @@ function renderDashboard({ compact }) {
       });
 
       async function loadWeather(city) {
-        copilotMessage.textContent = "Waiting for Weather Agent structured output.";
-        setDashboardStatus("loading", "Waiting for Weather Agent...", "The embedded app does not call weather providers directly.");
+        copilotMessage.textContent = "Loading live weather provider data...";
+        setDashboardStatus("loading", "Loading weather...", "Fetching live forecast and air-quality providers.");
         const response = await fetch(appUrl("/api/copilotkit/weather-agent"), {
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/json" },
           body: JSON.stringify({ city, intent: "forecast-summary" }),
         });
         if (!response.ok) {
-          copilotMessage.textContent = "Weather Agent placeholder failed: " + response.status;
-          setDashboardStatus("error", "Weather Agent unavailable", "The Weather app could not prepare an agent-only dashboard.");
+          const failure = await response.json().catch(() => ({}));
+          copilotMessage.textContent = failure.message || "Live weather providers failed: " + response.status;
+          setDashboardStatus("error", "Weather providers unavailable", failure.message || "The Weather app could not load live provider data.");
           return;
         }
         const result = await response.json();
         state.forecast = normalizeForecast(result.forecast || {}, city);
         renderForecast(state.forecast);
         publishAssistantContext(state.forecast);
-        setDashboardStatus("ready", "Agent output pending", dashboardStatusDetail(state.forecast));
-        copilotMessage.textContent = "Run the Weather Agent to fetch provider data and emit weather.dashboard.v1.";
+        setDashboardStatus("done", "Live weather loaded", dashboardStatusDetail(state.forecast));
+        copilotMessage.textContent = "Live Open-Meteo data loaded. Run the Weather Agent for an agent-generated interpretation.";
       }
 
       async function loadCachedWeather() {
@@ -981,32 +1053,23 @@ function renderDashboard({ compact }) {
 
         let result;
         try {
+          if (!weatherAgentConfigured) {
+            throw new Error("No CAIPE Weather Agent is configured for this runtime");
+          }
           updateAgentProgress("agent", "Running CAIPE structured invoke", "Agent: " + agentId);
-          const response = await fetch("/api/v1/chat/invoke", {
-            method: "POST",
-            headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({
-              agent_id: agentId,
-              message: prompt,
-              conversation_id: "weather-dashboard-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()),
-              client_context: {
-                source: "agentic-app",
-                appId: "weather",
-                dashboardKind: intent,
-                city,
-                userQuestion,
-                unit: state.unit,
-                response_format: ${JSON.stringify(buildWeatherDashboardResponseFormat())},
-              },
-            }),
+          const invokeResult = await invokeAgenticApp({
+            agentId,
+            appId: "weather",
+            title: "Weather dashboard · " + city,
+            message: prompt,
+            clientContext: {
+              dashboardKind: intent,
+              city,
+              userQuestion,
+              unit: state.unit,
+              response_format: ${JSON.stringify(buildWeatherDashboardResponseFormat())},
+            },
           });
-          if (!response.ok) {
-            throw new Error(await response.text().catch(() => "Weather Agent invoke failed."));
-          }
-          const invokeResult = await response.json();
-          if (invokeResult.success === false) {
-            throw new Error(invokeResult.error || "Weather Agent invoke failed.");
-          }
           updateAgentProgress("shape", "Shaping weather dashboard output", invokeResult.structured_output ? "Structured weather output received from invoke." : "No weather.dashboard.v1 structured output received.");
           appendStreamContent(invokeResult.content || "");
           result = {
@@ -1017,7 +1080,11 @@ function renderDashboard({ compact }) {
             throw new Error("No Weather structured output received from the CAIPE Weather agent");
           }
         } catch (error) {
-          updateAgentProgress("error", "Weather Agent structured output unavailable", error instanceof Error ? error.message : "Stream unavailable.");
+          updateAgentProgress(
+            "fallback",
+            weatherAgentConfigured ? "Weather Agent unavailable; using providers" : "Live provider mode",
+            error instanceof Error ? error.message : "Using live weather providers.",
+          );
           const local = await fetch(appUrl("/api/copilotkit/weather-agent"), {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },
@@ -1032,8 +1099,7 @@ function renderDashboard({ compact }) {
             return;
           }
           appendStreamContent(result.message || JSON.stringify(result, null, 2));
-          updateAgentProgress("error", "Agent structured output required", result.forecast?.reason || "Weather data requires the CAIPE Weather agent.");
-          setDashboardStatus("error", "Agent output pending", result.forecast?.reason || "Weather data requires the CAIPE Weather agent.");
+          updateAgentProgress("shape", "Live providers returned weather data", "Open-Meteo fallback completed without bypassing agent authorization.");
         }
 
         const content = result.structured_output
@@ -1043,14 +1109,21 @@ function renderDashboard({ compact }) {
         state.forecast = normalizeForecast(insight, city);
         state.lastAgentMessage = content;
         renderForecast(state.forecast);
-        if (result.structured_output) {
+        if (result.structured_output || result.provider_fallback) {
           updateAgentProgress("save", "Saving run history", "Captured " + state.forecast.daily.length + " daily rows, " + state.forecast.hourly.length + " hourly points, and " + (state.forecast.nationalWeatherAlerts?.alerts?.length || 0) + " alerts.");
           await saveCachedWeather(agentId, city, intent, state.unit, state.forecast, content);
-          updateAgentProgress("done", "Run complete", "Dashboard updated from structured Weather Agent invoke.");
+          updateAgentProgress(
+            "done",
+            "Run complete",
+            result.structured_output
+              ? "Dashboard updated from structured Weather Agent invoke."
+              : "Dashboard updated from live Open-Meteo provider fallback.",
+          );
           setDashboardStatus("done", "Updated " + new Date().toLocaleTimeString(), dashboardStatusDetail(state.forecast));
         }
         const message = insight?.summary || content;
-        copilotMessage.innerHTML = "<strong>Weather Agent:</strong> " + escapeHtml(message);
+        copilotMessage.innerHTML =
+          "<strong>" + (result.structured_output ? "Weather Agent" : "Live weather providers") + ":</strong> " + escapeHtml(message);
         if (insight?.recommendations?.length) {
           copilotMessage.innerHTML += "<br><br>" + insight.recommendations.map((item) => "• " + escapeHtml(item)).join("<br>");
         }
@@ -1059,14 +1132,16 @@ function renderDashboard({ compact }) {
           version: "1.0",
           appId: "weather",
           context: {
-            route: basePath,
-            title: "Weather Agent Insight",
+            route: appPath,
+            title: result.structured_output ? "Weather Agent Insight" : "Live Weather Insight",
             summary: message,
             selection: JSON.stringify({ forecast: compactForecast(state.forecast), agentOutput: content, userQuestion }).slice(0, 3000),
-            resourceRefs: [
-              { kind: "datasource", id: "open-meteo" },
-              { kind: "agent", id: agentId },
-            ],
+            resourceRefs: result.structured_output
+              ? [
+                  { kind: "datasource", id: "open-meteo" },
+                  { kind: "agent", id: agentId },
+                ]
+              : [{ kind: "datasource", id: "open-meteo" }],
             suggestedPrompts: [
               "Explain this forecast risk in plain language.",
               "Find the best travel window from this weather context.",
@@ -1085,7 +1160,7 @@ function renderDashboard({ compact }) {
         renderMarkdownReport(document.getElementById("streamedContent"), "");
         state.activityEventCount = 0;
         state.debugEventCount = 0;
-        updateActivitySummary("Starting live Weather Agent run...");
+        updateActivitySummary(weatherAgentConfigured ? "Starting live Weather Agent run..." : "Starting live provider refresh...");
         setRunStatus("active", "Starting");
       }
 
@@ -1163,8 +1238,8 @@ function renderDashboard({ compact }) {
         const visible = state.activityEventCount + " event" + (state.activityEventCount === 1 ? "" : "s");
         const debug = state.debugEventCount ? " • " + state.debugEventCount + " debug" : "";
         if (status === "error") return "Needs attention • " + visible + debug;
-        if (status === "done") return "Last Weather Agent run • " + visible + debug;
-        return "Streaming Weather Agent activity • " + visible + debug;
+        if (status === "done") return (weatherAgentConfigured ? "Last Weather Agent run • " : "Last provider refresh • ") + visible + debug;
+        return (weatherAgentConfigured ? "Streaming Weather Agent activity • " : "Refreshing live providers • ") + visible + debug;
       }
 
       function setRunButtonBusy(isBusy) {
@@ -1344,6 +1419,13 @@ function renderDashboard({ compact }) {
         return underProxy ? normalizedBase + normalizedPath : normalizedPath;
       }
 
+      function numberOrNull(...values) {
+        const value = values.find((candidate) => candidate !== null && candidate !== undefined && candidate !== "");
+        if (value === undefined) return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      }
+
       function normalizeForecast(value, fallbackCity) {
         const forecast = value && typeof value === "object" ? value : {};
         const current = forecast.current && typeof forecast.current === "object" ? forecast.current : {};
@@ -1354,11 +1436,11 @@ function renderDashboard({ compact }) {
           country: forecast.country || "",
           observedAt: forecast.observedAt || new Date().toISOString(),
           current: {
-            temperatureC: Number(current.temperatureC ?? current.tempC ?? 0),
-            apparentC: Number(current.apparentC ?? current.feelsLikeC ?? current.temperatureC ?? 0),
-            humidity: Number(current.humidity ?? 0),
-            windKmh: Number(current.windKmh ?? current.windSpeedKmh ?? 0),
-            code: Number(current.code ?? 0),
+            temperatureC: numberOrNull(current.temperatureC, current.tempC),
+            apparentC: numberOrNull(current.apparentC, current.feelsLikeC, current.temperatureC, current.tempC),
+            humidity: numberOrNull(current.humidity),
+            windKmh: numberOrNull(current.windKmh, current.windSpeedKmh),
+            code: numberOrNull(current.code),
             condition: current.condition || "Agent output pending",
           },
           daily: Array.isArray(forecast.daily) ? forecast.daily : [],
@@ -1390,11 +1472,15 @@ function renderDashboard({ compact }) {
         renderKpiStrip(forecast);
         renderInsights(forecast);
         renderDailyGuidance(forecast);
+        const hourlyPanel = tempChart.closest(".panel");
+        const dailyPanel = days.closest(".panel");
+        if (hourlyPanel) hourlyPanel.hidden = forecast.hourly.length === 0;
+        if (dailyPanel) dailyPanel.hidden = forecast.daily.length === 0;
         metrics.replaceChildren(
           metric("Temperature", formatTemperature(forecast.current.temperatureC), "Temp"),
           metric("Feels Like", formatTemperature(forecast.current.apparentC), "Feel"),
-          metric("Wind", forecast.current.windKmh + " km/h", "Wind"),
-          metric("Humidity", forecast.current.humidity + "%", "Hum"),
+          metric("Wind", forecast.current.windKmh == null ? "—" : forecast.current.windKmh + " km/h", "Wind"),
+          metric("Humidity", forecast.current.humidity == null ? "—" : forecast.current.humidity + "%", "Hum"),
         );
         days.replaceChildren(...forecast.daily.map((day) => {
           const node = document.createElement("div");
@@ -1433,7 +1519,15 @@ function renderDashboard({ compact }) {
         const city = forecast.city || "Unknown";
         const region = forecast.region || "";
         const condition = current.condition || "Loading...";
-        const icon = weatherCodeToIcon(current.code);
+        const icon = forecast.source === "agent-unavailable" ? "" : weatherCodeToIcon(current.code);
+        if (forecast.source === "agent-unavailable") {
+          kpiStrip.innerHTML = [
+            weatherKpi({ label: "Location", value: city, sub: region || "Requested location", icon, accent: "attention", valueClass: "kpi-location" }),
+            weatherKpi({ label: "Weather data", value: "Unavailable", sub: forecast.reason || "No agent output", accent: "warn" }),
+            weatherKpi({ label: "Next step", value: "Run agent", sub: "Retry after checking Weather Agent access", accent: "attention" }),
+          ].join("");
+          return;
+        }
         const today = (forecast.daily && forecast.daily[0]) || null;
         const aq = forecast.airQuality || {};
         const alertCount = (forecast.nationalWeatherAlerts?.alerts || []).length;
@@ -1442,7 +1536,7 @@ function renderDashboard({ compact }) {
         const aqCategory = aq.available ? (aq.category || "") : (aq.reason ? "Unavailable" : "");
         const tempStr = formatTemperature(current.temperatureC);
         const feelsStr = formatTemperature(current.apparentC);
-        const windStr = (current.windKmh != null ? current.windKmh : 0) + " km/h";
+        const windStr = current.windKmh == null ? "—" : current.windKmh + " km/h";
 
         const tempAccent = "attention";
         const aqAccent = !aq.available ? "attention" : aqValue >= 151 ? "danger" : aqValue >= 101 ? "warn" : aqValue >= 51 ? "attention" : "good";
@@ -1585,6 +1679,9 @@ function renderDashboard({ compact }) {
 
       function displayDailyGuidance(forecast) {
         const guidance = forecast.dailyGuidance || {};
+        if (forecast.source === "agent-unavailable") {
+          return forecast.city + ": weather data is unavailable. " + (forecast.reason || "Run the Weather Agent to try again.");
+        }
         const bestWindow = guidance.bestWindow
           ? " Best outdoor window looks like " + guidance.bestWindow.label + "."
           : " No clear best outdoor window in the next 24 hours.";
@@ -1654,11 +1751,13 @@ function renderDashboard({ compact }) {
       }
 
       function displayTemperatureValue(valueC) {
+        if (valueC === null || valueC === undefined || valueC === "") return null;
         return state.unit === "celsius" ? Math.round(Number(valueC)) : cToF(valueC);
       }
 
       function formatTemperature(valueC) {
-        return displayTemperatureValue(valueC) + temperatureSuffix();
+        const value = displayTemperatureValue(valueC);
+        return value === null ? "—" : value + temperatureSuffix();
       }
 
       function cToF(valueC) {
@@ -1676,9 +1775,9 @@ function renderDashboard({ compact }) {
           mono: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
           serif: 'Georgia, "Times New Roman", serif',
         };
-        const scales = { small: "0.8", default: "1", large: "1.15", xl: "1.3" };
+        const scales = { small: "0.9", default: "1", large: "1.15", xl: "1.3" };
         const family = families[preferences.family] ? preferences.family : "inter";
-        const scale = scales[preferences.scale] ? preferences.scale : "small";
+        const scale = scales[preferences.scale] ? preferences.scale : "default";
         document.documentElement.style.setProperty("--app-font-family", families[family]);
         document.documentElement.style.setProperty("--app-font-scale", scales[scale]);
         fontFamilySelect.value = family;
@@ -1731,7 +1830,7 @@ function renderDashboard({ compact }) {
           version: "1.0",
           appId: "weather",
           context: {
-            route: basePath,
+            route: appPath,
             title: "Live weather for " + forecast.city,
             summary: forecast.dailyGuidance?.howIsMyDay || forecast.current.condition + ", " + forecast.current.temperatureC + "C",
             selection: JSON.stringify({ ...compactForecast(forecast), selectedDay }).slice(0, 5000),

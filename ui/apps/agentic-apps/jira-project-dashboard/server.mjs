@@ -2,19 +2,34 @@
 // assisted-by Codex Codex-sonnet-4-6
 import { createServer } from "node:http";
 
-import { createAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { renderAgenticAppConversationClient } from "../../_lib/conversation-client.mjs";
+import { createRequiredAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { renderMicrofrontendClient } from "../../_lib/microfrontend-client.mjs";
+import { authorizeAgenticAppRuntimeRequest } from "../../_lib/runtime-authorization.mjs";
+import {
+  resolveAgenticAppRuntimeBasePath,
+  resolveAgenticAppSurface,
+} from "../../_lib/runtime-base-path.mjs";
 
 const port = Number(process.env.JIRA_PROJECT_DASHBOARD_APP_PORT ?? "3041");
-const basePath = normalizeBasePath(process.env.JIRA_PROJECT_DASHBOARD_APP_BASE_PATH ?? "/apps/jira-project-dashboard");
+const configuredBasePath = normalizeBasePath(
+  process.env.JIRA_PROJECT_DASHBOARD_APP_BASE_PATH ?? "/apps/jira-project-dashboard",
+);
 const defaultJiraAgentId = process.env.JIRA_PROJECT_DASHBOARD_JIRA_AGENT_ID ?? "agent-jira-agent";
 
-const verifier =
-  process.env.AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_DISABLED === "true"
-    ? null
-    : createAgenticAppJwtVerifier({ appId: "jira-project-dashboard" });
+const verifier = createRequiredAgenticAppJwtVerifier({
+  appId: "jira-project-dashboard",
+  disabled: process.env.AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_DISABLED === "true",
+});
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+  const basePath = resolveAgenticAppRuntimeBasePath(
+    request.headers,
+    configuredBasePath,
+    "jira-project-dashboard",
+  );
+  const surface = resolveAgenticAppSurface(request.headers);
 
   if (url.pathname === "/healthz") {
     sendJson(response, 200, {
@@ -33,6 +48,21 @@ const server = createServer(async (request, response) => {
       return;
     }
     request.caipeIdentity = result.identity;
+  }
+  const authorization = authorizeAgenticAppRuntimeRequest({
+    identity: request.caipeIdentity,
+    appId: "jira-project-dashboard",
+    method: request.method,
+    readScope: "jira-project-dashboard:read",
+    invokeScope: "jira-project-dashboard:agent:invoke",
+    allowDevelopmentBypass: verifier === null,
+  });
+  if (!authorization.ok) {
+    sendJson(response, authorization.status, {
+      error: authorization.error,
+      requiredScope: authorization.requiredScope,
+    });
+    return;
   }
 
   if (url.pathname === "/api/summary") {
@@ -54,13 +84,8 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === "/embed") {
-    sendHtml(response, renderDashboard({ compact: true }));
-    return;
-  }
-
   if (url.pathname === "/" || url.pathname === "/dashboard") {
-    sendHtml(response, renderDashboard({ compact: false }));
+    sendHtml(response, renderDashboard({ compact: surface === "hosted", basePath }));
     return;
   }
 
@@ -156,7 +181,7 @@ function buildLocalJiraAgentResponse(body) {
   };
 }
 
-function renderDashboard({ compact }) {
+function renderDashboard({ compact, basePath }) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -403,6 +428,8 @@ function renderDashboard({ compact }) {
         </details>
       </footer>
     </main>
+    ${renderAgenticAppConversationClient()}
+    ${renderMicrofrontendClient("jira-project-dashboard")}
     <script>
       const basePath = ${JSON.stringify(basePath)};
       const state = { dashboard: null, activityEventCount: 0, runs: loadRunHistory() };
@@ -454,28 +481,18 @@ function renderDashboard({ compact }) {
           if (!agentReadiness.ok) {
             throw new Error(agentReadiness.message);
           }
-          const response = await fetch("/api/v1/chat/invoke", {
-            method: "POST",
-            headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({
-              agent_id: jiraAgentId,
-              message: prompt,
-              conversation_id: "jira-project-dashboard-" + Date.now(),
-              client_context: {
-                source: "agentic-app",
-                appId: "jira-project-dashboard",
-                project,
-                dashboardKind: kind,
-                question,
-                response_format: ${JSON.stringify(buildJiraProjectDashboardResponseFormat())},
-              },
-            }),
+          const invoked = await invokeAgenticApp({
+            agentId: jiraAgentId,
+            appId: "jira-project-dashboard",
+            title: "Jira project dashboard · " + project,
+            message: prompt,
+            clientContext: {
+              project,
+              dashboardKind: kind,
+              question,
+              response_format: ${JSON.stringify(buildJiraProjectDashboardResponseFormat())},
+            },
           });
-          if (!response.ok) throw new Error("invoke unavailable");
-          const invoked = await response.json();
-          if (invoked.success === false) {
-            throw new Error(invoked.error || "Jira agent invoke failed.");
-          }
           appendStreamContent(invoked.content || "");
           if (invoked.structured_output) {
             appendActivityEvent("Received jira_project.dashboard.v1", invoked.structured_output_schema_id || "Schema id not provided.", "done");

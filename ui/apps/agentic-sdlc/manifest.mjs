@@ -12,6 +12,12 @@ export const AGENTIC_SDLC_MANIFEST = {
     kind: "proxied-next-zone",
     mountPath: "/apps/agentic-sdlc",
   },
+  ui: {
+    contractVersion: "1.0",
+    surface: "standalone",
+    routes: ["/", "/:owner/:repo", "/:owner/:repo/epics/:epicId"],
+  },
+  authorization: { resourceType: "agentic_app", launchAction: "use" },
   surfaces: {
     showInHub: true,
     showInTopNav: true,
@@ -24,19 +30,34 @@ export const AGENTIC_SDLC_MANIFEST = {
     tokenScopes: ["agents:invoke", "sdlc:read"],
     policyActions: [
       {
-        action: "app.proxy.request",
-        description: "Forward Agentic SDLC app requests",
-        defaultEffect: "deny",
+        action: "proxy:GET",
+        description: "Read Agentic SDLC pages through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["sdlc:read"],
+      },
+      {
+        action: "proxy:HEAD",
+        description: "Probe Agentic SDLC pages through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["sdlc:read"],
+      },
+      {
+        action: "proxy:POST",
+        description: "Run Agentic SDLC actions through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["agents:invoke"],
       },
       {
         action: "webhook.github.repo-events",
         description: "Forward GitHub webhook events to Agentic SDLC",
         defaultEffect: "allow",
+        requiredScopes: ["sdlc:read"],
       },
     ],
   },
   assistant: {
     enabled: true,
+    agentId: "agent-agentic-sdlc",
     schemaVersions: ["1.0"],
     maxContextBytes: 8192,
     capability: "sdlc-assistant",
@@ -44,6 +65,15 @@ export const AGENTIC_SDLC_MANIFEST = {
     label: "Ask Agentic SDLC",
     agentName: "Agentic SDLC Assistant",
   },
+  agents: [
+    {
+      id: "agentic-sdlc-agent",
+      displayName: "Agentic SDLC Agent",
+      required: true,
+      dynamicAgentId: "agent-agentic-sdlc",
+      capabilities: ["spec-driven-development", "ship-loop", "repository-delivery"],
+    },
+  ],
   data: {
     apiBasePath: "/api/agentic-sdlc",
     eventChannels: ["sdlc.repo.updated", "sdlc.ship_loop.updated"],

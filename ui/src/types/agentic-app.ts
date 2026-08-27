@@ -10,6 +10,14 @@ export type AgenticAppPackageSource = "builtin" | "admin-import" | "helm" | "api
 export type AgenticAppValidationStatus = "valid" | "warning" | "blocked";
 export type AgenticAppHealthStatus = "unknown" | "healthy" | "degraded" | "unreachable";
 export type AgenticAppPdpEffect = "allow" | "deny";
+export type AgenticAppVisibility = "private" | "team" | "global";
+export type AgenticAppTeamRole = "viewer" | "editor" | "approver" | "admin";
+export type AgenticAppCasAction = "read" | "use" | "write" | "approve" | "manage";
+
+export interface AgenticAppTeamAccessGrant {
+  teamSlug: string;
+  role: AgenticAppTeamRole;
+}
 export type AgenticAppBlockedReason =
   | "not_installed"
   | "disabled"
@@ -69,6 +77,14 @@ export interface AgenticAppPdpPolicyAction {
   description?: string;
   defaultEffect?: AgenticAppPdpEffect;
   reasonCode?: string;
+  /** Least-privilege scopes minted when this action is allowed. */
+  requiredScopes?: string[];
+  /** Optional HTTP route selector used by the execution gateway. */
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** Absolute upstream API path. `:parameter` segments match one path segment. */
+  path?: string;
+  /** CAS capability that must be confirmed before scopes are minted. */
+  casAction?: AgenticAppCasAction;
 }
 
 /** Per-environment install / enable flags (Mongo implementation in a later task). */
@@ -82,6 +98,16 @@ export interface AgenticAppInstallationRecord {
   config_driven?: boolean;
   createdAt?: string;
   createdBy?: string;
+  /** Stable Keycloak subject used for provenance; never grants access by itself. */
+  creatorSubject?: string;
+  /** Stable subject that owns private access and may manage sharing. */
+  ownerSubject?: string;
+  /** Discovery and launch scope projected into CAS/OpenFGA. Legacy rows default to global. */
+  visibility?: AgenticAppVisibility;
+  /** Canonical team slugs granted use when visibility is team. */
+  sharedWithTeams?: string[];
+  /** Exclusive per-team role projected into OpenFGA. Legacy rows derive viewers from sharedWithTeams. */
+  teamAccess?: AgenticAppTeamAccessGrant[];
   updatedAt?: string;
   updatedBy?: string;
   /** Last known runtime health from platform checks; drives launch policy with evaluateAppAccess. */
@@ -97,6 +123,12 @@ export interface AgenticAppInstallationRecord {
 
 export interface AgenticAppAssistantConfig {
   enabled?: boolean;
+  /**
+   * Stable dynamic-agent ID that owns this app's contextual chat surface.
+   * When configured, the shell must select this exact CAS-visible agent and
+   * must not fall back to a user or platform default.
+   */
+  agentId?: string;
   schemaVersions?: string[];
   maxContextBytes?: number;
   capability?: string;
@@ -149,9 +181,33 @@ export interface AgenticAppManifest {
      *   - "iframe": CAIPE wraps the app in a sandboxed `<iframe>` rendered
      *     inside the standard CAIPE shell (top header + body). Use for apps
      *     that want CAIPE chrome above them. Launch URL becomes
-     *     `/apps/embed/<id>` instead of `/apps/<id>`.
+     *     the canonical `/apps/<id>` shell, with the runtime proxied under
+     *     `/api/agentic-apps/runtime/<id>`.
      */
     chrome?: "fullscreen" | "iframe";
+  };
+  /** Versioned contract between the CAIPE shell and a hosted microfrontend. */
+  ui?: {
+    contractVersion: "1.0";
+    surface: "hosted" | "standalone";
+    routes?: string[];
+    preferences?: {
+      schemaVersion: "1.0";
+      fields: Array<{
+        key: string;
+        label: string;
+        type: "boolean" | "number" | "string" | "enum";
+        default: boolean | number | string;
+        options?: Array<{ label: string; value: string }>;
+        min?: number;
+        max?: number;
+      }>;
+    };
+  };
+  /** PDP-agnostic CAS authorization target for this app surface. */
+  authorization?: {
+    resourceType: "agentic_app";
+    launchAction: "use";
   };
   surfaces: {
     showInHub: boolean;

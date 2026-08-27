@@ -1,0 +1,10 @@
+id: weather_app
+name: Weather App MCP
+description: Source-backed weather dashboard tools.
+transport: http
+endpoint: http://agentic-app-weather:3020/mcp
+enabled: true
+authentication:
+  mode: forwarded_oidc
+allowedTools:
+  - weather_get_dashboard

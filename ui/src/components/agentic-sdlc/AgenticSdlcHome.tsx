@@ -36,6 +36,7 @@ import {
   Heart,
   Layers,
   RadioTower,
+  RefreshCw,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -224,7 +225,7 @@ export function AgenticSdlcHome() {
         {activeTab === "repos" ? <ReposDashboard /> : null}
         {activeTab === "metrics" ? <MetricsDashboard /> : null}
         {activeTab === "settings" ? <AgenticSdlcSettings /> : null}
-        <footer className="mt-auto border-t border-border/30 pt-3 text-center text-[11px] text-muted-foreground/70">
+        <footer className="mt-auto border-t border-border/30 pt-3 text-center text-xs text-muted-foreground/70">
           Agentic SDLC is an experimental feature. UI will evolve based on user feedback.
         </footer>
       </div>
@@ -557,8 +558,8 @@ function HomeActionCard({
   return (
     <div className={`glass-panel rounded-xl border p-4 ${toneClasses}`}>
       <Icon className="h-4 w-4" aria-hidden />
-      <h2 className="mt-3 text-sm font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 min-h-10 text-xs text-muted-foreground">{detail}</p>
+      <h2 className="mt-3 text-base font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 min-h-10 text-sm leading-5 text-muted-foreground">{detail}</p>
       <div className="mt-4">{children}</div>
     </div>
   );
@@ -589,6 +590,7 @@ function ReposDashboard() {
 function MetricsDashboard() {
   const [metrics, setMetrics] = useState<MetricsDashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -608,6 +610,7 @@ function MetricsDashboard() {
     let cancelled = false;
 
     async function loadMetrics() {
+      if (!cancelled) setLoading(true);
       try {
         const res = await fetch("/api/agentic-sdlc/metrics");
         if (!res.ok) {
@@ -623,7 +626,10 @@ function MetricsDashboard() {
           setError(
             err instanceof Error ? err.message : "Unable to load metrics",
           );
+          setMetrics(null);
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -663,6 +669,21 @@ function MetricsDashboard() {
               Aggregate repo health, velocity, HITL load, deploy throughput,
               and token burn across repos the viewer can access.
             </p>
+            <div
+              className="mt-4 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-cyan-400/20 bg-cyan-500/5 px-3 py-1.5 text-xs text-cyan-100"
+              role="status"
+              aria-live="polite"
+            >
+              <span>Source: RBAC-filtered portfolio API</span>
+              <span aria-hidden>·</span>
+              <span>
+                {metrics
+                  ? `Updated ${formatMetricFreshness(metrics.generated_at)}`
+                  : loading
+                    ? "Loading live metrics"
+                    : "Freshness unavailable"}
+              </span>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -700,106 +721,136 @@ function MetricsDashboard() {
 
       {error && (
         <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          Metrics data is unavailable: {error}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Metrics data is unavailable: {error}</span>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((value) => value + 1)}
+              className="inline-flex items-center gap-2 rounded-md border border-amber-200/30 bg-amber-100/10 px-3 py-1.5 font-medium transition hover:bg-amber-100/15"
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+              Retry
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
-        <div className="glass-panel rounded-2xl border border-border/40 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                Stage pressure heatmap
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Repo x stage load, highlighting bottlenecks before humans feel
-                them.
-              </p>
-            </div>
-            <RadioTower className="h-5 w-5 text-cyan-300" aria-hidden />
-          </div>
-          <div
-            className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-            aria-label="Stage pressure heatmap"
-          >
-            {heatmapCells.length > 0
-              ? heatmapCells.map((cell, idx) => (
-                  <div
-                    key={`${cell.repo_id}:${cell.stage}`}
-                    className={`min-h-14 rounded-md border border-white/5 p-2 ${heatmapTone(idx, cell.count)}`}
-                    title={`${cell.repo_name} • ${stageLabel(cell.stage)} • ${cell.count}`}
-                  >
-                    <div className="truncate text-[11px] font-medium text-foreground/90">
-                      {cell.repo_name}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      <span className="truncate">{stageLabel(cell.stage)}</span>
-                      <span className="font-semibold text-foreground">
-                        {cell.count}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              : Array.from({ length: 10 }, (_, idx) => (
-                  <div
-                    key={idx}
-                    className={`h-14 rounded-md border border-white/5 ${heatmapTone(idx, 0)} opacity-50`}
-                    aria-hidden
-                  />
-                ))}
-          </div>
+      {loading ? (
+        <div
+          className="rounded-xl border border-border/40 bg-card/25 px-4 py-8 text-center text-sm text-muted-foreground"
+          aria-busy="true"
+        >
+          Loading portfolio metrics…
         </div>
+      ) : null}
 
-        <div className="glass-panel rounded-2xl border border-border/40 p-5">
-          <h3 className="text-sm font-semibold text-foreground">
-            Velocity ribbon
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Epics merged, deploy success, and HITL queue age over time.
-          </p>
-          <div className="mt-5 flex h-36 items-end gap-2">
-            {(metrics?.velocity_series.length
-              ? metrics.velocity_series
-              : Array.from({ length: 10 }, (_, idx) => ({
-                  date: `loading-${idx}`,
-                  count: 0,
-                }))
-            ).map((point) => {
-              const height = metrics
-                ? Math.max(8, Math.round((point.count / velocityMax) * 100))
-                : 34;
-              return (
-                <div
-                  key={point.date}
-                  className="flex flex-1 flex-col items-center justify-end gap-1"
-                >
+      {metrics ? (
+        <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
+          <div className="glass-panel rounded-2xl border border-border/40 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Stage pressure heatmap
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Repo x stage load, highlighting bottlenecks before humans
+                  feel them.
+                </p>
+              </div>
+              <RadioTower className="h-5 w-5 text-cyan-300" aria-hidden />
+            </div>
+            <div
+              className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+              aria-label="Stage pressure heatmap"
+            >
+              {heatmapCells.length > 0 ? (
+                heatmapCells.map((cell, idx) => (
+                    <div
+                      key={`${cell.repo_id}:${cell.stage}`}
+                      className={`min-h-14 rounded-md border border-white/5 p-2 ${heatmapTone(idx, cell.count)}`}
+                      title={`${cell.repo_name} • ${stageLabel(cell.stage)} • ${cell.count}`}
+                    >
+                      <div className="truncate text-[11px] font-medium text-foreground/90">
+                        {cell.repo_name}
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <span className="truncate">
+                          {stageLabel(cell.stage)}
+                        </span>
+                        <span className="font-semibold text-foreground">
+                          {cell.count}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <p className="col-span-full rounded-lg border border-dashed border-border/40 px-4 py-6 text-center text-sm text-muted-foreground">
+                  No stage pressure is currently reported.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="glass-panel rounded-2xl border border-border/40 p-5">
+            <h3 className="text-sm font-semibold text-foreground">
+              Velocity ribbon
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Epics merged, deploy success, and HITL queue age over time.
+            </p>
+            <div className="mt-5 flex h-36 items-end gap-2">
+              {metrics.velocity_series.map((point) => {
+                const height = Math.max(
+                  8,
+                  Math.round((point.count / velocityMax) * 100),
+                );
+                return (
                   <div
-                    className="w-full rounded-t bg-gradient-to-t from-violet-500/25 via-cyan-400/50 to-emerald-300/85 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
-                    style={{ height: `${height}%` }}
-                    aria-label={`${point.date}: ${point.count} delivery events`}
-                    title={`${point.date}: ${point.count} delivery events`}
-                  />
-                  {metrics && (
+                    key={point.date}
+                    className="flex flex-1 flex-col items-center justify-end gap-1"
+                  >
+                    <div
+                      className="w-full rounded-t bg-gradient-to-t from-violet-500/25 via-cyan-400/50 to-emerald-300/85 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
+                      style={{ height: `${height}%` }}
+                      aria-label={`${point.date}: ${point.count} delivery events`}
+                      title={`${point.date}: ${point.count} delivery events`}
+                    />
                     <span className="text-[10px] text-muted-foreground">
                       {point.count}
                     </span>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
+            {metrics.velocity_series.length === 0 ? (
+              <p className="mt-4 rounded-lg border border-dashed border-border/40 px-4 py-6 text-center text-sm text-muted-foreground">
+                No delivery events are reported for this period.
+              </p>
+            ) : null}
           </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }
 
 function formatCompactMetric(value: number | undefined): string {
-  if (value === undefined) return "...";
+  if (value === undefined) return "—";
   return new Intl.NumberFormat("en", {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+function formatMetricFreshness(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return "just now";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestamp);
 }
 
 function stageLabel(stage: string): string {

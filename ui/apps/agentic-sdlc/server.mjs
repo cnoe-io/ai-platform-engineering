@@ -4,20 +4,46 @@
 
 import { createServer } from "node:http";
 
-import { createAgenticAppJwtVerifier } from "../_lib/jwt-verify.mjs";
+import { handleAppMcpRequest } from "../_lib/app-mcp-server.mjs";
+import { renderAgenticAppConversationClient } from "../_lib/conversation-client.mjs";
+import { createRequiredAgenticAppJwtVerifier } from "../_lib/jwt-verify.mjs";
+import { authorizeAgenticAppRuntimeRequest } from "../_lib/runtime-authorization.mjs";
+import { registerAgenticSdlcMcpTools } from "./mcp.mjs";
 
 const port = Number(process.env.AGENTIC_SDLC_APP_PORT ?? "3030");
+const githubApiBase = String(process.env.AGENTIC_SDLC_GITHUB_API_URL ?? "https://api.github.com").replace(/\/+$/, "");
+const githubToken = String(process.env.AGENTIC_SDLC_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? "").trim();
 
 export function createAgenticSdlcReferenceServer() {
-  const verifier = process.env.AGENTIC_APP_AGENTIC_SDLC_JWT_DISABLED === "true"
-    ? null
-    : createAgenticAppJwtVerifier({ appId: "agentic-sdlc" });
+  const verifier = createRequiredAgenticAppJwtVerifier({
+    appId: "agentic-sdlc",
+    disabled: process.env.AGENTIC_APP_AGENTIC_SDLC_JWT_DISABLED === "true",
+  });
 
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
     if (url.pathname === "/healthz") {
-      sendJson(response, 200, { ok: true, app: "agentic-sdlc", runtime: "external-reference" });
+      sendJson(response, 200, {
+        ok: true,
+        app: "agentic-sdlc",
+        runtime: "external-reference",
+        mcp: { endpoint: "/mcp", authentication: "forwarded-bearer" },
+      });
+      return;
+    }
+
+    if (url.pathname === "/mcp") {
+      await handleAppMcpRequest(request, response, {
+        name: "agentic-sdlc-app",
+        authenticationDisabled: process.env.AGENTIC_APP_AGENTIC_SDLC_MCP_AUTH_DISABLED === "true",
+        registerTools(mcpServer) {
+          registerAgenticSdlcMcpTools(mcpServer, {
+            getRepositorySnapshot,
+            getRuntimeContract,
+          });
+        },
+      });
       return;
     }
 
@@ -28,6 +54,21 @@ export function createAgenticSdlcReferenceServer() {
         return;
       }
       request.caipeIdentity = result.identity;
+    }
+    const authorization = authorizeAgenticAppRuntimeRequest({
+      identity: request.caipeIdentity,
+      appId: "agentic-sdlc",
+      method: request.method,
+      readScope: "sdlc:read",
+      invokeScope: "agents:invoke",
+      allowDevelopmentBypass: verifier === null,
+    });
+    if (!authorization.ok) {
+      sendJson(response, authorization.status, {
+        error: authorization.error,
+        requiredScope: authorization.requiredScope,
+      });
+      return;
     }
 
     if (url.pathname === "/webhooks/github" && request.method === "POST") {
@@ -49,7 +90,7 @@ export function createAgenticSdlcReferenceServer() {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
-      response.end(renderAgenticSdlcHome());
+      response.end(renderAgenticSdlcHome(authorization.summary));
       return;
     }
 
@@ -57,7 +98,78 @@ export function createAgenticSdlcReferenceServer() {
   });
 }
 
-export function renderAgenticSdlcHome() {
+async function getRepositorySnapshot(repo) {
+  const headers = {
+    accept: "application/vnd.github+json",
+    "user-agent": "caipe-agentic-sdlc-app",
+    ...(githubToken ? { authorization: `Bearer ${githubToken}` } : {}),
+  };
+  const fetchJson = async (path) => {
+    const upstreamResponse = await fetch(`${githubApiBase}${path}`, { headers });
+    if (!upstreamResponse.ok) {
+      throw new Error(`GitHub request failed with status ${upstreamResponse.status}`);
+    }
+    return upstreamResponse.json();
+  };
+  const encodedRepo = repo.split("/").map(encodeURIComponent).join("/");
+  const [metadata, pulls, issues, workflows] = await Promise.all([
+    fetchJson(`/repos/${encodedRepo}`),
+    fetchJson(`/repos/${encodedRepo}/pulls?state=open&per_page=20`),
+    fetchJson(`/repos/${encodedRepo}/issues?state=open&per_page=20`),
+    fetchJson(`/repos/${encodedRepo}/actions/runs?per_page=20`),
+  ]);
+  const openIssues = issues.filter((issue) => !issue.pull_request);
+  const workflowRuns = Array.isArray(workflows.workflow_runs) ? workflows.workflow_runs : [];
+  return {
+    repository: metadata.full_name,
+    generatedAt: new Date().toISOString(),
+    defaultBranch: metadata.default_branch,
+    visibility: metadata.visibility,
+    archived: Boolean(metadata.archived),
+    openPullRequests: pulls.map((pull) => ({
+      number: pull.number,
+      title: pull.title,
+      draft: Boolean(pull.draft),
+      updatedAt: pull.updated_at,
+      url: pull.html_url,
+    })),
+    openIssues: openIssues.map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      updatedAt: issue.updated_at,
+      url: issue.html_url,
+    })),
+    workflowRuns: workflowRuns.map((run) => ({
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+      branch: run.head_branch,
+      updatedAt: run.updated_at,
+      url: run.html_url,
+    })),
+    limits: { pullRequests: 20, issues: 20, workflowRuns: 20 },
+  };
+}
+
+function getRuntimeContract() {
+  return {
+    appId: "agentic-sdlc",
+    agentId: "agent-agentic-sdlc",
+    authorization: "CAS/OpenFGA through AgentGateway",
+    capabilities: ["repository-snapshot", "github-webhook-receipt", "delivery-dashboard"],
+    webhooks: [{ path: "/webhooks/github", method: "POST" }],
+    mutations: "No MCP mutation tools are exposed by this reference runtime.",
+  };
+}
+
+export function renderAgenticSdlcHome(authorization = null) {
+  const auth = authorization ?? {
+    launchDecision: "NOT EVALUATED",
+    appResource: "agentic_app:agentic-sdlc",
+    decisionReference: "static-render",
+    tokenAudience: "agentic-app:agentic-sdlc",
+    readScope: "sdlc:read",
+  };
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -75,6 +187,10 @@ export function renderAgenticSdlcHome() {
       button { cursor: pointer; background: linear-gradient(135deg, #0284c7, #7c3aed); font-weight: 900; }
       .controls { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
       .dashboard { margin-top: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.1); background: rgba(2,6,23,.58); padding: 18px; white-space: pre-wrap; color: #cbd5e1; }
+      .authz { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin: 18px 0; }
+      .authz div { padding: 12px; border: 1px solid rgba(103,232,249,.22); border-radius: 14px; background: rgba(8,47,73,.28); }
+      .authz small { display: block; color: #94a3b8; margin-bottom: 5px; }
+      @media (max-width: 700px) { .authz { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
@@ -83,6 +199,11 @@ export function renderAgenticSdlcHome() {
         <p>External Reference App</p>
         <h1>Agentic SDLC</h1>
         <p>This runtime exercises the generic CAIPE Agentic App manifest, proxy, token, webhook, and assistant contracts outside the host source tree.</p>
+        <div class="authz" aria-label="CAS authorization example">
+          <div><small>CAS app grant</small><strong>${escapeHtml(auth.launchDecision)}</strong><br /><code>${escapeHtml(auth.appResource)}#use</code></div>
+          <div><small>Scoped runtime token</small><strong>${escapeHtml(auth.tokenAudience)}</strong><br /><code>${escapeHtml(auth.readScope)}</code></div>
+          <div><small>Safe decision reference</small><strong>${escapeHtml(auth.decisionReference)}</strong><br />No token or identity is displayed.</div>
+        </div>
         <p>Old bookmarks under <code>/apps/agentic-sdlc/:owner/:repo</code> remain compatible through the host migration page.</p>
         <div class="controls">
           <input id="agentId" aria-label="Agent id" value="agent-agentic-sdlc" />
@@ -91,6 +212,7 @@ export function renderAgenticSdlcHome() {
         </div>
         <div id="dashboard" class="dashboard">Ask the custom <code>agentic-sdlc</code> CAIPE agent for a delivery-dashboard summary.</div>
       </section>
+      ${renderAgenticAppConversationClient()}
       <script>
         const dashboard = document.getElementById("dashboard");
         document.getElementById("loadDashboard").addEventListener("click", pullDeliveryDashboard);
@@ -100,27 +222,21 @@ export function renderAgenticSdlcHome() {
           const repository = document.getElementById("repoInput").value.trim() || "current workspace";
           dashboard.textContent = "Calling CAIPE dynamic agent " + agentId + "...";
           try {
-            const response = await fetch("/api/v1/chat/invoke", {
-              method: "POST",
-              headers: { "content-type": "application/json", accept: "application/json" },
-              body: JSON.stringify({
-                agent_id: agentId,
-                message: [
-                  "Build a delivery-dashboard for " + repository + ".",
-                  "Return JSON first, then a concise explanation.",
-                  "JSON schema: { repository, stage, risks: string[], openWork: string[], recommendedNextActions: string[] }.",
-                  "Use only available CAIPE SDLC context and say what is missing if the repo cannot be inspected."
-                ].join(" "),
-                conversation_id: "agentic-sdlc-dashboard-" + Date.now(),
-                client_context: {
-                  source: "agentic-app",
-                  appId: "agentic-sdlc",
-                  dashboardKind: "delivery-dashboard",
-                  repository,
-                },
-              }),
+            const payload = await invokeAgenticApp({
+              agentId,
+              appId: "agentic-sdlc",
+              title: "Agentic SDLC dashboard · " + repository,
+              message: [
+                "Build a delivery-dashboard for " + repository + ".",
+                "Return JSON first, then a concise explanation.",
+                "JSON schema: { repository, stage, risks: string[], openWork: string[], recommendedNextActions: string[] }.",
+                "Use only available CAIPE SDLC context and say what is missing if the repo cannot be inspected."
+              ].join(" "),
+              clientContext: {
+                dashboardKind: "delivery-dashboard",
+                repository,
+              },
             });
-            const payload = await response.json();
             const content = payload.content || payload.message || JSON.stringify(payload, null, 2);
             dashboard.textContent = content;
             publishContext("Agentic SDLC delivery dashboard", content, agentId);
@@ -165,6 +281,16 @@ export function renderAgenticSdlcHome() {
     </main>
   </body>
 </html>`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  })[character]);
 }
 
 function sendJson(response, status, body) {

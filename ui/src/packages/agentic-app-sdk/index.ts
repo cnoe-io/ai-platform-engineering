@@ -15,3 +15,16 @@ export type {
   AuthorizeAppResourceInput,
   AuthorizeAppResourceResult,
 } from "./auth";
+
+export {
+  MICROFRONTEND_CONTRACT_VERSION,
+  MICROFRONTEND_INITIALIZE_MESSAGE_TYPE,
+  MICROFRONTEND_READY_MESSAGE_TYPE,
+  createMicrofrontendInitializeMessage,
+  subscribeToMicrofrontendHost,
+} from "./microfrontend";
+export type {
+  MicrofrontendHostContext,
+  MicrofrontendInitializeMessage,
+  MicrofrontendPreferenceValue,
+} from "./microfrontend";

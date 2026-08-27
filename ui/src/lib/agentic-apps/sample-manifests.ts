@@ -16,3 +16,7 @@ export {
   JIRA_PROJECT_DASHBOARD_APP_ID,
   JIRA_PROJECT_DASHBOARD_MANIFEST,
 } from "../../../apps/agentic-apps/jira-project-dashboard/manifest.mjs";
+export {
+  SPEAKERS_COLLECTIVE_APP_ID,
+  SPEAKERS_COLLECTIVE_MANIFEST,
+} from "../../../apps/agentic-apps/speakers-collective/manifest.mjs";

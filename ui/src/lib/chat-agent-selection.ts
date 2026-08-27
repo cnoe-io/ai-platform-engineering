@@ -11,7 +11,7 @@ interface ApiEnvelope<T> {
 export interface ResolvedChatAgent {
   id: string;
   name: string;
-  source: "user-default" | "platform-default" | "first-available";
+  source: "configured" | "user-default" | "platform-default" | "first-available";
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -29,6 +29,21 @@ function normalizedAgentId(value: unknown): string | null {
 export interface ChatDefaultAgentIds {
   userDefaultAgentId: string | null;
   platformDefaultAgentId: string | null;
+}
+
+export interface ResolveUsableChatAgentOptions {
+  /**
+   * Select this exact agent from the CAS/OpenFGA-filtered available list.
+   * A configured agent never falls back to a different agent.
+   */
+  requestedAgentId?: string;
+  /**
+   * Require the chosen agent to be present in the current user's
+   * CAS/OpenFGA-filtered available-agent response. Contextual surfaces use
+   * this mode so a transient lookup failure cannot produce an unauthorized
+   * conversation target.
+   */
+  requireAvailableAgent?: boolean;
 }
 
 /** Load personal and platform Web defaults in one preferences request. */
@@ -56,7 +71,9 @@ async function fetchAvailableAgents(): Promise<DynamicAgentConfig[]> {
   return payload.data.filter((agent) => agent.enabled);
 }
 
-export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
+export async function resolveUsableChatAgent(
+  options: ResolveUsableChatAgentOptions = {},
+): Promise<ResolvedChatAgent> {
   const [defaultsResult, agentsResult] = await Promise.allSettled([
     fetchChatDefaultAgentIds(),
     fetchAvailableAgents(),
@@ -70,6 +87,21 @@ export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
   const defaultAgentId = defaults.platformDefaultAgentId;
   const availableAgents =
     agentsResult.status === "fulfilled" ? agentsResult.value : [];
+
+  const requestedAgentId = normalizedAgentId(options.requestedAgentId);
+  if (requestedAgentId) {
+    const configuredAgent = availableAgents.find((agent) => agent._id === requestedAgentId);
+    if (configuredAgent) {
+      return {
+        id: configuredAgent._id,
+        name: configuredAgent.name,
+        source: "configured",
+      };
+    }
+    throw new Error(
+      `Configured agent "${requestedAgentId}" is unavailable or not authorized for this user.`,
+    );
+  }
 
   // Highest priority: the user's own Web default, but only if they still have
   // access to it (it's in the available list). A stale/revoked choice falls
@@ -95,7 +127,7 @@ export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
       };
     }
 
-    if (agentsResult.status === "rejected") {
+    if (agentsResult.status === "rejected" && !options.requireAvailableAgent) {
       return {
         id: defaultAgentId,
         name: "Default agent",

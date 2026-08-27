@@ -1,6 +1,6 @@
 # Standalone RBAC stack for feat/tome-native-app-new (runs alongside main instance)
 # Ports: keycloak=17080, agentgateway=14000, openfga=28080, authz-bridge=19100, audit=38010
-#        dynamic-agents=18100, mcp-netutils=28011, finops-app=3010, weather-app=3020, jira-app=3041, oss-repo-management=3040
+#        dynamic-agents=18100, mcp-netutils=28011, finops-app=3010, weather-app=3020, jira-app=3041, oss-repo-management=3040, litellm-app=3042
 #        mongodb=27117
 # Start: docker compose -f docker-compose.tome.yaml --env-file .env up -d
 
@@ -478,7 +478,7 @@ services:
       FINOPS_LITELLM_AGENT_ID: ${FINOPS_LITELLM_AGENT_ID:-agent-litellm-finops}
       FINOPS_LOOKBACK_DAYS: ${FINOPS_LOOKBACK_DAYS:-30}
       A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
-      AGENTIC_APP_FINOPS_JWT_DISABLED: "true"
+      AGENTIC_APP_TOKEN_SECRET: ${AGENTIC_APP_TOKEN_SECRET:-replace-me-agentic-app-token-secret-32-bytes}
       LITELLM_API_URL: ${LITELLM_API_URL:-https://litellm.prod.outshift.ai}
       LITELLM_API_KEY: ${LITELLM_API_KEY:-${ANTHROPIC_API_KEY:-}}
     extra_hosts:
@@ -505,12 +505,36 @@ services:
       WEATHER_APP_BASE_PATH: /apps/weather
       WEATHER_AGENT_ID: ${WEATHER_AGENT_ID:-agent-weather-agent}
       A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
-      AGENTIC_APP_WEATHER_JWT_DISABLED: "true"
+      AGENTIC_APP_TOKEN_SECRET: ${AGENTIC_APP_TOKEN_SECRET:-replace-me-agentic-app-token-secret-32-bytes}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3020/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  litellm-app:
+    image: node:22-alpine
+    container_name: litellm-app-tome
+    working_dir: /app
+    command: node apps/agentic-apps/litellm/server.mjs
+    volumes:
+      - ./ui/apps:/app/apps:ro
+    ports:
+      - "127.0.0.1:3042:3042"
+    environment:
+      LITELLM_APP_PORT: "3042"
+      LITELLM_APP_BASE_PATH: /apps/litellm
+      LITELLM_AGENT_ID: ${LITELLM_AGENT_ID:-agent-litellm-finops}
+      AGENTIC_APP_TOKEN_SECRET: ${AGENTIC_APP_TOKEN_SECRET:-replace-me-agentic-app-token-secret-32-bytes}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3042/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -530,7 +554,7 @@ services:
       JIRA_PROJECT_DASHBOARD_APP_BASE_PATH: /apps/jira-project-dashboard
       JIRA_PROJECT_DASHBOARD_JIRA_AGENT_ID: ${JIRA_PROJECT_DASHBOARD_JIRA_AGENT_ID:-agent-jira-agent}
       A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
-      AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_DISABLED: "true"
+      AGENTIC_APP_TOKEN_SECRET: ${AGENTIC_APP_TOKEN_SECRET:-replace-me-agentic-app-token-secret-32-bytes}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -553,9 +577,13 @@ services:
     environment:
       OSS_REPO_MANAGEMENT_APP_PORT: "3040"
       OSS_REPO_MANAGEMENT_APP_BASE_PATH: /apps/oss-repo-management
-      OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID: ${OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID:-agent-github-agent}
+      OSS_REPO_MANAGEMENT_DEFAULT_REPO: ${OSS_REPO_MANAGEMENT_DEFAULT_REPO:-}
+      OSS_REPO_MANAGEMENT_GITHUB_TOKEN: ${OSS_REPO_MANAGEMENT_GITHUB_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OSS_REPO_MANAGEMENT_GITHUB_API_URL: ${OSS_REPO_MANAGEMENT_GITHUB_API_URL:-https://api.github.com}
+      OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID: ${OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID:-}
       A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
-      AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_DISABLED: "true"
+      AGENTIC_APP_TOKEN_SECRET: ${AGENTIC_APP_TOKEN_SECRET:-replace-me-agentic-app-token-secret-32-bytes}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

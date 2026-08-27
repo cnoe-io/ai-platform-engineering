@@ -10,6 +10,7 @@ const mockAgenticApps = {
   listAppInstallations: jest.fn(),
   listAppPackages: jest.fn(),
   userPassesAgenticAppAccessGates: jest.fn(),
+  evaluateCasCompatibility: jest.fn(),
 };
 
 jest.mock("@/lib/api-middleware", () => ({
@@ -30,6 +31,11 @@ jest.mock("@/lib/agentic-apps/access", () => ({
   evaluateAppAccess: (...args: unknown[]) => mockAgenticApps.evaluateAppAccess(...args),
 }));
 
+jest.mock("@/lib/agentic-apps/cas-compat", () => ({
+  evaluateAgenticAppCasCompatibility: (...args: unknown[]) =>
+    mockAgenticApps.evaluateCasCompatibility(...args),
+}));
+
 jest.mock("@/lib/agentic-apps/registry", () => ({
   getEnabledAgenticApps: () => mockAgenticApps.getEnabledAgenticApps(),
   isAgenticAppsInstallEnabled: jest.fn(() => true),
@@ -48,14 +54,14 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 const manifest = {
-  id: "kaleidoscope",
-  displayName: "Kaleidoscope",
+  id: "example-app",
+  displayName: "Example App",
   description: "Explore software delivery data.",
   apiVersion: "1.0" as const,
   runtime: {
     kind: "proxied-next-zone" as const,
-    mountPath: "/apps/kaleidoscope",
-    origin: "http://kaleidoscope.caipe-dev.svc:80",
+    mountPath: "/apps/example-app",
+    origin: "http://example-app.example.test:80",
   },
   surfaces: {
     showInHub: true,
@@ -64,12 +70,13 @@ const manifest = {
   },
   access: {
     requiredRoles: ["user"],
-    tokenScopes: ["kaleidoscope:read"],
+    tokenScopes: ["example-app:read"],
   },
   assistant: {
     enabled: false,
-    label: "Ask Kaleidoscope",
-    agentName: "Kaleidoscope Assistant",
+    agentId: "example-agent",
+    label: "Ask Example",
+    agentName: "Example Assistant",
   },
   health: {
     endpoint: "/healthz",
@@ -77,8 +84,8 @@ const manifest = {
 };
 
 const installation = {
-  appId: "kaleidoscope",
-  packageId: "kaleidoscope",
+  appId: "example-app",
+  packageId: "example-app",
   installed: true,
   enabled: true,
   visible: true,
@@ -94,18 +101,23 @@ describe("GET /api/agentic-apps", () => {
     mockAgenticApps.evaluateAppAccess.mockReturnValue({
       canLaunch: true,
       blockedReasons: [],
-      href: "/apps/kaleidoscope",
+      href: "/apps/example-app",
     });
     mockAgenticApps.getEnabledAgenticApps.mockReturnValue([]);
     mockAgenticApps.listAppInstallations.mockResolvedValue([installation]);
     mockAgenticApps.listAppPackages.mockResolvedValue([
       {
-        packageId: "kaleidoscope",
+        packageId: "example-app",
         source: "helm",
         manifest,
       },
     ]);
     mockAgenticApps.userPassesAgenticAppAccessGates.mockReturnValue(true);
+    mockAgenticApps.evaluateCasCompatibility.mockResolvedValue({
+      mode: "enforce",
+      casDecision: "ALLOW",
+      effectiveEffect: "allow",
+    });
   });
 
   it("returns config-driven presentation fields at the top level for list consumers", async () => {
@@ -117,10 +129,10 @@ describe("GET /api/agentic-apps", () => {
 
     expect(item).toEqual(
       expect.objectContaining({
-        appId: "kaleidoscope",
-        displayName: "Kaleidoscope",
+        appId: "example-app",
+        displayName: "Example App",
         description: "Explore software delivery data.",
-        href: "/apps/kaleidoscope",
+        href: "/apps/example-app",
         canLaunch: true,
         surfaces: {
           showInHub: true,
@@ -128,17 +140,18 @@ describe("GET /api/agentic-apps", () => {
           navOrder: 40,
         },
         assistantEnabled: false,
-        assistantLabel: "Ask Kaleidoscope",
-        assistantAgentName: "Kaleidoscope Assistant",
+        assistantAgentId: "example-agent",
+        assistantLabel: "Ask Example",
+        assistantAgentName: "Example Assistant",
       }),
     );
     expect(item.package).toEqual(
       expect.objectContaining({
-        displayName: "Kaleidoscope",
+        displayName: "Example App",
         description: "Explore software delivery data.",
       }),
     );
-    expect(JSON.stringify(item)).not.toContain("kaleidoscope.caipe-dev.svc");
+    expect(JSON.stringify(item)).not.toContain("example-app.example.test");
     expect(JSON.stringify(item)).not.toContain("/healthz");
   });
 
@@ -153,11 +166,77 @@ describe("GET /api/agentic-apps", () => {
 
     expect(body.data.items[0]).toEqual(
       expect.objectContaining({
-        displayName: "Kaleidoscope",
+        displayName: "Example App",
         description: "Explore software delivery data.",
         surfaces: manifest.surfaces,
         assistantEnabled: false,
       }),
     );
+  });
+
+  it("uses the CAS launch decision for the catalog card", async () => {
+    const casManifest = {
+      ...manifest,
+      authorization: { resourceType: "agentic_app" as const, launchAction: "use" as const },
+    };
+    mockAgenticApps.listAppPackages.mockResolvedValue([
+      { packageId: "example-app", source: "helm", manifest: casManifest },
+    ]);
+    mockAgenticApps.evaluateCasCompatibility.mockImplementation(
+      async (input: { action?: string }) =>
+        input.action === "use"
+          ? {
+              mode: "enforce",
+              casDecision: "DENY",
+              casReason: "NO_CAPABILITY",
+              effectiveEffect: "deny",
+            }
+          : {
+              mode: "enforce",
+              casDecision: "ALLOW",
+              effectiveEffect: "allow",
+            },
+    );
+
+    const { GET } = await import("../route");
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(body.data.items[0]).toEqual(
+      expect.objectContaining({
+        canLaunch: false,
+        blockedReasons: ["unauthorized"],
+        blockedReason: "unauthorized",
+      }),
+    );
+    expect(mockAgenticApps.evaluateCasCompatibility).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "example-app",
+        localEffect: "allow",
+      }),
+    );
+  });
+
+  it("omits apps when CAS denies discovery", async () => {
+    const casManifest = {
+      ...manifest,
+      authorization: { resourceType: "agentic_app" as const, launchAction: "use" as const },
+    };
+    mockAgenticApps.listAppPackages.mockResolvedValue([
+      { packageId: "example-app", source: "helm", manifest: casManifest },
+    ]);
+    mockAgenticApps.evaluateCasCompatibility.mockImplementation(
+      async (input: { action?: string }) => ({
+        mode: "enforce",
+        casDecision: input.action === "read" ? "DENY" : "ALLOW",
+        effectiveEffect: input.action === "read" ? "deny" : "allow",
+      }),
+    );
+
+    const { GET } = await import("../route");
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(body.data.items).toEqual([]);
   });
 });

@@ -22,6 +22,21 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 const DEFAULT_CLOCK_TOLERANCE_SECONDS = 60;
 
 /**
+ * Create the production-required verifier used by reference runtimes.
+ * Tests may opt out explicitly, but a production process can never disable
+ * the app-scoped token trust boundary.
+ */
+export function createRequiredAgenticAppJwtVerifier({ appId, disabled = false }) {
+  if (disabled) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`JWT verification cannot be disabled for ${appId} in production`);
+    }
+    return null;
+  }
+  return createAgenticAppJwtVerifier({ appId });
+}
+
+/**
  * Build a verifier configured for one app instance.
  *
  * @param {object} input

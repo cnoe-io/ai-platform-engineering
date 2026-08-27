@@ -1180,6 +1180,8 @@ export async function reconcilePreparedAgenticApps(
         $setOnInsert: {
           createdAt: now,
           createdBy: "seed-config",
+          visibility: "global",
+          sharedWithTeams: [],
           runtimeHealth: "unknown",
         },
         ...(Object.keys($unset).length > 0 ? { $unset } : {}),
@@ -1197,6 +1199,18 @@ export async function reconcilePreparedAgenticApps(
     packageCount: prepared.packages.length,
     installationCount: prepared.installations.length,
   };
+}
+
+export async function reconcileConfiguredAgenticApps(
+  prepared: PreparedAgenticAppsSeed | null,
+): Promise<{ packageCount: number; installationCount: number }> {
+  if (prepared) return reconcilePreparedAgenticApps(prepared);
+
+  // Agentic App records marked config_driven are owned by the environment
+  // configuration. If the block is removed entirely, an empty desired set is
+  // intentional and stale records must not keep shadowing built-in manifests.
+  await cleanupStaleConfigDrivenAgenticApps(new Set(), new Set());
+  return { packageCount: 0, installationCount: 0 };
 }
 
 async function seedWorkflowConfigs(
@@ -2256,9 +2270,9 @@ export async function applySeedConfig(): Promise<void> {
         );
       }
       const ragSourceCount = await seedRagSources(config.rag_sources);
-      const agenticAppCounts = preparedAgenticAppsSeed
-        ? await reconcilePreparedAgenticApps(preparedAgenticAppsSeed)
-        : { packageCount: 0, installationCount: 0 };
+      const agenticAppCounts = await reconcileConfiguredAgenticApps(
+        preparedAgenticAppsSeed,
+      );
 
       // Cleanup stale config-driven entities
       await cleanupStaleConfigDriven(

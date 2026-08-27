@@ -47,6 +47,9 @@ export function decideAgenticAppPdp(input: AgenticAppPdpRequest): AgenticAppPdpD
   const policyAction = input.pkg.manifest.access.policyActions?.find(
     (candidate) => candidate.action === input.action,
   );
+  if (input.pkg.manifest.access.policyActions?.length && !policyAction) {
+    return { ...base, effect: "deny", reasonCode: "action_not_declared", scopes: [] };
+  }
   if (policyAction?.defaultEffect === "deny") {
     return { ...base, effect: "deny", reasonCode: policyAction.reasonCode ?? "policy_denied", scopes: [] };
   }
@@ -69,8 +72,18 @@ export function decideAgenticAppPdp(input: AgenticAppPdpRequest): AgenticAppPdpD
   }
 
   const declaredScopes = new Set(input.pkg.manifest.access.tokenScopes);
-  const requestedScopes = input.scopes?.length ? input.scopes : input.pkg.manifest.access.tokenScopes;
-  const scopes = requestedScopes.filter((scope) => declaredScopes.has(scope));
+  const actionScopes = policyAction?.requiredScopes?.length
+    ? policyAction.requiredScopes
+    : input.pkg.manifest.access.tokenScopes;
+  const allowedActionScopes = new Set(actionScopes);
+  const requestedScopes = input.scopes?.length ? input.scopes : actionScopes;
+  const invalidScope = requestedScopes.find(
+    (scope) => !declaredScopes.has(scope) || !allowedActionScopes.has(scope),
+  );
+  if (invalidScope) {
+    return { ...base, effect: "deny", reasonCode: "scope_not_allowed", scopes: [] };
+  }
+  const scopes = [...new Set(requestedScopes)];
   return { ...base, effect: "allow", reasonCode: "allowed", scopes };
 }
 

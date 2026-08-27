@@ -53,10 +53,9 @@ export function AgenticAppAssistantOverlay({
   const bubbleLabel = (assistantLabel?.trim() || "Ask CAIPE").slice(0, 32);
   const headerTitle = (assistantAgentName?.trim() || `CAIPE assistant for ${appName}`).slice(0, 64);
   const chatPanelAgentName = (assistantAgentName?.trim() || "CAIPE Assistant").slice(0, 64);
-  // The apps overlay talks to a generic assistant agent and only knows its
-  // display name — not a full DynamicAgentConfig. ChatPanel reads only
-  // agent?.name / agent?.ui / agent?.skills (all optional-chained), so a
-  // name-only stub preserves the prior display behavior.
+  // AgenticAppShell resolves the executable agent ID. The overlay needs only
+  // the manifest-controlled display name because ChatPanel treats the agent
+  // object as optional presentation metadata.
   // assisted-by claude code claude-opus-4-8
   const chatPanelAgent = useMemo(
     () => ({ name: chatPanelAgentName }) as DynamicAgentConfig,
@@ -220,6 +219,7 @@ export function AgenticAppAssistantOverlay({
 
           <div className="min-h-0 flex-1">
             <ChatPanel
+              key={assistantAgentId}
               agentId={assistantAgentId}
               agent={chatPanelAgent}
               clientContext={clientContext}

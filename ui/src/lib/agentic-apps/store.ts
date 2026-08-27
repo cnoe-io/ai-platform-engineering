@@ -11,6 +11,8 @@ import type {
   AgenticAppPackageSource,
   AgenticAppPdpDecisionRecord,
   AgenticAppTokenGrantRecord,
+  AgenticAppTeamAccessGrant,
+  AgenticAppVisibility,
   AgenticAppWebhookDeliveryRecord,
 } from "@/types/agentic-app";
 
@@ -46,7 +48,24 @@ export type InstallAppPackageInput = {
   accessOverrides?: AgenticAppInstallationRecord["accessOverrides"];
   healthPolicy?: AgenticAppInstallationRecord["healthPolicy"];
   routeOwnership?: AgenticAppInstallationRecord["routeOwnership"];
+  createdBy?: string;
+  creatorSubject?: string;
+  ownerSubject?: string;
+  visibility?: AgenticAppVisibility;
+  sharedWithTeams?: string[];
+  teamAccess?: AgenticAppTeamAccessGrant[];
   updatedBy?: string;
+};
+
+export type UpdateAppInstallationSharingInput = {
+  appId: string;
+  visibility: AgenticAppVisibility;
+  sharedWithTeams: string[];
+  teamAccess: AgenticAppTeamAccessGrant[];
+  ownerSubject: string;
+  creatorSubject: string;
+  createdBy: string;
+  updatedBy: string;
 };
 
 export type EffectiveAppForUser = {
@@ -286,7 +305,51 @@ export async function installAppPackage(input: InstallAppPackageInput): Promise<
   if (input.updatedBy !== undefined) {
     $set.updatedBy = input.updatedBy;
   }
-  await col.updateOne({ appId: input.appId }, { $set }, { upsert: true });
+  const createdAt = new Date().toISOString();
+  const $setOnInsert: Record<string, unknown> = {
+    createdAt,
+    createdBy: input.createdBy ?? input.updatedBy ?? "system",
+    visibility: input.visibility ?? "global",
+    sharedWithTeams: input.sharedWithTeams ?? [],
+    teamAccess: input.teamAccess ?? [],
+  };
+  if (input.creatorSubject !== undefined) {
+    $setOnInsert.creatorSubject = input.creatorSubject;
+  }
+  if (input.ownerSubject !== undefined) {
+    $setOnInsert.ownerSubject = input.ownerSubject;
+  }
+  await col.updateOne(
+    { appId: input.appId },
+    { $set, $setOnInsert },
+    { upsert: true },
+  );
+}
+
+export async function updateAppInstallationSharing(
+  input: UpdateAppInstallationSharingInput,
+): Promise<void> {
+  const col = await getCollection<AgenticAppInstallationRecord>(
+    AGENTIC_APP_INSTALLATIONS_COLLECTION,
+  );
+  const result = await col.updateOne(
+    { appId: input.appId },
+    {
+      $set: {
+        visibility: input.visibility,
+        sharedWithTeams: input.sharedWithTeams,
+        teamAccess: input.teamAccess,
+        ownerSubject: input.ownerSubject,
+        creatorSubject: input.creatorSubject,
+        createdBy: input.createdBy,
+        updatedAt: new Date().toISOString(),
+        updatedBy: input.updatedBy,
+      },
+    },
+  );
+  if (result.matchedCount !== 1) {
+    throw new Error(`Agentic app installation not found: ${input.appId}`);
+  }
 }
 
 export async function listEffectiveAppsForUser(

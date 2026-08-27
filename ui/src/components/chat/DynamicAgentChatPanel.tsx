@@ -23,6 +23,7 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
 import { Activity,ArrowDown,ArrowLeft,ChevronUp,Loader2,Paperclip,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { buildContextGroundedMessage } from "@/lib/chat-client-context";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -69,7 +70,15 @@ interface ChatPanelProps {
   fontScale?: "compact" | "default" | "large";
 }
 
-export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({
+  conversationId,
+  readOnly,
+  readOnlyReason,
+  agentId,
+  agent,
+  isLoadingMessages,
+  clientContext: suppliedClientContext,
+}: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
   const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
@@ -1036,6 +1045,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     const conv = getActiveConversation();
     const clientContext: Record<string, unknown> = {
       source: "webui",
+      ...suppliedClientContext,
       ...(conv?.sharing && { chat_sharing: conv.sharing }),
     };
     clearStreamEvents(convId);
@@ -1091,7 +1101,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
       await adapter.streamMessage(
         {
-          message: messageToSend,
+          message: buildContextGroundedMessage(messageToSend, suppliedClientContext),
           conversationId: convId,
           agentId,
           clientContext,
@@ -1130,7 +1140,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       });
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, suppliedClientContext, toast]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1440,6 +1450,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     const conv = getActiveConversation();
     const clientContext: Record<string, unknown> = {
       source: "webui",
+      ...suppliedClientContext,
       ...(conv?.sharing && { chat_sharing: conv.sharing }),
     };
 
@@ -1482,7 +1493,8 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       appendToMessage, addStreamEvent, setConversationStreaming,
-      clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop]);
+      clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop,
+      suppliedClientContext]);
 
   // Handle tool approval decisions (approve/reject/edit)
   // Shows cards sequentially; only resumes after all tools are decided.
@@ -1539,7 +1551,10 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       accessToken,
     });
 
-    const clientContext: Record<string, unknown> = { source: "webui" };
+    const clientContext: Record<string, unknown> = {
+      source: "webui",
+      ...suppliedClientContext,
+    };
 
     // Build resume payload using the format expected by the runtime.
     let resumePayload: Record<string, unknown>;
@@ -1598,7 +1613,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       addStreamEvent, setConversationStreaming, clearStreamEvents, getActiveConversation,
-      buildStreamCallbacks, finalizeStreamLoop]);
+      buildStreamCallbacks, finalizeStreamLoop, suppliedClientContext]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

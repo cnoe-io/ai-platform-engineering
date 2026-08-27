@@ -1,0 +1,11 @@
+id: oss_repo_report_card
+name: OSS Repo Report Card MCP
+description: Source-backed repository health and report-card tools.
+transport: http
+endpoint: http://agentic-app-oss-repo-management:3040/mcp
+enabled: true
+authentication:
+  mode: forwarded_oidc
+allowedTools:
+  - oss_get_report_card
+  - oss_get_markdown_report

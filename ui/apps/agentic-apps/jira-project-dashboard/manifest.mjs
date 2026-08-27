@@ -13,6 +13,27 @@ export const JIRA_PROJECT_DASHBOARD_MANIFEST = {
     mountPath: "/apps/jira-project-dashboard",
     chrome: "iframe",
   },
+  ui: {
+    contractVersion: "1.0",
+    surface: "hosted",
+    routes: ["/"],
+    preferences: {
+      schemaVersion: "1.0",
+      fields: [
+        {
+          key: "density",
+          label: "Dashboard density",
+          type: "enum",
+          default: "compact",
+          options: [
+            { label: "Compact", value: "compact" },
+            { label: "Comfortable", value: "comfortable" },
+          ],
+        },
+      ],
+    },
+  },
+  authorization: { resourceType: "agentic_app", launchAction: "use" },
   surfaces: {
     showInHub: true,
     showInTopNav: false,
@@ -26,19 +47,28 @@ export const JIRA_PROJECT_DASHBOARD_MANIFEST = {
     canUseCustomAgents: true,
     policyActions: [
       {
-        action: "app.proxy.request",
-        description: "Forward Jira Project Dashboard app requests",
-        defaultEffect: "deny",
+        action: "proxy:GET",
+        description: "Read Jira dashboard pages and data through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["jira-project-dashboard:read"],
+      },
+      {
+        action: "proxy:HEAD",
+        description: "Probe Jira dashboard pages through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["jira-project-dashboard:read"],
       },
       {
         action: "proxy:POST",
         description: "Run embedded Jira project agent",
         defaultEffect: "allow",
+        requiredScopes: ["jira-project-dashboard:agent:invoke"],
       },
     ],
   },
   assistant: {
     enabled: true,
+    agentId: "agent-jira-agent",
     schemaVersions: ["1.0"],
     maxContextBytes: 12288,
     capability: "contextual-chat",
@@ -50,7 +80,8 @@ export const JIRA_PROJECT_DASHBOARD_MANIFEST = {
     {
       id: "jira-agent",
       displayName: "Jira Agent",
-      required: false,
+      required: true,
+      dynamicAgentId: "agent-jira-agent",
       capabilities: ["jira-issues", "sprint-summary", "blocker-analysis", "project-risk"],
     },
   ],

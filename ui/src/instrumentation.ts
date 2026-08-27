@@ -18,6 +18,17 @@ export async function register() {
   const { applySeedConfig } = await import("./lib/seed-config");
   await applySeedConfig();
 
+  // Project the built-in Agentic App role-level "user" contract into OpenFGA
+  // before the first app request; explicit user/team/admin grants remain untouched.
+  try {
+    const { reconcileBuiltinAgenticAppCasAccess } = await import(
+      "./lib/agentic-apps/cas-reconcile"
+    );
+    await reconcileBuiltinAgenticAppCasAccess();
+  } catch (err) {
+    console.error("[instrumentation] Agentic App CAS reconcile failed closed:", err);
+  }
+
   // Start the IdP directory-sync scheduler so the "Enable background sync"
   // schedule (Identity Sync admin tab) actually fires. Idempotent and
   // replica-safe (per-minute fires are claimed atomically in Mongo).

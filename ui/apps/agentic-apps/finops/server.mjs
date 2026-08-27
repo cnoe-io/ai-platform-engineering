@@ -3,10 +3,20 @@
 // assisted-by Codex Codex-sonnet-4-6
 import { createServer } from "node:http";
 
-import { createAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { handleAppMcpRequest } from "../../_lib/app-mcp-server.mjs";
+import { renderAgenticAppConversationClient } from "../../_lib/conversation-client.mjs";
+import { createRequiredAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { renderMicrofrontendClient } from "../../_lib/microfrontend-client.mjs";
+import { authorizeAgenticAppRuntimeRequest } from "../../_lib/runtime-authorization.mjs";
+import {
+  resolveAgenticAppRuntimeBasePath,
+  resolveAgenticAppSurface,
+} from "../../_lib/runtime-base-path.mjs";
+import { renderStaticDashboardExample } from "../../_lib/static-dashboard-examples.mjs";
+import { registerFinOpsMcpTools } from "./mcp.mjs";
 
 const port = Number(process.env.FINOPS_APP_PORT ?? "3010");
-const basePath = normalizeBasePath(process.env.FINOPS_APP_BASE_PATH ?? "/apps/finops");
+const configuredBasePath = normalizeBasePath(process.env.FINOPS_APP_BASE_PATH ?? "/apps/finops");
 const defaultAwsAgentId = process.env.FINOPS_AWS_AGENT_ID ?? process.env.AWS_AGENT_ID ?? "agent-aws-cost-explorer";
 const defaultLiteLlmAgentId =
   process.env.FINOPS_LITELLM_AGENT_ID ?? process.env.LITELLM_FINOPS_AGENT_ID ?? "agent-litellm-finops";
@@ -19,13 +29,15 @@ const litellmApiUrl = (process.env.LITELLM_API_URL ?? "").replace(/\/+$/, "");
 const litellmApiToken = process.env.LITELLM_API_KEY ?? process.env.LITELLM_TOKEN ?? process.env.LITELLM_API_TOKEN ?? "";
 const litellmApiTimeoutMs = Math.max(5_000, Number(process.env.LITELLM_API_TIMEOUT ?? "30") * 1000);
 
-const verifier =
-  process.env.AGENTIC_APP_FINOPS_JWT_DISABLED === "true"
-    ? null
-    : createAgenticAppJwtVerifier({ appId: "finops" });
+const verifier = createRequiredAgenticAppJwtVerifier({
+  appId: "finops",
+  disabled: process.env.AGENTIC_APP_FINOPS_JWT_DISABLED === "true",
+});
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+  const basePath = resolveAgenticAppRuntimeBasePath(request.headers, configuredBasePath, "finops");
+  const surface = resolveAgenticAppSurface(request.headers);
 
   if (url.pathname === "/healthz") {
     sendJson(response, 200, {
@@ -34,6 +46,21 @@ const server = createServer(async (request, response) => {
       runtime: "separate-process",
       dataSource: "aws-cost-explorer-and-litellm-via-agent",
       assistant: "context-aware",
+      mcp: { endpoint: "/mcp", authentication: "forwarded-bearer" },
+    });
+    return;
+  }
+
+  if (url.pathname === "/mcp") {
+    await handleAppMcpRequest(request, response, {
+      name: "finops-app",
+      authenticationDisabled: process.env.AGENTIC_APP_FINOPS_MCP_AUTH_DISABLED === "true",
+      registerTools(mcpServer) {
+        registerFinOpsMcpTools(mcpServer, {
+          getCapabilities: buildFinOpsAgentPlan,
+          getLiteLlmDashboard: buildLiteLlmDashboardPayload,
+        });
+      },
     });
     return;
   }
@@ -45,6 +72,21 @@ const server = createServer(async (request, response) => {
       return;
     }
     request.caipeIdentity = result.identity;
+  }
+  const authorization = authorizeAgenticAppRuntimeRequest({
+    identity: request.caipeIdentity,
+    appId: "finops",
+    method: request.method,
+    readScope: "finops:read",
+    invokeScope: "finops:agent:invoke",
+    allowDevelopmentBypass: verifier === null,
+  });
+  if (!authorization.ok) {
+    sendJson(response, authorization.status, {
+      error: authorization.error,
+      requiredScope: authorization.requiredScope,
+    });
+    return;
   }
 
   if (url.pathname === "/api/summary") {
@@ -74,12 +116,12 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === "/embed") {
+  if (url.pathname === "/example") {
     response.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    response.end(renderDashboard({ compact: true }));
+    response.end(renderStaticDashboardExample("finops", authorization.summary));
     return;
   }
 
@@ -88,7 +130,7 @@ const server = createServer(async (request, response) => {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    response.end(renderDashboard({ compact: false }));
+    response.end(renderDashboard({ compact: surface === "hosted", basePath, appPath: configuredBasePath }));
     return;
   }
 
@@ -630,7 +672,7 @@ function formatCompact(value) {
   }).format(toNumber(value));
 }
 
-function renderDashboard({ compact }) {
+function renderDashboard({ compact, basePath, appPath }) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -641,8 +683,8 @@ function renderDashboard({ compact }) {
       :root {
         color-scheme: dark;
         --app-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --app-font-scale: 1.12;
-        font-size: calc(14px * var(--app-font-scale));
+        --app-font-scale: 1;
+        font-size: calc(16px * var(--app-font-scale));
         font-family: var(--app-font-family);
         background: #020617;
         color: #e2e8f0;
@@ -829,6 +871,10 @@ function renderDashboard({ compact }) {
         padding: 7px 10px;
         font-family: inherit;
         font-size: 0.78rem;
+      }
+      :is(a, button, input, select, summary):focus-visible {
+        outline: 3px solid rgba(103, 232, 249, 0.78);
+        outline-offset: 2px;
       }
       button { cursor: pointer; background: linear-gradient(135deg, #059669, #0284c7); font-weight: 700; border-color: transparent; }
       button.ghost { background: rgba(2, 6, 23, 0.72); font-weight: 600; }
@@ -1333,6 +1379,17 @@ function renderDashboard({ compact }) {
         0%, 100% { transform: scale(0.9); opacity: 0.55; }
         50% { transform: scale(1.2); opacity: 1; }
       }
+      .example-link { color: #7dd3fc; font-size: 0.8rem; font-weight: 800; text-decoration: none; }
+      .example-link:hover { text-decoration: underline; }
+      body.compact .settings-fab,
+      body.compact .font-customizer,
+      body.compact .run-history,
+      body.compact .secondary-kpi,
+      body.compact .dashboard-tabs,
+      body.compact .panel-subhead,
+      body.compact .assistant-signal-grid,
+      body.compact #agentId { display: none; }
+      #analysisEmptyState[hidden], .live-panel[hidden] { display: none; }
       @media (max-width: 1100px) {
         .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .grid-2 { grid-template-columns: 1fr; }
@@ -1352,15 +1409,19 @@ function renderDashboard({ compact }) {
         .driver-row span:nth-child(6) { display: none; }
         .chart-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+      }
     </style>
   </head>
-  <body>
+  <body class="${compact ? "compact" : "standalone"}">
     <main>
       <section class="hero">
         <div class="hero-row">
           <div class="hero-title">
             <p class="eyebrow"><span class="pulse"></span>FinOps · AWS + LiteLLM</p>
             <h1>FinOps Command Center</h1>
+            <a class="example-link" href="${basePath}/example">View static example</a>
           </div>
           <div class="controls">
             <select id="dataSource" aria-label="Data source">
@@ -1374,6 +1435,7 @@ function renderDashboard({ compact }) {
                 <option value="last-7-days">Last 7 days</option>
                 <option value="last-30-days"${defaultLookbackDays === 30 ? " selected" : ""}>Last 30 days</option>
                 <option value="last-60-days"${defaultLookbackDays === 60 ? " selected" : ""}>Last 60 days</option>
+                <option value="last-90-days"${defaultLookbackDays === 90 ? " selected" : ""}>Last 90 days</option>
                 <option value="fy26q1">FY26Q1</option>
                 <option value="fy26q2">FY26Q2</option>
                 <option value="fy26q3">FY26Q3</option>
@@ -1398,7 +1460,7 @@ function renderDashboard({ compact }) {
             <button id="runAnalysis">Run analysis</button>
           </div>
           <div class="hero-status">
-            <span class="run-status dashboard-status idle" id="dashboardStatus" title="No successful run loaded yet.">
+            <span class="run-status dashboard-status idle" id="dashboardStatus" title="No successful run loaded yet." role="status" aria-live="polite">
               <span class="status-dot" aria-hidden="true"></span>
               Updated: never
             </span>
@@ -1459,13 +1521,13 @@ function renderDashboard({ compact }) {
         </div>
         <div class="kpi accent-warn">
           <div class="kpi-label" id="kpiAnomaliesLabel">⚠ Anomalies</div>
-          <div class="kpi-value" id="kpiAnomalies">0</div>
-          <div class="kpi-sub" id="kpiAnomaliesSub">No alerts</div>
+          <div class="kpi-value" id="kpiAnomalies">—</div>
+          <div class="kpi-sub" id="kpiAnomaliesSub">Awaiting agent</div>
         </div>
         <div class="kpi secondary-kpi">
           <div class="kpi-label" id="kpiRecsLabel">🧭 Recs</div>
-          <div class="kpi-value" id="kpiRecs">0</div>
-          <div class="kpi-sub" id="kpiRecsSub">Optimization signals</div>
+          <div class="kpi-value" id="kpiRecs">—</div>
+          <div class="kpi-sub" id="kpiRecsSub">Awaiting agent</div>
         </div>
       </div>
 
@@ -1478,7 +1540,11 @@ function renderDashboard({ compact }) {
       <div class="shell" style="margin-top: 10px;">
         <section>
           <div class="tab-panel active" data-tab-panel="overview">
-            <div class="panel">
+            <div class="panel" id="analysisEmptyState">
+              <h2>Ready for analysis</h2>
+              <p class="subtitle" style="margin:0;">Choose a source and period, then run the agent to load cost metrics and charts.</p>
+            </div>
+            <div class="panel live-panel" hidden>
               <div class="panel-head">
                 <h2 style="margin: 0;">Spend over time</h2>
                 <span class="legend">
@@ -1494,7 +1560,7 @@ function renderDashboard({ compact }) {
                 <div class="trend-detail"><small>Lowest</small><strong>-</strong><span>No data</span></div>
               </div>
             </div>
-            <div class="panel">
+            <div class="panel live-panel" hidden>
               <h2 id="costChartTitle">Service spend</h2>
               <svg class="chart small" id="costChart" viewBox="0 0 760 220" role="img" aria-label="AWS service cost chart"></svg>
               <div class="chart-summary" id="costChartSummary">
@@ -1620,8 +1686,11 @@ function renderDashboard({ compact }) {
       </footer>
     </main>
 
+    ${renderAgenticAppConversationClient()}
+    ${renderMicrofrontendClient("finops")}
     <script>
       const basePath = ${JSON.stringify(basePath)};
+      const appPath = ${JSON.stringify(appPath)};
       const defaultPrompt = ${JSON.stringify(buildDashboardPrompt(defaultDataSource, defaultLookbackDays, defaultDashboardKind))};
       const defaultDataSource = ${JSON.stringify(defaultDataSource)};
       const defaultAgents = {
@@ -1663,6 +1732,20 @@ function renderDashboard({ compact }) {
       settingsToggle.addEventListener("click", toggleFontSettings);
       fontFamilySelect.addEventListener("change", () => writeFontPreferences());
       fontScaleSelect.addEventListener("change", () => writeFontPreferences());
+      window.addEventListener("caipe:microfrontend-initialize", (event) => {
+        const preferredRange = event.detail?.preferences?.defaultRange;
+        const rangeByPreference = {
+          "7d": "last-7-days",
+          "30d": "last-30-days",
+          "90d": "last-90-days",
+        };
+        const preset = rangeByPreference[preferredRange];
+        const periodSelect = document.getElementById("periodPreset");
+        if (preset && periodSelect.querySelector('option[value="' + preset + '"]')) {
+          periodSelect.value = preset;
+          handlePeriodChange();
+        }
+      });
       applyFontPreferences();
       syncPeriodControls();
       syncDataSourceControls({ preserveAgent: true });
@@ -1754,6 +1837,7 @@ function renderDashboard({ compact }) {
         const preset = document.getElementById("periodPreset").value || "last-30-days";
         if (preset === "last-7-days") return clientPeriodFromDays(7, "Last 7 days", preset);
         if (preset === "last-60-days") return clientPeriodFromDays(60, "Last 60 days", preset);
+        if (preset === "last-90-days") return clientPeriodFromDays(90, "Last 90 days", preset);
         if (preset === "fy26q1") return fixedClientPeriod("2025-08-01", "2025-10-31", "FY26Q1", preset);
         if (preset === "fy26q2") return fixedClientPeriod("2025-11-01", "2026-01-31", "FY26Q2", preset);
         if (preset === "fy26q3") return fixedClientPeriod("2026-02-01", "2026-04-30", "FY26Q3", preset);
@@ -1994,35 +2078,19 @@ function renderDashboard({ compact }) {
           }
 
           updateAgentProgress("agent", "Running CAIPE structured invoke", "Agent: " + agentId);
-          const response = await fetch("/api/v1/chat/invoke", {
-            method: "POST",
-            headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({
-              agent_id: agentId,
-              message: prompt,
-              conversation_id: "finops-command-center-" + Date.now(),
-              client_context: {
-                appId: "finops",
-                source: "agentic-app",
-                requestedDataSource: dataSource,
-                dashboardKind,
-                lookbackDays: days,
-                period,
-                response_format: ${JSON.stringify(buildFinOpsDashboardResponseFormat())},
-              },
-            }),
+          const invokeResult = await invokeAgenticApp({
+            agentId,
+            appId: "finops",
+            title: "FinOps dashboard · " + period.label,
+            message: prompt,
+            clientContext: {
+              requestedDataSource: dataSource,
+              dashboardKind,
+              lookbackDays: days,
+              period,
+              response_format: ${JSON.stringify(buildFinOpsDashboardResponseFormat())},
+            },
           });
-          if (!response.ok) {
-            const message = await response.text().catch(() => "FinOps analysis request failed.");
-            document.getElementById("agentTranscript").textContent = message;
-            updateAgentProgress("error", "FinOps analysis request failed", message);
-            publishAssistantContext("agent-error");
-            return;
-          }
-          const invokeResult = await response.json();
-          if (invokeResult.success === false) {
-            throw new Error(invokeResult.error || "FinOps analysis invoke failed.");
-          }
           if (runToken !== state.runToken) return;
           const structuredOutput = invokeResult.structured_output || null;
           updateAgentProgress("shape", "Shaping dashboard output", structuredOutput ? "Structured output received from invoke." : "No finops.dashboard.v1 structured output received.");
@@ -2253,7 +2321,7 @@ function renderDashboard({ compact }) {
           mono: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
           serif: 'Georgia, "Times New Roman", serif',
         };
-        const scales = { small: "1.02", default: "1.12", large: "1.22", xl: "1.34" };
+        const scales = { small: "0.9", default: "1", large: "1.12", xl: "1.25" };
         const family = families[preferences.family] ? preferences.family : "inter";
         const scale = scales[preferences.scale] ? preferences.scale : "default";
         document.documentElement.style.setProperty("--app-font-family", families[family]);
@@ -2542,6 +2610,9 @@ function renderDashboard({ compact }) {
       }
 
       function renderAnalysis(analysis, content) {
+        const emptyState = document.getElementById("analysisEmptyState");
+        if (emptyState) emptyState.hidden = true;
+        document.querySelectorAll(".live-panel").forEach((panel) => { panel.hidden = false; });
         renderDashboardCopy(analysis.dataSource);
         renderKpiStrip(analysis);
         renderInsightsStrip(analysis);
@@ -3187,7 +3258,7 @@ function renderDashboard({ compact }) {
           version: "1.0",
           appId: "finops",
           context: {
-            route: basePath,
+            route: appPath,
             title: "FinOps Command Center",
             summary,
             selection: (filteredContext + "\\n\\n" + state.lastAgentMessage).trim().slice(0, 3000),

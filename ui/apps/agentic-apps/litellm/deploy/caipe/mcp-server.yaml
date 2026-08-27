@@ -1,0 +1,11 @@
+id: litellm_app
+name: LiteLLM App MCP
+description: LiteLLM activity and model inventory tools.
+transport: http
+endpoint: http://agentic-app-litellm:3042/mcp
+enabled: true
+authentication:
+  mode: forwarded_oidc
+allowedTools:
+  - litellm_get_daily_activity
+  - litellm_get_model_info

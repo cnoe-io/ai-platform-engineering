@@ -22,6 +22,6 @@ COPY --chown=appuser:appgroup ui/apps ./apps
 
 USER appuser
 
-EXPOSE 3010 3020 3040 3041
+EXPOSE 3010 3020 3030 3040 3041 3042 3043
 
 CMD ["node", "apps/agentic-apps/weather/server.mjs"]

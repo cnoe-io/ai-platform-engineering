@@ -12,4 +12,4 @@ WORKDIR /app
 COPY ui/apps/ ./apps/
 
 # Port is selected at runtime via $*_APP_PORT env vars; EXPOSE is illustrative.
-EXPOSE 3010 3020 3040 3041
+EXPOSE 3010 3020 3040 3041 3042 3043

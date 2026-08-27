@@ -183,6 +183,9 @@ config:
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
+  # Agentic App CAS enforcement. Built-in agentic_app grants are reconciled
+  # at startup; missing grants or an unavailable authorizer fail closed.
+  AGENTIC_APPS_CAS_MODE: "enforce"
   # Built-in skill IDs to seed (comma-separated whitelist).
   # "none" (default) disables auto-seeding entirely — use "Import template skills"
   # in the Skills UI to load templates explicitly. Set to a comma-separated list

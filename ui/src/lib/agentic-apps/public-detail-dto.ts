@@ -2,6 +2,7 @@
 
 import type { EvaluateAppAccessResult } from "@/lib/agentic-apps/access";
 import { isUsableAccessRecord } from "@/lib/agentic-apps/store";
+import { effectiveAgenticAppVisibility } from "@/lib/agentic-apps/sharing";
 import type {
   AgenticAppBlockedReason,
   AgenticAppHealthStatus,
@@ -22,6 +23,7 @@ export function buildPublicAgenticAppDetailPayload(input: {
   installation: AgenticAppInstallationRecord;
   accessResult: EvaluateAppAccessResult;
   runtimeStatus: AgenticAppHealthStatus;
+  canManage?: boolean;
 }): Record<string, unknown> {
   const manifest = input.pkg.manifest;
   const blockedReason = primaryBlockedReason(input.accessResult.blockedReasons);
@@ -36,6 +38,7 @@ export function buildPublicAgenticAppDetailPayload(input: {
       kind: manifest.runtime.kind,
       mountPath: manifest.runtime.mountPath,
     },
+    ...(manifest.ui ? { ui: manifest.ui } : {}),
     surfaces: manifest.surfaces,
   };
 
@@ -65,9 +68,13 @@ export function buildPublicAgenticAppDetailPayload(input: {
     displayName: manifest.displayName,
     description: manifest.description,
     surfaces: manifest.surfaces,
+    ...(manifest.ui ? { ui: manifest.ui } : {}),
     ...(manifest.assistant !== undefined
       ? {
           assistantEnabled: manifest.assistant.enabled ?? true,
+          ...(manifest.assistant.agentId !== undefined
+            ? { assistantAgentId: manifest.assistant.agentId }
+            : {}),
           ...(manifest.assistant.label !== undefined
             ? { assistantLabel: manifest.assistant.label }
             : {}),
@@ -85,6 +92,10 @@ export function buildPublicAgenticAppDetailPayload(input: {
       installed: input.installation.installed,
       enabled: input.installation.enabled,
       ...(input.installation.updatedAt !== undefined ? { updatedAt: input.installation.updatedAt } : {}),
+      visibility: effectiveAgenticAppVisibility(input.installation),
+      sharedWithTeams: input.installation.sharedWithTeams ?? [],
+      createdBy: input.installation.createdBy ?? "system",
+      canManage: input.canManage ?? false,
     },
     package: packagePayload,
   };

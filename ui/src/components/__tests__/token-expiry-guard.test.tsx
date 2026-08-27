@@ -281,7 +281,7 @@ describe('TokenExpiryGuard', () => {
   describe('Sign in again button', () => {
     it('should sign out with current page preserved as callbackUrl when clicked', async () => {
       jest.useRealTimers()
-      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
+      window.history.pushState({}, '', '/apps/example-app?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
       mockUseSession.mockReturnValue({
@@ -305,7 +305,7 @@ describe('TokenExpiryGuard', () => {
       await waitFor(() => {
         expect(mockSignOut).toHaveBeenCalledWith({
           callbackUrl:
-            '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
+            '/login?session_expired=true&callbackUrl=%2Fapps%2Fexample-app%3Fview%3Dstudy%23report',
         })
       })
     })
@@ -574,7 +574,7 @@ describe('TokenExpiryGuard', () => {
     })
 
     it('should force logout only after the token has expired and repeated refresh retries are exhausted', async () => {
-      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
+      window.history.pushState({}, '', '/apps/example-app?view=study#report')
       const pastExpiry = Math.floor(Date.now() / 1000) - 1 // already expired
       mockUpdateSession.mockRejectedValue(new Error('Network error')) // always fails
 
@@ -610,7 +610,7 @@ describe('TokenExpiryGuard', () => {
 
       await act(async () => { jest.advanceTimersByTime(5000) })
       expect(mockSignOut).toHaveBeenCalledWith({
-        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
+        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fexample-app%3Fview%3Dstudy%23report',
       })
 
       consoleSpy.mockRestore()

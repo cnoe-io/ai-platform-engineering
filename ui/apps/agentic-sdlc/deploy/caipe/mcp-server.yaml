@@ -1,0 +1,11 @@
+id: agentic_sdlc
+name: Agentic SDLC App MCP
+description: Repository delivery snapshot and runtime contract tools.
+transport: http
+endpoint: http://agentic-app-agentic-sdlc:3030/mcp
+enabled: true
+authentication:
+  mode: forwarded_oidc
+allowedTools:
+  - sdlc_get_repository_snapshot
+  - sdlc_get_runtime_contract

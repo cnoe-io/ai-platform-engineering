@@ -7,7 +7,7 @@ import type {
   AgenticAppRuntimeKind,
 } from "@/types/agentic-app";
 
-/** Only this runtime mode is implemented by the `/apps/:appId` reverse proxy gateway. */
+/** Only this runtime mode is implemented by the Agentic App runtime gateway. */
 export const GATEWAY_EXECUTABLE_RUNTIME_KIND: AgenticAppRuntimeKind = "proxied-next-zone";
 
 /**
@@ -76,14 +76,14 @@ export function isExecutableProxiedHttpOrigin(origin: string | undefined): boole
 
 export interface BuildProxyTargetOptions {
   /**
-   * When true, prepend the public mount path (e.g. `/apps/<id>`) to the
+   * When true, prepend the manifest mount path (e.g. `/apps/<id>`) to the
    * upstream URL so apps that use Next.js `basePath` (or any framework that
    * expects to see its own prefix) receive the full path. Default `false`
    * strips the mount path; this matches apps that serve their content at
    * "/" and don't care about the prefix (the FinOps and Weather samples).
    */
   preserveMountPath?: boolean;
-  /** Public mount path; required when `preserveMountPath` is true. */
+  /** Manifest mount path; required when `preserveMountPath` is true. */
   mountPath?: string;
 }
 

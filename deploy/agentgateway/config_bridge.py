@@ -58,8 +58,8 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
         # the gRPC protocol when includeRequestHeaders is empty; only the body
         # needs requesting. packAsBytes -> CheckRequest.http.raw_body, which the
         # bridge's _request_body_text() reads first. See issue #36. The per-route
-        # overrides below only add `transformations` (shallow-merged), so they
-        # inherit this extAuthz block unchanged.
+        # overrides below add credential transformations while preserving these
+        # signed-context transformations and the extAuthz block.
         # Keep this in sync with deploy/agentgateway/config.yaml (bootstrap seed).
         "includeRequestBody": {
             "maxRequestBytes": 65536,
@@ -83,6 +83,22 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
         "rules": [
             {"allow": "true"},
         ],
+    },
+    # AgentGateway terminates the caller Authorization header and its MCP
+    # backend does not pass arbitrary request headers upstream. Preserve the
+    # signed agent identity explicitly so an MCP server can enforce the same
+    # agent/tool boundary that the OpenFGA ext_authz bridge checked.
+    "transformations": {
+        "request": {
+            "set": {
+                "x-caipe-agent-context": (
+                    'default(request.headers["x-caipe-agent-context"], "")'
+                ),
+                "x-caipe-agent-context-signature": (
+                    'default(request.headers["x-caipe-agent-context-signature"], "")'
+                ),
+            },
+        },
     },
 }
 
@@ -406,7 +422,15 @@ def _route_policies_for(
     if forward_credentials:
         override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
         if override:
-            merged.update(copy.deepcopy(override))
+            copied_override = copy.deepcopy(override)
+            request_set = (
+                copied_override.pop("transformations", {})
+                .get("request", {})
+                .get("set", {})
+            )
+            merged.update(copied_override)
+            if isinstance(request_set, dict):
+                merged = _merge_request_transformations(merged, request_set)
     return merged
 
 

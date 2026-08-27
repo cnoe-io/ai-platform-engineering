@@ -42,8 +42,9 @@ const nextConfig: NextConfig = {
   // HTTP security headers — applied to all responses
   headers: async () => [
     {
-      // All routes except /apps/* proxy routes (those are iframe-embeddable)
-      source: '/((?!apps/).*)',
+      // All routes except the private Agentic App runtime gateway. Canonical
+      // /apps/* pages are top-level CAIPE shells and remain clickjacking-protected.
+      source: '/((?!api/agentic-apps/runtime/).*)',
       headers: [
         { key: 'X-Frame-Options', value: 'DENY' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -68,9 +69,12 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      // /apps/* proxy routes — framing allowed (these render inside AgenticAppEmbed iframe)
-      source: '/apps/(.*)',
+      // Only the private same-origin runtime gateway is iframe-embeddable.
+      // SAMEORIGIN keeps the microfrontend usable without allowing third-party
+      // sites to frame authenticated Agentic App content.
+      source: '/api/agentic-apps/runtime/(.*)',
       headers: [
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },

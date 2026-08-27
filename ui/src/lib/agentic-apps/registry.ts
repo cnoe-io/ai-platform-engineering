@@ -6,20 +6,22 @@ import { FINOPS_MANIFEST } from "../../../apps/agentic-apps/finops/manifest.mjs"
 import { WEATHER_MANIFEST } from "../../../apps/agentic-apps/weather/manifest.mjs";
 import { OSS_REPO_MANAGEMENT_MANIFEST } from "../../../apps/agentic-apps/oss-repo-management/manifest.mjs";
 import { JIRA_PROJECT_DASHBOARD_MANIFEST } from "../../../apps/agentic-apps/jira-project-dashboard/manifest.mjs";
+import { LITELLM_MANIFEST } from "../../../apps/agentic-apps/litellm/manifest.mjs";
+import { SPEAKERS_COLLECTIVE_MANIFEST } from "../../../apps/agentic-apps/speakers-collective/manifest.mjs";
 
 /**
  * Built-in agentic app catalog. The platform itself ships only the apps that
- * are part of CAIPE's release surface (Agentic SDLC, plus FinOps and Weather
- * sample manifests for demos and reference). Every other app — internal,
+ * are part of CAIPE's release surface (Agentic SDLC and the maintained
+ * operational/reference dashboards). Every other app — internal,
  * customer-built, or third-party — is added via the marketplace package
  * collection in MongoDB or via host environment variables, never as source
  * code in this repo.
  *
  * For any built-in or operator-installed app, host-specific runtime fields
  * (origin, mount path, disabled flag) come from a single uniform set of env
- * vars keyed on the app id. Adding a new app **never** requires editing this
- * file: operators set `AGENTIC_APPS_ENABLED=<id>` and the matching
- * `AGENTIC_APP_<UPPER_ID>_*` vars and the registry picks it up.
+ * vars keyed on the app id. Operators select built-in apps with
+ * `AGENTIC_APPS_ENABLED=<id>` and the matching
+ * `AGENTIC_APP_<UPPER_ID>_*` runtime settings.
  */
 
 interface BuiltInAppEntry {
@@ -38,8 +40,10 @@ const BUILT_IN_APPS: BuiltInAppEntry[] = [
   { manifest: AGENTIC_SDLC_MANIFEST as AgenticAppManifest, isProductEnabled: isAgenticSdlcEnabled },
   { manifest: FINOPS_MANIFEST as AgenticAppManifest },
   { manifest: WEATHER_MANIFEST as AgenticAppManifest },
+  { manifest: LITELLM_MANIFEST as AgenticAppManifest },
   { manifest: OSS_REPO_MANAGEMENT_MANIFEST as AgenticAppManifest },
   { manifest: JIRA_PROJECT_DASHBOARD_MANIFEST as AgenticAppManifest },
+  { manifest: SPEAKERS_COLLECTIVE_MANIFEST as AgenticAppManifest },
 ];
 
 const BUILT_IN_APP_IDS: readonly string[] = BUILT_IN_APPS.map((entry) => entry.manifest.id);

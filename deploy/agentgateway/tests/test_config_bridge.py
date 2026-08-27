@@ -245,11 +245,14 @@ def test_merge_agentgateway_mcp_routes_adds_missing_route_without_mutating_basel
         "name": "knowledge-base",
         "mcp": {"host": "http://rag-server:9446/mcp"},
     }
-    # knowledge-base carries the per-request provider-token transform (RAG OIDC),
-    # shallow-merged onto the shared default route policies.
-    assert routes[0]["policies"] == {
-        **bridge.DEFAULT_MCP_ROUTE_POLICIES,
-        **bridge.PROVIDER_TOKEN_BEARER_TRANSFORM,
+    # knowledge-base carries both the common signed-agent context and the
+    # per-request provider-token transform used for RAG OIDC.
+    assert routes[0]["policies"]["extAuthz"] == bridge.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]
+    assert routes[0]["policies"]["authorization"] == bridge.DEFAULT_MCP_ROUTE_POLICIES["authorization"]
+    transforms = routes[0]["policies"]["transformations"]["request"]["set"]
+    assert transforms == {
+        **bridge.DEFAULT_MCP_ROUTE_POLICIES["transformations"]["request"]["set"],
+        **bridge.PROVIDER_TOKEN_BEARER_TRANSFORM["transformations"]["request"]["set"],
     }
 
 
@@ -590,7 +593,15 @@ def test_merge_agentgateway_mcp_routes_skips_credential_transforms_when_cleared(
         for route in rendered["binds"][0]["listeners"][0]["routes"]
         if route["matches"][0]["path"]["pathPrefix"] == "/mcp/jira"
     )
-    assert "transformations" not in route["policies"]
+    transforms = route["policies"]["transformations"]["request"]["set"]
+    assert "authorization" not in transforms
+    assert "x-caipe-provider-token" not in transforms
+    assert transforms["x-caipe-agent-context"] == (
+        'default(request.headers["x-caipe-agent-context"], "")'
+    )
+    assert transforms["x-caipe-agent-context-signature"] == (
+        'default(request.headers["x-caipe-agent-context-signature"], "")'
+    )
     assert "extAuthz" in route["policies"]
 
 
@@ -612,7 +623,15 @@ def test_merge_agentgateway_mcp_routes_skips_dynamic_credential_transforms_when_
         for route in rendered["binds"][0]["listeners"][0]["routes"]
         if route["matches"][0]["path"]["pathPrefix"] == "/mcp/custom-jira"
     )
-    assert "transformations" not in route.get("policies", {})
+    transforms = route["policies"]["transformations"]["request"]["set"]
+    assert "authorization" not in transforms
+    assert "x-caipe-provider-token" not in transforms
+    assert transforms["x-caipe-agent-context"] == (
+        'default(request.headers["x-caipe-agent-context"], "")'
+    )
+    assert transforms["x-caipe-agent-context-signature"] == (
+        'default(request.headers["x-caipe-agent-context-signature"], "")'
+    )
     assert "extAuthz" in route["policies"]
 
 

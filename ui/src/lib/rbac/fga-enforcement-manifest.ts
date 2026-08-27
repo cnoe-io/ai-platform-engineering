@@ -96,6 +96,16 @@ export const FGA_ENFORCEMENT_MANIFEST: Record<
     surfaces: ["ui/src/lib/rbac/openfga-agent-authz.ts", "ui/src/app/api/dynamic-agents/route.ts"],
     notes: "agent#can_use gates execution; reconcileAgentRelationships writes ownership/share tuples.",
   },
+  agentic_app: {
+    status: "rebac_enforced",
+    surfaces: [
+      "ui/src/lib/agentic-apps/cas-compat.ts",
+      "ui/src/app/api/agentic-apps/runtime/[appId]/[[...path]]/route.ts",
+      "ui/src/app/api/agentic-apps/[appId]/authorize/route.ts",
+    ],
+    notes:
+      "agentic_app#can_use is enforced through CAS; built-in role grants are reconciled at startup and token exchange always fails closed.",
+  },
   llm_model: {
     status: "rebac_enforced",
     surfaces: ["ui/src/app/api/llm-models/route.ts"],

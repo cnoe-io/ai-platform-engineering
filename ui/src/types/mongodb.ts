@@ -230,6 +230,7 @@ export interface UserSettings {
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
     favorite_agentic_apps?: string[];
+    agentic_app_preferences?: Record<string, Record<string, boolean | number | string>>;
   };
   notifications: {
     email_enabled: boolean;

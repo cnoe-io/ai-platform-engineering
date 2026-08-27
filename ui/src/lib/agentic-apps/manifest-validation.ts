@@ -2,6 +2,7 @@
 
 import type {
   AgenticAppManifest,
+  AgenticAppPdpPolicyAction,
   AgenticAppRuntimeKind,
 } from "@/types/agentic-app";
 
@@ -9,6 +10,9 @@ const API_VERSION = "1.0";
 
 /** Same pattern as manifest `id` — reuse for app/package API identifiers. */
 export const AGENTIC_APP_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/;
+/** Dynamic-agent IDs use the same OpenFGA-safe object ID alphabet as platform defaults. */
+export const AGENTIC_APP_AGENT_ID_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
 const RUNTIME_KINDS: readonly AgenticAppRuntimeKind[] = [
   "proxied-next-zone",
@@ -19,7 +23,12 @@ const RUNTIME_KINDS: readonly AgenticAppRuntimeKind[] = [
 const WEBHOOK_METHODS = new Set(["POST", "PUT"]);
 const WEBHOOK_VERIFICATION_OWNERS = new Set(["app", "caipe"]);
 const POLICY_DEFAULT_EFFECTS = new Set(["allow", "deny"]);
+const POLICY_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
+const POLICY_CAS_ACTIONS = new Set(["read", "use", "write", "approve", "manage"]);
 const HEALTH_BLOCK_STATES = new Set(["unknown", "degraded", "unreachable"]);
+const UI_CONTRACT_VERSION = "1.0";
+const UI_SURFACES = new Set(["hosted", "standalone"]);
+const UI_PREFERENCE_TYPES = new Set(["boolean", "number", "string", "enum"]);
 
 /** Key names that commonly carry credentials; `tokenScopes` is intentionally allowed by name (validated separately). */
 const SECRET_LIKE_KEY_NAMES = new Set([
@@ -165,6 +174,146 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     }
   }
 
+  let ui: AgenticAppManifest["ui"];
+  if (root.ui !== undefined) {
+    if (!isPlainObject(root.ui)) {
+      errors.push("ui must be an object when present");
+    } else {
+      const candidate = root.ui;
+      if (candidate.contractVersion !== UI_CONTRACT_VERSION) {
+        errors.push("ui.contractVersion must be 1.0");
+      }
+      if (typeof candidate.surface !== "string" || !UI_SURFACES.has(candidate.surface)) {
+        errors.push('ui.surface must be "hosted" or "standalone"');
+      }
+      if (
+        candidate.routes !== undefined &&
+        (!Array.isArray(candidate.routes) ||
+          !candidate.routes.every((route) => typeof route === "string" && route.startsWith("/")))
+      ) {
+        errors.push("ui.routes must be an array of absolute paths when present");
+      }
+
+      let preferences: NonNullable<AgenticAppManifest["ui"]>["preferences"];
+      if (candidate.preferences !== undefined) {
+        if (!isPlainObject(candidate.preferences)) {
+          errors.push("ui.preferences must be an object when present");
+        } else {
+          const rawPreferences = candidate.preferences;
+          if (rawPreferences.schemaVersion !== UI_CONTRACT_VERSION) {
+            errors.push("ui.preferences.schemaVersion must be 1.0");
+          }
+          if (!Array.isArray(rawPreferences.fields)) {
+            errors.push("ui.preferences.fields must be an array");
+          } else {
+            const keys = new Set<string>();
+            const fields: NonNullable<NonNullable<AgenticAppManifest["ui"]>["preferences"]>["fields"] = [];
+            rawPreferences.fields.forEach((field, index) => {
+              if (!isPlainObject(field)) {
+                errors.push(`ui.preferences.fields[${index}] must be an object`);
+                return;
+              }
+              const key = field.key;
+              const type = field.type;
+              if (typeof key !== "string" || !/^[a-z][a-zA-Z0-9_]{0,63}$/.test(key)) {
+                errors.push(`ui.preferences.fields[${index}].key is invalid`);
+              } else if (keys.has(key)) {
+                errors.push(`ui.preferences.fields must not duplicate key "${key}"`);
+              } else {
+                keys.add(key);
+              }
+              if (typeof field.label !== "string" || field.label.length === 0) {
+                errors.push(`ui.preferences.fields[${index}].label must be a non-empty string`);
+              }
+              if (typeof type !== "string" || !UI_PREFERENCE_TYPES.has(type)) {
+                errors.push(`ui.preferences.fields[${index}].type is invalid`);
+              }
+              if (!isPreferenceDefaultValid(type, field.default)) {
+                errors.push(`ui.preferences.fields[${index}].default does not match its type`);
+              }
+              if (
+                type === "enum" &&
+                (!Array.isArray(field.options) ||
+                  field.options.length === 0 ||
+                  !field.options.every(
+                    (option) =>
+                      isPlainObject(option) &&
+                      typeof option.label === "string" &&
+                      typeof option.value === "string",
+                  ))
+              ) {
+                errors.push(`ui.preferences.fields[${index}].options are required for enum fields`);
+              }
+              if (field.min !== undefined && typeof field.min !== "number") {
+                errors.push(`ui.preferences.fields[${index}].min must be a number when present`);
+              }
+              if (field.max !== undefined && typeof field.max !== "number") {
+                errors.push(`ui.preferences.fields[${index}].max must be a number when present`);
+              }
+
+              if (
+                typeof key === "string" &&
+                typeof field.label === "string" &&
+                typeof type === "string" &&
+                UI_PREFERENCE_TYPES.has(type) &&
+                isPreferenceDefaultValid(type, field.default)
+              ) {
+                fields.push({
+                  key,
+                  label: field.label,
+                  type: type as "boolean" | "number" | "string" | "enum",
+                  default: field.default as boolean | number | string,
+                  ...(Array.isArray(field.options)
+                    ? { options: field.options as Array<{ label: string; value: string }> }
+                    : {}),
+                  ...(typeof field.min === "number" ? { min: field.min } : {}),
+                  ...(typeof field.max === "number" ? { max: field.max } : {}),
+                });
+              }
+            });
+            if (
+              rawPreferences.schemaVersion === UI_CONTRACT_VERSION &&
+              fields.length === rawPreferences.fields.length
+            ) {
+              preferences = { schemaVersion: UI_CONTRACT_VERSION, fields };
+            }
+          }
+        }
+      }
+
+      if (
+        candidate.contractVersion === UI_CONTRACT_VERSION &&
+        typeof candidate.surface === "string" &&
+        UI_SURFACES.has(candidate.surface) &&
+        (candidate.routes === undefined ||
+          (Array.isArray(candidate.routes) &&
+            candidate.routes.every((route) => typeof route === "string" && route.startsWith("/")))) &&
+        (candidate.preferences === undefined || preferences !== undefined)
+      ) {
+        ui = {
+          contractVersion: UI_CONTRACT_VERSION,
+          surface: candidate.surface as "hosted" | "standalone",
+          ...(Array.isArray(candidate.routes) ? { routes: [...candidate.routes] as string[] } : {}),
+          ...(preferences ? { preferences } : {}),
+        };
+      }
+    }
+  }
+
+  let authorization: AgenticAppManifest["authorization"];
+  if (root.authorization !== undefined) {
+    if (!isPlainObject(root.authorization)) {
+      errors.push("authorization must be an object when present");
+    } else if (
+      root.authorization.resourceType !== "agentic_app" ||
+      root.authorization.launchAction !== "use"
+    ) {
+      errors.push('authorization must declare resourceType "agentic_app" and launchAction "use"');
+    } else {
+      authorization = { resourceType: "agentic_app", launchAction: "use" };
+    }
+  }
+
   const surfacesRaw = root.surfaces;
   let surfaces: AgenticAppManifest["surfaces"] | undefined;
 
@@ -256,6 +405,43 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
           if (action.reasonCode !== undefined && typeof action.reasonCode !== "string") {
             errors.push(`access.policyActions[${index}].reasonCode must be a string when present`);
           }
+          if (action.method !== undefined && !POLICY_METHODS.has(String(action.method))) {
+            errors.push(`access.policyActions[${index}].method is invalid`);
+          }
+          if (
+            action.path !== undefined &&
+            (typeof action.path !== "string" || !action.path.startsWith("/"))
+          ) {
+            errors.push(`access.policyActions[${index}].path must be an absolute path when present`);
+          }
+          if (action.casAction !== undefined && !POLICY_CAS_ACTIONS.has(String(action.casAction))) {
+            errors.push(`access.policyActions[${index}].casAction is invalid`);
+          }
+          if ((action.method === undefined) !== (action.path === undefined)) {
+            errors.push(`access.policyActions[${index}].method and path must be declared together`);
+          }
+          if (
+            action.requiredScopes !== undefined &&
+            (!Array.isArray(action.requiredScopes) ||
+              !action.requiredScopes.every((scope) => typeof scope === "string"))
+          ) {
+            errors.push(
+              `access.policyActions[${index}].requiredScopes must be an array of strings when present`,
+            );
+          } else if (
+            Array.isArray(action.requiredScopes) &&
+            Array.isArray(tokenScopes) &&
+            tokenScopes.every((scope) => typeof scope === "string")
+          ) {
+            const undeclaredScope = action.requiredScopes.find(
+              (scope) => !tokenScopes.includes(scope),
+            );
+            if (undeclaredScope !== undefined) {
+              errors.push(
+                `access.policyActions[${index}].requiredScopes contains undeclared scope "${undeclaredScope}"`,
+              );
+            }
+          }
           if (
             action.defaultEffect !== undefined &&
             !POLICY_DEFAULT_EFFECTS.has(String(action.defaultEffect))
@@ -291,6 +477,23 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
           if (typeof action.action !== "string" || action.action.length === 0) return false;
           if (action.description !== undefined && typeof action.description !== "string") return false;
           if (action.reasonCode !== undefined && typeof action.reasonCode !== "string") return false;
+          if (action.method !== undefined && !POLICY_METHODS.has(String(action.method))) return false;
+          if (action.path !== undefined && (typeof action.path !== "string" || !action.path.startsWith("/"))) return false;
+          if (action.casAction !== undefined && !POLICY_CAS_ACTIONS.has(String(action.casAction))) return false;
+          if ((action.method === undefined) !== (action.path === undefined)) return false;
+          if (
+            action.requiredScopes !== undefined &&
+            (!Array.isArray(action.requiredScopes) ||
+              !action.requiredScopes.every((scope) => typeof scope === "string"))
+          ) {
+            return false;
+          }
+          if (
+            Array.isArray(action.requiredScopes) &&
+            action.requiredScopes.some((scope) => !tokenScopes.includes(scope))
+          ) {
+            return false;
+          }
           if (
             action.defaultEffect !== undefined &&
             !POLICY_DEFAULT_EFFECTS.has(String(action.defaultEffect))
@@ -306,6 +509,16 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
               action: a.action as string,
               ...(typeof a.description === "string" ? { description: a.description } : {}),
               ...(typeof a.reasonCode === "string" ? { reasonCode: a.reasonCode } : {}),
+              ...(typeof a.method === "string"
+                ? { method: a.method as AgenticAppPdpPolicyAction["method"] }
+                : {}),
+              ...(typeof a.path === "string" ? { path: a.path } : {}),
+              ...(typeof a.casAction === "string"
+                ? { casAction: a.casAction as AgenticAppPdpPolicyAction["casAction"] }
+                : {}),
+              ...(Array.isArray(a.requiredScopes)
+                ? { requiredScopes: a.requiredScopes as string[] }
+                : {}),
               ...(a.defaultEffect === "allow" || a.defaultEffect === "deny"
                 ? { defaultEffect: a.defaultEffect }
                 : {}),
@@ -361,6 +574,12 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
         errors.push("assistant.enabled must be a boolean when present");
       }
       if (
+        a.agentId !== undefined &&
+        (typeof a.agentId !== "string" || !AGENTIC_APP_AGENT_ID_PATTERN.test(a.agentId))
+      ) {
+        errors.push(`assistant.agentId must match ${AGENTIC_APP_AGENT_ID_PATTERN} when present`);
+      }
+      if (
         a.schemaVersions !== undefined &&
         (!Array.isArray(a.schemaVersions) || !a.schemaVersions.every((v) => typeof v === "string"))
       ) {
@@ -395,6 +614,8 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
 
       const assistantValid =
         (a.enabled === undefined || typeof a.enabled === "boolean") &&
+        (a.agentId === undefined ||
+          (typeof a.agentId === "string" && AGENTIC_APP_AGENT_ID_PATTERN.test(a.agentId))) &&
         (a.schemaVersions === undefined ||
           (Array.isArray(a.schemaVersions) && a.schemaVersions.every((v) => typeof v === "string"))) &&
         (a.maxContextBytes === undefined ||
@@ -410,6 +631,7 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
       if (assistantValid) {
         assistant = {};
         if (typeof a.enabled === "boolean") assistant.enabled = a.enabled;
+        if (typeof a.agentId === "string") assistant.agentId = a.agentId;
         if (Array.isArray(a.schemaVersions)) assistant.schemaVersions = [...a.schemaVersions];
         if (typeof a.maxContextBytes === "number") assistant.maxContextBytes = a.maxContextBytes;
         if (typeof a.capability === "string") assistant.capability = a.capability;
@@ -639,6 +861,20 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     }
   }
 
+  if (assistant && assistant.enabled !== false) {
+    if (!assistant.agentId) {
+      errors.push("assistant.agentId is required when the assistant is enabled");
+    } else if (
+      !agents?.some(
+        (agent) => agent.required && agent.dynamicAgentId === assistant.agentId,
+      )
+    ) {
+      errors.push(
+        "assistant.agentId must match a required agents[].dynamicAgentId dependency",
+      );
+    }
+  }
+
   let catalog: AgenticAppManifest["catalog"];
   if (root.catalog !== undefined) {
     if (!isPlainObject(root.catalog)) {
@@ -734,6 +970,26 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
   if (catalog) {
     manifest.catalog = catalog;
   }
+  if (ui) {
+    manifest.ui = ui;
+  }
+  if (authorization) {
+    manifest.authorization = authorization;
+  }
 
   return { ok: true, manifest, warnings };
+}
+
+function isPreferenceDefaultValid(type: unknown, value: unknown): boolean {
+  switch (type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "string":
+    case "enum":
+      return typeof value === "string";
+    default:
+      return false;
+  }
 }

@@ -54,9 +54,11 @@ export interface AgenticAppListItem {
   href: string;
   canLaunch: boolean;
   surfaces: AgenticAppManifest["surfaces"];
+  ui?: AgenticAppManifest["ui"];
   blockedReasons?: string[];
   assistantEnabled?: boolean;
   assistantLabel?: string;
+  assistantAgentId?: string;
   assistantAgentName?: string;
 }
 

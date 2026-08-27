@@ -13,6 +13,49 @@ export const WEATHER_MANIFEST = {
     mountPath: "/apps/weather",
     chrome: "iframe",
   },
+  ui: {
+    contractVersion: "1.0",
+    surface: "hosted",
+    routes: ["/", "/example"],
+    preferences: {
+      schemaVersion: "1.0",
+      fields: [
+        {
+          key: "density",
+          label: "Dashboard density",
+          type: "enum",
+          default: "compact",
+          options: [
+            { label: "Compact", value: "compact" },
+            { label: "Comfortable", value: "comfortable" },
+          ],
+        },
+        {
+          key: "textScale",
+          label: "Text size",
+          type: "enum",
+          default: "default",
+          options: [
+            { label: "Small", value: "small" },
+            { label: "Default", value: "default" },
+            { label: "Large", value: "large" },
+            { label: "Extra large", value: "xl" },
+          ],
+        },
+        {
+          key: "units",
+          label: "Weather units",
+          type: "enum",
+          default: "us",
+          options: [
+            { label: "US customary", value: "us" },
+            { label: "Metric", value: "metric" },
+          ],
+        },
+      ],
+    },
+  },
+  authorization: { resourceType: "agentic_app", launchAction: "use" },
   surfaces: {
     showInHub: true,
     showInTopNav: false,
@@ -26,19 +69,34 @@ export const WEATHER_MANIFEST = {
     canUseCustomAgents: true,
     policyActions: [
       {
-        action: "app.proxy.request",
-        description: "Forward Weather app requests",
-        defaultEffect: "deny",
+        action: "proxy:GET",
+        description: "Read Weather pages and provider data through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["weather:read"],
+      },
+      {
+        action: "proxy:HEAD",
+        description: "Probe Weather pages through the app gateway",
+        defaultEffect: "allow",
+        requiredScopes: ["weather:read"],
       },
       {
         action: "proxy:POST",
         description: "Run embedded weather agent actions",
         defaultEffect: "allow",
+        requiredScopes: ["weather:agent"],
+      },
+      {
+        action: "agent.invoke.weather",
+        description: "Invoke the configured Weather agent",
+        defaultEffect: "allow",
+        requiredScopes: ["weather:agent", "agents:invoke"],
       },
     ],
   },
   assistant: {
     enabled: true,
+    agentId: "agent-weather-agent",
     schemaVersions: ["1.0"],
     maxContextBytes: 8192,
     capability: "contextual-chat",
@@ -50,7 +108,8 @@ export const WEATHER_MANIFEST = {
     {
       id: "weather-agent",
       displayName: "Weather Agent",
-      required: false,
+      required: true,
+      dynamicAgentId: "agent-weather-agent",
       capabilities: ["open-meteo-forecast", "air-quality-readout", "national-weather-alerts", "daily-guidance", "forecast-explanation", "chart-annotation"],
     },
   ],

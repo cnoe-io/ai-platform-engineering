@@ -83,6 +83,7 @@ ANTHROPIC_BASE_URL=https://...        # optional: proxy/gateway (e.g. litellm)
 TTT_CHAT_MODEL=claude-sonnet-4-6      # optional override
 TTT_INGEST_MODEL=claude-haiku-4-5     # optional override
 TOME_AGENT_TOKEN=dev                  # required; must match ui/.env.local
+AGENTIC_APP_TOKEN_SECRET=...          # required; must match ui/.env.local
 ```
 
 Tome model settings resolve in this order: exact Project/Area/BHAG override,
@@ -129,8 +130,13 @@ The following apps are included in the Docker stack and proxied through the UI a
 | Weather | 3020 | `/apps/weather` |
 | OSS Repo Management | 3040 | `/apps/oss-repo-management` |
 | Jira Project Dashboard | 3041 | `/apps/jira-project-dashboard` |
+| LiteLLM Operations | 3042 | `/apps/litellm` |
 
-JWT verification is disabled for all apps in local dev (`AGENTIC_APP_*_JWT_DISABLED=true`).
+All app runtimes verify the short-lived JWT minted by GRID and enforce the
+manifest-declared read or invoke scope for the route. Set the same
+`AGENTIC_APP_TOKEN_SECRET` in the repo-root `.env` (Compose) and
+`ui/.env.local` (UI token broker). The checked-in development placeholder
+works for local setup only and must be replaced outside local development.
 
 ## GitHub OAuth (Credentials / Connections)
 
@@ -151,6 +157,7 @@ Key values to change from defaults:
 | Variable | What to set |
 |---|---|
 | `NEXTAUTH_SECRET` | Run `openssl rand -base64 32` |
+| `AGENTIC_APP_TOKEN_SECRET` | Run `openssl rand -base64 32`; copy the same value to the repo-root `.env` and `ui/.env.local` |
 | `BOOTSTRAP_ADMIN_EMAILS` | Your email |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Your GitHub OAuth app credentials |
 | `GITHUB_TOKEN` | Personal access token for Skill Hubs |

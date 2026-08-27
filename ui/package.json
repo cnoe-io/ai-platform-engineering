@@ -49,6 +49,7 @@
     "@milkdown/crepe": "^7.21.2",
     "@milkdown/kit": "^7.21.2",
     "@milkdown/utils": "^7.21.2",
+    "@modelcontextprotocol/sdk": "1.28.0",
     "@octokit/rest": "^22.0.1",
     "@okta/okta-sdk-nodejs": "8.1.0",
     "@radix-ui/react-dialog": "1.1.15",

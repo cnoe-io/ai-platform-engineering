@@ -6,7 +6,9 @@
 
 import {
   ASSISTANT_CONTEXT_MESSAGE_TYPE,
+  MICROFRONTEND_INITIALIZE_MESSAGE_TYPE,
   authorizeAppResource,
+  createMicrofrontendInitializeMessage,
   parseAppScopedTokenClaims,
   publishAssistantContext,
 } from "../index";
@@ -20,6 +22,24 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 }
 
 describe("agentic app SDK", () => {
+  it("creates a versioned hosted microfrontend initialization message", () => {
+    expect(
+      createMicrofrontendInitializeMessage("example-app", {
+        surface: "hosted",
+        route: "/apps/example-app",
+        theme: "dark",
+        locale: "en-US",
+        timezone: "UTC",
+        preferences: { density: "compact" },
+      }),
+    ).toEqual({
+      type: MICROFRONTEND_INITIALIZE_MESSAGE_TYPE,
+      version: "1.0",
+      appId: "example-app",
+      context: expect.objectContaining({ surface: "hosted", preferences: { density: "compact" } }),
+    });
+  });
+
   it("publishes versioned assistant bridge messages", () => {
     const targetWindow = { postMessage: jest.fn() };
 

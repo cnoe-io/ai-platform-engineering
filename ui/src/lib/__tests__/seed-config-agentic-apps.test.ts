@@ -14,9 +14,13 @@ class MockCollection {
   updateOne = jest.fn();
   deleteOne = jest.fn();
   findOne = jest.fn().mockResolvedValue(null);
-  find = jest.fn().mockReturnValue({
-    toArray: jest.fn().mockImplementation(async () => this.documents),
-  });
+  find = jest.fn((query: Record<string, unknown> = {}) => ({
+    toArray: jest.fn().mockImplementation(async () =>
+      this.documents.filter((document) =>
+        Object.entries(query).every(([key,value]) => document[key] === value),
+      ),
+    ),
+  }));
 }
 
 function validSeed(appId = "example-app") {
@@ -193,6 +197,38 @@ describe("config-driven Agentic Apps", () => {
     } finally {
       rmSync(dir,{ recursive: true,force: true });
     }
+  });
+
+  it("removes stale config-owned apps when the config block is absent", async () => {
+    collections.set(
+      "agentic_app_installations",
+      new MockCollection([
+        { appId: "stale-app",config_driven: true },
+        { appId: "admin-app",config_driven: false },
+      ]),
+    );
+    collections.set(
+      "agentic_app_packages",
+      new MockCollection([
+        { packageId: "stale-app",config_driven: true },
+        { packageId: "admin-app",config_driven: false },
+      ]),
+    );
+
+    const { reconcileConfiguredAgenticApps } = await import("../seed-config");
+    await expect(reconcileConfiguredAgenticApps(null)).resolves.toEqual({
+      packageCount: 0,
+      installationCount: 0,
+    });
+
+    expect(collections.get("agentic_app_installations")?.deleteOne).toHaveBeenCalledTimes(1);
+    expect(collections.get("agentic_app_installations")?.deleteOne).toHaveBeenCalledWith({
+      appId: "stale-app",
+    });
+    expect(collections.get("agentic_app_packages")?.deleteOne).toHaveBeenCalledTimes(1);
+    expect(collections.get("agentic_app_packages")?.deleteOne).toHaveBeenCalledWith({
+      packageId: "stale-app",
+    });
   });
 
   it("rejects malformed root arrays instead of treating them as an empty desired set", async () => {

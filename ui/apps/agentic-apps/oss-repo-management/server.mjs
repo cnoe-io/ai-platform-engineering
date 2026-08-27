@@ -2,27 +2,71 @@
 // assisted-by Codex Codex-sonnet-4-6
 import { createServer } from "node:http";
 
-import { createAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { handleAppMcpRequest } from "../../_lib/app-mcp-server.mjs";
+import { renderAgenticAppConversationClient } from "../../_lib/conversation-client.mjs";
+import { createRequiredAgenticAppJwtVerifier } from "../../_lib/jwt-verify.mjs";
+import { renderMicrofrontendClient } from "../../_lib/microfrontend-client.mjs";
+import { authorizeAgenticAppRuntimeRequest } from "../../_lib/runtime-authorization.mjs";
+import {
+  resolveAgenticAppRuntimeBasePath,
+  resolveAgenticAppSurface,
+} from "../../_lib/runtime-base-path.mjs";
+import { renderStaticDashboardExample } from "../../_lib/static-dashboard-examples.mjs";
+import {
+  fetchGitHubRepoDashboard,
+  GitHubDashboardError,
+  normalizeRepoName,
+} from "./github-dashboard.mjs";
+import { buildOssRepoMarkdownReport } from "./markdown-report.mjs";
+import { registerOssReportCardMcpTools } from "./mcp.mjs";
 
 const port = Number(process.env.OSS_REPO_MANAGEMENT_APP_PORT ?? "3040");
-const basePath = normalizeBasePath(process.env.OSS_REPO_MANAGEMENT_APP_BASE_PATH ?? "/apps/oss-repo-management");
-const defaultGithubAgentId = process.env.OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID ?? "agent-github-agent";
-const defaultRepoName = "cnoe-io/ai-platform-engineering";
+const configuredBasePath = normalizeBasePath(process.env.OSS_REPO_MANAGEMENT_APP_BASE_PATH ?? "/apps/oss-repo-management");
+const defaultGithubAgentId = String(process.env.OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID ?? "").trim();
+const defaultRepoName = String(process.env.OSS_REPO_MANAGEMENT_DEFAULT_REPO ?? "").trim();
+const githubToken = String(process.env.OSS_REPO_MANAGEMENT_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? "").trim();
+const githubApiBase = process.env.OSS_REPO_MANAGEMENT_GITHUB_API_URL ?? "https://api.github.com";
+const configuredReportCacheTtlMs = Number(process.env.OSS_REPO_MANAGEMENT_REPORT_CACHE_TTL_MS || 900_000);
+const reportCacheTtlMs = Number.isFinite(configuredReportCacheTtlMs) ? Math.max(60_000, configuredReportCacheTtlMs) : 900_000;
+const reportCache = new Map();
 
-const verifier =
-  process.env.AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_DISABLED === "true"
-    ? null
-    : createAgenticAppJwtVerifier({ appId: "oss-repo-management" });
+const verifier = createRequiredAgenticAppJwtVerifier({
+  appId: "oss-repo-management",
+  disabled: process.env.AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_DISABLED === "true",
+});
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+  const basePath = resolveAgenticAppRuntimeBasePath(
+    request.headers,
+    configuredBasePath,
+    "oss-repo-management",
+  );
+  const surface = resolveAgenticAppSurface(request.headers);
 
   if (url.pathname === "/healthz") {
     sendJson(response, 200, {
       ok: true,
       app: "oss-repo-management",
       runtime: "separate-process",
-      agent: defaultGithubAgentId,
+      source: "github-rest-api",
+      githubCredentialConfigured: Boolean(githubToken),
+      optionalAgent: defaultGithubAgentId || null,
+      mcp: { endpoint: "/mcp", authentication: "forwarded-bearer" },
+    });
+    return;
+  }
+
+  if (url.pathname === "/mcp") {
+    await handleAppMcpRequest(request, response, {
+      name: "oss-repo-report-card-app",
+      authenticationDisabled: process.env.AGENTIC_APP_OSS_REPO_MANAGEMENT_MCP_AUTH_DISABLED === "true",
+      registerTools(mcpServer) {
+        registerOssReportCardMcpTools(mcpServer, {
+          loadReportCard: loadRepoReportCard,
+          renderMarkdown: buildOssRepoMarkdownReport,
+        });
+      },
     });
     return;
   }
@@ -35,10 +79,39 @@ const server = createServer(async (request, response) => {
     }
     request.caipeIdentity = result.identity;
   }
+  const authorization = authorizeAgenticAppRuntimeRequest({
+    identity: request.caipeIdentity,
+    appId: "oss-repo-management",
+    method: request.method,
+    readScope: "oss-repo-management:read",
+    invokeScope: "oss-repo-management:agent:invoke",
+    allowDevelopmentBypass: verifier === null,
+  });
+  if (!authorization.ok) {
+    sendJson(response, authorization.status, {
+      error: authorization.error,
+      requiredScope: authorization.requiredScope,
+    });
+    return;
+  }
 
   if (url.pathname === "/api/summary") {
-    const repo = url.searchParams.get("repo") || defaultRepoName;
-    sendJson(response, 200, buildAgentUnavailableRepoSummary(repo, "Waiting for CAIPE GitHub agent structured output"));
+    try {
+      const repo = normalizeRepoName(url.searchParams.get("repo") || defaultRepoName);
+      const staleDays = Number(url.searchParams.get("staleDays") || "30");
+      sendJson(response, 200, await loadRepoReportCard({
+        repo,
+        staleDays,
+        refresh: url.searchParams.get("refresh") === "1",
+      }));
+    } catch (error) {
+      const status = error instanceof GitHubDashboardError ? error.status : 502;
+      const code = error instanceof GitHubDashboardError ? error.code : "github_request_failed";
+      sendJson(response, status, {
+        error: code,
+        message: error instanceof Error ? error.message : "Could not load repository data",
+      });
+    }
     return;
   }
 
@@ -55,13 +128,13 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === "/embed") {
-    sendHtml(response, renderDashboard({ compact: true }));
+  if (url.pathname === "/example") {
+    sendHtml(response, renderStaticDashboardExample("oss-repo-management", authorization.summary), "no-store");
     return;
   }
 
   if (url.pathname === "/" || url.pathname === "/dashboard") {
-    sendHtml(response, renderDashboard({ compact: false }));
+    sendHtml(response, renderDashboard({ compact: surface === "hosted", basePath, authorization: authorization.summary }));
     return;
   }
 
@@ -69,9 +142,34 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, () => {
-  console.log(`OSS Repo Management listening on http://localhost:${port}`);
+  console.log(`OSS Repo Report Card listening on http://localhost:${port}`);
   console.log(`Configure CAIPE with AGENTIC_APP_OSS_REPO_MANAGEMENT_ORIGIN=http://localhost:${port}`);
 });
+
+async function loadRepoReportCard({ repo, staleDays = 30, refresh = false }) {
+  const normalizedRepo = normalizeRepoName(repo || defaultRepoName);
+  const normalizedStaleDays = Math.min(365, Math.max(7, Math.round(Number(staleDays) || 30)));
+  const cacheKey = `${normalizedRepo.toLowerCase()}::${normalizedStaleDays}::${githubToken ? "credential" : "public"}`;
+  const cached = reportCache.get(cacheKey);
+  if (!refresh && cached && Date.now() - cached.cachedAt < reportCacheTtlMs) {
+    return {
+      ...cached.dashboard,
+      delivery: { cache: "hit", cachedAt: new Date(cached.cachedAt).toISOString() },
+    };
+  }
+  const dashboard = await fetchGitHubRepoDashboard({
+    repo: normalizedRepo,
+    staleDays: normalizedStaleDays,
+    token: githubToken,
+    apiBase: githubApiBase,
+  });
+  const cachedAt = Date.now();
+  reportCache.set(cacheKey, { cachedAt, dashboard });
+  return {
+    ...dashboard,
+    delivery: { cache: "miss", cachedAt: new Date(cachedAt).toISOString() },
+  };
+}
 
 function buildOssRepoManagementDashboardResponseFormat() {
   return {
@@ -104,15 +202,15 @@ function buildAgentUnavailableRepoSummary(repoName, reason = "No GitHub structur
     summary: `No GitHub structured output received from the CAIPE GitHub agent for ${repo}.`,
     confidence: "none",
     issues: {
-      open: 0,
-      stale: 0,
-      p0: 0,
-      needsTriage: 0,
+      open: null,
+      stale: null,
+      p0: null,
+      needsTriage: null,
     },
     pullRequests: {
-      open: 0,
-      awaitingReview: 0,
-      blocked: 0,
+      open: null,
+      awaitingReview: null,
+      blocked: null,
     },
     risks: [
       {
@@ -149,29 +247,30 @@ function buildLocalRepoAgentResponse(body) {
     copilotKit: {
       pattern: "useCopilotAction",
       actionName: "renderOssRepoInsight",
-      status: "ready",
+      status: "agent-unavailable",
     },
   };
 }
 
-function renderDashboard({ compact }) {
+function renderDashboard({ compact, basePath, authorization }) {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OSS Repo Management</title>
+    <title>OSS Repo Report Card</title>
     <style>
       :root {
         color-scheme: dark;
         --app-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --app-font-scale: 0.8;
-        font-size: calc(14px * var(--app-font-scale));
+        --app-font-scale: 1;
+        font-size: calc(16px * var(--app-font-scale));
         font-family: var(--app-font-family);
         background: #020617;
         color: #e2e8f0;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         min-height: 100vh;
@@ -193,11 +292,15 @@ function renderDashboard({ compact }) {
       .hero { border-radius: 14px; padding: 12px 16px; margin-bottom: 10px; overflow: hidden; position: relative; }
       .hero-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
       .hero-title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
-      .eyebrow { display: inline-flex; gap: 7px; align-items: center; color: #86efac; letter-spacing: 0.22em; font-size: 0.64rem; font-weight: 800; text-transform: uppercase; margin: 0; }
+      .eyebrow { display: inline-flex; gap: 7px; align-items: center; color: #86efac; letter-spacing: 0.16em; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; margin: 0; }
       .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: #22c55e; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12); }
-      h1 { margin: 0; font-size: 1.28rem; line-height: 1.15; letter-spacing: -0.025em; font-weight: 800; }
-      h2 { margin: 0 0 8px; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; }
-      .subtitle { color: #94a3b8; line-height: 1.4; font-size: 0.78rem; max-width: 720px; }
+      h1 { margin: 0; font-size: 1.5rem; line-height: 1.15; letter-spacing: -0.025em; font-weight: 800; }
+      h2 { margin: 0 0 10px; font-size: 0.92rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #a7b4c8; }
+      .subtitle { color: #a7b4c8; line-height: 1.55; font-size: 0.92rem; max-width: 720px; }
+      .data-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; color: #cbd5e1; font-size: 0.82rem; line-height: 1.45; }
+      .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; background: rgba(2,6,23,.48); }
+      .status-chip.good { color: #a7f3d0; border-color: rgba(52,211,153,.28); }
+      .status-chip.warn { color: #fde68a; border-color: rgba(251,191,36,.28); }
       .controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       .run-history { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; margin-top: 8px; }
       .run-history select { width: 100%; padding: 6px 10px; font-size: 0.78rem; }
@@ -217,13 +320,14 @@ function renderDashboard({ compact }) {
         font-family: inherit;
         font-size: 0.78rem;
       }
-      .controls input, .controls select { padding: 6px 10px; font-size: 0.78rem; }
-      .controls button { padding: 6px 12px; font-size: 0.78rem; }
+      .controls input, .controls select { min-height: 38px; padding: 7px 10px; font-size: 0.84rem; }
+      .controls button { min-height: 38px; padding: 7px 12px; font-size: 0.84rem; }
       input { min-width: 180px; }
       textarea { border-radius: 10px; min-height: 76px; width: 100%; resize: vertical; line-height: 1.45; }
       button { cursor: pointer; border: 0; font-weight: 700; background: linear-gradient(135deg, #22c55e, #0ea5e9); color: white; }
       button.ghost { background: rgba(2, 6, 23, 0.72); border: 1px solid rgba(255,255,255,0.12); font-weight: 600; }
       button:disabled { opacity: 0.6; cursor: wait; }
+      :is(a, button, input, select, textarea, summary):focus-visible { outline: 3px solid rgba(103, 232, 249, 0.78); outline-offset: 2px; }
       .shell { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr); gap: 12px; margin-top: 10px; }
       .panel, .assistant { border-radius: 14px; padding: 12px 14px; }
       .panel + .panel { margin-top: 10px; }
@@ -250,7 +354,7 @@ function renderDashboard({ compact }) {
       .kpi.accent-danger { border-color: rgba(248, 113, 113, 0.32); }
       .kpi .kpi-label {
         color: #94a3b8;
-        font-size: 0.64rem;
+        font-size: 0.7rem;
         font-weight: 800;
         letter-spacing: 0.14em;
         text-transform: uppercase;
@@ -265,7 +369,7 @@ function renderDashboard({ compact }) {
         letter-spacing: -0.025em;
         line-height: 1.05;
       }
-      .kpi .kpi-sub { color: #94a3b8; font-size: 0.72rem; font-weight: 600; }
+      .kpi .kpi-sub { color: #94a3b8; font-size: 0.78rem; font-weight: 600; }
       .insights-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
       .insight {
         flex: 1 1 200px;
@@ -289,16 +393,51 @@ function renderDashboard({ compact }) {
         border-radius: 10px;
         padding: 10px 12px;
         background: rgba(2, 6, 23, 0.45);
-        font-size: 0.78rem;
+        font-size: 0.84rem;
       }
       .repo-health-card strong, .action-card strong { color: #f8fafc; font-size: 0.86rem; font-weight: 700; display: block; margin-top: 2px; }
       .repo-health-card p, .action-card p { margin: 4px 0 0; color: #cbd5e1; line-height: 1.45; }
       .label { color: #94a3b8; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
       .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .empty-state { grid-column: 1 / -1; padding: 22px; border: 1px dashed rgba(125,211,252,.32); border-radius: 12px; background: rgba(14,165,233,.06); }
+      .empty-state strong { display: block; color: #e0f2fe; font-size: 1rem; margin-bottom: 5px; }
+      .empty-state p { margin: 0; color: #a7b4c8; font-size: .88rem; line-height: 1.55; }
+      .repo-profile { margin-top: 10px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+      .repo-profile .repo-health-card { min-height: 68px; }
+      .repo-link { color: #7dd3fc; text-decoration: none; overflow-wrap: anywhere; }
+      .repo-link:hover { text-decoration: underline; }
+      .report-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .chart-card { min-height: 220px; }
+      .chart-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 10px; }
+      .chart-head strong { color: #f8fafc; font-size: 0.92rem; }
+      .chart-head span, .coverage { color: #94a3b8; font-size: 0.72rem; line-height: 1.4; }
+      .bar-chart { height: 118px; display: flex; align-items: end; gap: 5px; padding-top: 8px; border-bottom: 1px solid rgba(148,163,184,.2); }
+      .bar { flex: 1; min-width: 4px; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, #38bdf8, #22c55e); position: relative; }
+      .bar:hover::after { content: attr(data-label); position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); z-index: 3; white-space: nowrap; padding: 4px 6px; border-radius: 5px; background: #020617; color: #e2e8f0; font-size: .68rem; }
+      .axis-labels { display: flex; justify-content: space-between; color: #64748b; font-size: .66rem; margin-top: 5px; }
+      .sparkline { width: 100%; height: 118px; overflow: visible; }
+      .sparkline .line { fill: none; stroke: #34d399; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .sparkline .area { fill: url(#starGradient); opacity: .34; }
+      .practice-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .practice { padding: 9px; border-radius: 9px; border: 1px solid rgba(255,255,255,.08); background: rgba(2,6,23,.42); }
+      .practice.good { border-color: rgba(52,211,153,.32); }
+      .practice.warn { border-color: rgba(251,191,36,.28); }
+      .framework-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .framework-links a { color: #7dd3fc; border: 1px solid rgba(125,211,252,.22); border-radius: 999px; padding: 5px 9px; text-decoration: none; font-size: .75rem; }
+      .readiness-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: baseline; margin: 14px 0 8px; }
+      .readiness-head strong { color: #f8fafc; }
+      .readiness-head span { color: #94a3b8; font-size: .75rem; }
+      .criteria-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .criterion { padding: 9px 10px; border-radius: 9px; background: rgba(2,6,23,.42); border: 1px solid rgba(148,163,184,.18); }
+      .criterion.pass { border-color: rgba(52,211,153,.34); }
+      .criterion.warn { border-color: rgba(251,191,36,.34); }
+      .criterion.manual, .criterion.unavailable { border-color: rgba(56,189,248,.28); }
+      .criterion p { margin: 5px 0 0; color: #a7b4c8; font-size: .74rem; line-height: 1.4; }
+      .criterion .criterion-status { float: right; color: #cbd5e1; font-size: .65rem; text-transform: uppercase; }
       .severity-high { color: #fca5a5; }
       .severity-medium { color: #fde68a; }
       .maintainer-ask { border-left: 3px solid #22c55e; }
-      .message { margin-top: 8px; border-radius: 10px; padding: 10px 12px; background: rgba(2,6,23,0.45); border: 1px solid rgba(255,255,255,0.07); color: #cbd5e1; line-height: 1.5; white-space: pre-wrap; font-size: 0.78rem; }
+      .message { margin-top: 8px; border-radius: 10px; padding: 10px 12px; background: rgba(2,6,23,0.45); border: 1px solid rgba(255,255,255,0.07); color: #cbd5e1; line-height: 1.55; white-space: pre-wrap; font-size: 0.84rem; }
       .activity-footer { position: sticky; bottom: 12px; z-index: 5; margin-top: 12px; border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; background: rgba(2,6,23,0.92); backdrop-filter: blur(18px); }
       .activity-footer:has(details[open]) { position: relative; bottom: auto; background: rgba(2,6,23,0.96); }
       .activity-footer summary { cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 10px 14px; list-style: none; }
@@ -320,39 +459,52 @@ function renderDashboard({ compact }) {
       .activity-time { display: block; color: #94a3b8; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes pulse { 50% { transform: scale(1.3); opacity: 0.7; } }
+      .example-link { color: #7dd3fc; font-size: 0.8rem; font-weight: 800; text-decoration: none; }
+      .example-link:hover { text-decoration: underline; }
+      body.compact .settings-fab,
+      body.compact .font-customizer,
+      body.compact #githubAgentId { display: none; }
       @media (max-width: 1100px) {
         .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .report-grid { grid-template-columns: 1fr 1fr; }
       }
       @media (max-width: 760px) {
         .shell, .activity-drawer-body { grid-template-columns: 1fr; }
         .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .action-grid { grid-template-columns: 1fr; }
+        .repo-profile { grid-template-columns: repeat(2,minmax(0,1fr)); }
+        .report-grid, .practice-grid, .criteria-grid { grid-template-columns: 1fr; }
         .assistant { position: static; }
         .font-customizer { position: static; margin: 12px 0 0; }
       }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+      }
     </style>
   </head>
-  <body>
+  <body class="${compact ? "compact" : "standalone"}">
     <main>
       <section class="hero">
         <div class="hero-row">
           <div class="hero-title">
-            <p class="eyebrow"><span class="pulse"></span>OSS Repo Management • GitHub Issues • Maintainer Intelligence</p>
-            <h1>OSS Repo Management</h1>
-            <p class="subtitle">Give the repo name as <strong>owner/repo</strong> to see project health, stale issues, PR queue, maintainer asks, risks, and recommended next actions.</p>
+            <p class="eyebrow"><span class="pulse"></span>GitHub REST API • CAS protected</p>
+            <h1>OSS Repo Report Card</h1>
+            <p class="subtitle">Source-backed adoption, engagement, delivery, contributor, and security trends for an open source repository.</p>
           </div>
           <div class="controls">
-            <input id="repoInput" value="${defaultRepoName}" aria-label="Repository owner/repo" placeholder="owner/repo" />
-            <select id="dashboardKind" aria-label="Dashboard kind">
-              <option value="repo-health">Repo health</option>
-              <option value="issue-triage">Issue triage</option>
-              <option value="release-readiness">Release readiness</option>
-            </select>
-            <button id="runAnalysis">Run analysis</button>
+            <input id="repoInput" value="${escapeHtml(defaultRepoName)}" aria-label="Repository owner/repo" placeholder="owner/repo or GitHub URL" />
+            <button id="runAnalysis">Generate report card</button>
+            <button id="downloadMarkdown" class="ghost" type="button" disabled>Download Markdown</button>
+            <a class="example-link" href="${basePath}/example">Static example</a>
           </div>
         </div>
         <div class="run-history">
-          <select id="runHistory" aria-label="Previous OSS repo runs"><option value="">No previous runs loaded yet</option></select>
+          <select id="runHistory" aria-label="Cached OSS repo report cards"><option value="">No cached report cards yet</option></select>
+        </div>
+        <div class="data-status" id="dataStatus" role="status" aria-live="polite">
+          <span class="status-chip good">CAS ${escapeHtml(authorization?.launchDecision || "verified")}</span>
+          <span class="status-chip ${githubToken ? "good" : "warn"}">GitHub ${githubToken ? "server credential" : "public API"}</span>
+          <span>Enter a repository to load a live snapshot.</span>
         </div>
       </section>
 
@@ -364,9 +516,29 @@ function renderDashboard({ compact }) {
       </div>
 
       <div class="panel">
-        <h2>Repository health</h2>
+        <h2>Report card summary</h2>
         <div class="kpi-strip" id="summaryCards"></div>
         <div class="insights-strip" id="insightsStrip" hidden></div>
+        <div class="repo-profile" id="repoProfile" hidden></div>
+      </div>
+
+      <div class="panel" id="trendsPanel" hidden>
+        <h2>12-week trends</h2>
+        <div class="report-grid">
+          <article class="repo-health-card chart-card" id="starTrend"></article>
+          <article class="repo-health-card chart-card" id="engagementTrend"></article>
+          <article class="repo-health-card chart-card" id="prTrend"></article>
+          <article class="repo-health-card chart-card" id="commitTrend"></article>
+        </div>
+      </div>
+
+      <div class="panel" id="healthPanel" hidden>
+        <h2>Community &amp; security posture</h2>
+        <div class="practice-grid" id="healthPractices"></div>
+        <div class="readiness-head"><strong>OSS foundation readiness criteria</strong><span id="readinessSummary"></span></div>
+        <p class="coverage" id="readinessCaveat"></p>
+        <div class="criteria-grid" id="readinessCriteria"></div>
+        <div class="framework-links" id="frameworkLinks"></div>
       </div>
 
       <div class="shell">
@@ -377,18 +549,18 @@ function renderDashboard({ compact }) {
           </div>
         </section>
         <aside class="assistant">
-          <p class="eyebrow">Agent Conversation</p>
-          <h2>Repo Assistant</h2>
-          <p class="subtitle">Ask about stale issues, P0s, PR review queues, release readiness, or maintainer next actions.</p>
+          <p class="eyebrow">Maintainer copilot</p>
+          <h2>Repo Report Card Assistant</h2>
+          <p class="subtitle">Share the verified repository snapshot with Grid, then ask about triage, review queues, or release readiness.</p>
           <input id="githubAgentId" aria-label="GitHub agent id" value="${escapeHtml(defaultGithubAgentId)}" style="width: 100%; margin: 8px 0;" />
           <textarea id="questionInput" aria-label="Repository question" placeholder="Ask: what needs maintainer attention in this repo?"></textarea>
-          <button id="askRepoCopilot" style="margin-top: 8px;">Ask Repo Assistant</button>
-          <button id="openAssistantChat" class="ghost" type="button">Open Ask Repo Chat</button>
-          <div class="message" id="copilotMessage">Repo assistant is ready.</div>
+          <button id="openAssistantChat" style="margin-top: 8px;" type="button">Ask with current context</button>
+          <button id="askRepoCopilot" class="ghost" ${defaultGithubAgentId ? "" : "hidden"}>Generate optional agent brief</button>
+          <div class="message" id="copilotMessage">${defaultGithubAgentId ? "Optional GitHub agent is configured." : "Live metrics use GitHub directly. No optional repository agent is configured."}</div>
         </aside>
       </div>
 
-      <footer class="activity-footer" id="activityFooter">
+      <footer class="activity-footer" id="activityFooter" ${defaultGithubAgentId ? "" : "hidden"}>
         <details id="activityDrawer">
           <summary>
             <span class="run-status" id="runStatus"><span class="status-dot"></span>Ready</span>
@@ -402,12 +574,14 @@ function renderDashboard({ compact }) {
         </details>
       </footer>
     </main>
+    ${renderAgenticAppConversationClient()}
+    ${renderMicrofrontendClient("oss-repo-management")}
     <script>
       const basePath = ${JSON.stringify(basePath)};
-      const state = { dashboard: null, activityEventCount: 0, runs: loadRunHistory() };
+      const state = { dashboard: null, activityEventCount: 0, runs: loadRunHistory(), staleDays: 30, loadedAt: null };
+      ${buildOssRepoMarkdownReport.toString()}
       const fontStorageKey = "agentic-app.fontPreferences";
       const repoInput = document.getElementById("repoInput");
-      const dashboardKind = document.getElementById("dashboardKind");
       const questionInput = document.getElementById("questionInput");
       const copilotMessage = document.getElementById("copilotMessage");
       const settingsToggle = document.getElementById("settingsToggle");
@@ -415,33 +589,74 @@ function renderDashboard({ compact }) {
       const fontFamilySelect = document.getElementById("fontFamilySelect");
       const fontScaleSelect = document.getElementById("fontScaleSelect");
 
-      document.getElementById("runAnalysis").addEventListener("click", () => runRepoAgent(""));
+      document.getElementById("runAnalysis").addEventListener("click", () => loadGitHubSummary({ forceRefresh: true }));
+      document.getElementById("downloadMarkdown").addEventListener("click", downloadMarkdownReport);
+      repoInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") loadGitHubSummary({ forceRefresh: true });
+      });
       document.getElementById("askRepoCopilot").addEventListener("click", () => runRepoAgent(questionInput.value.trim()));
       document.getElementById("openAssistantChat").addEventListener("click", openAssistantChat);
       document.getElementById("runHistory").addEventListener("change", loadSelectedRun);
       settingsToggle.addEventListener("click", toggleFontSettings);
       fontFamilySelect.addEventListener("change", writeFontPreferences);
       fontScaleSelect.addEventListener("change", writeFontPreferences);
+      window.addEventListener("caipe:microfrontend-initialize", (event) => {
+        const staleDays = Number(event.detail?.preferences?.staleDays);
+        if (Number.isFinite(staleDays) && staleDays >= 1 && staleDays <= 365) {
+          state.staleDays = Math.round(staleDays);
+          renderDataStatus(state.dashboard);
+        }
+      });
 
       applyFontPreferences();
       renderRunHistory();
-      loadLocalSummary();
+      if (repoInput.value.trim()) loadGitHubSummary();
+      else renderEmptyDashboard();
 
-      async function loadLocalSummary() {
-        const response = await fetch(appUrl("/api/summary?repo=" + encodeURIComponent(repoInput.value)), { headers: { accept: "application/json" } });
-        applyDashboard(await response.json());
+      async function loadGitHubSummary({ forceRefresh = false } = {}) {
+        const repo = repoInput.value.trim();
+        if (!repo) {
+          renderEmptyDashboard("Enter a repository as owner/repo to load live GitHub metrics.");
+          repoInput.focus();
+          return;
+        }
+        setRunButtonBusy(true);
+        renderLoadingDashboard(repo);
+        try {
+          const refresh = forceRefresh ? "&refresh=1" : "";
+          const response = await fetch(appUrl("/api/summary?repo=" + encodeURIComponent(repo) + "&staleDays=" + state.staleDays + refresh), {
+            headers: { accept: "application/json" },
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            const code = payload.error ? " [" + payload.error + "]" : "";
+            throw new Error((payload.message || "Could not load repository data") + code);
+          }
+          applyDashboard(payload);
+          copilotMessage.textContent = "Live GitHub snapshot loaded. Open Repo Report Card Assistant to work with this context.";
+        } catch (error) {
+          renderLoadError(repo, error instanceof Error ? error.message : "Could not load repository data");
+        } finally {
+          setRunButtonBusy(false);
+        }
       }
 
       async function runRepoAgent(question) {
         const githubAgentId = document.getElementById("githubAgentId").value.trim() || ${JSON.stringify(defaultGithubAgentId)};
         const repo = repoInput.value.trim() || "owner/repo";
-        const kind = dashboardKind.value || "repo-health";
+        const kind = "repo-health";
+        if (!githubAgentId) {
+          copilotMessage.textContent = "No optional repository agent is configured. Use Ask with current context instead.";
+          openAssistantChat();
+          return;
+        }
         initializeActivityFeed();
         setRunButtonBusy(true);
         copilotMessage.textContent = "Streaming GitHub repository analysis...";
         const prompt = [
-          "Build an OSS Repo Management dashboard for repository " + repo + " with dashboard kind " + kind + ".",
+          "Build an OSS Repo Report Card for repository " + repo + " with dashboard kind " + kind + ".",
           question ? "User question: " + question + "." : "User question: summarize repository health and maintainer next actions.",
+          "Treat issues with no activity for at least " + state.staleDays + " days as stale.",
           "Use GitHub issue and pull request context through the configured CAIPE GitHub agent.",
           "Use submit_structured_response with the requested oss_repo_management.dashboard.v1 schema before the final explanation.",
           "Render repo-health-card, maintainer-ask, risks, recommendations, confidence, issue counts, and pull request counts.",
@@ -449,28 +664,19 @@ function renderDashboard({ compact }) {
         ].join(" ");
         try {
           updateAgentProgress("Running CAIPE structured invoke", "GitHub: " + githubAgentId + " • Repo: " + repo);
-          const response = await fetch("/api/v1/chat/invoke", {
-            method: "POST",
-            headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({
-              agent_id: githubAgentId,
-              message: prompt,
-              conversation_id: "oss-repo-management-" + Date.now(),
-              client_context: {
-                source: "agentic-app",
-                appId: "oss-repo-management",
-                repo,
-                dashboardKind: kind,
-                question,
-                response_format: ${JSON.stringify(buildOssRepoManagementDashboardResponseFormat())},
-              },
-            }),
+          const invoked = await invokeAgenticApp({
+            agentId: githubAgentId,
+            appId: "oss-repo-management",
+            title: "OSS repository dashboard · " + repo,
+            message: prompt,
+            clientContext: {
+              repo,
+              dashboardKind: kind,
+              question,
+              staleDays: state.staleDays,
+              response_format: ${JSON.stringify(buildOssRepoManagementDashboardResponseFormat())},
+            },
           });
-          if (!response.ok) throw new Error("invoke unavailable");
-          const invoked = await response.json();
-          if (invoked.success === false) {
-            throw new Error(invoked.error || "GitHub agent invoke failed.");
-          }
           appendStreamContent(invoked.content || "");
           if (invoked.structured_output) {
             appendActivityEvent("Received oss_repo_management.dashboard.v1", invoked.structured_output_schema_id || "Schema id not provided.", "done");
@@ -485,8 +691,7 @@ function renderDashboard({ compact }) {
               body: JSON.stringify({ repo, dashboardKind: kind, question }),
             });
             const result = await local.json();
-            applyDashboard(result.dashboard);
-            copilotMessage.textContent = result.message;
+            copilotMessage.textContent = (invoked.content || result.message) + " The live GitHub metrics remain unchanged because no structured dashboard was returned.";
             setRunStatus("error", "Agent output missing");
           }
         } catch (error) {
@@ -497,8 +702,7 @@ function renderDashboard({ compact }) {
             body: JSON.stringify({ repo, dashboardKind: kind, question }),
           });
           const result = await local.json();
-          applyDashboard(result.dashboard);
-          copilotMessage.textContent = result.message;
+          copilotMessage.textContent = (error instanceof Error ? error.message : result.message) + ". The live GitHub metrics remain available.";
           updateAgentProgress(
             "Agent structured output required",
             result.dashboard?.reason || result.dashboard?.summary || "Repository data requires the CAIPE GitHub agent.",
@@ -510,13 +714,54 @@ function renderDashboard({ compact }) {
         }
       }
 
-      function applyDashboard(dashboard) {
+      function applyDashboard(dashboard, options = {}) {
         state.dashboard = normalizeDashboard(dashboard, repoInput.value);
+        state.reportOrigin = options.origin || "live";
+        state.loadedAt = resolveDashboardLoadedAt(state.dashboard);
         renderSummaryCards(state.dashboard);
         renderInsights(state.dashboard);
+        renderRepoProfile(state.dashboard);
+        renderReportCardPanels(state.dashboard);
         renderActionCards(state.dashboard);
-        persistRun(state.dashboard);
+        renderDataStatus(state.dashboard);
+        document.getElementById("downloadMarkdown").disabled = false;
+        if (options.persist !== false) persistRun(state.dashboard);
         publishAssistantContext("dashboard");
+      }
+
+      function renderEmptyDashboard(message = "Choose a repository to see live issue and pull request health.") {
+        state.dashboard = null;
+        state.loadedAt = null;
+        document.getElementById("downloadMarkdown").disabled = true;
+        document.getElementById("summaryCards").innerHTML = '<div class="empty-state"><strong>Start with a repository</strong><p>' + escapeHtml(message) + ' The GitHub credential remains on the server.</p></div>';
+        document.getElementById("insightsStrip").hidden = true;
+        document.getElementById("repoProfile").hidden = true;
+        document.getElementById("trendsPanel").hidden = true;
+        document.getElementById("healthPanel").hidden = true;
+        document.getElementById("actionCards").innerHTML = '<div class="empty-state"><strong>No maintainer actions yet</strong><p>Actions are derived from a verified GitHub snapshot after the repository loads.</p></div>';
+      }
+
+      function renderLoadingDashboard(repo) {
+        document.getElementById("summaryCards").innerHTML = '<div class="empty-state"><strong>Loading ' + escapeHtml(repo) + '</strong><p>Reading source-backed issue and pull request signals from GitHub.</p></div>';
+        document.getElementById("insightsStrip").hidden = true;
+        document.getElementById("repoProfile").hidden = true;
+        document.getElementById("trendsPanel").hidden = true;
+        document.getElementById("healthPanel").hidden = true;
+        document.getElementById("actionCards").innerHTML = '<div class="empty-state"><strong>Computing maintainer priorities</strong><p>Reconciling critical, stale, triage, blocked, and review queues.</p></div>';
+      }
+
+      function renderLoadError(repo, message) {
+        state.dashboard = null;
+        state.loadedAt = null;
+        document.getElementById("downloadMarkdown").disabled = true;
+        document.getElementById("summaryCards").innerHTML = '<div class="empty-state"><strong>Could not load ' + escapeHtml(repo) + '</strong><p>' + escapeHtml(message) + '</p></div>';
+        document.getElementById("insightsStrip").hidden = true;
+        document.getElementById("repoProfile").hidden = true;
+        document.getElementById("trendsPanel").hidden = true;
+        document.getElementById("healthPanel").hidden = true;
+        document.getElementById("actionCards").innerHTML = '<div class="empty-state"><strong>Source access needs attention</strong><p>Check the repository name and server-side GitHub credential, then retry.</p></div>';
+        document.getElementById("dataStatus").innerHTML = '<span class="status-chip good">CAS ${escapeHtml(authorization?.launchDecision || "verified")}</span><span class="status-chip warn">GitHub request failed</span><span>' + escapeHtml(message) + '</span>';
+        copilotMessage.textContent = "Repository context was not published because the GitHub source could not be verified.";
       }
 
       function normalizeDashboard(dashboard, fallbackRepo) {
@@ -528,26 +773,48 @@ function renderDashboard({ compact }) {
           risks: Array.isArray(dashboard?.risks) ? dashboard.risks : [],
           recommendations: Array.isArray(dashboard?.recommendations) ? dashboard.recommendations : [],
           maintainerAsks: Array.isArray(dashboard?.maintainerAsks) ? dashboard.maintainerAsks : [],
+          trends: dashboard?.trends || {},
+          community: dashboard?.community || {},
+          ownership: dashboard?.ownership || {},
+          security: dashboard?.security || {},
+          readiness: dashboard?.readiness || { checks: [] },
+          frameworks: Array.isArray(dashboard?.frameworks) ? dashboard.frameworks : [],
         };
+      }
+
+      function renderDataStatus(dashboard) {
+        const node = document.getElementById("dataStatus");
+        const source = dashboard?.source === "github-api" ? "GitHub REST API" : "Not loaded";
+        const freshness = state.loadedAt
+          ? (state.reportOrigin === "cached" ? "Cached report generated " : "Generated ") + state.loadedAt.toLocaleString()
+          : "Freshness: not loaded";
+        const accessMode = dashboard?.provenance?.accessMode || ${JSON.stringify(githubToken ? "server credential" : "public API")};
+        const cacheStatus = state.reportOrigin === "cached"
+          ? "Browser cache"
+          : dashboard?.delivery?.cache === "hit" ? "Runtime cache hit" : "Fresh source report";
+        node.innerHTML =
+          '<span class="status-chip good">CAS ${escapeHtml(authorization?.launchDecision || "verified")}</span>' +
+          '<span class="status-chip good">Source: ' + escapeHtml(source) + '</span>' +
+          '<span class="status-chip">Access: ' + escapeHtml(accessMode) + '</span>' +
+          '<span class="status-chip">' + escapeHtml(cacheStatus) + '</span>' +
+          '<span>' + escapeHtml(freshness) + ' · Stale threshold: ' + state.staleDays + ' days</span>';
+      }
+
+      function resolveDashboardLoadedAt(dashboard) {
+        if (!dashboard || dashboard.source !== "github-api") return null;
+        const reportedAt = dashboard.generatedAt || dashboard.generated_at || dashboard.updatedAt || dashboard.updated_at;
+        const timestamp = Date.parse(String(reportedAt || ""));
+        return Number.isNaN(timestamp) ? new Date() : new Date(timestamp);
       }
 
       function renderSummaryCards(dashboard) {
         const repo = dashboard.repo || "owner/repo";
-        const openIssues = dashboard.issues.open ?? 0;
-        const stale = dashboard.issues.stale ?? 0;
-        const p0 = dashboard.issues.p0 ?? 0;
-        const needsTriage = dashboard.issues.needsTriage ?? 0;
+        const repository = dashboard.repository || {};
+        const community = dashboard.community || {};
+        const securityScore = dashboard.security?.scorecard?.score;
         const openPRs = dashboard.pullRequests.open ?? 0;
         const awaitingReview = dashboard.pullRequests.awaitingReview ?? 0;
-        const blockedPRs = dashboard.pullRequests.blocked ?? 0;
         const confidence = dashboard.confidence || "unknown";
-
-        const stalePct = openIssues > 0 ? Math.round((stale / openIssues) * 100) : 0;
-        const reviewPct = openPRs > 0 ? Math.round((awaitingReview / openPRs) * 100) : 0;
-        const flowAccent = blockedPRs > 0 ? "warn" : awaitingReview > 0 ? "attention" : "good";
-        const triageAccent = p0 > 0 ? "danger" : needsTriage > 0 ? "warn" : "good";
-        const staleAccent = stalePct >= 40 ? "warn" : stalePct >= 20 ? "attention" : "good";
-
         document.getElementById("summaryCards").innerHTML = [
           kpiTile({
             label: "Repository",
@@ -557,35 +824,35 @@ function renderDashboard({ compact }) {
             valueClass: "kpi-repo",
           }),
           kpiTile({
-            label: "Open issues",
-            value: formatCount(openIssues),
-            sub: needsTriage ? formatCount(needsTriage) + " need triage" : "All triaged",
-            accent: triageAccent,
+            label: "Stars",
+            value: formatCount(repository.stars),
+            sub: formatCount(repository.forks) + " forks",
+            accent: "good",
           }),
           kpiTile({
-            label: "P0 / Critical",
-            value: formatCount(p0),
-            sub: p0 ? "Immediate attention" : "None reported",
-            accent: p0 ? "danger" : "good",
+            label: "Contributors",
+            value: (community.totalContributorsIsLowerBound ? "≥" : "") + formatCount(community.totalContributors),
+            sub: formatCount(community.activeContributors) + " active in trend sample",
+            accent: "attention",
           }),
           kpiTile({
-            label: "Stale issues",
-            value: formatCount(stale),
-            sub: openIssues ? stalePct + "% of open" : "No open issues",
-            accent: staleAccent,
+            label: "Engagement",
+            value: formatCount(community.engagementInteractions),
+            sub: "issues + comments in " + formatCount(community.engagementSampleSize) + " sampled issues",
+            accent: "attention",
           }),
           kpiTile({
             label: "Open PRs",
             value: formatCount(openPRs),
-            sub: blockedPRs ? formatCount(blockedPRs) + " blocked" : "Flow looks clean",
-            accent: flowAccent,
+            sub: formatCount(awaitingReview) + " need review attention",
+            accent: awaitingReview ? "warn" : "good",
           }),
           kpiTile({
-            label: "Awaiting review",
-            value: formatCount(awaitingReview),
-            sub: openPRs ? reviewPct + "% of open PRs" : "No PRs open",
-            accent: awaitingReview ? "attention" : "good",
-            bar: openPRs ? reviewPct : null,
+            label: "OpenSSF score",
+            value: securityScore == null ? "N/A" : Number(securityScore).toFixed(1),
+            sub: securityScore == null ? "Not available" : "0–10 security practices",
+            accent: securityScore == null ? "attention" : securityScore >= 7 ? "good" : securityScore >= 5 ? "warn" : "danger",
+            bar: securityScore == null ? null : Number(securityScore) * 10,
           }),
         ].join("");
 
@@ -596,6 +863,143 @@ function renderDashboard({ compact }) {
           repoLabel.style.textOverflow = "ellipsis";
           repoLabel.style.whiteSpace = "nowrap";
         }
+      }
+
+      function renderRepoProfile(dashboard) {
+        const profile = document.getElementById("repoProfile");
+        const repository = dashboard.repository || {};
+        if (!repository.htmlUrl) {
+          profile.hidden = true;
+          profile.innerHTML = "";
+          return;
+        }
+        profile.hidden = false;
+        profile.innerHTML = [
+          '<article class="repo-health-card"><div class="label">Repository</div><strong><a class="repo-link" href="' + escapeAttribute(repository.htmlUrl) + '" target="_blank" rel="noreferrer">' + escapeHtml(dashboard.repo) + '</a></strong><p>' + escapeHtml(repository.description || "") + '</p></article>',
+          '<article class="repo-health-card"><div class="label">Visibility</div><strong>' + escapeHtml(repository.visibility || "unknown") + '</strong><p>Default branch: ' + escapeHtml(repository.defaultBranch || "unknown") + '</p></article>',
+          '<article class="repo-health-card"><div class="label">Community</div><strong>' + formatCount(repository.stars) + ' stars</strong><p>' + formatCount(repository.forks) + ' forks</p></article>',
+          '<article class="repo-health-card"><div class="label">Latest push</div><strong>' + escapeHtml(repository.pushedAt ? new Date(repository.pushedAt).toLocaleDateString() : "Unknown") + '</strong><p>' + (repository.archived ? "Archived repository" : "Active repository") + '</p></article>',
+        ].join("");
+      }
+
+      function renderReportCardPanels(dashboard) {
+        const trends = dashboard.trends || {};
+        const coverage = trends.coverage || {};
+        const starPoints = mergeCachedStarHistory(dashboard);
+        document.getElementById("trendsPanel").hidden = false;
+        document.getElementById("starTrend").innerHTML = renderLineChart("Star history", starPoints, coverage.stars || "Timestamped report-card snapshots.");
+        document.getElementById("engagementTrend").innerHTML = renderBarChart("Issue engagement", trends.engagementPerWeek || [], coverage.engagement || "No issue engagement coverage.");
+        document.getElementById("prTrend").innerHTML = renderBarChart("PRs per week", trends.pullRequestsPerWeek || [], coverage.pullRequests || "No pull request trend coverage.");
+        document.getElementById("commitTrend").innerHTML = renderBarChart("Commits per week", trends.commitsPerWeek || [], coverage.commits || "No commit trend coverage.");
+
+        const community = dashboard.community || {};
+        const ownership = dashboard.ownership || {};
+        const maintainerHandles = ownership.maintainers?.handles || [];
+        const codeownerHandles = ownership.codeowners?.handles || [];
+        const scorecard = dashboard.security?.scorecard || {};
+        const alerts = dashboard.security?.githubAlerts || {};
+        const practices = [
+          practiceCard("Community health", community.communityHealthPercent == null ? "N/A" : community.communityHealthPercent + "%", community.communityHealthPercent != null),
+          practiceCard("Active contributors", formatCount(community.activeContributors), Number(community.activeContributors) > 0),
+          practiceCard("Declared maintainers", maintainerHandles.length ? maintainerHandles.join(", ") : (ownership.maintainers?.path ? "File detected" : "Not declared"), maintainerHandles.length > 0),
+          practiceCard("CODEOWNERS", codeownerHandles.length ? codeownerHandles.join(", ") : (ownership.codeowners?.path ? "File detected" : "Not declared"), codeownerHandles.length > 0),
+          practiceCard("Security policy", community.hasSecurityPolicy ? "Present" : "Missing", community.hasSecurityPolicy),
+          practiceCard("Contributing guide", community.hasContributing ? "Present" : "Missing", community.hasContributing),
+          practiceCard("Code of conduct", community.hasCodeOfConduct ? "Present" : "Missing", community.hasCodeOfConduct),
+          practiceCard("License", community.hasLicense ? "Detected" : "Missing", community.hasLicense),
+          practiceCard("Dependabot alerts", alerts.dependabotOpen == null ? "Permission needed" : formatCount(alerts.dependabotOpen) + " open", alerts.dependabotOpen === 0),
+          practiceCard("Code scanning alerts", alerts.codeScanningOpen == null ? "Permission needed" : formatCount(alerts.codeScanningOpen) + " open", alerts.codeScanningOpen === 0),
+        ];
+        if (scorecard.status === "available") {
+          practices.unshift(practiceCard("OpenSSF Scorecard", Number(scorecard.score).toFixed(1) + " / 10", Number(scorecard.score) >= 7));
+          (scorecard.checks || []).slice(0, 3).forEach((check) => practices.push(practiceCard("Scorecard · " + (check.name || "check"), Number(check.score).toFixed(0) + " / 10", Number(check.score) >= 7)));
+        }
+        document.getElementById("healthPanel").hidden = false;
+        document.getElementById("healthPractices").innerHTML = practices.join("");
+        renderReadinessCriteria(dashboard.readiness || {});
+        document.getElementById("frameworkLinks").innerHTML = (dashboard.frameworks || []).map((framework) =>
+          '<a href="' + escapeAttribute(framework.url || "#") + '" target="_blank" rel="noreferrer">' + escapeHtml(framework.name || "Framework") + ' · ' + escapeHtml(framework.focus || "") + '</a>'
+        ).join("");
+      }
+
+      function renderReadinessCriteria(readiness) {
+        const checks = Array.isArray(readiness.checks) ? readiness.checks : [];
+        const summary = readiness.summary || {};
+        document.getElementById("readinessSummary").textContent = [
+          formatCount(summary.pass) + " pass",
+          formatCount(summary.warn) + " needs attention",
+          formatCount(summary.manual) + " manual",
+          formatCount(summary.unavailable) + " unavailable",
+        ].join(" · ");
+        document.getElementById("readinessCaveat").textContent = readiness.caveat || "Evidence-based checks; not a foundation acceptance grade.";
+        document.getElementById("readinessCriteria").innerHTML = checks.map((check) =>
+          '<article class="criterion ' + escapeAttribute(check.status || "manual") + '">' +
+            '<div class="label">' + escapeHtml(check.dimension || "Criterion") + '<span class="criterion-status">' + escapeHtml(check.status || "manual") + '</span></div>' +
+            '<strong>' + escapeHtml(check.criterion || "Readiness check") + '</strong>' +
+            '<p>' + escapeHtml(check.evidence || "No evidence available.") + '<br>Source: ' + escapeHtml(check.source || "unknown") + '</p>' +
+          '</article>'
+        ).join("");
+      }
+
+      function practiceCard(label, value, healthy) {
+        return '<article class="practice ' + (healthy ? "good" : "warn") + '"><div class="label">' + escapeHtml(label) + '</div><strong>' + escapeHtml(String(value)) + '</strong></article>';
+      }
+
+      function renderBarChart(title, points, coverage) {
+        const values = Array.isArray(points) ? points : [];
+        const max = Math.max(1, ...values.map((point) => Number(point.value || 0)));
+        const total = values.reduce((sum, point) => sum + Number(point.value || 0), 0);
+        const bars = values.map((point) => {
+          const height = Math.max(2, Math.round((Number(point.value || 0) / max) * 100));
+          const label = String(point.week || point.date || "") + ": " + Number(point.value || 0);
+          return '<span class="bar" style="height:' + height + '%" data-label="' + escapeAttribute(label) + '"></span>';
+        }).join("");
+        const first = values[0]?.week || "";
+        const last = values[values.length - 1]?.week || "";
+        return '<div class="chart-head"><strong>' + escapeHtml(title) + '</strong><span>' + formatCount(total) + ' sampled</span></div>' +
+          '<div class="bar-chart" role="img" aria-label="' + escapeAttribute(title) + '">' + bars + '</div>' +
+          '<div class="axis-labels"><span>' + escapeHtml(shortDate(first)) + '</span><span>' + escapeHtml(shortDate(last)) + '</span></div>' +
+          '<p class="coverage">' + escapeHtml(coverage) + '</p>';
+      }
+
+      function renderLineChart(title, points, coverage) {
+        const values = Array.isArray(points) ? points : [];
+        if (values.length < 2) {
+          const current = values[0]?.value ?? state.dashboard?.repository?.stars ?? 0;
+          return '<div class="chart-head"><strong>' + escapeHtml(title) + '</strong><span>' + formatCount(current) + ' current</span></div><div class="empty-state"><strong>History starts now</strong><p>Generate another report later to add a timestamped star snapshot.</p></div><p class="coverage">' + escapeHtml(coverage) + '</p>';
+        }
+        const numbers = values.map((point) => Number(point.value || 0));
+        const min = Math.min(...numbers);
+        const max = Math.max(...numbers);
+        const range = Math.max(1, max - min);
+        const coords = values.map((point, index) => {
+          const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 300;
+          const y = 105 - ((Number(point.value || 0) - min) / range) * 90;
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+        return '<div class="chart-head"><strong>' + escapeHtml(title) + '</strong><span>' + formatCount(numbers[numbers.length - 1]) + ' current</span></div>' +
+          '<svg class="sparkline" viewBox="0 0 300 112" preserveAspectRatio="none" role="img" aria-label="Star count over time"><defs><linearGradient id="starGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#34d399" stop-opacity="0"/></linearGradient></defs><polyline class="line" points="' + coords + '"/></svg>' +
+          '<div class="axis-labels"><span>' + escapeHtml(shortDate(values[0].date)) + '</span><span>' + escapeHtml(shortDate(values[values.length - 1].date)) + '</span></div><p class="coverage">' + escapeHtml(coverage) + '</p>';
+      }
+
+      function mergeCachedStarHistory(dashboard) {
+        const repo = dashboard.repo;
+        const points = [...(dashboard.trends?.starHistory || [])];
+        state.runs.filter((run) => run.dashboard?.repo === repo).forEach((run) => {
+          const date = run.dashboard?.generatedAt || run.updatedAt;
+          const value = run.dashboard?.repository?.stars;
+          if (date && Number.isFinite(Number(value))) points.push({ date: String(date), value: Number(value) });
+        });
+        if (dashboard.generatedAt && Number.isFinite(Number(dashboard.repository?.stars))) {
+          points.push({ date: dashboard.generatedAt, value: Number(dashboard.repository.stars) });
+        }
+        const unique = new Map(points.map((point) => [String(point.date), { date: String(point.date), value: Number(point.value || 0) }]));
+        return [...unique.values()].sort((left, right) => Date.parse(left.date) - Date.parse(right.date));
+      }
+
+      function shortDate(value) {
+        const date = new Date(String(value || "") + (String(value || "").length === 10 ? "T00:00:00Z" : ""));
+        return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       }
 
       function renderInsights(dashboard) {
@@ -622,7 +1026,7 @@ function renderDashboard({ compact }) {
           insights.push({ icon: "🏷️", title: formatCount(needsTriage) + " issues need triage", sub: "Label, prioritize, assign" });
         }
         if (awaitingReview >= 5) {
-          insights.push({ icon: "👀", title: formatCount(awaitingReview) + " PRs awaiting review", sub: "Reviewer load is high" });
+          insights.push({ icon: "👀", title: formatCount(awaitingReview) + " PRs need review attention", sub: "Reviewer load is high" });
         }
         const topRisk = (dashboard.risks || [])[0];
         if (topRisk?.title) {
@@ -710,7 +1114,7 @@ function renderDashboard({ compact }) {
       function setRunButtonBusy(isBusy) {
         const button = document.getElementById("runAnalysis");
         button.disabled = isBusy;
-        button.textContent = isBusy ? "Running GitHub repo analysis..." : "Run GitHub repo analysis";
+        button.textContent = isBusy ? "Generating report card..." : "Generate report card";
       }
 
       async function consumeAgentStream(response) {
@@ -761,38 +1165,146 @@ function renderDashboard({ compact }) {
 
       function publishAssistantContext(reason) {
         if (!window.parent || window.parent === window || !state.dashboard) return;
+        const dashboard = state.dashboard;
+        const snapshot = {
+          assistant: "Repo Report Card Assistant",
+          repository: {
+            name: dashboard.repo,
+            description: dashboard.repository?.description,
+            url: dashboard.repository?.htmlUrl,
+            defaultBranch: dashboard.repository?.defaultBranch,
+            visibility: dashboard.repository?.visibility,
+          },
+          report: {
+            generatedAt: dashboard.generatedAt,
+            source: dashboard.source,
+            confidence: dashboard.confidence,
+            cached: state.reportOrigin === "cached",
+            staleThresholdDays: dashboard.provenance?.staleThresholdDays,
+          },
+          metrics: {
+            stars: dashboard.repository?.stars,
+            forks: dashboard.repository?.forks,
+            watchers: dashboard.repository?.watchers,
+            issues: dashboard.issues,
+            pullRequests: dashboard.pullRequests,
+            contributors: dashboard.community,
+          },
+          ownership: compactOwnership(dashboard.ownership),
+          risks: (dashboard.risks || []).slice(0, 6),
+          recommendations: (dashboard.recommendations || []).slice(0, 8),
+          maintainerAsks: (dashboard.maintainerAsks || []).slice(0, 6),
+          readiness: compactReadiness(dashboard.readiness),
+          provenance: dashboard.provenance,
+        };
         window.parent.postMessage({
           type: "caipe.agenticApp.context.v1",
+          version: "1.0",
           appId: "oss-repo-management",
-          reason,
-          context: state.dashboard,
-          resourceRefs: [{ kind: "agent", id: "github-agent" }, { kind: "schema", id: "oss_repo_management.dashboard.v1" }],
-          suggestedPrompts: ["What needs maintainer attention?", "What should we close before release?"],
+          context: {
+            route: "/apps/oss-repo-management",
+            title: "OSS Repo Report Card · " + dashboard.repo,
+            summary: dashboard.summary + " Report generated " + (dashboard.generatedAt || "at an unknown time") + ". Context shared because: " + reason + ".",
+            selection: JSON.stringify(snapshot),
+            resourceRefs: [
+              { kind: "repository", id: dashboard.repo },
+              { kind: "agent", id: "github-agent" },
+              { kind: "schema", id: "oss_repo_management.dashboard.v1" },
+            ],
+            suggestedPrompts: [
+              "Who are the maintainers or CODEOWNERS, and what evidence supports that?",
+              "What needs maintainer attention in this report card?",
+              "What should we close before release?",
+              "Summarize foundation-readiness gaps and recommended actions.",
+            ],
+          },
         }, "*");
+      }
+
+      function downloadMarkdownReport() {
+        if (!state.dashboard) return;
+        const markdown = buildOssRepoMarkdownReport(state.dashboard, { reportOrigin: state.reportOrigin });
+        const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const date = String(state.dashboard.generatedAt || new Date().toISOString()).slice(0, 10);
+        const repo = String(state.dashboard.repo || "oss-repo").replace(/[^A-Za-z0-9._-]+/g, "-");
+        link.href = url;
+        link.download = repo + "-report-card-" + date + ".md";
+        link.hidden = true;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        copilotMessage.textContent = "Markdown report downloaded for " + state.dashboard.repo + ".";
+      }
+
+      function compactOwnership(ownership) {
+        const value = ownership || {};
+        return {
+          maintainers: {
+            status: value.maintainers?.status,
+            path: value.maintainers?.path,
+            handles: (value.maintainers?.handles || []).slice(0, 20),
+            entries: (value.maintainers?.entries || []).slice(0, 8),
+          },
+          codeowners: {
+            status: value.codeowners?.status,
+            path: value.codeowners?.path,
+            handles: (value.codeowners?.handles || []).slice(0, 20),
+            entries: (value.codeowners?.entries || []).slice(0, 8),
+          },
+          topContributors: (value.topContributors || []).slice(0, 10),
+          caveat: value.caveat,
+        };
+      }
+
+      function compactReadiness(readiness) {
+        const value = readiness || {};
+        return {
+          model: value.model,
+          summary: value.summary,
+          caveat: value.caveat,
+          checks: (value.checks || []).map((check) => ({
+            dimension: check.dimension,
+            criterion: check.criterion,
+            status: check.status,
+            evidence: String(check.evidence || "").slice(0, 240),
+            source: check.source,
+          })),
+        };
       }
 
       function openAssistantChat() {
         publishAssistantContext("open-chat");
         if (!window.parent || window.parent === window) return;
-        window.parent.postMessage({ type: "caipe.agenticApp.assistant.open.v1", appId: "oss-repo-management" }, "*");
+        window.parent.postMessage({
+          type: "caipe.agenticApp.assistant.open.v1",
+          version: "1.0",
+          appId: "oss-repo-management",
+        }, "*");
       }
 
       function persistRun(dashboard) {
-        const run = { id: String(Date.now()), updatedAt: new Date().toISOString(), dashboard };
-        state.runs = [run, ...state.runs.filter((item) => item.dashboard?.repo !== dashboard.repo)].slice(0, 8);
-        try { localStorage.setItem("oss-repo-management.runHistory", JSON.stringify(state.runs)); } catch {}
+        const updatedAt = dashboard.generatedAt || new Date().toISOString();
+        const id = dashboard.repo + "::" + updatedAt;
+        const run = { id, updatedAt, dashboard };
+        state.runs = [run, ...state.runs.filter((item) => item.id !== id)].slice(0, 20);
+        try { localStorage.setItem("oss-repo-report-card.cachedReports.v1", JSON.stringify(state.runs)); } catch {}
         renderRunHistory();
       }
 
       function renderRunHistory() {
         const runHistory = document.getElementById("runHistory");
-        runHistory.innerHTML = '<option value="">Previous repo runs</option>' + state.runs.map((run) => '<option value="' + escapeAttribute(run.id) + '">' + escapeHtml(run.dashboard?.repo || "repo") + " • " + new Date(run.updatedAt).toLocaleString() + '</option>').join("");
+        runHistory.innerHTML = '<option value="">Cached report cards · ' + state.runs.length + '</option>' + state.runs.map((run) => '<option value="' + escapeAttribute(run.id) + '">' + escapeHtml(run.dashboard?.repo || "repo") + " · " + new Date(run.updatedAt).toLocaleString() + '</option>').join("");
       }
 
       function loadRunHistory() {
         try {
-          const parsed = JSON.parse(localStorage.getItem("oss-repo-management.runHistory") || "[]");
-          return Array.isArray(parsed) ? parsed : [];
+          const current = JSON.parse(localStorage.getItem("oss-repo-report-card.cachedReports.v1") || "[]");
+          if (Array.isArray(current) && current.length) return current.slice(0, 20);
+          const legacy = JSON.parse(localStorage.getItem("oss-repo-management.runHistory") || "[]");
+          return Array.isArray(legacy) ? legacy.slice(0, 20) : [];
         } catch {
           return [];
         }
@@ -801,7 +1313,11 @@ function renderDashboard({ compact }) {
       function loadSelectedRun() {
         const id = document.getElementById("runHistory").value;
         const run = state.runs.find((item) => item.id === id);
-        if (run?.dashboard) applyDashboard(run.dashboard);
+        if (run?.dashboard) {
+          repoInput.value = run.dashboard.repo || repoInput.value;
+          applyDashboard(run.dashboard, { persist: false, origin: "cached" });
+          copilotMessage.textContent = "Cached report card loaded from " + new Date(run.updatedAt).toLocaleString() + ". Generate a new report card to refresh source data.";
+        }
       }
 
       function toggleFontSettings() {
@@ -817,9 +1333,9 @@ function renderDashboard({ compact }) {
           mono: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
           serif: 'Georgia, "Times New Roman", serif',
         };
-        const scales = { small: "0.9", default: "1", large: "1.08", xl: "1.16" };
+        const scales = { small: "0.9", default: "1", large: "1.12", xl: "1.25" };
         const family = families[preferences.family] ? preferences.family : "inter";
-        const scale = scales[preferences.scale] ? preferences.scale : "small";
+        const scale = scales[preferences.scale] ? preferences.scale : "default";
         document.documentElement.style.setProperty("--app-font-family", families[family]);
         document.documentElement.style.setProperty("--app-font-scale", scales[scale]);
         fontFamilySelect.value = family;
@@ -857,11 +1373,6 @@ function renderDashboard({ compact }) {
 </html>`;
 }
 
-function normalizeRepoName(repoName) {
-  const value = String(repoName || "").trim();
-  return value.includes("/") ? value : `owner/${value || "repo"}`;
-}
-
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
@@ -877,10 +1388,10 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function sendHtml(response, html) {
+function sendHtml(response, html, cacheControl = "no-store") {
   response.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
-    "cache-control": "no-store",
+    "cache-control": cacheControl,
   });
   response.end(html);
 }

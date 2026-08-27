@@ -1,0 +1,15 @@
+import { createHash } from "node:crypto";
+
+/** Stable CAS subject: prefer the IdP subject and never use a raw email fallback. */
+export function deriveAgenticAppSubjectId(
+  session: Record<string, unknown>,
+  email: string,
+): string {
+  const sub = typeof session.sub === "string" ? session.sub.trim() : "";
+  return sub || hashAgenticAppIdentifier(email);
+}
+
+/** One-way identifier used by token and decision audit records. */
+export function hashAgenticAppIdentifier(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}

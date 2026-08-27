@@ -117,6 +117,20 @@ describe("fga type coverage", () => {
     }
   });
 
+  it("keeps Agentic App approval separate from write and manage", () => {
+    const authoredApp = readFileSync(MODEL_FGA, "utf8")
+      .split("type agentic_app\n", 2)[1]
+      ?.split("\ntype ", 1)[0];
+    expect(authoredApp).toContain("define approver:");
+    expect(authoredApp).toContain("define can_approve: approver or can_manage or owner");
+
+    const chartApp = chartModel.type_definitions.find((definition) => definition.type === "agentic_app") as
+      | { relations?: Record<string, unknown>; metadata?: { relations?: Record<string, unknown> } }
+      | undefined;
+    expect(chartApp?.relations).toHaveProperty("can_approve");
+    expect(chartApp?.metadata?.relations).toHaveProperty("approver");
+  });
+
   it("allows organization usersets generated for organization-owned secrets", () => {
     const secretRef = chartModel.type_definitions.find(
       (definition) => definition.type === "secret_ref",
