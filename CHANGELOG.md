@@ -1,3 +1,13 @@
+## 1.0.0-dev.9 (2026-08-26)
+
+### Fix
+
+- **platform**: align RAG access and application controls (#2599)
+
+## 1.0.0-dev.8 (2026-08-26)
+
+## 1.0.0-rc.2 (2026-08-26)
+
 ## 1.0.0-dev.7 (2026-08-26)
 
 ### Feat
