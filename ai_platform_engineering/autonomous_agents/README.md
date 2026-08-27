@@ -295,7 +295,7 @@ The per-task override on `TaskDefinition`:
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.14
 - [uv](https://docs.astral.sh/uv/)
 - A running dynamic-agents service (see root [README](../../../../README.md))
 
@@ -305,7 +305,7 @@ The per-task override on `TaskDefinition`:
 cd ai_platform_engineering/autonomous_agents
 
 # Install dependencies
-uv venv --python python3.13 .venv
+uv venv --python python3.14 .venv
 uv pip install -e .
 
 # Configure
