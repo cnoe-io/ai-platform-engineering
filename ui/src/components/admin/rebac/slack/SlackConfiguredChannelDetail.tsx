@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
@@ -178,11 +179,11 @@ function RouteSideEditor({ title, side, enabled, onToggleEnabled, onChange, list
       <div className="space-y-3">
         <div className="space-y-1.5">
           <Label htmlFor={`${idBase}-listen`}>Listen</Label>
-          <select id={`${idBase}-listen`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={side.listen} disabled={disabled} onChange={(e) => onChange({ ...side, listen: e.target.value as ListenMode })}>
+          <Select id={`${idBase}-listen`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={side.listen} disabled={disabled} onChange={(e) => onChange({ ...side, listen: e.target.value as ListenMode })}>
             <option value="mention">mention</option>
             <option value="message">message</option>
             <option value="all">all</option>
-          </select>
+          </Select>
         </div>
         <SlackUserTokenInput label={listLabel} value={side.allowList} disabled={disabled} placeholder={listPlaceholder} kind={lookupKind} onChange={(next) => onChange({ ...side, allowList: next })} />
       </div>

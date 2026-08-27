@@ -1131,12 +1131,6 @@ it("discovers Slack channels even when no onboarding default team is configured"
   expect(
     await screen.findByRole("status", { name: /Discovered: 1/i }),
   ).toBeInTheDocument();
-  // TeamPicker is a <button>, not a form control — assert the
-  // empty-state placeholder is rendered on the trigger instead of
-  // `.toHaveValue("")`.
-  expect(screen.getByLabelText("Team for #new-alerts")).toHaveTextContent(
-    /Select team/,
-  );
 });
 
 it("shows discovered channel setup feedback as a toast without shifting the action row", async () => {

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
@@ -287,7 +288,7 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="task-webhook-provider">Provider</Label>
-                  <select
+                  <Select
                     id="task-webhook-provider"
                     value={form.webhookProvider}
                     onChange={(e) => update("webhookProvider", e.target.value)}
@@ -305,7 +306,7 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
                         {opt.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="task-webhook-secret">HMAC secret (optional)</Label>

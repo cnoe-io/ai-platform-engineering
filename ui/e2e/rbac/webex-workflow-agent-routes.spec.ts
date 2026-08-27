@@ -245,7 +245,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       .getByRole("option", { name: /Platform Team.*team:platform/i })
       .click();
     await page
-      .getByRole("button", { name: "Bulk Dynamic Agent for selected rows" })
+      .getByRole("combobox", { name: "Bulk Dynamic Agent for selected rows" })
       .click();
     await page
       .getByRole("option", { name: new RegExp(workflowAgent.name, "i") })
@@ -261,7 +261,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       page.getByRole("combobox", { name: /Team for Workflow Alerts/i }),
     ).toContainText("Platform Team");
     await expect(
-      page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),
+      page.getByRole("combobox", { name: /Dynamic Agent for Workflow Alerts/i }),
     ).toContainText(workflowAgent.name);
     await page.getByRole("button", { name: /^Submit 1 space$/ }).click();
 

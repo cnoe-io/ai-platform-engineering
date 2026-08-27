@@ -6,6 +6,7 @@ import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } f
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
@@ -1729,24 +1730,24 @@ export function ConnectorAdminPanel({
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
             <div className="mb-3 flex justify-end gap-2">
               {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
-                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <span>{adapter.discoveryIdentity.label}</span>
-                  <select
-                    aria-label={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
+                  <ConnectorIdentityPicker
+                    ariaLabel={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
+                    options={discoveryIdentities.map((identity) => ({
+                      id: identity.id,
+                      label: identity.available
+                        ? identity.name
+                        : `${identity.name} (unavailable)`,
+                      disabled: !identity.available,
+                    }))}
                     value={selectedDiscoveryIdentityId}
-                    onChange={(event) => selectDiscoveryIdentity(event.target.value)}
-                    disabled={disabled || discoveryIdentitiesLoading}
-                    className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm"
-                  >
-                    {discoveryIdentitiesLoading && <option value="">Loading…</option>}
-                    {!discoveryIdentitiesLoading && discoveryIdentities.length === 0 && <option value="">No bots available</option>}
-                    {discoveryIdentities.map((identity) => (
-                      <option key={identity.id} value={identity.id} disabled={!identity.available}>
-                        {identity.available ? identity.name : `${identity.name} (unavailable)`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={selectDiscoveryIdentity}
+                    loading={discoveryIdentitiesLoading}
+                    disabled={disabled}
+                    triggerClassName="h-8 min-w-[12rem] text-sm"
+                  />
+                </div>
               )}
               <Button
                 type="button"
