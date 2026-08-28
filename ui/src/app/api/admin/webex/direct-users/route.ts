@@ -3,34 +3,23 @@ import { NextRequest } from "next/server";
 import {
   ApiError,
   getAuthFromBearerOrSession,
+  getPaginationParams,
   requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { getRealmUserById, listRealmUsersPage } from "@/lib/rbac/keycloak-admin";
+import { countRealmUsers, getRealmUserById, searchRealmUsers } from "@/lib/rbac/keycloak-admin";
+import { firstAttribute, userAttributes } from "@/lib/rbac/keycloak-user-attributes";
 import {
   deleteWebexDirectUserRoute,
-  listWebexDirectUserRoutes,
+  listWebexDirectUserRoutesByUserIds,
   upsertWebexDirectUserRoute,
 } from "@/lib/rbac/webex-direct-user-route-store";
 import {
   requireAvailableWebexBotPolicy,
   type WebexBotPolicy,
 } from "@/lib/webex-bot-policy";
-
-function userAttributes(user: Record<string, unknown>): Record<string, unknown> {
-  const value = user.attributes;
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
-function firstAttribute(attributes: Record<string, unknown>, key: string): string | undefined {
-  const value = attributes[key];
-  const first = Array.isArray(value) ? value[0] : value;
-  return typeof first === "string" && first.trim() ? first.trim() : undefined;
-}
 
 async function requireBot(value: unknown): Promise<WebexBotPolicy> {
   const botId = typeof value === "string" ? value.trim() : "";
@@ -71,79 +60,63 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const bot = await requireBot(request.nextUrl.searchParams.get("bot_id"));
   const accessMode = bot.directMessages.accessMode;
   const defaultAgentId = bot.directMessages.defaultAgentId;
-  const query = (request.nextUrl.searchParams.get("q") ?? "").trim().toLowerCase();
-  const [routes, users] = await Promise.all([
-    listWebexDirectUserRoutes(bot.id),
-    (async () => {
-      const all: Array<Record<string, unknown>> = [];
-      const seen = new Set<string>();
-      for (let first = 0; ; first += 1000) {
-        const batch = await listRealmUsersPage(first, 1000);
-        const unseen = batch.filter((user) => {
-          const id = String(user.id ?? "");
-          if (!id || seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        });
-        all.push(...unseen);
-        if (batch.length < 1000 || unseen.length === 0) break;
-      }
-      return all;
-    })(),
+  const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const { page, pageSize, skip } = getPaginationParams(request);
+
+  const [users, total] = await Promise.all([
+    searchRealmUsers({ search: query || undefined, enabled: true, first: skip, max: pageSize }),
+    countRealmUsers({ search: query || undefined, enabled: true }),
   ]);
-  const routeByUser = new Map(routes.map((route) => [route.keycloak_user_id, route]));
-  const rows = users
-    .filter((user) => user.enabled !== false)
-    .map((user) => {
-      const id = String(user.id ?? "");
-      const email = String(user.email ?? "").trim().toLowerCase();
-      const attributes = userAttributes(user);
-      const route = routeByUser.get(id);
-      const inherited = accessMode === "all_users" && !route;
-      const enabled =
-        accessMode === "all_users"
-          ? route?.status !== "disabled"
-          : accessMode === "allowlist" && route?.status === "active";
-      const state =
-        accessMode === "disabled"
-          ? "disabled"
-          : inherited
-            ? "inherited"
-            : route?.status === "disabled"
-              ? "denied"
-              : route?.status === "active"
-                ? accessMode === "allowlist"
-                  ? "allowlisted"
-                  : "overridden"
-                : "not_allowed";
-      return {
-        keycloak_user_id: id,
-        email,
-        display_name:
-          [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
-          String(user.username ?? email),
-        linked: Boolean(firstAttribute(attributes, "webex_user_id")),
-        enabled,
-        configured: Boolean(route),
-        inherited,
-        state,
-        agent_id: route?.agent_id ?? (accessMode === "all_users" ? defaultAgentId ?? "" : ""),
-      };
-    })
-    .filter((row) => row.keycloak_user_id && row.email)
-    .filter(
-      (row) =>
-        !query ||
-        [row.display_name, row.email].some((value) =>
-          value.toLowerCase().includes(query),
-        ),
-    );
+  const userIds = users
+    .map((user) => String(user.id ?? ""))
+    .filter((id) => id.length > 0);
+  const routeByUser = await listWebexDirectUserRoutesByUserIds(bot.id, userIds);
+  const rows = users.map((user) => {
+    const id = String(user.id ?? "");
+    const email = String(user.email ?? "").trim().toLowerCase();
+    const attributes = userAttributes(user);
+    const route = routeByUser.get(id);
+    const inherited = accessMode === "all_users" && !route;
+    const enabled =
+      accessMode === "all_users"
+        ? route?.status !== "disabled"
+        : accessMode === "allowlist" && route?.status === "active";
+    const state =
+      accessMode === "disabled"
+        ? "disabled"
+        : inherited
+          ? "inherited"
+          : route?.status === "disabled"
+            ? "denied"
+            : route?.status === "active"
+              ? accessMode === "allowlist"
+                ? "allowlisted"
+                : "overridden"
+              : "not_allowed";
+    return {
+      keycloak_user_id: id,
+      email,
+      display_name:
+        [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+        String(user.username ?? email),
+      linked: Boolean(firstAttribute(attributes, "webex_user_id")),
+      enabled,
+      configured: Boolean(route),
+      inherited,
+      state,
+      agent_id: route?.agent_id ?? (accessMode === "all_users" ? defaultAgentId ?? "" : ""),
+    };
+  });
 
   return successResponse({
     users: rows,
     bot_id: bot.id,
     dm_access_mode: accessMode,
     default_agent_id: defaultAgentId,
+    total,
+    page,
+    page_size: pageSize,
+    has_more: page * pageSize < total,
   });
 });
 

@@ -42,7 +42,14 @@ interface DirectUsersResponse {
   bot_id: string;
   dm_access_mode: DmAccessMode;
   default_agent_id: string | null;
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
+
+const PAGE_SIZE = 25;
+const SEARCH_DEBOUNCE_MS = 300;
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
@@ -69,9 +76,23 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
   const [data, setData] = useState<DirectUsersResponse | null>(null);
   const [rows, setRows] = useState<DirectUserRow[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Debounce the search box before it drives a server request — avoids
+  // firing a fetch on every keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [search]);
+
+  // Reset to page 1 whenever the search term or selected bot changes.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, selectedBotId]);
 
   useEffect(() => {
     let active = true;
@@ -99,12 +120,17 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     return () => { active = false; };
   }, []);
 
-  const loadUsers = useCallback(async (botId: string) => {
+  const loadUsers = useCallback(async (botId: string, pageArg: number, searchTerm: string) => {
     if (!botId) return;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ bot_id: botId });
+      const params = new URLSearchParams({
+        bot_id: botId,
+        page: String(pageArg),
+        page_size: String(PAGE_SIZE),
+      });
+      if (searchTerm) params.set("q", searchTerm);
       const response = await fetch(`/api/admin/webex/direct-users?${params.toString()}`, {
         cache: "no-store",
       });
@@ -120,14 +146,8 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
   }, []);
 
   useEffect(() => {
-    if (selectedBotId) void loadUsers(selectedBotId);
-  }, [loadUsers, selectedBotId]);
-
-  const filteredRows = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return rows;
-    return rows.filter((row) => `${row.display_name} ${row.email}`.toLowerCase().includes(query));
-  }, [rows, search]);
+    if (selectedBotId) void loadUsers(selectedBotId, page, debouncedSearch);
+  }, [loadUsers, selectedBotId, page, debouncedSearch]);
 
   const agentOptions = useMemo(
     () => agents.map<AgentPickerOption>((agent) => ({
@@ -171,7 +191,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       });
       if (!response.ok) throw new Error(await responseError(response, "Failed to save 1:1 access"));
       toast(shouldDelete ? `Removed 1:1 routing for ${row.email}.` : `Saved 1:1 routing for ${row.email}.`, "success");
-      await loadUsers(selectedBotId);
+      await loadUsers(selectedBotId, page, debouncedSearch);
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "Failed to save 1:1 access", "error");
     } finally {
@@ -192,7 +212,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       });
       if (!response.ok) throw new Error(await responseError(response, "Failed to reset 1:1 access"));
       toast(`Reset 1:1 access for ${row.email} to the bot policy.`, "success");
-      await loadUsers(selectedBotId);
+      await loadUsers(selectedBotId, page, debouncedSearch);
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "Failed to reset 1:1 access", "error");
     } finally {
@@ -219,7 +239,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
             triggerClassName="h-8 min-w-[12rem]"
           />
         </label>
-        <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId)} disabled={disabled || loading || !selectedBotId}>
+        <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId, page, debouncedSearch)} disabled={disabled || loading || !selectedBotId}>
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           Refresh
         </Button>
@@ -266,7 +286,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => {
+                {rows.map((row) => {
                   const saving = savingUserId === row.keycloak_user_id;
                   const modeDisabled = data?.dm_access_mode === "disabled";
                   return (
@@ -335,11 +355,39 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                     </tr>
                   );
                 })}
-                {filteredRows.length === 0 && (
+                {rows.length === 0 && (
                   <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">No deployment users found.</td></tr>
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+        {data && data.total > 0 && (
+          <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              Showing {(data.page - 1) * data.page_size + 1}
+              –{Math.min(data.page * data.page_size, data.total)} of {data.total}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={disabled || loading || page <= 1}
+              >
+                Prev
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => current + 1)}
+                disabled={disabled || loading || !data.has_more || page * data.page_size >= data.total}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         )}
       </div>
