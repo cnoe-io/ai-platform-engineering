@@ -853,12 +853,9 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   const editor = screen.getByRole("dialog", {
     name: /edit agent:incident-agent/i,
   });
-  fireEvent.change(
-    within(editor).getAllByRole("combobox", { name: "Listen" })[0],
-    {
-      target: { value: "message" },
-    },
-  );
+  fireEvent.change(within(editor).getByLabelText("Listen"), {
+    target: { value: "message" },
+  });
   fireEvent.change(within(editor).getByLabelText("Priority"), {
     target: { value: "25" },
   });

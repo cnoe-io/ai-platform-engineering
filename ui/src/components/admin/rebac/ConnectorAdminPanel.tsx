@@ -673,12 +673,28 @@ export function ConnectorAdminPanel({
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const singlePanelView = selfService ? undefined : adapter.singlePanelView;
   // When a singlePanelView is set (e.g. Webex → "onboard"), allow toggling
-  // between that view and the configured-channels view via a compact 2-tab bar.
-  const [localSingleView, setLocalSingleView] = useState<PanelView>(singlePanelView ?? "channels");
+  // between that view, the configured-items view, and any direct-messages /
+  // migration panels via a compact tab bar, mirrored to the `subtab` URL
+  // param. The valid values are scoped to this adapter's own tabs so a
+  // foreign `subtab` value (e.g. "advanced" from elsewhere) falls back to
+  // "channels" instead of rendering a view this switcher has no tab for.
+  const singlePanelValidViews = useMemo<readonly PanelView[]>(() => {
+    if (!singlePanelView) return ["channels"];
+    return [
+      "channels",
+      singlePanelView,
+      ...(adapter.directMessagesPanel ? (["direct"] as const) : []),
+      ...(adapter.migrationPanel ? (["migration"] as const) : []),
+    ];
+  }, [singlePanelView, adapter.directMessagesPanel, adapter.migrationPanel]);
+  const [singlePanelViewState, setSinglePanelViewState] = useSubtabParam(
+    singlePanelValidViews,
+    "channels",
+  );
   const panelView: PanelView = selfService
     ? (view === "onboard" ? "onboard" : "channels")
     : singlePanelView
-      ? localSingleView
+      ? singlePanelViewState
       : view;
   const previousPanelViewRef = useRef(panelView);
   const showTabBar = !selfService && !singlePanelView;
@@ -707,7 +723,7 @@ export function ConnectorAdminPanel({
   const [discoverySearch, setDiscoverySearch] = useState("");
   const switchPanelView = (next: PanelView) => {
     if (selfService) setView(next);
-    else if (singlePanelView) setLocalSingleView(next);
+    else if (singlePanelView) setSinglePanelViewState(next);
     else setView(next);
   };
 
@@ -1573,27 +1589,27 @@ export function ConnectorAdminPanel({
           </div>
         )}
 
-        {/* Two-tab switcher for single-panel mode (e.g. Webex: Configure ↔ Configured) */}
+        {/* Two-tab switcher for single-panel mode (e.g. Webex: Configured ↔ Configure) */}
         {showSinglePanelSwitcher && (
           <div role="tablist" aria-label={adapter.ariaLabels.tablist}
             className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
             <Button role="tab" type="button" size="sm"
-              variant={panelView === singlePanelView ? "default" : "ghost"}
-              aria-selected={panelView === singlePanelView}
-              onClick={() => setLocalSingleView(singlePanelView!)}>
-              {viewTitle[singlePanelView!]}
-            </Button>
-            <Button role="tab" type="button" size="sm"
               variant={panelView === "channels" ? "default" : "ghost"}
               aria-selected={panelView === "channels"}
-              onClick={() => setLocalSingleView("channels")}>
+              onClick={() => setSinglePanelViewState("channels")}>
               {viewTitle.channels}
+            </Button>
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === singlePanelView ? "default" : "ghost"}
+              aria-selected={panelView === singlePanelView}
+              onClick={() => setSinglePanelViewState(singlePanelView!)}>
+              {viewTitle[singlePanelView!]}
             </Button>
             {adapter.directMessagesPanel && (
               <Button role="tab" type="button" size="sm"
                 variant={panelView === "direct" ? "default" : "ghost"}
                 aria-selected={panelView === "direct"}
-                onClick={() => setLocalSingleView("direct")}>
+                onClick={() => setSinglePanelViewState("direct")}>
                 {viewTitle.direct}
               </Button>
             )}
@@ -1601,7 +1617,7 @@ export function ConnectorAdminPanel({
               <Button role="tab" type="button" size="sm"
                 variant={panelView === "migration" ? "default" : "ghost"}
                 aria-selected={panelView === "migration"}
-                onClick={() => setLocalSingleView("migration")}>
+                onClick={() => setSinglePanelViewState("migration")}>
                 {viewTitle.migration}
               </Button>
             )}

@@ -6,7 +6,6 @@ export interface WebexDirectUserRouteDocument extends Document {
   bot_id: string;
   keycloak_user_id: string;
   user_email: string;
-  expected_webex_email: string;
   webex_user_id?: string;
   agent_id: string;
   status: "active" | "disabled";
@@ -51,7 +50,6 @@ export async function upsertWebexDirectUserRoute(input: {
   botId: string;
   keycloakUserId: string;
   userEmail: string;
-  expectedWebexEmail: string;
   webexUserId?: string;
   agentId: string;
   enabled: boolean;
@@ -69,14 +67,13 @@ export async function upsertWebexDirectUserRoute(input: {
         bot_id: botId,
         keycloak_user_id: keycloakUserId,
         user_email: normalizedEmail(input.userEmail, "user_email"),
-        expected_webex_email: normalizedEmail(input.expectedWebexEmail, "expected_webex_email"),
         ...(input.webexUserId?.trim() ? { webex_user_id: input.webexUserId.trim() } : {}),
         agent_id: requiredId(input.agentId, "agent_id"),
         status: input.enabled ? "active" : "disabled",
         updated_at: now,
         updated_by: actor,
       },
-      $unset: { team_slug: "" },
+      $unset: { team_slug: "", expected_webex_email: "" },
       $setOnInsert: { created_at: now, created_by: actor },
     } as never,
     { upsert: true },
