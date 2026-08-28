@@ -108,6 +108,7 @@ interface SlackChannelsPayload {
 }
 
 interface TeamWebexSpace {
+  bot_id?: string;
   webex_space_id: string;
   space_name: string;
   webex_workspace_id?: string;
