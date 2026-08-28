@@ -233,6 +233,32 @@ describe("GET /api/auth/webex-link/callback", () => {
     expect(response.headers.get("set-cookie")).toContain("caipe_oauth_state_webex-link=;");
   });
 
+  it("redirects to the public origin (NEXTAUTH_URL), not the pod-internal request origin", async () => {
+    setConfigured();
+    process.env.NEXTAUTH_URL = "https://forge.dev.svc.splunk8s.io";
+    const cookie = await startAndGetCookie();
+    const { oauthStateCookieName, parseOAuthStateCookie } = await import("@/lib/credentials/oauth-state");
+    const cookieValue = cookie.split(`${oauthStateCookieName("webex-link")}=`)[1];
+    const parsed = parseOAuthStateCookie(cookieValue);
+
+    global.fetch = mockFetchSequence({ personId: "person-42", personOrgId: "org-1" });
+
+    const { GET } = await import("../webex-link/callback/route");
+    const response = await GET(
+      new NextRequest(
+        `http://0.0.0.0:3000/api/auth/webex-link/callback?code=code-1&state=${parsed.state}`,
+        { headers: { cookie } },
+      ),
+    );
+    delete process.env.NEXTAUTH_URL;
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.origin).toBe("https://forge.dev.svc.splunk8s.io");
+    expect(location.pathname).toBe("/settings/account-and-access");
+    expect(location.searchParams.get("webex_link")).toBe("success");
+  });
+
   it("rolls back and rejects when a concurrent grant wins the race after the initial check", async () => {
     setConfigured();
     const cookie = await startAndGetCookie();
