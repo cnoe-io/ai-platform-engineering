@@ -76,45 +76,6 @@ function setupFetchMock() {
         },
       });
     }
-    if (url === "/api/admin/webex/migrations/bot-ownership" && init?.method === "DELETE") {
-      return response({
-        data: {
-          result: {
-            spaces_cleaned: 1,
-            team_mappings_deleted: 1,
-            agent_routes_deleted: 1,
-            legacy_openfga_tuples_deleted: 1,
-          },
-        },
-      });
-    }
-    if (url === "/api/admin/webex/migrations/bot-ownership") {
-      return response({
-        data: {
-          candidates: [
-            {
-              workspace_id: "WEBEX-WORKSPACE",
-              space_id: "legacy-space",
-              space_name: "Legacy Space",
-              team_mapping_count: 1,
-              route_count: 1,
-              mongo_agent_ids: ["incident-agent"],
-              openfga_agent_ids: ["incident-agent"],
-              mapping_details: [{
-                team_id: "team-1",
-                team_slug: "platform-engineering",
-              }],
-              mongo_route_details: [{ agent_id: "incident-agent" }],
-              openfga_grants: [{
-                user: "webex_space:WEBEX-WORKSPACE--legacy-space",
-                relation: "user",
-                object: "agent:incident-agent",
-              }],
-            },
-          ],
-        },
-      });
-    }
     if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
@@ -492,7 +453,6 @@ it("falls back to the default configured-spaces tab for a subtab value foreign t
 it.each([
   ["onboard", "Configure spaces"],
   ["direct", "1:1 Messages"],
-  ["migration", "Legacy migration"],
 ] as const)(
   "opens the Webex %s tab named by the subtab URL param on load",
   async (subtab, tabName) => {
@@ -517,11 +477,6 @@ it("writes the active Webex sub-tab to the subtab URL param when clicked", async
 
   fireEvent.click(screen.getByRole("tab", { name: "1:1 Messages" }));
   expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=direct", {
-    scroll: false,
-  });
-
-  fireEvent.click(screen.getByRole("tab", { name: "Legacy migration" }));
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=migration", {
     scroll: false,
   });
 
@@ -963,50 +918,6 @@ it("allows discovery before global defaults are configured", async () => {
   expect(
     screen.getByRole("checkbox", { name: /Import Incident War Room/i }),
   ).toBeChecked();
-});
-
-it("probes legacy botless ownership from the migration tab", async () => {
-  render(<WebexSpaceRebacPanel />);
-
-  fireEvent.click(await screen.findByRole("tab", { name: "Legacy migration" }));
-  fireEvent.click(screen.getByRole("button", { name: "Probe legacy data" }));
-
-  expect(await screen.findByText("Legacy Space")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/admin/webex/migrations/bot-ownership",
-    { cache: "no-store" },
-  );
-  expect(
-    screen.getByRole("combobox", { name: "Webex bot for Legacy Space" }),
-  ).toHaveTextContent("Select a bot");
-
-  fireEvent.click(screen.getByRole("button", { name: "Details" }));
-  expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();
-  expect(screen.getByText("agent:incident-agent")).toBeInTheDocument();
-  expect(screen.getByText("webex_space:WEBEX-WORKSPACE--legacy-space")).toBeInTheDocument();
-  expect(screen.getByText("user -> agent:incident-agent")).toBeInTheDocument();
-});
-
-it("deletes selected legacy ownership after destructive confirmation", async () => {
-  render(<WebexSpaceRebacPanel />);
-
-  fireEvent.click(await screen.findByRole("tab", { name: "Legacy migration" }));
-  fireEvent.click(screen.getByRole("button", { name: "Probe legacy data" }));
-  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Legacy Space" }));
-  fireEvent.click(screen.getByRole("button", { name: "Delete selected (1)" }));
-  expect(screen.getByRole("heading", { name: "Delete selected legacy data?" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Delete legacy data" }));
-
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/admin/webex/migrations/bot-ownership",
-    expect.objectContaining({
-      method: "DELETE",
-      body: JSON.stringify({
-        targets: [{ workspace_id: "WEBEX-WORKSPACE", space_id: "legacy-space" }],
-      }),
-    }),
-  ));
-  expect(mockToast).toHaveBeenCalledWith("Deleted legacy data for 1 Webex space.", "success");
 });
 
 it("deletes a configured Webex space after confirmation", async () => {

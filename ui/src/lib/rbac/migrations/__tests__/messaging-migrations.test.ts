@@ -170,7 +170,7 @@ describe("messaging RBAC migration derivation", () => {
     expect(plan.tuples).toEqual([]);
     expect(plan.counts).toMatchObject({ legacy_routes_requiring_bot_assignment: 1 });
     expect(plan.warnings).toEqual([
-      expect.stringContaining("Webex Legacy migration tab"),
+      expect.stringContaining("set bot_id on the route to migrate it"),
     ]);
   });
 

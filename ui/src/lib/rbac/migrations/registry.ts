@@ -1872,7 +1872,7 @@ export function deriveMessagingRebacPlan(input: {
       if (!botId) {
         legacyRoutesRequiringBotAssignment += 1;
         warnings.push(
-          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; assign a bot in the Webex Legacy migration tab.`,
+          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; set bot_id on the route to migrate it.`,
         );
         continue;
       }

@@ -7,7 +7,6 @@ import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-que
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { WebexDirectUsersPanel } from "./WebexDirectUsersPanel";
-import { WebexBotMigrationPanel } from "./WebexBotMigrationPanel";
 import { WebexConfiguredSpaceDetail } from "./webex/WebexConfiguredSpaceDetail";
 import type {
 ConnectorAdminAdapter,
@@ -47,11 +46,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     title: "1:1 Messages",
     description: "Configure who can message each Webex bot and how their agent is selected.",
     render: ({ disabled }) => <WebexDirectUsersPanel disabled={disabled} />,
-  },
-  migrationPanel: {
-    title: "Legacy migration",
-    description: "Assign pre-multi-bot Webex spaces to an explicit bot.",
-    render: ({ disabled }) => <WebexBotMigrationPanel disabled={disabled} />,
   },
 
   api: {
