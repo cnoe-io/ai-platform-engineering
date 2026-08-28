@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { Select } from "@/components/ui/select";
 import {
   withAdminSimulationParams,
   type AdminSimulationQueryTarget,
@@ -345,7 +346,7 @@ export function UserManagementTab({
           <span className="text-xs font-medium text-muted-foreground">
             Slack
           </span>
-          <select
+          <Select
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             value={slackFilter}
             onChange={(e) => setSlackFilter(e.target.value as SlackFilter)}
@@ -353,11 +354,11 @@ export function UserManagementTab({
             <option value="all">All</option>
             <option value="linked">Linked</option>
             <option value="unlinked">Unlinked</option>
-          </select>
+          </Select>
         </div>
         <div className="flex flex-col gap-1 min-w-[130px]">
           <span className="text-xs font-medium text-muted-foreground">Webex</span>
-          <select
+          <Select
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             value={webexFilter}
             onChange={(e) => setWebexFilter(e.target.value as WebexFilter)}
@@ -365,13 +366,13 @@ export function UserManagementTab({
             <option value="all">All</option>
             <option value="linked">Linked</option>
             <option value="unlinked">Unlinked</option>
-          </select>
+          </Select>
         </div>
         <div className="flex flex-col gap-1 min-w-[130px]">
           <span className="text-xs font-medium text-muted-foreground">
             Enabled
           </span>
-          <select
+          <Select
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             value={enabledFilter}
             onChange={(e) =>
@@ -381,7 +382,7 @@ export function UserManagementTab({
             <option value="all">All</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
-          </select>
+          </Select>
         </div>
       </div>
 

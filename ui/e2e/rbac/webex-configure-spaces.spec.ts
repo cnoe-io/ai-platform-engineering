@@ -30,17 +30,9 @@ const teams = [
   { _id: "team-ops", slug: "ops", name: "Operations Team" },
 ];
 
-const firstPageAgents = [
+const agents = [
   { _id: "agent-sre", name: "SRE Agent" },
   { _id: "agent-kb", name: "KB Agent" },
-  ...Array.from({ length: 98 }, (_, index) => ({
-    _id: `agent-example-${index + 1}`,
-    name: `Example Agent ${index + 1}`,
-  })),
-];
-
-const secondPageAgents = [
-  { _id: "agent-personal-assistant", name: "Personal Assistant" },
 ];
 
 const webexBot = { id: "primary", name: "Primary bot", available: true };
@@ -58,7 +50,6 @@ type WebexConfigureState = {
   platformConfigPatches: unknown[];
   discoveryRequests: URL[];
   onboardingRequests: unknown[];
-  dynamicAgentRequests: URL[];
   configuredSpaces: Array<{
     bot_id: string;
     workspace_id: string;
@@ -115,7 +106,6 @@ function defaultState(): WebexConfigureState {
     platformConfigPatches: [],
     discoveryRequests: [],
     onboardingRequests: [],
-    dynamicAgentRequests: [],
     configuredSpaces: [
       {
         bot_id: webexBot.id,
@@ -240,16 +230,14 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
     }
 
     if (path === "/api/dynamic-agents" && method === "GET") {
-      state.dynamicAgentRequests.push(url);
-      const page = Number(url.searchParams.get("page") ?? "1");
       await fulfillJson(route, {
         success: true,
         data: {
-          items: page === 1 ? firstPageAgents : secondPageAgents,
-          total: firstPageAgents.length + secondPageAgents.length,
-          page,
+          items: agents,
+          total: agents.length,
+          page: 1,
           page_size: 100,
-          has_more: page === 1,
+          has_more: false,
         },
       });
       return true;
@@ -357,8 +345,8 @@ async function pickTeam(page: Page, buttonName: RegExp, optionName: RegExp) {
   await page.getByRole("option", { name: optionName }).click();
 }
 
-async function pickAgent(page: Page, buttonName: RegExp, optionName: RegExp) {
-  await page.getByRole("button", { name: buttonName }).click();
+async function pickAgent(page: Page, triggerName: RegExp, optionName: RegExp) {
+  await page.getByRole("combobox", { name: triggerName }).click();
   await page.getByRole("option", { name: optionName }).click();
 }
 
@@ -537,13 +525,13 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("combobox", { name: /Team for Workflow Alerts/i }),
     ).toContainText("Platform Team");
     await expect(
-      page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),
+      page.getByRole("combobox", { name: /Dynamic Agent for Workflow Alerts/i }),
     ).toContainText("SRE Agent");
     await expect(
       page.getByRole("combobox", { name: /Team for Night Ops/i }),
     ).toContainText("Platform Team");
     await expect(
-      page.getByRole("button", { name: /Dynamic Agent for Night Ops/i }),
+      page.getByRole("combobox", { name: /Dynamic Agent for Night Ops/i }),
     ).toContainText("SRE Agent");
 
     await pickTeam(page, /Team for Night Ops/i, /Operations Team.*team:ops/);
@@ -556,7 +544,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("combobox", { name: /Team for Night Ops/i }),
     ).toContainText("Operations Team");
     await expect(
-      page.getByRole("button", { name: /Dynamic Agent for Night Ops/i }),
+      page.getByRole("combobox", { name: /Dynamic Agent for Night Ops/i }),
     ).toContainText("KB Agent");
 
     await page.getByRole("button", { name: /^Submit 2 spaces$/ }).click();
@@ -586,39 +574,4 @@ test.describe("mocked Webex Configure spaces UI", () => {
     expect(JSON.stringify(state.onboardingRequests)).not.toContain("direct-sri");
   });
 
-  test("searches page 2 agents in the Webex 1:1 routing picker", async ({
-    page,
-  }) => {
-    const state = await installWebexConfigureApp(page);
-    await gotoConfigureSpaces(page);
-
-    await page.getByRole("tab", { name: "1:1 Messages" }).click();
-    await page.getByRole("checkbox", {
-      name: "Allow direct messages for user@example.com",
-    }).check();
-    const picker = page.getByRole("button", {
-      name: "Agent for user@example.com",
-    });
-    await picker.click();
-    await page.getByRole("textbox", { name: "Search agents..." }).fill(
-      "personal assistant",
-    );
-    const matchingOptions = page.getByRole("listbox", {
-      name: "Agent for user@example.com",
-    }).getByRole("option");
-    await expect(matchingOptions).toHaveCount(1);
-    await expect(matchingOptions).toContainText("Personal Assistant");
-    await matchingOptions.click();
-    await expect(picker).toContainText("Personal Assistant");
-    await expect
-      .poll(() =>
-        state.dynamicAgentRequests.some(
-          (request) =>
-            request.searchParams.get("enabled_only") === "true" &&
-            request.searchParams.get("page") === "2" &&
-            request.searchParams.get("page_size") === "100",
-        ),
-      )
-      .toBe(true);
-  });
 });

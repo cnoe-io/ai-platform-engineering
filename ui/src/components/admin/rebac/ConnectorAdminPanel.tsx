@@ -6,13 +6,13 @@ import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } f
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
 Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ProviderSelect } from "@/components/ui/provider-select";
 import { useToast } from "@/components/ui/toast";
 import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { withQueryParam } from "@/lib/rbac/admin-simulation-query";
@@ -1746,23 +1746,24 @@ export function ConnectorAdminPanel({
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
             <div className="mb-3 flex justify-end gap-2">
               {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
-                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <span>{adapter.discoveryIdentity.label}</span>
-                  <ProviderSelect
+                  <ConnectorIdentityPicker
                     ariaLabel={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
                     options={discoveryIdentities.map((identity) => ({
-                      provider: identity.id,
-                      name: identity.available ? identity.name : `${identity.name} (unavailable)`,
+                      id: identity.id,
+                      label: identity.available
+                        ? identity.name
+                        : `${identity.name} (unavailable)`,
                       disabled: !identity.available,
                     }))}
                     value={selectedDiscoveryIdentityId}
                     onChange={selectDiscoveryIdentity}
-                    disabled={disabled || discoveryIdentitiesLoading}
-                    placeholder={discoveryIdentitiesLoading ? "Loading…" : "No bots available"}
-                    emptyMessage={discoveryIdentitiesLoading ? "Loading…" : "No bots available"}
-                    className="h-8 min-w-[12rem]"
+                    loading={discoveryIdentitiesLoading}
+                    disabled={disabled}
+                    triggerClassName="h-8 min-w-[12rem] text-sm"
                   />
-                </label>
+                </div>
               )}
               <Button
                 type="button"

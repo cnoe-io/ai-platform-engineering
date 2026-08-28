@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
@@ -151,12 +152,6 @@ function FollowupPromptEditor({ value, onChange, disabled, channelName, agentId,
   );
 }
 
-const LISTEN_OPTIONS: AgentPickerOption[] = [
-  { value: "mention", label: "mention" },
-  { value: "message", label: "message" },
-  { value: "all", label: "all" },
-];
-
 function RouteSideEditor({ title, side, enabled, onToggleEnabled, onChange, listLabel, listPlaceholder, disabled, channelName, agentId, model, error, lookupKind = "all" }: {
   title: string;
   side: RouteSideDraft;
@@ -184,16 +179,11 @@ function RouteSideEditor({ title, side, enabled, onToggleEnabled, onChange, list
       <div className="space-y-3">
         <div className="space-y-1.5">
           <Label htmlFor={`${idBase}-listen`}>Listen</Label>
-          <AgentPicker
-            id={`${idBase}-listen`}
-            ariaLabel="Listen"
-            value={side.listen}
-            onChange={(value) => onChange({ ...side, listen: value as ListenMode })}
-            disabled={disabled}
-            options={LISTEN_OPTIONS}
-            hideIdSuffix
-            allowClear={false}
-          />
+          <Select id={`${idBase}-listen`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={side.listen} disabled={disabled} onChange={(e) => onChange({ ...side, listen: e.target.value as ListenMode })}>
+            <option value="mention">mention</option>
+            <option value="message">message</option>
+            <option value="all">all</option>
+          </Select>
         </div>
         <SlackUserTokenInput label={listLabel} value={side.allowList} disabled={disabled} placeholder={listPlaceholder} kind={lookupKind} onChange={(next) => onChange({ ...side, allowList: next })} />
       </div>

@@ -18,6 +18,7 @@ import {
   DiscoveryCacheControls,
   type DiscoveryCacheProvider,
 } from "@/components/admin/rebac/DiscoveryCacheControls";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import {
   AgentPicker,
   type AgentPickerOption,
@@ -26,7 +27,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
-import { ProviderSelect } from "@/components/ui/provider-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { cn } from "@/lib/utils";
 import type { DiscoveredItem } from "./connector-admin-adapter";
@@ -392,23 +392,22 @@ export function ConnectorOnboardingWizard({
         )}
         <div className="flex flex-wrap items-center gap-2">
           {discoveryIdentity && (
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{discoveryIdentity.label}</span>
-              <ProviderSelect
+              <ConnectorIdentityPicker
                 ariaLabel={discoveryIdentity.label}
                 options={discoveryIdentity.options.map((option) => ({
-                  provider: option.value,
-                  name: option.label,
+                  id: option.value,
+                  label: option.label,
                   disabled: option.disabled,
                 }))}
                 value={discoveryIdentity.value}
                 onChange={discoveryIdentity.onChange}
-                disabled={disabled || discoveryBusy || discoveryIdentity.loading}
-                placeholder={discoveryIdentity.loading ? "Loading…" : "No bots available"}
-                emptyMessage={discoveryIdentity.loading ? "Loading…" : "No bots available"}
-                className="h-8 min-w-[12rem]"
+                loading={discoveryIdentity.loading}
+                disabled={disabled || discoveryBusy}
+                triggerClassName="h-8 min-w-[12rem] text-sm"
               />
-            </label>
+            </div>
           )}
           <Button
             type="button"
@@ -697,22 +696,21 @@ export function ConnectorOnboardingWizard({
                             </span>
                           </label>
                           {showBotColumn && (
-                            <ProviderSelect
-                              className="h-8 min-w-0 w-full"
+                            <ConnectorIdentityPicker
                               options={(row.botOptions ?? []).map((option) => ({
-                                provider: option.value,
-                                name: option.label,
+                                id: option.value,
+                                label: option.label,
                                 disabled: option.disabled,
                               }))}
                               value={row.botId ?? ""}
-                              onChange={(botId) => onRowChange(row.id, {
-                                botId,
+                              onChange={(value) => onRowChange(row.id, {
+                                botId: value,
                                 selected: true,
                               })}
                               disabled={loading || !rowIsSelectable(row)}
                               ariaLabel={row.botLabel ?? `Webex bot for ${row.name}`}
-                              placeholder="Select a bot"
-                              emptyMessage="Select a bot"
+                              allowClear
+                              triggerClassName="h-8 min-w-0 text-sm"
                             />
                           )}
                           {/* assisted-by Codex Codex-sonnet-4-6 */}

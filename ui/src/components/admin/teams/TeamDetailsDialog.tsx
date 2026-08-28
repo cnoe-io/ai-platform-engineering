@@ -24,6 +24,7 @@ DialogTitle,
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import type { Team } from "@/types/teams";
@@ -1207,7 +1208,7 @@ export function TeamDetailsDialog({
                   </div>
                 )}
                 </div>
-                <select
+                <Select
                   value={newMemberRole}
                   onChange={(e) => setNewMemberRole(e.target.value as "member" | "admin")}
                   disabled={addingMember}
@@ -1215,7 +1216,7 @@ export function TeamDetailsDialog({
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
-                </select>
+                </Select>
                 <Button
                   type="submit"
                   size="sm"

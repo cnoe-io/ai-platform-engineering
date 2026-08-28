@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
-import { ProviderSelect } from "@/components/ui/provider-select";
 import { useToast } from "@/components/ui/toast";
 import { findSettingsRouteById } from "@/components/settings/settings-routes";
 import { loadAllDynamicAgents } from "@/lib/dynamic-agent-list";
@@ -138,7 +138,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
   );
 
   const botOptions = useMemo(
-    () => bots.filter((bot) => bot.available).map((bot) => ({ provider: bot.id, name: bot.name })),
+    () => bots.filter((bot) => bot.available).map((bot) => ({ id: bot.id, label: bot.name })),
     [bots],
   );
 
@@ -205,8 +205,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       <div className="flex flex-wrap items-center justify-end gap-2">
         <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <span>Webex bot</span>
-          <ProviderSelect
-            className="h-8 min-w-[12rem]"
+          <ConnectorIdentityPicker
             options={botOptions}
             value={selectedBotId}
             onChange={(botId) => {
@@ -216,7 +215,8 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
             }}
             disabled={disabled || savingUserId !== null}
             ariaLabel="Webex bot"
-            placeholder="Select a bot"
+            allowClear
+            triggerClassName="h-8 min-w-[12rem]"
           />
         </label>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId)} disabled={disabled || loading || !selectedBotId}>
