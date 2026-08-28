@@ -1,3 +1,30 @@
+## 1.0.0-dev.12 (2026-08-28)
+
+### Refactor
+
+- **ui**: remove Webex legacy migration tab and backend
+
+## 1.0.0-dev.11 (2026-08-27)
+
+### Feat
+
+- **charts**: wire self-service Webex identity-linking vars into caipe-ui chart
+
+### Fix
+
+- **ui**: revert prior Webex fix, correct e2e tests to match intended tab order
+- **ui**: restore Webex onboard default tab and listen-mode diagnostic fix
+- **integrations**: remove insecure Slack HMAC identity-link mechanism
+- **ui**: align accent theming and navigation state (#2605)
+
+### Refactor
+
+- **ui**: standardize reusable selection controls (#2597)
+
+## 1.0.0-dev.10 (2026-08-27)
+
+## 1.0.0-rc.3 (2026-08-27)
+
 ## 1.0.0-dev.9 (2026-08-26)
 
 ### Fix
