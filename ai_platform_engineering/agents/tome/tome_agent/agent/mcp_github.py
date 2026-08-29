@@ -9,6 +9,7 @@ Tools returned by `build_github_mcp(repos, token)`:
   github_list_releases(repo)
   github_list_issues(repo, since, state, label?)
   github_get_issue(repo, number)
+  github_list_issue_comments(repo, number)
   github_search_issues(query)            — GitHub search syntax
   github_list_pulls(repo, since, state)
   github_get_pr(repo, number)
@@ -216,6 +217,35 @@ def build_github_mcp(repos: list[str], token: str = ""):
         out["body"] = (it.get("body") or "").strip()[:2000]
         out["comments"] = it.get("comments", 0)
         return _ok(out)
+
+    @tool(
+        "github_list_issue_comments",
+        "List recent comments for a single issue. Fetch only after the compact issue index identifies a relevant issue.",
+        {"repo": str, "number": int},
+    )
+    async def list_issue_comments(args: dict) -> dict[str, Any]:
+        repo = _normalize_repo(args["repo"], allowed)
+        if not repo:
+            return _err(f"repo {args['repo']!r} not in this project's allowlist")
+        try:
+            data = await _get(
+                f"/repos/{repo}/issues/{args['number']}/comments",
+                {"per_page": DEFAULT_PER_PAGE},
+            )
+        except httpx.HTTPStatusError as e:
+            return _err(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
+        return _ok(
+            [
+                {
+                    "author": (comment.get("user") or {}).get("login"),
+                    "created_at": comment.get("created_at"),
+                    "updated_at": comment.get("updated_at"),
+                    "body": (comment.get("body") or "").strip()[:2000],
+                    "url": comment.get("html_url"),
+                }
+                for comment in data
+            ]
+        )
 
     @tool(
         "github_list_pulls",
@@ -542,6 +572,7 @@ def build_github_mcp(repos: list[str], token: str = ""):
             list_releases,
             list_issues,
             get_issue,
+            list_issue_comments,
             list_pulls,
             get_pr,
             search_issues,

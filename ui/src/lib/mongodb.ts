@@ -347,6 +347,22 @@ async function createIndexes(db: Db) {
     // durable transcript lives in tome_chat_messages.
     safeCreateIndex(db, 'tome_chat_runs', { project_id: 1, user_id: 1, status: 1, created_at: -1 }),
     safeCreateIndex(db, 'tome_chat_runs', { expires_at: 1 }, { expireAfterSeconds: 0 }),
+
+    // TOME GitHub issues/discussions are a disposable read model. GitHub remains the
+    // source of truth; webhooks and explicit refreshes maintain these rows.
+    safeCreateIndex(db, 'tome_github_issues', { repo: 1, github_updated_at: -1 }),
+    safeCreateIndex(db, 'tome_github_issues', { repo: 1, content_type: 1, github_updated_at: -1 }),
+    safeCreateIndex(db, 'tome_github_issues', { repo: 1, state: 1, labels_normalized: 1, github_updated_at: -1 }),
+    safeCreateIndex(db, 'tome_github_repo_sync', { status: 1, updated_at: -1 }),
+    safeCreateIndex(db, 'tome_github_repo_sync', { status: 1, lease_until: 1 }),
+    safeCreateIndex(db, 'tome_github_repo_sync', { needs_reconciliation: 1, updated_at: -1 }),
+
+    // Provider-neutral CAIPE event log + durable per-subscriber deliveries.
+    // _id is the provider idempotency key for both collections.
+    safeCreateIndex(db, 'caipe_events', { type: 1, received_at: -1 }),
+    safeCreateIndex(db, 'caipe_events', { expires_at: 1 }, { expireAfterSeconds: 0 }),
+    safeCreateIndex(db, 'caipe_event_deliveries', { status: 1, available_at: 1 }),
+    safeCreateIndex(db, 'caipe_event_deliveries', { expires_at: 1 }, { expireAfterSeconds: 0 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

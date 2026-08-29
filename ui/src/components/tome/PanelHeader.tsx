@@ -39,6 +39,8 @@ interface PanelShellProps extends PanelHeaderProps {
   children: ReactNode;
   /** Overrides the default `max-w-4xl` (e.g. `max-w-3xl`, or `` for a full-width board). */
   maxWidthClassName?: string;
+  /** Allows dense panels to reduce the shared padding and vertical rhythm. */
+  contentClassName?: string;
 }
 
 /**
@@ -53,11 +55,18 @@ export function PanelShell({
   titleAccessory,
   action,
   maxWidthClassName = "max-w-4xl",
+  contentClassName,
   children,
 }: PanelShellProps) {
   return (
     <ScrollArea className="h-full">
-      <div className={cn("mx-auto space-y-6 p-6", maxWidthClassName)}>
+      <div
+        className={cn(
+          "mx-auto space-y-6 p-6",
+          maxWidthClassName,
+          contentClassName,
+        )}
+      >
         <PanelHeader
           title={title}
           description={description}

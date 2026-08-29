@@ -5,7 +5,7 @@
 /** The kind of asset an event concerns. Drives the feed's icon + "view"
  * affordance — the presentation keys off this typed discriminator, never off
  * parsing the `event` string. */
-export type SourceArtifact = "pr" | "issue" | "release" | "commit";
+export type SourceArtifact = "pr" | "issue" | "discussion" | "release" | "commit";
 
 /** A single curated activity event from a source. */
 export interface SourceEvent {
@@ -27,6 +27,8 @@ export interface SourceEvent {
   ts: string;
   /** `owner/name`. */
   repo: string;
+  /** Current GitHub labels on the underlying issue, PR, or discussion. */
+  labels: string[];
 }
 
 /** Provenance ref shape accepted by the Mycelium `event` primitive (#392). */

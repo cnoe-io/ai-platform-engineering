@@ -124,6 +124,16 @@ export interface IGitHubClient {
       events: string[];
     },
   ): Promise<RepoWebhook>;
+  updateRepoWebhook(
+    owner: string,
+    repo: string,
+    hookId: number,
+    config: {
+      callbackUrl: string;
+      secret: string;
+      events: string[];
+    },
+  ): Promise<RepoWebhook>;
   deleteRepoWebhook(
     owner: string,
     repo: string,
@@ -197,6 +207,36 @@ export function createGitHubClient(cfg: GitHubClientConfig): IGitHubClient {
           owner,
           repo,
           name: "web",
+          active: true,
+          events: config.events,
+          config: {
+            url: config.callbackUrl,
+            content_type: "json",
+            secret: config.secret,
+            insecure_ssl: "0",
+          },
+        });
+        return {
+          id: res.data.id,
+          url: res.data.url,
+          active: res.data.active,
+          events: res.data.events,
+          config: {
+            url: res.data.config?.url,
+            content_type: res.data.config?.content_type,
+          },
+        };
+      } catch (err) {
+        throw normaliseError(err);
+      }
+    },
+
+    async updateRepoWebhook(owner, repo, hookId, config) {
+      try {
+        const res = await octokit.repos.updateWebhook({
+          owner,
+          repo,
+          hook_id: hookId,
           active: true,
           events: config.events,
           config: {

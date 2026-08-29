@@ -2406,6 +2406,36 @@ services:
       disable: true
 
   ####################################################################################################
+  #                              SQS Webhook Proxy Receiver                                           #
+  ####################################################################################################
+  # Optional outbound-only bridge for deployments that cannot expose caipe-ui
+  # to webhook providers. A public gateway verifies and parks raw deliveries
+  # in SQS; this worker preserves the signed bytes and forwards them to the
+  # canonical provider-neutral CAIPE ingress.
+  sqs-webhook-proxy-receiver:
+    build:
+      context: ./integrations/sqs-webhook-proxy-receiver
+      dockerfile: Dockerfile
+    image: ghcr.io/cnoe-io/sqs-webhook-proxy-receiver:${IMAGE_TAG:-localtag}
+    container_name: sqs-webhook-proxy-receiver
+    environment:
+      - AWS_REGION=${SQS_WEBHOOK_AWS_REGION:-us-east-1}
+      - AWS_DEFAULT_REGION=${SQS_WEBHOOK_AWS_DEFAULT_REGION:-${SQS_WEBHOOK_AWS_REGION:-us-east-1}}
+      - AWS_ACCESS_KEY_ID=${SQS_WEBHOOK_AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${SQS_WEBHOOK_AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${SQS_WEBHOOK_AWS_SESSION_TOKEN:-}
+      - SQS_QUEUE_NAME=${SQS_WEBHOOK_QUEUE:-webhook-deliveries}
+      - CAIPE_WEBHOOK_URL=${SQS_WEBHOOK_FORWARD_URL:-http://caipe-ui:3000/api/webhooks/github}
+      - RECEIVER_BATCH_SIZE=${SQS_WEBHOOK_BATCH_SIZE:-10}
+      - RECEIVER_WAIT_SECONDS=${SQS_WEBHOOK_WAIT_SECONDS:-20}
+      - RECEIVER_REQUEST_TIMEOUT=${SQS_WEBHOOK_REQUEST_TIMEOUT:-15}
+      - LOG_LEVEL=${SQS_WEBHOOK_LOG_LEVEL:-INFO}
+      - LOG_PAYLOAD=${SQS_WEBHOOK_LOG_PAYLOAD:-0}
+    restart: unless-stopped
+    profiles:
+      - sqs-webhook
+
+  ####################################################################################################
   #                                      Skill Scanner                                               #
   ####################################################################################################
   # cisco-ai-defense/skill-scanner running its built-in REST API server. The

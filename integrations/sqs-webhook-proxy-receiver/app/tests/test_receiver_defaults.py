@@ -35,7 +35,7 @@ class ReceiverDefaultsTest(TestCase):
         self.assertEqual(forwarder.SQS_QUEUE_NAME, "webhook-deliveries")
         self.assertEqual(
             forwarder.CAIPE_WEBHOOK_URL,
-            "http://caipe-ui:3000/api/agentic-sdlc/webhooks/github",
+            "http://caipe-ui:3000/api/webhooks/github",
         )
         self.assertEqual(
             forwarder.AWS_ASSUME_ROLE_SESSION_NAME,

@@ -21,6 +21,7 @@ import { tomeSessionSubject } from "./data-steward";
 import { getPageStore } from "./page-store";
 import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
+import type { AgentIssueContext } from "./github-issue-cache";
 import type { ProjectDocument } from "@/types/projects";
 import { isSynthesizedType } from "@/types/projects";
 
@@ -134,6 +135,8 @@ export interface AgentChatRequest {
   is_compact?: boolean;
   snapshot: ProjectSnapshot;
   stable_pages: Record<string, string>;
+  /** Compact GitHub-backed Decisions/Critical index; bodies hydrate on demand. */
+  issue_context: AgentIssueContext;
   role: "viewer" | "editor";
   /** The chatting user's email, so a `feed_promote` call attributes to them
    * instead of a generic "tome" handle. */
@@ -155,6 +158,8 @@ export interface AgentIngestRequest {
   seed: string | null;
   connector_data: Record<string, unknown>;
   snapshot: ProjectSnapshot;
+  /** Compact GitHub-backed Decisions/Critical index; bodies hydrate on demand. */
+  issue_context: AgentIssueContext;
   is_greenfield: boolean;
   /**
    * "quick" skips the breadth-first source sweep: the agent takes `seed` at
@@ -435,6 +440,7 @@ export async function buildChatRequest(
     ...(opts.isCompact ? { is_compact: true } : {}),
     snapshot,
     stable_pages: stablePages,
+    issue_context: emptyIssueContext(),
     role: ctx.canEdit ? "editor" : "viewer",
     actor_email: ctx.user.email ?? null,
     actor_sub: tomeSessionSubject(ctx.session),
@@ -468,6 +474,7 @@ export function buildIngestRequest(
     readableProjects?: ChildProjectSnapshot[];
     /** "auto" = unattended CRON run; no fresh human intent behind `seed`. */
     triggeredBy?: "manual" | "auto";
+    issueContext?: AgentIssueContext;
   },
 ): AgentIngestRequest {
   const snapshot = buildSnapshotFromProject(project);
@@ -483,11 +490,23 @@ export function buildIngestRequest(
     seed: opts.seed,
     connector_data: opts.connectorData ?? {},
     snapshot,
+    issue_context: opts.issueContext ?? emptyIssueContext(),
     is_greenfield: opts.isGreenfield,
     mode: opts.isGreenfield ? "full" : (opts.mode ?? "full"),
     seed_stable_pages: opts.seedStablePages ?? false,
     actor_email: opts.actorEmail ?? null,
     credentials: opts.credentials ?? {},
     triggered_by: opts.triggeredBy ?? "manual",
+  };
+}
+
+function emptyIssueContext(): AgentIssueContext {
+  return {
+    decisions: [],
+    critical: [],
+    decision_count: 0,
+    critical_count: 0,
+    decision_truncated: false,
+    critical_truncated: false,
   };
 }

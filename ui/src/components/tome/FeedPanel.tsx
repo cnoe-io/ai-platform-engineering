@@ -33,6 +33,11 @@ import {
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { useStickToBottom } from "@/hooks/use-auto-scroll";
+import {
+  isGithubSourceEvent,
+  sourceEventLabels,
+  sourceEventMatchesLabel,
+} from "@/lib/tome/source-feed/filter";
 import { cn } from "@/lib/utils";
 
 /**
@@ -79,7 +84,7 @@ function feedEventMeta(
 }
 
 /** The asset an event concerns (mirrors the producer's SourceArtifact). */
-type SourceArtifact = "pr" | "issue" | "release" | "commit";
+type SourceArtifact = "pr" | "issue" | "discussion" | "release" | "commit";
 
 /** Payload carried by a `source_event` feed item: a GitHub/etc. activity item. */
 interface SourceEventPayload {
@@ -91,6 +96,7 @@ interface SourceEventPayload {
   url?: string;
   actor?: string | null;
   ts?: string;
+  labels?: string[];
 }
 
 /** Payload carried by an `ingest_event` feed item — an ingest/synthesize run's
@@ -106,6 +112,7 @@ interface IngestEventPayload {
 const VIEW_LABEL: Record<SourceArtifact, string> = {
   pr: "View PR",
   issue: "View issue",
+  discussion: "View discussion",
   release: "View release",
   commit: "View commit",
 };
@@ -118,6 +125,7 @@ function viewLabel(artifact: SourceArtifact | undefined): string {
 const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
   pr: GitPullRequest,
   issue: CircleDot,
+  discussion: MessagesSquare,
   release: Tag,
   commit: GitCommit,
 };
@@ -214,6 +222,33 @@ export function FeedPanel({
   const [sending, setSending] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [labelFilter, setLabelFilter] = useState("all");
+  const [showGithubEvents, setShowGithubEvents] = useState(true);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(
+        `tome:${slug}:show-github-events`,
+      );
+      setShowGithubEvents(saved !== "false");
+    } catch (error) {
+      console.warn("[Feed] Could not read the GitHub events display setting", error);
+      setShowGithubEvents(true);
+    }
+  }, [slug]);
+
+  const toggleGithubEvents = useCallback((show: boolean) => {
+    setShowGithubEvents(show);
+    if (!show) setLabelFilter("all");
+    try {
+      window.localStorage.setItem(
+        `tome:${slug}:show-github-events`,
+        String(show),
+      );
+    } catch (error) {
+      console.warn("[Feed] Could not save the GitHub events display setting", error);
+    }
+  }, [slug]);
 
   // Deep link to one message (feed-message links, e.g. from a promoted
   // action): scroll to it and pulse-highlight once it's loaded, paging
@@ -286,6 +321,24 @@ export function FeedPanel({
     }
     return out;
   }, [messages]);
+
+  const sourceLabels = useMemo(() => {
+    const labels = new Set<string>();
+    for (const message of displayMessages) {
+      for (const label of sourceEventLabels(message)) labels.add(label);
+    }
+    return [...labels].sort((left, right) => left.localeCompare(right));
+  }, [displayMessages]);
+
+  const filteredMessages = useMemo(() => {
+    const visible = showGithubEvents
+      ? displayMessages
+      : displayMessages.filter((message) => !isGithubSourceEvent(message));
+    if (labelFilter === "all") return visible;
+    return visible.filter((message) =>
+      sourceEventMatchesLabel(message, labelFilter),
+    );
+  }, [displayMessages, labelFilter, showGithubEvents]);
 
   const merge = useCallback((batch: FeedMessage[]) => {
     setMessages((prev) => {
@@ -475,11 +528,39 @@ export function FeedPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {participants.length > 0 && (
-        <div className="flex items-center justify-end border-b px-4 py-2">
-          <ParticipantStack participants={participants} />
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <label
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+            title="Show or hide GitHub activity in this view"
+          >
+            <input
+              type="checkbox"
+              aria-label="Show GitHub events"
+              checked={showGithubEvents}
+              onChange={(event) => toggleGithubEvents(event.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border"
+            />
+            GitHub events
+          </label>
+          {showGithubEvents && sourceLabels.length > 0 && (
+            <select
+              value={labelFilter}
+              onChange={(event) => setLabelFilter(event.target.value)}
+              className="max-w-56 rounded-md border bg-background px-2 py-1 text-xs"
+              aria-label="Filter activity by GitHub label"
+            >
+              <option value="all">All GitHub labels</option>
+              {sourceLabels.map((label) => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+          )}
         </div>
-      )}
+        {participants.length > 0 && (
+          <ParticipantStack participants={participants} />
+        )}
+      </div>
       <ScrollArea viewportRef={viewportRef} className="flex-1">
         <div className="mx-auto flex max-w-4xl flex-col gap-0 p-4">
           {loadingOlder && (
@@ -507,8 +588,12 @@ export function FeedPanel({
                 the activity and signal around it.
               </p>
             </div>
+          ) : filteredMessages.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              No GitHub discussions or events match the “{labelFilter}” label.
+            </div>
           ) : (
-            displayMessages.map((m, i) => {
+            filteredMessages.map((m, i) => {
               const evt = feedEventMeta(m);
               // A stable key across content swaps for correlation-grouped
               // events (e.g. an ingest run's row shouldn't remount when its
@@ -561,7 +646,7 @@ export function FeedPanel({
                 );
               }
               if (evt) return null; // unrecognized event kind — skip rather than mis-render
-              const prev = i > 0 ? displayMessages[i - 1] : null;
+              const prev = i > 0 ? filteredMessages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
               // Agents post with message_type "announce" (the only valid
               // room-wide Mycelium type we use for this); humans use "broadcast".

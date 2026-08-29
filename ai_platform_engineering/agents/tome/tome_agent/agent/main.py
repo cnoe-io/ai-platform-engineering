@@ -462,6 +462,7 @@ async def chat_endpoint(body: ChatRequest):
                 sdk_session_id=body.sdk_session_id,
                 snapshot=body.snapshot,
                 stable_pages=body.stable_pages,
+                issue_context=body.issue_context,
                 actor_email=body.actor_email,
                 is_compact=body.is_compact,
             ):
@@ -517,6 +518,7 @@ async def ingest_endpoint(body: IngestRequest):
                     connector_data=body.connector_data,
                     snapshot=body.snapshot,
                     is_greenfield=body.is_greenfield,
+                    issue_context=body.issue_context,
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
                     actor_email=body.actor_email,

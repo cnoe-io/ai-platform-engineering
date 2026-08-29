@@ -34,6 +34,10 @@ export const TOME_COLLECTIONS = {
   EDGES_INDEX: "tome_edges_index",
   /** Search/roll-up index over issue, decision, and suggestion pages. */
   TRACKED_ENTITIES_INDEX: "tome_tracked_entities_index",
+  /** Disposable GitHub issue/discussion read model; GitHub remains authoritative. */
+  GITHUB_ISSUES: "tome_github_issues",
+  /** Per-repository synchronization and webhook health for the issue read model. */
+  GITHUB_REPO_SYNCS: "tome_github_repo_sync",
   /** Gists — lightweight, non-wiki context chunks. */
   GISTS: "tome_gists",
 } as const;
@@ -133,6 +137,58 @@ export interface TrackedEntityIndexRow {
   target?: string;
   target_project_slug: string;
   body: string;
+  updated_at: Date;
+}
+
+/** Disposable MongoDB read model for a GitHub issue or discussion. */
+export interface TomeGitHubIssueCacheRow {
+  _id: string; // issues: `${repo}#${number}`; discussions: `${repo}:discussion#${number}`
+  content_type?: "issue" | "discussion";
+  repo: string;
+  number: number;
+  title: string;
+  body: string | null;
+  url: string;
+  state: "open" | "closed";
+  state_reason: string | null;
+  display_status: "open" | "in_progress" | "resolved";
+  priority: "critical" | "high" | "medium" | "low" | null;
+  labels: string[];
+  labels_normalized: string[];
+  assignees: string[];
+  author: string | null;
+  milestone: string | null;
+  category?: string | null;
+  github_created_at: string | null;
+  github_updated_at: string | null;
+  github_closed_at: string | null;
+  cached_at: Date;
+  full_sync_id?: string;
+}
+
+/** Per-repository synchronization state for the disposable issue read model. */
+export interface TomeGitHubRepoSync {
+  _id: string; // normalized owner/repository
+  repo_id: string | null;
+  status: "ready" | "syncing" | "stale" | "error";
+  /**
+   * Monotonic cache revision observed by TOME's SSE endpoint. It advances
+   * only after an issue/discussion cache mutation is visible (or a
+   * repository-wide event marks the cache stale), so it is safe to use as an
+   * invalidation signal across UI replicas. Missing means zero for rows
+   * created before this field existed.
+   */
+  cache_generation?: number;
+  needs_reconciliation: boolean;
+  issue_count: number;
+  discussion_count?: number;
+  last_event_type: string | null;
+  last_delivery_id: string | null;
+  last_webhook_at?: Date | null;
+  last_full_sync_at: Date | null;
+  last_error: string | null;
+  sync_owner?: string;
+  lease_until?: Date;
   updated_at: Date;
 }
 

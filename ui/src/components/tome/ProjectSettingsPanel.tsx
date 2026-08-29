@@ -1315,7 +1315,8 @@ export function ProjectSettingsPanel({
                 <TabsContent value="feed" className="space-y-6 pt-6">
                   <div className="space-y-6">
                     <p className="text-xs text-muted-foreground">
-                      Surfaces this project&apos;s live GitHub activity (PRs, issues, releases)
+                      Surfaces this project&apos;s live GitHub activity (PRs, issues,
+                      discussions, releases)
                       in the Feed, read with the{" "}
                       <span className="font-medium">data steward</span>&apos;s connection
                       (set under Organization).

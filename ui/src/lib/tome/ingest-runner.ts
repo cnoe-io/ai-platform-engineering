@@ -26,6 +26,15 @@ import {
 } from "./agent-proxy";
 import { reconcileGitHubSourcesForIngest } from "./github-source-reconciliation";
 import {
+  rollupGitHubRepos,
+  selectTomeRollupProjects,
+} from "./github-issue-scope";
+import {
+  buildTomeIssueContext,
+  loadTomeIssueCache,
+  type AgentIssueContext,
+} from "./github-issue-cache";
+import {
   dispatchLine,
   formatIngestEvent,
   infoLine,
@@ -327,6 +336,24 @@ async function prepareRun(
   const readableProjects = await listReadableTomeProjects(actorSub || null, {
     isAdmin: actorIsAdmin,
   });
+  let issueContext: AgentIssueContext | undefined;
+  try {
+    const issueRollup = selectTomeRollupProjects(
+      project,
+      readableProjects as Array<ProjectDocument & { _id: unknown }>,
+    );
+    const issueRepos = rollupGitHubRepos(issueRollup);
+    await loadTomeIssueCache({
+      repos: issueRepos,
+      token: credentials.github?.access_token,
+    });
+    issueContext = await buildTomeIssueContext(issueRepos);
+  } catch (error) {
+    await appendLog(
+      runId,
+      infoLine(`GitHub issue context unavailable: ${String((error as Error)?.message ?? error)}`),
+    );
+  }
   const readableSlugs = new Set(readableProjects.map((candidate) => candidate.slug));
   const blockedChildren = childProjects.filter(
     (child) => !readableSlugs.has(child.slug),
@@ -368,6 +395,7 @@ async function prepareRun(
       name: candidate.title || candidate.name,
     })),
     triggeredBy: run.triggered_by,
+    issueContext,
   });
 
   return { projectId, reportId, req, endpoint };

@@ -39,6 +39,7 @@ export type AgenticSdlcStreamEvent =
   | "inbox_added"
   | "inbox_removed"
   | "inbox_initial"
+  | "github_issue_updated"
   | "heartbeat"
   | "error";
 
@@ -95,6 +96,7 @@ const KNOWN_EVENTS: AgenticSdlcStreamEvent[] = [
   "inbox_added",
   "inbox_removed",
   "inbox_initial",
+  "github_issue_updated",
   "heartbeat",
   "error",
 ];

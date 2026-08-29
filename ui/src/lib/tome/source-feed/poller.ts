@@ -120,6 +120,7 @@ async function pollProject(project: ProjectDocument & { _id: string }): Promise<
             url: ev.url,
             actor: ev.actor,
             ts: ev.ts,
+            labels: ev.labels,
           },
           provenance: provenanceFor(ev),
         });

@@ -105,6 +105,31 @@ def is_synthesized_type(project_type: str) -> bool:
     return project_type in SYNTHESIZED_PROJECT_TYPES
 
 
+class IssueContextItem(BaseModel):
+    """Compact GitHub issue reference injected into agent context."""
+
+    repo: str
+    number: int
+    title: str
+    state: Literal["open", "closed"]
+    display_status: Literal["open", "in_progress", "resolved"]
+    labels: list[str] = Field(default_factory=list)
+    assignees: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
+    url: str
+
+
+class IssueContext(BaseModel):
+    """Bounded Decisions/Critical index backed by TOME's GitHub cache."""
+
+    decisions: list[IssueContextItem] = Field(default_factory=list)
+    critical: list[IssueContextItem] = Field(default_factory=list)
+    decision_count: int = 0
+    critical_count: int = 0
+    decision_truncated: bool = False
+    critical_truncated: bool = False
+
+
 # ---------- agent inbound: /chat ----------
 
 
@@ -120,6 +145,9 @@ class ChatRequest(BaseModel):
     """Map of `path -> markdown` for stable pages the chat prompt references
     (overview, team, architecture). Backend reads from sqlite
     before dispatching."""
+    issue_context: IssueContext = Field(default_factory=IssueContext)
+    """Compact GitHub-backed Decisions/Critical index. Full issue bodies and
+    comments are fetched with GitHub tools only when relevant."""
     role: str = "editor"
     """The requesting user's effective role: 'viewer' or 'editor'. The agent
     container uses this to confirm its configured role (TTT_AGENT_ROLE) and
@@ -222,6 +250,7 @@ class IngestRequest(BaseModel):
     seed: str | None = None
     connector_data: dict[str, Any] = Field(default_factory=dict)
     snapshot: ProjectSnapshot
+    issue_context: IssueContext = Field(default_factory=IssueContext)
     is_greenfield: bool
     mode: Literal["full", "quick"] = "full"
     """"quick" skips the breadth-first source sweep and deep-research tool
@@ -503,6 +532,8 @@ __all__ = [
     "IngestEventPayload",
     "IngestEventType",
     "IngestRequest",
+    "IssueContext",
+    "IssueContextItem",
     "ModelCheckRequest",
     "ModelCheckResponse",
     "ProjectSnapshot",

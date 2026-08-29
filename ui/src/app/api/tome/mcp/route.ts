@@ -740,83 +740,6 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "tome_issue_create",
-    description:
-      "Create a lifecycle-managed Issue in a project's `issues/` collection. Use `priority: critical` so it appears by default on the Issues board (all priorities are shown there, filterable). `target` may be a confirmed `tome://@project/overview.md` reference to roll the issue up to another Project, Area, or BHAG.",
-    inputSchema: schema(
-      {
-        project_slug: STR,
-        title: STR,
-        description: STR,
-        priority: { type: "string", enum: ["critical", "high", "medium", "low"] },
-        owner: STR,
-        target: STR,
-      },
-      ["project_slug", "title", "description"],
-    ),
-    handler: async (_request, fwd, args) => {
-      const slug = encodeURIComponent(String(args.project_slug));
-      const data = ensureOk(
-        await fwd("POST", `/api/tome/projects/${slug}/entities`, {
-          type: "issue",
-          title: String(args.title),
-          description: String(args.description),
-          ...(args.priority ? { priority: String(args.priority) } : {}),
-          ...(args.owner ? { owner: String(args.owner) } : {}),
-          ...(args.target ? { target: String(args.target) } : {}),
-        }),
-        "create issue",
-      );
-      return toolText(
-        `Created issue "${data.title}" at ${data.path} (status=${data.status}, priority=${data.priority}).`,
-      );
-    },
-  },
-  {
-    name: "tome_issue_set_status",
-    description:
-      "Transition an existing tracked Issue to `open`, `in_progress`, or `resolved`. Use the filename slug from its `issues/<slug>.md` path.",
-    inputSchema: schema(
-      {
-        project_slug: STR,
-        issue_slug: STR,
-        status: { type: "string", enum: ["open", "in_progress", "resolved"] },
-      },
-      ["project_slug", "issue_slug", "status"],
-    ),
-    handler: async (_request, fwd, args) => {
-      const project = encodeURIComponent(String(args.project_slug));
-      const entity = encodeURIComponent(String(args.issue_slug));
-      const data = ensureOk(
-        await fwd("PATCH", `/api/tome/projects/${project}/entities/issue/${entity}`, {
-          status: String(args.status),
-        }),
-        "update issue status",
-      );
-      return toolText(`Issue ${args.issue_slug} is now ${data.status}.`);
-    },
-  },
-  {
-    name: "tome_issue_mark_complete",
-    description:
-      "Mark an existing tracked Issue resolved. This is the explicit lifecycle shortcut for `tome_issue_set_status(..., resolved)`.",
-    inputSchema: schema(
-      { project_slug: STR, issue_slug: STR },
-      ["project_slug", "issue_slug"],
-    ),
-    handler: async (_request, fwd, args) => {
-      const project = encodeURIComponent(String(args.project_slug));
-      const entity = encodeURIComponent(String(args.issue_slug));
-      ensureOk(
-        await fwd("PATCH", `/api/tome/projects/${project}/entities/issue/${entity}`, {
-          status: "resolved",
-        }),
-        "resolve issue",
-      );
-      return toolText(`Issue ${args.issue_slug} is resolved.`);
-    },
-  },
-  {
     name: "tome_decision_create",
     description:
       "Create a lifecycle-managed Decision in a project's `decisions/` collection. Decisions begin as `proposed`; use the status tool to accept or reject them. Critical decisions appear on the generated board and can target another Project, Area, or BHAG with a tome:// ref.",
@@ -876,15 +799,84 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_critical_items_report",
     description:
-      "Get the generated critical Issues/Decisions board for a Project, Area, or BHAG. Area/BHAG results roll up child entities plus cross-project items explicitly targeted at the hierarchy via tome:// refs.",
+      "Get a bounded GitHub-backed Decisions/Critical index for a Project, Area, or BHAG. GitHub is authoritative; Area/BHAG results roll up readable child projects.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_request, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
       const data = ensureOk(
-        await fwd("GET", `/api/tome/projects/${slug}/critical-items`),
-        "get critical items report",
+        await fwd(
+          "GET",
+          `/api/tome/projects/${slug}/github-issues?label_any=critical%2Cdecision&limit=40`,
+        ),
+        "get GitHub issues report",
       );
-      return toolText(JSON.stringify(data, null, 2));
+      return toolText(JSON.stringify(data?.issues ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_list_github_issues",
+    description:
+      "List GitHub issues and Discussions from a project's MongoDB-backed TOME cache. Optionally filter by content type, one label, state, repository, and limit. GitHub remains authoritative.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        content_type: { type: "string", enum: ["issue", "discussion", "all"] },
+        label: STR,
+        state: { type: "string", enum: ["open", "closed", "all"] },
+        repo: STR,
+        limit: { type: "number", minimum: 1, maximum: 1000 },
+      },
+      ["project_slug"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const params = new URLSearchParams();
+      if (args.content_type) params.set("content_type", String(args.content_type));
+      if (args.label) params.set("label", String(args.label));
+      if (args.state) params.set("state", String(args.state));
+      if (args.repo) params.set("repo", String(args.repo));
+      if (args.limit) params.set("limit", String(args.limit));
+      const query = params.size ? `?${params.toString()}` : "";
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/github-issues${query}`),
+        "list GitHub issues",
+      );
+      return toolText(JSON.stringify(data?.issues ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_get_github_issue",
+    description:
+      "Get one GitHub issue or Discussion from a project's TOME cache by repository, number, and optional content type. Use the project's GitHub tools to hydrate comments when needed.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        repo: STR,
+        number: { type: "number", minimum: 1 },
+        content_type: { type: "string", enum: ["issue", "discussion"] },
+      },
+      ["project_slug", "repo", "number"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const params = new URLSearchParams({
+        repo: String(args.repo),
+        number: String(args.number),
+        limit: "1",
+      });
+      if (args.content_type) params.set("content_type", String(args.content_type));
+      const data = ensureOk(
+        await fwd(
+          "GET",
+          `/api/tome/projects/${slug}/github-issues?${params.toString()}`,
+        ),
+        "get GitHub issue",
+      );
+      const issue = data?.issues?.[0];
+      return toolText(
+        issue ? JSON.stringify(issue, null, 2) : "GitHub item not found in this project scope.",
+        !issue,
+      );
     },
   },
   {

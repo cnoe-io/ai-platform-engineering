@@ -24,6 +24,15 @@ import { getMetrics, trackActiveStream } from "@/lib/metrics";
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import { buildChatRequest } from "@/lib/tome/agent-proxy";
 import {
+  readableTomeRollupProjects,
+  resolveTomeGitHubCredential,
+  rollupGitHubRepos,
+} from "@/lib/tome/github-issue-scope";
+import {
+  buildTomeIssueContext,
+  loadTomeIssueCache,
+} from "@/lib/tome/github-issue-cache";
+import {
   appendMessage,
   ensureSession,
   setSdkSessionId,
@@ -77,6 +86,16 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     sdkSessionId: body.sdk_session_id ?? null,
     isCompact: body.is_compact,
   });
+  try {
+    const rollup = await readableTomeRollupProjects(tctx);
+    const repos = rollupGitHubRepos(rollup);
+    const credential = await resolveTomeGitHubCredential(tctx);
+    await loadTomeIssueCache({ repos, token: credential.token });
+    chatRequest.issue_context = await buildTomeIssueContext(repos);
+  } catch (error) {
+    // Issue context is supplementary. A GitHub outage must not block wiki chat.
+    console.warn("[tome-chat] GitHub issue context unavailable", error);
+  }
 
   // Compaction turns aren't real conversation content (no user message, and
   // the assistant side is just a boundary marker) — nothing to persist.

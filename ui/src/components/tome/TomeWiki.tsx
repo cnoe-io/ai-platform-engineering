@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Activity,
   ArrowLeft,
@@ -61,7 +67,10 @@ import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 import { BetaBadge } from "@/components/tome/BetaBadge";
 import { StandupView } from "@/components/tome/StandupView";
-import { CriticalItemsBoard } from "@/components/tome/CriticalItemsBoard";
+import { GithubIssueLabelManager } from "@/components/tome/GithubIssueLabelManager";
+import { GithubIssuesPanel } from "@/components/tome/GithubIssuesPanel";
+import { IssueLabelDisclosure } from "@/components/tome/IssueLabelDisclosure";
+import { IssueLabelViewList } from "@/components/tome/IssueLabelViewList";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { TemplatesPanel } from "@/components/tome/TemplatesPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
@@ -78,6 +87,15 @@ import {
   isSupportedTomeImportPath,
   TOME_IMPORT_ACCEPT,
 } from "@/lib/tome/document-import-formats";
+import {
+  DEFAULT_ISSUE_FILTER_VIEWS,
+  issueFiltersForLabel,
+  migrateLegacyIssueLabelViews,
+  normalizeStoredIssueFilterViews,
+  reorderIssueFilterViews,
+  type IssueFilterView,
+  type StoredIssueFilterViews,
+} from "@/lib/tome/issue-filter-views";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { PageTreeNode } from "@/types/tome";
@@ -110,10 +128,22 @@ interface IncomingEdge {
 /** Browser-local flag so the first-run walkthrough only auto-opens once. */
 const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
+function issueLabelViewsStorageKey(slug: string): string {
+  return `tome.issue-label-views.${slug}`;
+}
+
+function issueFilterViewsStorageKey(slug: string): string {
+  return `tome.issue-filter-views.${slug}`;
+}
+
+function defaultIssueFilterOrder(): string[] {
+  return DEFAULT_ISSUE_FILTER_VIEWS.map(({ id }) => id);
+}
+
 type MainView =
   | { kind: "agent" }
   | { kind: "standup" }
-  | { kind: "criticalItems" }
+  | { kind: "issues"; label?: string; savedViewId?: string }
   | { kind: "feed" }
   | { kind: "gists" }
   | { kind: "gist"; id: string }
@@ -140,8 +170,12 @@ function viewToPath(slug: string, view: MainView): string {
       return base;
     case "standup":
       return `${base}/standup`;
-    case "criticalItems":
-      return `${base}/critical-items`;
+    case "issues":
+      return view.savedViewId
+        ? `${base}/issues/view/${encodeURIComponent(view.savedViewId)}`
+        : view.label
+        ? `${base}/issues/label/${encodeURIComponent(view.label)}`
+        : `${base}/issues`;
     case "feed":
       return `${base}/feed`;
     case "gists":
@@ -175,8 +209,16 @@ function pathToView(segments: string[]): MainView {
       return { kind: "agent" };
     case "standup":
       return { kind: "standup" };
+    case "issues":
+      return rest[0] === "view" && rest.length > 1
+        ? { kind: "issues", savedViewId: rest.slice(1).join("/") }
+        : rest[0] === "label" && rest.length > 1
+        ? { kind: "issues", label: rest.slice(1).join("/") }
+        : { kind: "issues" };
+    // Keep links from the earlier issue-panel routes working.
     case "critical-items":
-      return { kind: "criticalItems" };
+    case "github-issues":
+      return { kind: "issues" };
     case "feed":
       return { kind: "feed" };
     case "gists":
@@ -251,6 +293,170 @@ export function TomeWiki({ slug }: { slug: string }) {
     requestNavigation(href);
     return true;
   }, [hasUnsavedChanges, requestNavigation, view.kind]);
+
+  const [customIssueFilterViews, setCustomIssueFilterViews] = useState<
+    IssueFilterView[]
+  >([]);
+  const [, setIssueFilterOrder] = useState<string[]>(
+    defaultIssueFilterOrder,
+  );
+  const [issueFilterViewsError, setIssueFilterViewsError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let localPreferences = normalizeStoredIssueFilterViews(undefined);
+    try {
+      const saved = window.localStorage.getItem(issueFilterViewsStorageKey(slug));
+      const legacy = window.localStorage.getItem(issueLabelViewsStorageKey(slug));
+      localPreferences = saved
+        ? normalizeStoredIssueFilterViews(JSON.parse(saved))
+        : legacy
+          ? migrateLegacyIssueLabelViews(JSON.parse(legacy))
+          : normalizeStoredIssueFilterViews(undefined);
+    } catch {
+      localPreferences = normalizeStoredIssueFilterViews(undefined);
+    }
+    setCustomIssueFilterViews(localPreferences.custom);
+    setIssueFilterOrder(localPreferences.order);
+    setIssueFilterViewsError(null);
+
+    const endpoint = `/api/tome/projects/${encodeURIComponent(slug)}/issue-filter-views`;
+    void (async () => {
+      try {
+        const response = await fetch(endpoint);
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body?.data) {
+          throw new Error(body?.error ?? "Could not load saved issue views");
+        }
+        const serverPreferences = normalizeStoredIssueFilterViews(body.data);
+        const defaultOrder = defaultIssueFilterOrder();
+        const localIsCustomized = localPreferences.custom.length > 0 ||
+          localPreferences.order.some((id, index) => id !== defaultOrder[index]);
+        const serverIsCustomized = serverPreferences.custom.length > 0 ||
+          serverPreferences.order.some((id, index) => id !== defaultOrder[index]);
+        const selected = !serverIsCustomized && localIsCustomized
+          ? localPreferences
+          : serverPreferences;
+        if (cancelled) return;
+        setCustomIssueFilterViews(selected.custom);
+        setIssueFilterOrder(selected.order);
+        window.localStorage.setItem(
+          issueFilterViewsStorageKey(slug),
+          JSON.stringify(selected),
+        );
+        if (!serverIsCustomized && localIsCustomized) {
+          await fetch(endpoint, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(selected),
+          });
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setIssueFilterViewsError(
+            loadError instanceof Error
+              ? `${loadError.message}; using this browser's saved views.`
+              : "Could not load saved issue views; using this browser's saved views.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  const issueFilterViews = DEFAULT_ISSUE_FILTER_VIEWS;
+
+  const activeIssueFilterView = useMemo(() => {
+    if (view.kind !== "issues") return undefined;
+    if (view.savedViewId) {
+      return issueFilterViews.find(
+        ({ id }) => id.toLowerCase() === view.savedViewId?.toLowerCase(),
+      );
+    }
+    if (view.label) {
+      return DEFAULT_ISSUE_FILTER_VIEWS.find(
+        ({ filters }) => filters.label.toLowerCase() === view.label?.toLowerCase(),
+      ) ?? {
+        id: `label-${view.label.toLowerCase()}`,
+        title: view.label,
+        filters: issueFiltersForLabel(view.label),
+      };
+    }
+    return undefined;
+  }, [issueFilterViews, view]);
+
+  const saveIssueFilterViews = useCallback(
+    (custom: IssueFilterView[], order: string[]) => {
+      const preferences = normalizeStoredIssueFilterViews({ custom, order });
+      setCustomIssueFilterViews(preferences.custom);
+      setIssueFilterOrder(preferences.order);
+      setIssueFilterViewsError(null);
+      try {
+        window.localStorage.setItem(
+          issueFilterViewsStorageKey(slug),
+          JSON.stringify(preferences satisfies StoredIssueFilterViews),
+        );
+      } catch {
+        // The view still works for this session when browser storage is blocked.
+      }
+      void fetch(
+        `/api/tome/projects/${encodeURIComponent(slug)}/issue-filter-views`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(preferences),
+        },
+      ).then(async (response) => {
+        if (response.ok) return;
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Could not save issue views");
+      }).catch((saveError) => {
+        setIssueFilterViewsError(
+          saveError instanceof Error ? saveError.message : "Could not save issue views",
+        );
+      });
+    },
+    [slug],
+  );
+
+  const removeIssueFilterView = useCallback(
+    (id: string) => {
+      saveIssueFilterViews(
+        customIssueFilterViews.filter(
+          (candidate) => candidate.id.toLowerCase() !== id.toLowerCase(),
+        ),
+        issueFilterViews
+          .filter(
+            (candidate) => candidate.id.toLowerCase() !== id.toLowerCase(),
+          )
+          .map((candidate) => candidate.id),
+      );
+      if (
+        view.kind === "issues" &&
+        view.savedViewId?.toLowerCase() === id.toLowerCase()
+      ) {
+        navigate({ kind: "issues" });
+      }
+    },
+    [customIssueFilterViews, issueFilterViews, navigate, saveIssueFilterViews, view],
+  );
+
+  const reorderIssueFilterView = useCallback(
+    (sourceId: string, targetId: string) => {
+      const reordered = reorderIssueFilterViews(
+        issueFilterViews,
+        sourceId,
+        targetId,
+      );
+      if (reordered === issueFilterViews) return;
+      saveIssueFilterViews(
+        customIssueFilterViews,
+        reordered.map(({ id }) => id),
+      );
+    },
+    [customIssueFilterViews, issueFilterViews, saveIssueFilterViews],
+  );
 
   const [data, setData] = useState<PagesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -820,8 +1026,13 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Agent" }];
       case "standup":
         return [{ label: "Standup" }];
-      case "criticalItems":
-        return [{ label: "Issues" }];
+      case "issues": {
+        if (!view.label && !view.savedViewId) return [{ label: "Issues" }];
+        return [
+          { label: "Issues", onClick: () => navigate({ kind: "issues" }) },
+          { label: activeIssueFilterView?.title ?? view.label ?? "Saved view" },
+        ];
+      }
       case "feed":
         return [{ label: "Activity" }];
       case "gists":
@@ -900,7 +1111,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         return exhaustive;
       }
     }
-  }, [view, data, navigate, isSynthesized]);
+  }, [view, data, navigate, isSynthesized, activeIssueFilterView]);
 
   // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
   const bhagByInitiative = useMemo(
@@ -957,7 +1168,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const navActive = {
     agent: view.kind === "agent",
     standup: view.kind === "standup",
-    criticalItems: view.kind === "criticalItems",
+    issues: view.kind === "issues" && !view.label,
     feed: view.kind === "feed",
     gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
@@ -1213,15 +1424,39 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipTitle="Standup"
                     tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest. (This feature is still in testing.)"
                   />
-                  <NavItem
-                    icon={<ListChecks className="h-4 w-4" />}
-                    label="Issues"
-                    active={navActive.criticalItems}
-                    onClick={() => navigate({ kind: "criticalItems" })}
-                    beta
-                    tipTitle="Issues and decisions"
-                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links. (This feature is still in testing.)"
-                  />
+                  <IssueLabelDisclosure
+                    expanded
+                    collapsible={false}
+                    onExpandedChange={() => undefined}
+                    controlsId={`tome-issue-label-views-${slug}`}
+                    header={
+                      <NavItem
+                        icon={<ListChecks className="h-4 w-4" />}
+                        label="Issues"
+                        active={navActive.issues}
+                        onClick={() => navigate({ kind: "issues" })}
+                        beta
+                        tipTitle="GitHub issues"
+                        tipDescription="Issues linked from attached GitHub repositories. GitHub remains authoritative while TOME serves a webhook-backed read cache; Areas and BHAGs roll up readable child projects."
+                      />
+                    }
+                    actions={null}
+                  >
+                    <IssueLabelViewList
+                      views={issueFilterViews}
+                      customViews={[]}
+                      reorderable={false}
+                      activeViewId={activeIssueFilterView?.id}
+                      onSelect={(savedViewId) => navigate({ kind: "issues", savedViewId })}
+                      onRemove={removeIssueFilterView}
+                      onReorder={reorderIssueFilterView}
+                    />
+                    {issueFilterViewsError && (
+                      <p className="px-8 py-1 text-[10px] leading-4 text-amber-600">
+                        {issueFilterViewsError}
+                      </p>
+                    )}
+                  </IssueLabelDisclosure>
                 </div>
 
                 <div className="mt-6 flex items-center justify-between gap-1 px-2 pb-1.5">
@@ -1536,9 +1771,20 @@ export function TomeWiki({ slug }: { slug: string }) {
                   canEdit={canEdit}
                 />
               </div>
-            ) : view.kind === "criticalItems" ? (
+            ) : view.kind === "issues" ? (
               <div className="min-w-0 flex-1">
-                <CriticalItemsBoard slug={slug} />
+                {activeIssueFilterView || view.label ? (
+                  <GithubIssuesPanel
+                    key={activeIssueFilterView?.id ?? view.label}
+                    slug={slug}
+                    canEdit={canEdit}
+                    initialFilters={activeIssueFilterView?.filters}
+                    initialLabel={activeIssueFilterView ? undefined : view.label}
+                    title={activeIssueFilterView?.title ?? view.label}
+                  />
+                ) : (
+                  <GithubIssueLabelManager slug={slug} canEdit={canEdit} />
+                )}
               </div>
             ) : view.kind === "feed" ? (
               <div className="min-w-0 flex-1">

@@ -5,7 +5,7 @@ Polls a configured SQS queue and forwards each parked webhook delivery
 (raw body + provider signature headers) to the CAIPE route that owns
 HMAC verification, idempotency, persistence, and projection:
 
-    POST {CAIPE_WEBHOOK_URL}      (default http://caipe-ui:3000/api/agentic-sdlc/webhooks/github)
+    POST {CAIPE_WEBHOOK_URL}      (default http://caipe-ui:3000/api/webhooks/github)
 
 The receiver intentionally preserves the *exact* raw payload bytes the
 provider signed; CAIPE re-verifies the HMAC before accepting the event.
@@ -43,7 +43,7 @@ LOG_PAYLOAD = os.getenv("LOG_PAYLOAD", "0") == "1"
 SQS_QUEUE_NAME = os.getenv("SQS_QUEUE_NAME", "webhook-deliveries")
 CAIPE_WEBHOOK_URL = os.getenv(
     "CAIPE_WEBHOOK_URL",
-    "http://caipe-ui:3000/api/agentic-sdlc/webhooks/github",
+    "http://caipe-ui:3000/api/webhooks/github",
 )
 BATCH_SIZE = int(os.getenv("RECEIVER_BATCH_SIZE", "10"))
 WAIT_SECONDS = int(os.getenv("RECEIVER_WAIT_SECONDS", "20"))

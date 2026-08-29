@@ -161,14 +161,17 @@ Only for a concrete relationship with real, confirmed evidence — `relates-to`
 is a last resort, not a default. Don't manufacture edges from speculation or
 a shared vague theme; a handful of real edges beats a dense web of weak ones.
 
-#### Tracked entities
+#### Decisions and suggestions
 
 Same one-file-per-entry primitive as glossary/edges — one file per entry,
 typed frontmatter + prose body:
 
-- `issues/<slug>.md` — `type: issue`, `status: open | in_progress | resolved`
 - `decisions/<slug>.md` — `type: decision`, `status: proposed | accepted | rejected`
 - `suggestions/<slug>.md` — `type: suggestion`, `status: proposed | accepted | rejected`
+
+Do not create or update `issues/*.md`. GitHub is the sole source of truth for
+issues; TOME's Issues view stores only links to upstream GitHub issues and
+fetches their content/status live.
 
 Frontmatter floor: `kind: dynamic` + `type` + `title` + `status` — never
 `stable` (omitting `kind` defaults to `stable` and silently locks the entry,
@@ -180,8 +183,8 @@ Project/Area/BHAG (confirm slug first).
 Create only for concrete items, never speculation. Update `status` in
 place; never delete resolved/accepted entries — the record is the point.
 These are individual records; narrative pages like `actions.md` summarize
-across them. BHAG/Area synthesis must review `critical` entries in child
-wikis first.
+across them. BHAG/Area synthesis must review critical decisions in child wikis
+first.
 
 #### Report pages render specially
 

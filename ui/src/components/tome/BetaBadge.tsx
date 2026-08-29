@@ -1,7 +1,7 @@
 "use client";
 
 // Small "Beta" tag with a hover tooltip, for features still in testing
-// (currently: the Standup report and the Issues/Decisions report — #157).
+// (currently: the Standup report and GitHub-backed Issues view).
 
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

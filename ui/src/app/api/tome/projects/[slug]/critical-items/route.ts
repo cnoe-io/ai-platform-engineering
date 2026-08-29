@@ -1,4 +1,5 @@
-// Generated Issues/Decisions board, including Area/BHAG roll-ups.
+// Legacy TOME-native Decisions report. GitHub issues are served from the
+// disposable read model via /github-issues, never from tracked markdown.
 
 import { NextRequest } from "next/server";
 
@@ -89,7 +90,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     .filter(
       (row) =>
         (TRACKED_ENTITY_PRIORITIES as readonly string[]).includes(row.priority) &&
-        (row.entity_type === "issue" || row.entity_type === "decision"),
+        row.entity_type === "decision",
     )
     .filter((row) => {
       const key = String(row._id ?? `${row.source_project_id}:${row.path}`);

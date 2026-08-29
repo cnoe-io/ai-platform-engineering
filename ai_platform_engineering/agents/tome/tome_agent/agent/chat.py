@@ -36,7 +36,8 @@ from tome_agent.agent.loop import (
     project_root,
     sources_for_connector,
 )
-from tome_agent.orchestrator.contract import ChatEventPayload, ProjectSnapshot
+from tome_agent.agent.issue_context import format_issue_context
+from tome_agent.orchestrator.contract import ChatEventPayload, IssueContext, ProjectSnapshot
 from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.chat")
@@ -60,6 +61,7 @@ they need editor access to do so.\
 def build_system_prompt(
     snapshot: ProjectSnapshot,
     stable_pages: dict[str, str],
+    issue_context: IssueContext | None = None,
 ) -> str:
     def _strip(path: str) -> str:
         md = stable_pages.get(path, "")
@@ -153,6 +155,10 @@ Project anchor (top-level overview — read repo-specific overviews under `repos
             f"{child_lines}"
         )
 
+    issue_block = format_issue_context(issue_context)
+    if issue_block:
+        project_block += f"\n\n{issue_block}"
+
     base = f"{prompts.load('CHAT')}\n\n---\n\n{project_block}"
     if os.environ.get("TTT_AGENT_ROLE") == "viewer":
         return f"{_READ_ONLY_NOTICE}\n\n---\n\n{base}"
@@ -165,6 +171,7 @@ async def stream_chat(
     sdk_session_id: str | None,
     snapshot: ProjectSnapshot,
     stable_pages: dict[str, str],
+    issue_context: IssueContext | None = None,
     actor_email: str | None = None,
     is_compact: bool = False,
 ) -> AsyncIterator[ChatEventPayload]:
@@ -192,7 +199,7 @@ async def stream_chat(
     http_client.set_model_overrides(models)
 
     prompt = "/compact" if is_compact else user_message
-    system_prompt = build_system_prompt(snapshot, stable_pages)
+    system_prompt = build_system_prompt(snapshot, stable_pages, issue_context)
 
     # BHAG chat reads its tagged children's on-disk wikis (kept fresh by the
     # workspace sync). Widen the read fence to them; writes stay confined to cwd.

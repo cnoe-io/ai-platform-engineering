@@ -94,4 +94,13 @@ export async function register() {
   } catch (err) {
     console.warn("[instrumentation] Tome authorization auto-repair not started:", err);
   }
+
+  // Drain durable provider events to TOME and future autonomous-agent
+  // subscribers. The Mongo lease makes this safe across UI replicas.
+  try {
+    const { startCaipeEventWorker } = await import("./lib/events/worker");
+    startCaipeEventWorker();
+  } catch (err) {
+    console.warn("[instrumentation] CAIPE event worker not started:", err);
+  }
 }

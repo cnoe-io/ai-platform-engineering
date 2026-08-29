@@ -26,7 +26,7 @@ import {
 import { withAgenticSdlcGate } from "@/lib/agentic-sdlc/guard";
 import { getRepoCounts } from "@/lib/agentic-sdlc/repo-stats";
 import { requireAgenticSdlcReader } from "@/lib/agentic-sdlc/agentic-sdlc-auth";
-import { hashWebhookSecret } from "@/lib/agentic-sdlc/webhook-verify";
+import { hashWebhookSecret } from "@/lib/github-webhooks/verify";
 import type { OnboardedRepo } from "@/types/agentic-sdlc";
 
 interface RepoListItem {
@@ -57,6 +57,7 @@ const GITHUB_SHIP_LOOP_EVENTS = [
   "deployment",
   "deployment_status",
   "label",
+  "milestone",
 ];
 
 async function handle(req: Request): Promise<Response> {
@@ -277,7 +278,8 @@ function parseWebhookCallbackUrl(value: string): string | null {
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     if (url.username || url.password) return null;
     const isLocalForwardTarget =
-      url.pathname.endsWith("/api/agentic-sdlc/webhooks/github");
+      url.pathname.endsWith("/api/agentic-sdlc/webhooks/github") ||
+      url.pathname.endsWith("/api/webhooks/github");
     const isEticloudReceiver =
       url.protocol === "https:" &&
       url.hostname === "github-webhook.eticloud.io" &&

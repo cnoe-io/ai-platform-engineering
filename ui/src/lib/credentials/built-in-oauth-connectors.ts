@@ -21,9 +21,9 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     name: "GitHub",
     authorizationUrl: "https://github.com/login/oauth/authorize",
     tokenUrl: "https://github.com/login/oauth/access_token",
-    // read:project backs github_list_projects/github_list_project_items (Projects v2
-    // is GraphQL-only and needs this scope even for boards on public repos).
-    scopes: ["repo", "read:user", "read:project"],
+    // project backs Projects v2 reads and TOME board status writes. Existing
+    // read:project connections must be reauthorized before drag/drop can write.
+    scopes: ["repo", "read:user", "project"],
   },
   {
     provider: "atlassian",

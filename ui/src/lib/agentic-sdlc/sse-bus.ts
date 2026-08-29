@@ -57,9 +57,24 @@ const HEARTBEAT_INTERVAL_MS = 25_000;
 // Hard cap per-user across both topics. Spec: 10.
 const MAX_CONNECTIONS_PER_USER = 10;
 
-const subscribers = new Map<string /* topic */, Set<SseSubscriber>>();
-const userConnectionCount = new Map<string /* userId */, number>();
-const queues = new WeakMap<SseSubscriber, SseMessage[]>();
+interface SseBusState {
+  subscribers: Map<string, Set<SseSubscriber>>;
+  userConnectionCount: Map<string, number>;
+  queues: WeakMap<SseSubscriber, SseMessage[]>;
+}
+
+// Next.js can bundle this server module into multiple route chunks. Keep one
+// process-wide state object so publishers and SSE routes share subscriptions
+// even when they load different compiled copies of this module.
+const globalSseBus = globalThis as typeof globalThis & {
+  __caipeLiveSseBusState?: SseBusState;
+};
+const state = globalSseBus.__caipeLiveSseBusState ??= {
+  subscribers: new Map(),
+  userConnectionCount: new Map(),
+  queues: new WeakMap(),
+};
+const { subscribers, userConnectionCount, queues } = state;
 
 export function epicTopic(repoId: string, epicId: string): string {
   return `epic:${repoId}:${epicId}`;

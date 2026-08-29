@@ -28,10 +28,12 @@ from tome_agent.agent.loop import (
     project_root,
     sources_for_connector,
 )
+from tome_agent.agent.issue_context import format_issue_context
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
 from tome_agent.orchestrator.contract import (
     ExperimentRunContext,
     IngestEventPayload,
+    IssueContext,
     ProjectSnapshot,
 )
 from tome_agent.reports import schema as report_schema
@@ -151,6 +153,7 @@ def _build_system_prompt(
     seed_stable_pages: bool = False,
     template_note: str = "",
     quick: bool = False,
+    issue_context: IssueContext | None = None,
 ) -> str:
     """Compose the ingest agent's system prompt by iterating REGISTRY."""
     # Forced, unconditional: the full template (path/kind/title + seed body/
@@ -319,6 +322,10 @@ self-contained units, not one continuous document:
     if deep_research_section:
         project_block += f"\n\n{deep_research_section}"
 
+    issue_block = format_issue_context(issue_context)
+    if issue_block:
+        project_block += f"\n\n{issue_block}"
+
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 
 
@@ -397,6 +404,7 @@ async def stream_ingest(
     connector_data: dict[str, Any],
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
+    issue_context: IssueContext | None = None,
     report_id: UUID,
     actor_email: str | None = None,
     seed_stable_pages: bool = False,
@@ -483,6 +491,7 @@ async def stream_ingest(
         seed_stable_pages=seed_stable_pages,
         template_note=template_note,
         quick=quick,
+        issue_context=issue_context,
     )
     if experiment is not None:
         manifest = "\n".join(

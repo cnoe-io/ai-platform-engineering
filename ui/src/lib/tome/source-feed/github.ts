@@ -1,8 +1,8 @@
 // GitHub source-activity fetcher. Given a repo + token + a since-cursor,
-// returns curated, normalized SourceEvents (PRs, issues, releases). Direct REST
-// calls mirror the pattern already used in the Tome preflight route; no new
-// dependency. Deliberately curated, not a firehose: bot actors are dropped and
-// the result is capped per poll.
+// returns curated, normalized SourceEvents (PRs, issues, discussions, releases).
+// Direct GitHub calls mirror the pattern already used in the Tome preflight
+// route; no new dependency. Deliberately curated, not a firehose: bot actors
+// are dropped and the result is capped per poll.
 
 import type { EventProvenance, SourceEvent } from "./types";
 
@@ -63,6 +63,7 @@ interface GhPull {
   closed_at: string | null;
   merged_at: string | null;
   user?: { login?: string } | null;
+  labels?: Array<{ name?: string | null }>;
 }
 
 interface GhIssue {
@@ -73,6 +74,7 @@ interface GhIssue {
   closed_at: string | null;
   user?: { login?: string } | null;
   pull_request?: unknown; // present when the "issue" is actually a PR
+  labels?: Array<{ name?: string | null }>;
 }
 
 interface GhRelease {
@@ -81,6 +83,49 @@ interface GhRelease {
   html_url: string;
   published_at: string | null;
   author?: { login?: string } | null;
+}
+
+interface GhDiscussion {
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  author: { login?: string | null } | null;
+  labels: { nodes: Array<{ name: string }> };
+}
+
+async function ghGraphql<T>(
+  query: string,
+  token: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(`${GH_API}/graphql`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`GitHub GraphQL failed (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  const body = (await res.json()) as { data?: T; errors?: Array<{ message?: string }> };
+  if (!body.data || body.errors?.length) {
+    throw new Error(
+      `GitHub GraphQL failed: ${body.errors?.[0]?.message ?? "missing data"}`,
+    );
+  }
+  return body.data;
+}
+
+function names(labels: Array<{ name?: string | null }> | undefined): string[] {
+  return (labels ?? []).map(({ name }) => name ?? "").filter(Boolean);
 }
 
 /**
@@ -122,18 +167,21 @@ export async function fetchGithubActivity(opts: {
         source: "github", artifact: "pr", event: "pr_merged", repo,
         title: `PR merged: "${pr.title}" (#${pr.number})`,
         url: pr.html_url, ref, actor: pr.user?.login ?? null, ts: pr.merged_at as string,
+        labels: names(pr.labels),
       });
     } else if (after(pr.closed_at) && !pr.merged_at) {
       events.push({
         source: "github", artifact: "pr", event: "pr_closed", repo,
         title: `PR closed: "${pr.title}" (#${pr.number})`,
         url: pr.html_url, ref, actor: pr.user?.login ?? null, ts: pr.closed_at as string,
+        labels: names(pr.labels),
       });
     } else if (after(pr.created_at)) {
       events.push({
         source: "github", artifact: "pr", event: "pr_opened", repo,
         title: `New PR: "${pr.title}" (#${pr.number})`,
         url: pr.html_url, ref, actor: pr.user?.login ?? null, ts: pr.created_at,
+        labels: names(pr.labels),
       });
     }
   }
@@ -154,12 +202,57 @@ export async function fetchGithubActivity(opts: {
         source: "github", artifact: "issue", event: "issue_closed", repo,
         title: `Issue closed: "${it.title}" (#${it.number})`,
         url: it.html_url, ref, actor: it.user?.login ?? null, ts: it.closed_at as string,
+        labels: names(it.labels),
       });
     } else if (after(it.created_at)) {
       events.push({
         source: "github", artifact: "issue", event: "issue_opened", repo,
         title: `Issue opened: "${it.title}" (#${it.number})`,
         url: it.html_url, ref, actor: it.user?.login ?? null, ts: it.created_at,
+        labels: names(it.labels),
+      });
+    }
+  }
+
+  // Discussions are GraphQL-only. Their current labels are attached to every
+  // normalized event so the Feed can apply the same label filter as Issues.
+  const discussionData = await ghGraphql<{
+    repository: { discussions: { nodes: GhDiscussion[] } } | null;
+  }>(
+    `query TomeSourceFeedDiscussions($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        discussions(
+          first: 30
+          orderBy: { field: UPDATED_AT, direction: DESC }
+        ) {
+          nodes {
+            number title url createdAt updatedAt closedAt
+            author { login }
+            labels(first: 100) { nodes { name } }
+          }
+        }
+      }
+    }`,
+    opts.token,
+    { owner, name },
+  );
+  for (const discussion of discussionData.repository?.discussions.nodes ?? []) {
+    if (isBotActor(discussion.author?.login)) continue;
+    const ref = `${repo}:discussion#${discussion.number}`;
+    const labels = discussion.labels.nodes.map(({ name: label }) => label);
+    if (after(discussion.closedAt)) {
+      events.push({
+        source: "github", artifact: "discussion", event: "discussion_closed", repo,
+        title: `Discussion closed: "${discussion.title}" (#${discussion.number})`,
+        url: discussion.url, ref, actor: discussion.author?.login ?? null,
+        ts: discussion.closedAt as string, labels,
+      });
+    } else if (after(discussion.createdAt)) {
+      events.push({
+        source: "github", artifact: "discussion", event: "discussion_opened", repo,
+        title: `Discussion opened: "${discussion.title}" (#${discussion.number})`,
+        url: discussion.url, ref, actor: discussion.author?.login ?? null,
+        ts: discussion.createdAt, labels,
       });
     }
   }
@@ -176,6 +269,7 @@ export async function fetchGithubActivity(opts: {
       title: `Release published: ${label}`,
       url: rel.html_url, ref: `${repo}@${rel.tag_name}`,
       actor: rel.author?.login ?? null, ts: rel.published_at as string,
+      labels: [],
     });
   }
 
