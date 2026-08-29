@@ -533,12 +533,13 @@ describe('Archive API', () => {
       );
     });
 
-    it('default listing INCLUDES autonomous conversations (only excludes slack)', async () => {
+    it('default listing INCLUDES autonomous conversations (only excludes slack and api)', async () => {
       // Regression: pre-fix the default branch used
       // ``$nin: ['slack', 'autonomous']`` which contradicted the
       // sidebar's "All" filter and made autonomous threads vanish
       // from the All view. The fix narrows the exclusion to slack
-      // only so autonomous chats appear alongside human ones.
+      // (and api, for script-created conversations with no UI
+      // transcript) so autonomous chats appear alongside human ones.
       const convCollection = createMockCollection();
       convCollection.find.mockReturnValue({
         sort: jest.fn().mockReturnValue({
@@ -557,7 +558,7 @@ describe('Archive API', () => {
       const findCall = convCollection.find.mock.calls[0][0];
       // Source filter lives in $and alongside the ownership $or.
       expect(findCall.$and).toEqual(
-        expect.arrayContaining([{ source: { $nin: ['slack'] } }]),
+        expect.arrayContaining([{ source: { $nin: ['slack', 'api'] } }]),
       );
     });
 

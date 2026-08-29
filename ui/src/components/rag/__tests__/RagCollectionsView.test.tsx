@@ -293,7 +293,7 @@ describe("RagCollectionsView", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("You (personal)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Search teams" })).toHaveTextContent(
+    expect(screen.getByRole("combobox", { name: "Search teams" })).toHaveTextContent(
       "Only you can search — add teams",
     );
     expect(screen.getByText("Datasources")).toBeInTheDocument();

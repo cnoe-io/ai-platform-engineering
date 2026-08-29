@@ -488,6 +488,16 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByText('Home')).toBeInTheDocument()
     })
 
+    it('places global search at the header right', () => {
+      render(<AppHeader />)
+      expect(
+        within(applicationNavigation())
+          .queryByTestId('application-navigation-search-trigger-sidebar'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByTestId('application-navigation-search-trigger-compact'))
+        .toBeInTheDocument()
+    })
+
     it('Home nav pill links to /', () => {
       render(<AppHeader />)
       const pill = getHomeNavPill()
@@ -507,6 +517,20 @@ describe('AppHeader — application chrome', () => {
       render(<AppHeader />)
       const pill = getHomeNavPill()
       expect(pill).not.toHaveAttribute('aria-current')
+    })
+
+    it('keeps the brand static without a hover sparkle', () => {
+      render(<AppHeader />)
+      for (const brand of screen.getAllByRole('link', { name: 'Test App home' })) {
+        expect(brand.querySelector('.brand-sparkle')).toBeNull()
+      }
+    })
+
+    it('left-aligns the rail toggle without a divider', () => {
+      render(<AppHeader />)
+      const footer = screen.getByRole('button', { name: 'Collapse sidebar' }).parentElement
+      expect(footer).toHaveClass('justify-start')
+      expect(footer).not.toHaveClass('justify-center', 'border-t', 'pt-2')
     })
 
   })
@@ -612,6 +636,26 @@ describe('AppHeader — application chrome', () => {
       expect(knowledgePanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
     })
 
+    it('collapses section navigation when navigation moves to a page without sections', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AdminNavigationFixture />)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+
+      mockPathname = '/chat'
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
+
+      mockPathname = '/'
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
+    })
+
     it('keeps Admin expanded while its registered destination changes', () => {
       mockStorageMode = 'mongodb'
       mockIsAdmin = true
@@ -665,6 +709,8 @@ describe('AppHeader — application chrome', () => {
       expect(admin).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('button', { name: 'Resources' }))
         .toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('link', { name: 'RAG' }))
+        .toHaveAttribute('href', '/admin/platform/rag')
       expect(screen.getByRole('link', { name: 'Skill Hubs' }))
         .toHaveAttribute('aria-current', 'page')
     })
@@ -708,8 +754,10 @@ describe('AppHeader — application chrome', () => {
       const resourcesPanel = document.getElementById(
         resources.getAttribute('aria-controls')!,
       )
+      const people = screen.getByRole('button', { name: 'People group' })
 
       expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
+      expect(people).toHaveClass('workspace-navigation-active')
       fireEvent.click(resources)
       expect(resourcesPanel).toHaveClass('transition-[grid-template-rows,opacity]')
 
@@ -893,14 +941,14 @@ describe('AppHeader — application chrome', () => {
       expect(screen.queryByText('Prod')).not.toBeInTheDocument()
     })
 
-    it('shows the environment badge beside the appearance control', () => {
+    it('shows the environment badge immediately before Search', () => {
       mockEnvBadge = 'Preview'
       render(<AppHeader />)
 
       const badge = screen.getByText('Preview')
-      const settingsPanel = screen.getByTestId('settings-panel')
+      const search = screen.getByTestId('application-navigation-search-trigger-compact')
       expect(within(applicationNavigation()).queryByText('Preview')).not.toBeInTheDocument()
-      expect(badge.nextElementSibling).toBe(settingsPanel)
+      expect(badge.nextElementSibling).toBe(search)
     })
   })
 

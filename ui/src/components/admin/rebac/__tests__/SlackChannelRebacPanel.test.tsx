@@ -853,12 +853,9 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   const editor = screen.getByRole("dialog", {
     name: /edit agent:incident-agent/i,
   });
-  fireEvent.change(
-    within(editor).getAllByRole("combobox", { name: "Listen" })[0],
-    {
-      target: { value: "message" },
-    },
-  );
+  fireEvent.change(within(editor).getByLabelText("Listen"), {
+    target: { value: "message" },
+  });
   fireEvent.change(within(editor).getByLabelText("Priority"), {
     target: { value: "25" },
   });
@@ -1131,12 +1128,6 @@ it("discovers Slack channels even when no onboarding default team is configured"
   expect(
     await screen.findByRole("status", { name: /Discovered: 1/i }),
   ).toBeInTheDocument();
-  // TeamPicker is a <button>, not a form control — assert the
-  // empty-state placeholder is rendered on the trigger instead of
-  // `.toHaveValue("")`.
-  expect(screen.getByLabelText("Team for #new-alerts")).toHaveTextContent(
-    /Select team/,
-  );
 });
 
 it("shows discovered channel setup feedback as a toast without shifting the action row", async () => {

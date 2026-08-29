@@ -16,7 +16,7 @@ servers, MongoDB, RBAC services, and optional RAG/tracing components.
 ## Configure
 
 ```bash
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
+git clone https://github.com/caipe-io/ai-platform-engineering.git
 cd ai-platform-engineering
 cp .env.example .env
 ```

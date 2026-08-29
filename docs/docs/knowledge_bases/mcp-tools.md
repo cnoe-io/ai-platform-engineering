@@ -2,7 +2,7 @@
 
 The RAG server exposes MCP (Model Context Protocol) tools that enable AI agents to search, fetch, and explore the knowledge base. These tools provide a standardized interface for LLMs to access organizational knowledge.
 
-For configuration details, see the [Server README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md).
+For configuration details, see the [Server README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md).
 
 ## What is MCP?
 
@@ -242,6 +242,6 @@ MAX_GRAPH_RAW_QUERY_TOKENS=80000  # Max tokens in results
 
 ## Further Reading
 
-- [Server Architecture](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/ARCHITECTURE.md) - MCP implementation details
+- [Server Architecture](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/ARCHITECTURE.md) - MCP implementation details
 - [Architecture Overview](architecture.md) - System-level architecture
 - [MCP Specification](https://modelcontextprotocol.io/) - Official MCP documentation

@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { SearchablePicker } from "@/components/ui/searchable-picker";
 import {
   PLATFORM_RAG_COLLECTION_ID,
   type RagCollectionWithPermissions,
@@ -364,22 +365,31 @@ export function ImportRagSourcesFromConfigCard({
                   <Label htmlFor="rag-import-destination" className="block">
                     Destination collection
                   </Label>
-                  <select
+                  <SearchablePicker
                     id="rag-import-destination"
-                    value={destinationCollectionId}
-                    onChange={(event) =>
-                      setDestinationCollectionId(event.target.value)
+                    options={collections}
+                    selected={collections.find(
+                      (collection) => collection._id === destinationCollectionId,
+                    )}
+                    onSelect={(collection) =>
+                      setDestinationCollectionId(collection._id)
                     }
+                    getOptionKey={(collection) => collection._id}
+                    getOptionLabel={(collection) =>
+                      `${collection.name}${collection.is_platform ? " (recommended)" : ""}`
+                    }
+                    getSearchText={(collection) => [
+                      collection._id,
+                      collection.name,
+                    ]}
+                    placeholder="Select a destination collection"
+                    searchPlaceholder="Search collections..."
+                    emptyLabel="No collections available"
+                    ariaLabel="Destination collection"
+                    required
                     disabled={applying || collections.length === 0}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    {collections.map((collection) => (
-                      <option key={collection._id} value={collection._id}>
-                        {collection.name}
-                        {collection.is_platform ? " (recommended)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                    triggerClassName="h-10 text-sm"
+                  />
                   {destinationCollection && (
                     <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
                       <p>

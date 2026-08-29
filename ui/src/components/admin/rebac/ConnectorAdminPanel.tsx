@@ -6,6 +6,7 @@ import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } f
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
@@ -672,12 +673,28 @@ export function ConnectorAdminPanel({
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const singlePanelView = selfService ? undefined : adapter.singlePanelView;
   // When a singlePanelView is set (e.g. Webex → "onboard"), allow toggling
-  // between that view and the configured-channels view via a compact 2-tab bar.
-  const [localSingleView, setLocalSingleView] = useState<PanelView>(singlePanelView ?? "channels");
+  // between that view, the configured-items view, and any direct-messages /
+  // migration panels via a compact tab bar, mirrored to the `subtab` URL
+  // param. The valid values are scoped to this adapter's own tabs so a
+  // foreign `subtab` value (e.g. "advanced" from elsewhere) falls back to
+  // "channels" instead of rendering a view this switcher has no tab for.
+  const singlePanelValidViews = useMemo<readonly PanelView[]>(() => {
+    if (!singlePanelView) return ["channels"];
+    return [
+      "channels",
+      singlePanelView,
+      ...(adapter.directMessagesPanel ? (["direct"] as const) : []),
+      ...(adapter.migrationPanel ? (["migration"] as const) : []),
+    ];
+  }, [singlePanelView, adapter.directMessagesPanel, adapter.migrationPanel]);
+  const [singlePanelViewState, setSinglePanelViewState] = useSubtabParam(
+    singlePanelValidViews,
+    "channels",
+  );
   const panelView: PanelView = selfService
     ? (view === "onboard" ? "onboard" : "channels")
     : singlePanelView
-      ? localSingleView
+      ? singlePanelViewState
       : view;
   const previousPanelViewRef = useRef(panelView);
   const showTabBar = !selfService && !singlePanelView;
@@ -706,7 +723,7 @@ export function ConnectorAdminPanel({
   const [discoverySearch, setDiscoverySearch] = useState("");
   const switchPanelView = (next: PanelView) => {
     if (selfService) setView(next);
-    else if (singlePanelView) setLocalSingleView(next);
+    else if (singlePanelView) setSinglePanelViewState(next);
     else setView(next);
   };
 
@@ -1572,27 +1589,27 @@ export function ConnectorAdminPanel({
           </div>
         )}
 
-        {/* Two-tab switcher for single-panel mode (e.g. Webex: Configure ↔ Configured) */}
+        {/* Two-tab switcher for single-panel mode (e.g. Webex: Configured ↔ Configure) */}
         {showSinglePanelSwitcher && (
           <div role="tablist" aria-label={adapter.ariaLabels.tablist}
             className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
             <Button role="tab" type="button" size="sm"
-              variant={panelView === singlePanelView ? "default" : "ghost"}
-              aria-selected={panelView === singlePanelView}
-              onClick={() => setLocalSingleView(singlePanelView!)}>
-              {viewTitle[singlePanelView!]}
-            </Button>
-            <Button role="tab" type="button" size="sm"
               variant={panelView === "channels" ? "default" : "ghost"}
               aria-selected={panelView === "channels"}
-              onClick={() => setLocalSingleView("channels")}>
+              onClick={() => setSinglePanelViewState("channels")}>
               {viewTitle.channels}
+            </Button>
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === singlePanelView ? "default" : "ghost"}
+              aria-selected={panelView === singlePanelView}
+              onClick={() => setSinglePanelViewState(singlePanelView!)}>
+              {viewTitle[singlePanelView!]}
             </Button>
             {adapter.directMessagesPanel && (
               <Button role="tab" type="button" size="sm"
                 variant={panelView === "direct" ? "default" : "ghost"}
                 aria-selected={panelView === "direct"}
-                onClick={() => setLocalSingleView("direct")}>
+                onClick={() => setSinglePanelViewState("direct")}>
                 {viewTitle.direct}
               </Button>
             )}
@@ -1600,7 +1617,7 @@ export function ConnectorAdminPanel({
               <Button role="tab" type="button" size="sm"
                 variant={panelView === "migration" ? "default" : "ghost"}
                 aria-selected={panelView === "migration"}
-                onClick={() => setLocalSingleView("migration")}>
+                onClick={() => setSinglePanelViewState("migration")}>
                 {viewTitle.migration}
               </Button>
             )}
@@ -1729,24 +1746,24 @@ export function ConnectorAdminPanel({
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
             <div className="mb-3 flex justify-end gap-2">
               {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
-                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <span>{adapter.discoveryIdentity.label}</span>
-                  <select
-                    aria-label={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
+                  <ConnectorIdentityPicker
+                    ariaLabel={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
+                    options={discoveryIdentities.map((identity) => ({
+                      id: identity.id,
+                      label: identity.available
+                        ? identity.name
+                        : `${identity.name} (unavailable)`,
+                      disabled: !identity.available,
+                    }))}
                     value={selectedDiscoveryIdentityId}
-                    onChange={(event) => selectDiscoveryIdentity(event.target.value)}
-                    disabled={disabled || discoveryIdentitiesLoading}
-                    className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm"
-                  >
-                    {discoveryIdentitiesLoading && <option value="">Loading…</option>}
-                    {!discoveryIdentitiesLoading && discoveryIdentities.length === 0 && <option value="">No bots available</option>}
-                    {discoveryIdentities.map((identity) => (
-                      <option key={identity.id} value={identity.id} disabled={!identity.available}>
-                        {identity.available ? identity.name : `${identity.name} (unavailable)`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={selectDiscoveryIdentity}
+                    loading={discoveryIdentitiesLoading}
+                    disabled={disabled}
+                    triggerClassName="h-8 min-w-[12rem] text-sm"
+                  />
+                </div>
               )}
               <Button
                 type="button"

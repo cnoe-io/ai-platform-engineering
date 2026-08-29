@@ -126,31 +126,45 @@ def _run(
     )
 
 
-def test_unonboarded_direct_user_is_silently_ignored_before_identity_linking(monkeypatch) -> None:
-    monkeypatch.delenv("WEBEX_WORKSPACE_ALIAS", raising=False)
-    monkeypatch.delenv("WEBEX_WORKSPACE_ID", raising=False)
-    identity = _Identity()
-    result = _run(
-        _DirectUsers(WebexDirectUserAccess(False, None, None, "not_onboarded")),
-        identity,
-    )
-
-    assert result.ignored is True
-    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
-    assert result.deny_message is None
-    assert identity.resolve_calls == 0
-    assert identity.link_calls == 0
-
-
-def test_onboarded_unlinked_user_receives_identity_link() -> None:
+def test_unlinked_direct_user_is_prompted_to_link_before_dm_access_is_checked() -> None:
     identity = _Identity(user_id=None)
-    result = _run(
-        _DirectUsers(WebexDirectUserAccess(True, "kc-user-1", "agent-1", "allowlist_route")),
-        identity,
-    )
+    direct_users = _DirectUsers(WebexDirectUserAccess(False, None, None, "not_onboarded"))
+    result = _run(direct_users, identity)
 
+    assert result.ignored is False
     assert result.reason_code == app_module.REASON_USER_NOT_LINKED
     assert result.linking_url == "https://ui.example/link"
+    assert identity.resolve_calls == 1
+    assert identity.link_calls == 1
+    assert direct_users.calls == []
+
+
+def test_linked_but_not_onboarded_direct_user_gets_an_explicit_deny() -> None:
+    result = _run(
+        _DirectUsers(WebexDirectUserAccess(False, None, None, "not_onboarded")),
+        _Identity(),
+    )
+
+    assert result.ignored is False
+    assert result.allowed is False
+    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
+    assert result.deny_message is not None
+    assert result.explicit_invocation is True
+
+
+def test_onboarded_direct_user_resolver_receives_the_linked_identity() -> None:
+    identity = _Identity()
+    direct_users = _DirectUsers(
+        WebexDirectUserAccess(True, "kc-user-1", "agent-1", "allowlist_route")
+    )
+    result = _run(direct_users, identity)
+
+    assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
+    assert direct_users.calls == [{
+        "bot_id": "secondary",
+        "webex_user_id": "person1234",
+        "keycloak_user_id": "kc-user-1",
+    }]
 
 
 def test_onboarded_direct_user_dispatches_selected_agent_with_user_obo() -> None:
@@ -166,7 +180,7 @@ def test_onboarded_direct_user_dispatches_selected_agent_with_user_obo() -> None
     assert direct_users.calls == [{
         "bot_id": "secondary",
         "webex_user_id": "person1234",
-        "person_email": "user@example.com",
+        "keycloak_user_id": "kc-user-1",
     }]
     assert authz.calls == [{"agent_id": "agent-1", "bearer_token": "obo-token"}]
     assert calls[0]["agent_id"] == "agent-1"

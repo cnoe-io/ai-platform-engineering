@@ -81,13 +81,13 @@ describe("UserDefaultAgentsPanel",() => {
   it("shows the resolved platform fallback on every connected surface",async () => {
     render(<UserDefaultAgentsPanel />);
 
-    expect(await screen.findByRole("button",{ name: "Web default agent" })).toHaveTextContent(
+    expect(await screen.findByRole("combobox",{ name: "Web default agent" })).toHaveTextContent(
       "Use platform default (Basic SRE)",
     );
-    expect(screen.getByRole("button",{ name: "Slack default agent" })).toHaveTextContent(
+    expect(screen.getByRole("combobox",{ name: "Slack default agent" })).toHaveTextContent(
       "Use platform default (Basic SRE)",
     );
-    expect(screen.getByRole("button",{ name: "Webex default agent" })).toHaveTextContent(
+    expect(screen.getByRole("combobox",{ name: "Webex default agent" })).toHaveTextContent(
       "Use platform default (Basic SRE)",
     );
     expect(screen.queryByRole("button",{ name: /save personal default agents/i })).not.toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("UserDefaultAgentsPanel",() => {
     const fetchMock = installFetchMock();
     render(<UserDefaultAgentsPanel />);
 
-    fireEvent.click(await screen.findByRole("button",{ name: "Slack default agent" }));
+    fireEvent.click(await screen.findByRole("combobox",{ name: "Slack default agent" }));
     fireEvent.click(await screen.findByRole("option",{ name: "Knowledge Base Agent" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -109,7 +109,7 @@ describe("UserDefaultAgentsPanel",() => {
       );
     });
 
-    fireEvent.click(screen.getByRole("button",{ name: "Webex default agent" }));
+    fireEvent.click(screen.getByRole("combobox",{ name: "Webex default agent" }));
     fireEvent.click(await screen.findByRole("option",{ name: "Knowledge Base Agent" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -129,7 +129,7 @@ describe("UserDefaultAgentsPanel",() => {
     });
     render(<UserDefaultAgentsPanel />);
 
-    const slack = await screen.findByRole("button",{ name: "Slack default agent" });
+    const slack = await screen.findByRole("combobox",{ name: "Slack default agent" });
     fireEvent.click(slack);
     fireEvent.click(await screen.findByRole("option",{ name: /Use platform default/ }));
 
@@ -149,7 +149,7 @@ describe("UserDefaultAgentsPanel",() => {
     installFetchMock({ failWrites: true,integrations: { slack: false,webex: false } });
     render(<UserDefaultAgentsPanel />);
 
-    const web = await screen.findByRole("button",{ name: "Web default agent" });
+    const web = await screen.findByRole("combobox",{ name: "Web default agent" });
     fireEvent.click(web);
     fireEvent.click(await screen.findByRole("option",{ name: "Knowledge Base Agent" }));
 
@@ -164,7 +164,7 @@ describe("UserDefaultAgentsPanel",() => {
     const fetchMock = installFetchMock();
     render(<UserDefaultAgentsPanel disabled />);
 
-    expect(await screen.findByRole("button",{ name: "Web default agent" })).toBeDisabled();
+    expect(await screen.findByRole("combobox",{ name: "Web default agent" })).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/user/preferences",
       expect.objectContaining({ method: "PUT" }),

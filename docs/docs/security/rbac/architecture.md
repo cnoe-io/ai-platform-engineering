@@ -311,22 +311,26 @@ The Keycloak container exposes login/API traffic on `8080` and management health
 
 ### Account Linking (Slack)
 
-Three onboarding paths, evaluated in order:
+Two onboarding paths, evaluated in order:
 
-- **Auto-bootstrap** (default, `SLACK_FORCE_LINK=false`) — bot looks up the Slack user's email, finds an existing Keycloak user, writes `slack_user_id` silently. Zero user action required.
+- **Auto-bootstrap** — bot looks up the Slack user's email, finds an existing Keycloak user, writes `slack_user_id` silently. Zero user action required.
 - **Just-In-Time user creation** (default ON, `SLACK_JIT_CREATE_USER=true`, spec 103) — when no existing Keycloak user matches, the bot creates a federated-only shell user via `POST /admin/realms/{realm}/users` using the same `caipe-platform` admin credential. Optional domain allowlist via `SLACK_JIT_ALLOWED_EMAIL_DOMAINS`. 409 races are resolved by re-querying.
-- **Explicit link** (`SLACK_FORCE_LINK=true`, or fallback when JIT is off / not allowed / fails) — bot sends an HMAC-signed link prompt; user clicks → SSO login → `slack_user_id` written via Admin API.
 
-The full sequence (including HMAC URL shape, TTL enforcement, JIT request body, error kinds, and post-link OBO flow) is in [Workflows › Slack identity linking](./workflows.md#slack-identity-linking-auto-bootstrap--jit--forced-link).
+There is no interactive/bearer-link onboarding path for Slack: a signed link is redeemable by whoever holds it, not provably by the intended Slack user, so it was removed as a security hole. If neither path above resolves a Keycloak user (e.g. `SLACK_JIT_CREATE_USER=false` and no email match), the user is treated as unlinked and told to contact an admin.
+
+The full sequence (JIT request body, error kinds, and post-link OBO flow) is in [Workflows › Slack identity linking](./workflows.md#slack-identity-linking-auto-bootstrap--jit).
 
 ### Account Linking (Webex)
 
 Webex uses the same Keycloak identity boundary as Slack but stores the Webex
-person identifier in `webex_user_id`. The Webex link callback lives in the Web UI
-backend at `/api/auth/webex-link` and uses single-use, 10-minute nonces in
-`webex_link_nonces`; HMAC links are converted into nonce-backed completion URLs
-before the user reaches the OIDC session. The callback rejects attempts to bind
-one Webex person ID to multiple Keycloak users.
+person identifier in `webex_user_id`. Linking goes through a real Webex OAuth
+round trip at `/api/auth/webex-link/start` and `/api/auth/webex-link/callback`
+in the Web UI backend — the URL carries no bearer credential, so proof of the
+Webex identity comes from the OAuth exchange itself, not from a signed link.
+The callback rejects attempts to bind one Webex person ID to multiple
+Keycloak users. Admins can unlink a user's Webex identity
+(`DELETE /api/admin/webex/users/[id]`); re-linking is done by the user through
+the same self-service OAuth flow.
 
 For group spaces, the default Webex bootstrap path keeps signed linking URLs out
 of the shared room. The bot posts only a generic thread notice in the group, then

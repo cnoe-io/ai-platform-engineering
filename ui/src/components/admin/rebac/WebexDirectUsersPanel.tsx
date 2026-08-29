@@ -1,16 +1,21 @@
 "use client";
 
-import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, RotateCcw, Save, XCircle } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { findSettingsRouteById } from "@/components/settings/settings-routes";
 import { loadAllDynamicAgents } from "@/lib/dynamic-agent-list";
 import type { DynamicAgentOption } from "./connector-admin-adapter";
+
+const ACCOUNT_ACCESS_SETTINGS_HREF = findSettingsRouteById("access")?.href ?? "/settings/account-and-access";
 
 type DmAccessMode = "disabled" | "allowlist" | "all_users";
 
@@ -24,12 +29,11 @@ interface DirectUserRow {
   keycloak_user_id: string;
   email: string;
   display_name: string;
-  webex_user_id: string | null;
+  linked: boolean;
   enabled: boolean;
   configured: boolean;
   inherited: boolean;
   state: "disabled" | "inherited" | "denied" | "allowlisted" | "overridden" | "not_allowed";
-  expected_webex_email: string;
   agent_id: string;
 }
 
@@ -133,6 +137,11 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     [agents],
   );
 
+  const botOptions = useMemo(
+    () => bots.filter((bot) => bot.available).map((bot) => ({ id: bot.id, label: bot.name })),
+    [bots],
+  );
+
   const updateRow = (userId: string, patch: Partial<DirectUserRow>) => {
     setRows((current) => current.map((row) => row.keycloak_user_id === userId ? { ...row, ...patch } : row));
   };
@@ -158,7 +167,6 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
           keycloak_user_id: row.keycloak_user_id,
           agent_id: row.agent_id,
           enabled: row.enabled,
-          expected_webex_email: row.expected_webex_email,
         }),
       });
       if (!response.ok) throw new Error(await responseError(response, "Failed to save 1:1 access"));
@@ -192,34 +200,25 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     }
   };
 
-  const modeLabel = data?.dm_access_mode === "all_users" ? "All deployment users"
-    : data?.dm_access_mode === "allowlist" ? "Allowlist" : "Disabled";
-
   return (
     <div className="space-y-3" role="region" aria-label="Webex 1:1 message access">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex min-w-64 flex-col gap-1 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
-            <span className="text-xs font-medium text-muted-foreground">Webex bot</span>
-            <select
-              className="h-8 bg-transparent text-sm font-medium outline-none"
-              value={selectedBotId}
-              onChange={(event) => {
-                setSelectedBotId(event.target.value);
-                setData(null);
-                setRows([]);
-              }}
-              disabled={disabled || savingUserId !== null}
-              aria-label="Webex bot"
-            >
-              <option value="">Select a bot</option>
-              {bots.filter((bot) => bot.available).map((bot) => (
-                <option key={bot.id} value={bot.id}>{bot.name}</option>
-              ))}
-            </select>
-          </label>
-          <Badge variant={data?.dm_access_mode === "disabled" ? "outline" : "secondary"}>{modeLabel}</Badge>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <span>Webex bot</span>
+          <ConnectorIdentityPicker
+            options={botOptions}
+            value={selectedBotId}
+            onChange={(botId) => {
+              setSelectedBotId(botId);
+              setData(null);
+              setRows([]);
+            }}
+            disabled={disabled || savingUserId !== null}
+            ariaLabel="Webex bot"
+            allowClear
+            triggerClassName="h-8 min-w-[12rem]"
+          />
+        </label>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId)} disabled={disabled || loading || !selectedBotId}>
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           Refresh
@@ -287,14 +286,20 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                         <div className="text-xs text-muted-foreground">{row.email}</div>
                       </td>
                       <td className="px-3 py-2">
-                        <Input
-                          className="h-8 min-w-56"
-                          value={row.expected_webex_email}
-                          onChange={(event) => updateRow(row.keycloak_user_id, { expected_webex_email: event.target.value })}
-                          disabled={disabled || modeDisabled || saving}
-                          aria-label={`Webex email for ${row.email}`}
-                        />
-                        <div className="mt-1 text-xs text-muted-foreground">{row.webex_user_id ? "Linked" : "Not linked yet"}</div>
+                        {row.linked ? (
+                          <span className="inline-flex items-center gap-1.5 text-sm text-green-500">
+                            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                            Linked
+                          </span>
+                        ) : (
+                          <Link
+                            href={ACCOUNT_ACCESS_SETTINGS_HREF}
+                            className="inline-flex items-center gap-1.5 text-sm text-red-500 hover:underline"
+                          >
+                            <XCircle className="h-4 w-4" aria-hidden="true" />
+                            Unlinked
+                          </Link>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <AgentPicker
