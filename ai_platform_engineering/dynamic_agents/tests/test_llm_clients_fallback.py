@@ -204,6 +204,38 @@ def test_litellm_request_headers_are_opt_in(monkeypatch):
     assert llm_clients._litellm_request_headers("agent-example", "Example Agent") == ()
 
 
+def test_get_llm_does_not_change_transport_when_litellm_tags_disabled(monkeypatch):
+    captured = {}
+
+    class _Factory:
+        def __init__(self, provider):
+            captured["provider"] = provider
+
+        def get_llm(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return "llm"
+
+    def _unexpected_client(*args, **kwargs):
+        pytest.fail("LiteLLM transport must not be created when request tags are disabled")
+
+    monkeypatch.setattr("cnoe_agent_utils.LLMFactory", _Factory, raising=False)
+    monkeypatch.setattr(llm_clients, "_get_httpx_client", _unexpected_client)
+    monkeypatch.setenv("LITELLM_REQUEST_TAGS_ENABLED", "false")
+
+    result = llm_clients.get_llm(
+        "openai",
+        "example-model",
+        agent_id="agent-example",
+        agent_name="Example Agent",
+    )
+
+    assert result == "llm"
+    assert captured == {
+        "provider": "openai",
+        "kwargs": {"model": "example-model"},
+    }
+
+
 def test_litellm_request_headers_include_sanitized_agent_identity(monkeypatch):
     monkeypatch.setenv("LITELLM_REQUEST_TAGS_ENABLED", "true")
     monkeypatch.setenv("LITELLM_ENVIRONMENT", "production")

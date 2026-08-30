@@ -106,6 +106,8 @@ ANTHROPIC_API_KEY=your-api-key
 # LITELLM_REQUEST_TAGS_ENABLED=true
 # LITELLM_ENVIRONMENT=production
 # LITELLM_APPLICATION=agent-platform
+# Leave LITELLM_REQUEST_TAGS_ENABLED unset or false when LiteLLM is not used.
+# In that mode no LiteLLM headers or custom HTTP transport are added.
 
 # For Azure OpenAI:
 # AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
@@ -159,7 +161,7 @@ The API documentation is available at:
 | `DYNAMIC_AGENTS_COLLECTION` | Agents collection name | `dynamic_agents` |
 | `MCP_SERVERS_COLLECTION` | MCP servers collection name | `mcp_servers` |
 | `AGENT_RUNTIME_TTL_SECONDS` | Cache TTL for agent runtimes | `3600` |
-| `LITELLM_REQUEST_TAGS_ENABLED` | Add environment, application, agent ID, and agent name tags to OpenAI-compatible LiteLLM requests | `false` |
+| `LITELLM_REQUEST_TAGS_ENABLED` | Add environment, application, agent ID, and agent name tags to OpenAI-compatible LiteLLM requests. Leave disabled for non-LiteLLM providers. | `false` |
 | `LITELLM_ENVIRONMENT` | Environment value used when LiteLLM request tags are enabled | unset |
 | `LITELLM_APPLICATION` | Application value used when LiteLLM request tags are enabled | unset |
 | `CORS_ORIGINS` | Allowed CORS origins | `["*"]` |
