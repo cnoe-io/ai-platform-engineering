@@ -46,17 +46,26 @@ def _cached_bedrock_clients(region: str) -> tuple[Any, Any]:
     return _create_bedrock_clients(region)
 
 
-def _create_httpx_client(endpoint: str) -> Any:
+def _create_httpx_client(
+    endpoint: str,
+    headers: tuple[tuple[str, str], ...] = (),
+) -> Any:
     import httpx
 
-    client = httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0))
+    client = httpx.Client(
+        timeout=httpx.Timeout(300.0, connect=60.0),
+        headers=dict(headers),
+    )
     logger.info("Created httpx client (endpoint=%s, shared=%s)", endpoint, SHARE_CLIENTS)
     return client
 
 
-@lru_cache(maxsize=4)
-def _cached_httpx_client(endpoint: str) -> Any:
-    return _create_httpx_client(endpoint)
+@lru_cache(maxsize=128)
+def _cached_httpx_client(
+    endpoint: str,
+    headers: tuple[tuple[str, str], ...] = (),
+) -> Any:
+    return _create_httpx_client(endpoint, headers)
 
 
 def _get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
@@ -67,11 +76,14 @@ def _get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
     return _create_bedrock_clients(region)
 
 
-def _get_httpx_client(endpoint: str) -> Any:
-    """Get httpx.Client for OpenAI/Azure. Cached by endpoint when sharing enabled."""
+def _get_httpx_client(
+    endpoint: str,
+    headers: tuple[tuple[str, str], ...] = (),
+) -> Any:
+    """Get an HTTP client, cached by endpoint and immutable default headers."""
     if SHARE_CLIENTS:
-        return _cached_httpx_client(endpoint)
-    return _create_httpx_client(endpoint)
+        return _cached_httpx_client(endpoint, headers)
+    return _create_httpx_client(endpoint, headers)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,7 +132,44 @@ def _resolve_llm_defaults(provider: str | None, model_id: str | None) -> tuple[s
     return resolved_provider, resolved_model
 
 
-def get_llm(provider: str, model_id: str) -> BaseChatModel:
+def _tag_value(value: str) -> str:
+    """Return an ASCII, comma-safe value for a LiteLLM request tag."""
+    cleaned = "".join(
+        char if char.isascii() and (char.isalnum() or char in "._:@/-") else "-"
+        for char in value.strip()
+    )
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-")[:128]
+
+
+def _litellm_request_headers(
+    agent_id: str | None,
+    agent_name: str | None,
+) -> tuple[tuple[str, str], ...]:
+    """Build opt-in LiteLLM tags that correlate spend logs to an agent."""
+    if os.getenv("LITELLM_REQUEST_TAGS_ENABLED", "false").lower() != "true":
+        return ()
+
+    tag_values = (
+        ("environment", os.getenv("LITELLM_ENVIRONMENT")),
+        ("application", os.getenv("LITELLM_APPLICATION")),
+        ("agent_id", agent_id),
+        ("agent_name", agent_name),
+    )
+    tags = [f"{key}:{cleaned}" for key, value in tag_values if value and (cleaned := _tag_value(value))]
+    if not tags:
+        return ()
+    return (("x-litellm-tags", ",".join(tags)),)
+
+
+def get_llm(
+    provider: str,
+    model_id: str,
+    *,
+    agent_id: str | None = None,
+    agent_name: str | None = None,
+) -> BaseChatModel:
     """Get a LangChain chat model for the given provider and model.
 
     Injects shared transport clients (boto3/httpx) when LLM_CLIENT_SHARING=true,
@@ -142,8 +191,13 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     if resolved_model is not None:
         kwargs["model"] = resolved_model
 
-    if SHARE_CLIENTS:
-        p = resolved_provider.lower().replace("-", "_")
+    p = resolved_provider.lower().replace("-", "_")
+    request_headers = _litellm_request_headers(agent_id, agent_name)
+
+    if p == "openai" and request_headers:
+        endpoint = os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
+        kwargs["http_client"] = _get_httpx_client(endpoint, request_headers)
+    elif SHARE_CLIENTS:
         if "bedrock" in p or "aws" in p:
             rt, ctrl = _get_bedrock_clients()
             kwargs["client"] = rt
