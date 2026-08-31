@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Loader2, RefreshCw, RotateCcw, Save, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { ConnectorIdentityPicker } from "@/components/admin/rebac/ConnectorIdentityPicker";
@@ -89,10 +89,16 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     return () => clearTimeout(handle);
   }, [search]);
 
-  // Reset to page 1 whenever the search term or selected bot changes.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, selectedBotId]);
+  // Every fetch is tagged with an incrementing id so a response can detect
+  // it has been superseded (bot switch, search change, or page change) and
+  // skip applying stale data instead of overwriting a newer result.
+  const requestIdRef = useRef(0);
+  // Tracks the (bot, search) pair the current `page` value was computed
+  // for, so a bot/search change can force page back to 1 and skip fetching
+  // until that reset has committed — otherwise this effect and the
+  // page-reset would each fire their own request against the same render's
+  // stale `page`.
+  const pageResetKeyRef = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -122,6 +128,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
 
   const loadUsers = useCallback(async (botId: string, pageArg: number, searchTerm: string) => {
     if (!botId) return;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -136,17 +143,31 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       });
       if (!response.ok) throw new Error(await responseError(response, "Failed to load deployment users"));
       const next = apiData<DirectUsersResponse>(await response.json());
+      if (requestIdRef.current !== requestId) return;
       setData(next);
       setRows(next.users ?? []);
     } catch (reason) {
+      if (requestIdRef.current !== requestId) return;
       setError(reason instanceof Error ? reason.message : "Failed to load deployment users");
     } finally {
-      setLoading(false);
+      if (requestIdRef.current === requestId) setLoading(false);
     }
   }, []);
 
+  // Reset to page 1 whenever the search term or selected bot changes, and
+  // only fetch once that reset has committed — otherwise this effect would
+  // fire a fetch for the stale page in the same pass as the page-reset.
   useEffect(() => {
-    if (selectedBotId) void loadUsers(selectedBotId, page, debouncedSearch);
+    if (!selectedBotId) return;
+    const resetKey = `${selectedBotId} ${debouncedSearch}`;
+    if (resetKey !== pageResetKeyRef.current) {
+      pageResetKeyRef.current = resetKey;
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+    void loadUsers(selectedBotId, page, debouncedSearch);
   }, [loadUsers, selectedBotId, page, debouncedSearch]);
 
   const agentOptions = useMemo(
