@@ -7,6 +7,7 @@ AWS MCP Server that exposes `aws_cli_execute` and `eks_kubectl_execute` as
 
 | Tool | Description |
 |------|-------------|
+| `list_aws_accounts` | List configured account names and IDs before invoking account-scoped tools. |
 | `aws_cli_execute` | Execute read-only AWS CLI commands (`describe-*`, `list-*`, `get-*`). Write/destructive operations are blocked by default. Supports cross-account profiles via `AWS_ACCOUNT_LIST`. |
 | `eks_kubectl_execute` | Execute kubectl commands against an EKS cluster. Handles `aws eks update-kubeconfig` automatically. Secret data is redacted from output before returning to the LLM. |
 
@@ -34,6 +35,11 @@ container credential endpoint. When IRSA injects both `AWS_ROLE_ARN` and
 `AWS_WEB_IDENTITY_TOKEN_FILE`, the server creates a web-identity source profile
 and chains each cross-account profile through it. Static environment credentials
 remain supported as a local-development fallback, but are not required on EKS.
+
+When `AWS_ACCOUNT_LIST` is configured, account-scoped tools require a valid
+`profile`. The legacy `account` argument remains accepted as an alias for
+backward compatibility. Empty or unknown account selectors fail with the list
+of available profiles instead of silently using the workload's bootstrap role.
 
 ## Running locally
 

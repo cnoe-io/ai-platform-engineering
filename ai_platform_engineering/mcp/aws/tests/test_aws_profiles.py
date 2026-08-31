@@ -88,3 +88,98 @@ def test_web_identity_values_must_be_single_line(server, monkeypatch):
 
     with pytest.raises(ValueError, match="AWS_ROLE_ARN must be a single-line"):
         server._setup_aws_profiles()
+
+
+def test_list_aws_accounts_returns_profile_mappings(server):
+    assert server.list_aws_accounts() == {
+        "accounts": [
+            {"name": "dev", "id": "111111111111"},
+            {"name": "prod", "id": "222222222222"},
+        ],
+        "usage": "Pass an account name as profile (preferred) or account (legacy alias).",
+    }
+
+
+@pytest.mark.parametrize(
+    ("profile", "account", "expected"),
+    [
+        ("dev", None, "dev"),
+        (None, "dev", "dev"),
+        ("dev", "dev", "dev"),
+    ],
+)
+def test_account_selection_accepts_profile_and_legacy_alias(server, profile, account, expected):
+    selected, error = server._resolve_account_profile(profile, account)
+
+    assert selected == expected
+    assert error is None
+
+
+def test_account_selection_rejects_empty_multi_account_fallback(server):
+    selected, error = server._resolve_account_profile(None, None)
+
+    assert selected is None
+    assert error == "An AWS profile is required. Available profiles: dev, prod."
+
+
+def test_account_selection_rejects_unknown_profile(server):
+    selected, error = server._resolve_account_profile("missing", None)
+
+    assert selected is None
+    assert error == "Unknown AWS profile 'missing'. Available profiles: dev, prod."
+
+
+def test_account_selection_rejects_conflicting_aliases(server):
+    selected, error = server._resolve_account_profile("dev", "prod")
+
+    assert selected is None
+    assert error == (
+        "Conflicting account selectors: profile='dev' and account='prod'. "
+        "Pass only one value or make them identical."
+    )
+
+
+def test_account_selection_preserves_environment_fallback(server, monkeypatch):
+    monkeypatch.delenv("AWS_ACCOUNT_LIST")
+    server._get_configured_profiles.cache_clear()
+
+    selected, error = server._resolve_account_profile(None, None)
+
+    assert selected is None
+    assert error is None
+    assert server.list_aws_accounts() == {
+        "accounts": [],
+        "usage": "No account profiles are configured; environment credentials are used directly.",
+    }
+
+
+def test_aws_cli_rejects_empty_profile_before_using_bootstrap_credentials(server):
+    result = server.asyncio.run(server.aws_cli_execute("sts get-caller-identity"))
+
+    assert result == "❌ An AWS profile is required. Available profiles: dev, prod."
+
+
+def test_aws_cli_legacy_account_alias_adds_profile(server, monkeypatch):
+    captured: list[str] = []
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b'{"Account": "111111111111"}', b""
+
+    async def fake_subprocess(command: str, **_kwargs: object) -> FakeProcess:
+        captured.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(server.asyncio, "create_subprocess_shell", fake_subprocess)
+    server._aws_cli_semaphore = server.asyncio.Semaphore(1)
+
+    result = server.asyncio.run(
+        server.aws_cli_execute("sts get-caller-identity", account="dev")
+    )
+
+    assert result == '{"Account": "111111111111"}'
+    assert captured == [
+        "aws --profile dev sts get-caller-identity --region us-west-2 --output json"
+    ]
