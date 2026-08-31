@@ -65,14 +65,16 @@ jobs:
       image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
     env:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.CI_MCP_APP_ID }}
-          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+          app-id: ${{ env.CI_MCP_APP_ID }}
+          private-key: ${{ env.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
@@ -206,6 +208,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
 
     steps:
       - name: 🔒 harden runner
@@ -215,11 +219,11 @@ jobs:
 
       - name: 🔑 Generate GitHub App token
         id: app-token
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.CI_MCP_APP_ID }}
-          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+          app-id: ${{ env.CI_MCP_APP_ID }}
+          private-key: ${{ env.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-packages: write
@@ -297,6 +301,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
 
     steps:
       - name: 🔒 harden runner
@@ -370,10 +376,11 @@ jobs:
 
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.CI_MCP_APP_ID }}
-          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+          app-id: ${{ env.CI_MCP_APP_ID }}
+          private-key: ${{ env.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-packages: write
@@ -386,7 +393,7 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REGISTRY_USER: ${{ github.actor }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
@@ -495,20 +502,24 @@ jobs:
       always() &&
       needs.determine-agents.outputs.tag_version != '' &&
       !contains(needs.determine-agents.outputs.tag_version, '-')
+    env:
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.CI_MCP_APP_ID }}
-          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+          app-id: ${{ env.CI_MCP_APP_ID }}
+          private-key: ${{ env.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
           WORKFLOW_NAME: ${{ github.workflow }}
         run: |

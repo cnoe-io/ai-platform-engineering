@@ -128,6 +128,7 @@ describe("AgentGateway MCP discovery", () => {
           "argocd",
           "backstage",
           "confluence",
+          "figma",
           "gitlab",
           "jira",
           "knowledge-base",
