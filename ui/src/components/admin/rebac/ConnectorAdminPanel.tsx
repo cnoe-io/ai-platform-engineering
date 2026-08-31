@@ -997,10 +997,10 @@ export function ConnectorAdminPanel({
     void loadDiscoveryIdentities();
   }, [adapter.api.discoveryIdentities, loadDiscoveryIdentities]);
   useEffect(() => {
-    if (!hasAdvancedView) return;
+    if (!hasAdvancedView || adapter.advancedTabMinimal) return;
     void loadRuntimeStatus().catch((e) =>
       setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
-  }, [loadRuntimeStatus, hasAdvancedView, adapter.connectorName]);
+  }, [loadRuntimeStatus, hasAdvancedView, adapter.advancedTabMinimal, adapter.connectorName]);
   const connectorName = adapter.connectorName;
   const itemSingular = adapter.itemSingular;
   useEffect(() => {

@@ -400,6 +400,18 @@ it("shows only the Reload Bot Cache action on the Webex Advanced tab", async () 
   expect(screen.queryByText("Route mode")).not.toBeInTheDocument();
 });
 
+it("never fetches runtime status because Webex's Advanced tab is minimal", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  await screen.findByRole("region", { name: "Configured Webex spaces" });
+  fireEvent.click(await screen.findByRole("tab", { name: "Advanced" }));
+  await screen.findByRole("button", { name: "Reload Bot Cache" });
+
+  expect(
+    fetchMock.mock.calls.some(([url]) => url === "/api/admin/webex/runtime/status"),
+  ).toBe(false);
+});
+
 it("opens Configure spaces from the empty configured-spaces action", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {

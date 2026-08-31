@@ -295,6 +295,21 @@ describe("/api/admin/webex/direct-users", () => {
     expect(payload.data.has_more).toBe(true); // 3 * 2 = 6 < 42
   });
 
+  it("excludes rows with no usable keycloak_user_id or email", async () => {
+    mockSearchRealmUsers.mockResolvedValueOnce([
+      { id: "user-1", email: "user@example.com", enabled: true, username: "user" },
+      { id: "", email: "", enabled: true, username: "service-account" },
+    ]);
+    mockCountRealmUsers.mockResolvedValueOnce(2);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("GET"));
+    const payload = await response.json();
+
+    expect(payload.data.users).toHaveLength(1);
+    expect(payload.data.users[0]).toMatchObject({ keycloak_user_id: "user-1" });
+  });
+
   it("omits the search term when q is blank", async () => {
     const { GET } = await import("../route");
 

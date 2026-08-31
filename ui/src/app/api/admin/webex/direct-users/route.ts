@@ -71,7 +71,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .map((user) => String(user.id ?? ""))
     .filter((id) => id.length > 0);
   const routeByUser = await listWebexDirectUserRoutesByUserIds(bot.id, userIds);
-  const rows = users.map((user) => {
+  const rows = users.filter((user) => {
+    const id = String(user.id ?? "").trim();
+    const email = String(user.email ?? "").trim();
+    return id.length > 0 && email.length > 0;
+  }).map((user) => {
     const id = String(user.id ?? "");
     const email = String(user.email ?? "").trim().toLowerCase();
     const attributes = userAttributes(user);

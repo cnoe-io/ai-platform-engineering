@@ -294,6 +294,16 @@ it("scopes the configured channel list to the simulated user", async () => {
   });
 });
 
+it("fetches runtime status on mount since Slack's Advanced tab is not minimal", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  await waitFor(() => {
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/api/admin/slack/runtime/status"),
+    ).toBe(true);
+  });
+});
+
 it("shows a loading spinner while self-service channels load", async () => {
   let resolveChannels: ((value: Response) => void) | undefined;
   const channelsPromise = new Promise<Response>((resolve) => {
