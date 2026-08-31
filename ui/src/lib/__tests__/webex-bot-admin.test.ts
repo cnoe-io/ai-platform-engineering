@@ -77,6 +77,55 @@ it("rejects admin paths outside the allowlist", async () => {
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it("rejects with 503 when no client secret is configured", async () => {
+  delete process.env.OIDC_CLIENT_SECRET;
+  delete process.env.WEBEX_BOT_ADMIN_CLIENT_SECRET;
+
+  await expect(callWebexBotAdmin("/admin/webex/routes/status")).rejects.toMatchObject({
+    statusCode: 503,
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("rejects with 502 when the token endpoint responds with a non-OK status", async () => {
+  fetchMock.mockResolvedValueOnce(response({}, false, 500));
+
+  await expect(callWebexBotAdmin("/admin/webex/routes/status")).rejects.toMatchObject({
+    statusCode: 502,
+  });
+});
+
+it("rejects with 502 when the token response is missing access_token", async () => {
+  fetchMock.mockResolvedValueOnce(response({ expires_in: 300 }));
+
+  await expect(callWebexBotAdmin("/admin/webex/routes/status")).rejects.toMatchObject({
+    statusCode: 502,
+  });
+});
+
+it("propagates the downstream admin response status and error message", async () => {
+  fetchMock
+    .mockResolvedValueOnce(response({ access_token: "service-token", expires_in: 300 }))
+    .mockResolvedValueOnce(response({ error: "boom" }, false, 404));
+
+  await expect(callWebexBotAdmin("/admin/webex/routes/status")).rejects.toMatchObject({
+    statusCode: 404,
+    message: expect.stringContaining("boom"),
+  });
+});
+
+it("reuses a cached unexpired token instead of fetching a new one", async () => {
+  fetchMock
+    .mockResolvedValueOnce(response({ access_token: "service-token", expires_in: 300 }))
+    .mockResolvedValueOnce(response({ route_mode: "db_prefer" }))
+    .mockResolvedValueOnce(response({ route_mode: "db_prefer" }));
+
+  await callWebexBotAdmin("/admin/webex/routes/status");
+  await callWebexBotAdmin("/admin/webex/routes/status");
+
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
 function response(payload: unknown, ok = true, status = 200): Response {
   return {
     ok,

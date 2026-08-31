@@ -46,6 +46,30 @@ export async function listWebexDirectUserRoutes(botId: string): Promise<WebexDir
     .toArray();
 }
 
+/** Routes for a specific bot, scoped to a known set of user ids — for joining against one page of Keycloak results without fetching every route for the bot. */
+export async function listWebexDirectUserRoutesByUserIds(
+  botId: string,
+  keycloakUserIds: string[],
+): Promise<Map<string, WebexDirectUserRouteDocument>> {
+  if (keycloakUserIds.length === 0) return new Map();
+  const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
+  const normalizedBotId = requiredId(botId, "bot_id");
+  const routes = await collection
+    .find({ bot_id: normalizedBotId, keycloak_user_id: { $in: keycloakUserIds } } as never)
+    .toArray();
+  return new Map(routes.map((route) => [route.keycloak_user_id, route]));
+}
+
+/** All of one user's routes across every Webex bot, keyed by bot_id for lookup. */
+export async function listWebexDirectUserRoutesForUser(
+  keycloakUserId: string,
+): Promise<Map<string, WebexDirectUserRouteDocument>> {
+  const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
+  const normalizedUserId = requiredId(keycloakUserId, "keycloak_user_id");
+  const routes = await collection.find({ keycloak_user_id: normalizedUserId } as never).toArray();
+  return new Map(routes.map((route) => [route.bot_id, route]));
+}
+
 export async function upsertWebexDirectUserRoute(input: {
   botId: string;
   keycloakUserId: string;
