@@ -981,7 +981,12 @@ class AgentRuntime:
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
-        llm = get_llm(self.config.model.provider, self.config.model.id)
+        llm = get_llm(
+            self.config.model.provider,
+            self.config.model.id,
+            agent_id=self.config.id,
+            agent_name=self.config.name,
+        )
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # ─────────────────────────────────────────────────────────────────
@@ -1437,7 +1442,12 @@ class AgentRuntime:
             subagent_prompt = subagent_config.system_prompt
 
             # Instantiate subagent LLM (uses its own configured model)
-            subagent_llm = get_llm(subagent_config.model.provider, subagent_config.model.id)
+            subagent_llm = get_llm(
+                subagent_config.model.provider,
+                subagent_config.model.id,
+                agent_id=subagent_config.id,
+                agent_name=subagent_config.name,
+            )
 
             # Create SubAgent dict in deepagents format
             # Use agent_id as the name - this ensures namespace[0] from LangGraph
