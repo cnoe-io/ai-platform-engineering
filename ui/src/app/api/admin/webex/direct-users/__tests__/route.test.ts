@@ -46,7 +46,7 @@ jest.mock("@/lib/webex-bot-policy", () => ({
   requireAvailableWebexBotPolicy: (...args: unknown[]) => mockRequireBot(...args),
 }));
 
-function request(method: "GET" | "PUT", body?: Record<string, unknown>): NextRequest {
+function request(method: "GET" | "PUT" | "DELETE", body?: Record<string, unknown>): NextRequest {
   return new NextRequest("http://localhost/api/admin/webex/direct-users?bot_id=primary", {
     method,
     ...(body ? {
@@ -94,7 +94,7 @@ describe("/api/admin/webex/direct-users", () => {
   it.each([
     ["GET", () => request("GET")],
     ["PUT", () => request("PUT", { bot_id: "primary", keycloak_user_id: "user-1", agent_id: "agent-1", enabled: true })],
-    ["DELETE", () => request("PUT", { bot_id: "primary", keycloak_user_id: "user-1" })],
+    ["DELETE", () => request("DELETE", { bot_id: "primary", keycloak_user_id: "user-1" })],
   ] as const)("%s requires admin_ui:admin and rejects when the caller lacks it", async (method, buildRequest) => {
     const handlers = await import("../route");
     const handler = method === "GET" ? handlers.GET : method === "PUT" ? handlers.PUT : handlers.DELETE;
@@ -169,5 +169,77 @@ describe("/api/admin/webex/direct-users", () => {
       inherited: true,
     });
     expect(payload.data.users[0]).not.toHaveProperty("team_slug");
+  });
+
+  it("reports linked=true when the user has a webex_user_id attribute and linked=false otherwise", async () => {
+    mockListRealmUsersPage.mockResolvedValueOnce([
+      { id: "user-1", email: "linked@example.com", enabled: true, attributes: { webex_user_id: ["abc"] } },
+      { id: "user-2", email: "unlinked@example.com", enabled: true, attributes: {} },
+    ]);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("GET"));
+    const payload = await response.json();
+
+    expect(payload.data.users).toEqual([
+      expect.objectContaining({ keycloak_user_id: "user-1", linked: true }),
+      expect.objectContaining({ keycloak_user_id: "user-2", linked: false }),
+    ]);
+  });
+
+  it.each([
+    ["allowlist", "active", "allowlisted", true],
+    ["allowlist", "disabled", "denied", false],
+    ["allowlist", undefined, "not_allowed", false],
+    ["all_users", "active", "overridden", true],
+    ["all_users", "disabled", "denied", false],
+    ["all_users", undefined, "inherited", true],
+  ] as const)(
+    "classifies accessMode=%s route.status=%s as state=%s",
+    async (accessMode, routeStatus, expectedState, expectedEnabled) => {
+      mockRequireBot.mockResolvedValue({
+        id: "primary",
+        name: "Primary bot",
+        available: true,
+        spaces: { accessMode: "allowlist", defaultTeamSlug: null, defaultAgentId: null },
+        directMessages: { accessMode, defaultAgentId: null },
+      });
+      mockListRealmUsersPage.mockResolvedValueOnce([
+        { id: "user-1", email: "user@example.com", enabled: true, attributes: {} },
+      ]);
+      mockListRoutes.mockResolvedValueOnce(
+        routeStatus
+          ? [{ keycloak_user_id: "user-1", bot_id: "primary", user_email: "user@example.com", agent_id: "agent-1", status: routeStatus }]
+          : [],
+      );
+      const { GET } = await import("../route");
+
+      const response = await GET(request("GET"));
+      const payload = await response.json();
+
+      expect(payload.data.users[0]).toMatchObject({
+        state: expectedState,
+        enabled: expectedEnabled,
+      });
+    },
+  );
+
+  it("reports state=disabled when direct messages are disabled for the bot", async () => {
+    mockRequireBot.mockResolvedValue({
+      id: "primary",
+      name: "Primary bot",
+      available: true,
+      spaces: { accessMode: "allowlist", defaultTeamSlug: null, defaultAgentId: null },
+      directMessages: { accessMode: "disabled", defaultAgentId: null },
+    });
+    mockListRealmUsersPage.mockResolvedValueOnce([
+      { id: "user-1", email: "user@example.com", enabled: true, attributes: {} },
+    ]);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("GET"));
+    const payload = await response.json();
+
+    expect(payload.data.users[0]).toMatchObject({ state: "disabled" });
   });
 });

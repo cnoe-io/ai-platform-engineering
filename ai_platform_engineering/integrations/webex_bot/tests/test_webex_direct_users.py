@@ -210,3 +210,84 @@ def test_all_users_explicit_deny_overrides_inherited_access(monkeypatch) -> None
 
     assert result.allowed is False
     assert result.reason == "explicit_deny"
+
+
+def test_all_users_directory_lookup_failure_denies(monkeypatch) -> None:
+    _set_bot_policy(monkeypatch, mode="all_users")
+
+    async def user_by_id(user_id: str) -> dict[str, Any] | None:
+        raise RuntimeError("keycloak outage")
+
+    resolver = WebexDirectUserResolver(
+        collection_factory=lambda: _Collection([]),  # type: ignore[arg-type]
+        user_by_id=user_by_id,
+    )
+    result = asyncio.run(
+        resolver.resolve(bot_id="primary", webex_user_id="person1234", keycloak_user_id="kc-user-1")
+    )
+    assert result.allowed is False
+    assert result.reason == "directory_unavailable"
+
+
+def test_all_users_disabled_or_missing_user_denies(monkeypatch) -> None:
+    _set_bot_policy(monkeypatch, mode="all_users")
+
+    async def missing_user(user_id: str) -> dict[str, Any] | None:
+        return None
+
+    resolver = WebexDirectUserResolver(
+        collection_factory=lambda: _Collection([]),  # type: ignore[arg-type]
+        user_by_id=missing_user,
+    )
+    result = asyncio.run(
+        resolver.resolve(bot_id="primary", webex_user_id="person1234", keycloak_user_id="kc-user-1")
+    )
+    assert result.allowed is False
+    assert result.reason == "not_deployment_user"
+
+    async def disabled_user(user_id: str) -> dict[str, Any] | None:
+        return {"id": user_id, "enabled": False}
+
+    resolver = WebexDirectUserResolver(
+        collection_factory=lambda: _Collection([]),  # type: ignore[arg-type]
+        user_by_id=disabled_user,
+    )
+    result = asyncio.run(
+        resolver.resolve(bot_id="primary", webex_user_id="person1234", keycloak_user_id="kc-user-1")
+    )
+    assert result.allowed is False
+    assert result.reason == "not_deployment_user"
+
+
+def test_allowlist_route_missing_keycloak_or_agent_id_is_invalid(monkeypatch) -> None:
+    _set_bot_policy(monkeypatch, mode="allowlist", bot_id="secondary")
+    collection = _Collection([
+        {
+            "bot_id": "secondary",
+            "status": "active",
+            "webex_user_id": "person1234",
+            "keycloak_user_id": "",
+            "agent_id": "agent-1",
+        }
+    ])
+    resolver = WebexDirectUserResolver(collection_factory=lambda: collection)  # type: ignore[arg-type]
+    result = asyncio.run(
+        resolver.resolve(bot_id="secondary", webex_user_id="person1234", keycloak_user_id="kc-user-1")
+    )
+    assert result.allowed is False
+    assert result.reason == "invalid_route"
+
+    collection_missing_agent = _Collection([
+        {
+            "bot_id": "secondary",
+            "status": "active",
+            "webex_user_id": "person1234",
+            "keycloak_user_id": "kc-user-1",
+        }
+    ])
+    resolver = WebexDirectUserResolver(collection_factory=lambda: collection_missing_agent)  # type: ignore[arg-type]
+    result = asyncio.run(
+        resolver.resolve(bot_id="secondary", webex_user_id="person1234", keycloak_user_id="kc-user-1")
+    )
+    assert result.allowed is False
+    assert result.reason == "invalid_route"
