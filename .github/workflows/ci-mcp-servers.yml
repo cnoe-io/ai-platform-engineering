@@ -75,12 +75,12 @@ jobs:
       image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
     env:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
-      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
-      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID || secrets.GHA_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY || secrets.GHA_APP_PRIVATE_KEY }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        if: ${{ github.event_name != 'pull_request' && env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ env.CI_MCP_APP_ID }}
@@ -232,8 +232,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
-      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID || secrets.GHA_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY || secrets.GHA_APP_PRIVATE_KEY }}
 
     steps:
       - name: 🔒 harden runner
@@ -243,7 +243,7 @@ jobs:
 
       - name: 🔑 Generate GitHub App token
         id: app-token
-        if: ${{ github.event_name != 'pull_request' && env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ env.CI_MCP_APP_ID }}
@@ -278,8 +278,8 @@ jobs:
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+          username: ${{ steps.app-token.outputs.token != '' && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Extract metadata for Docker
         id: meta
@@ -348,8 +348,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
-      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID || secrets.GHA_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY || secrets.GHA_APP_PRIVATE_KEY }}
 
     steps:
       - name: 🔒 harden runner
@@ -367,12 +367,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        if: ${{ env.CI_MCP_APP_ID != '' && env.CI_MCP_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ env.CI_MCP_APP_ID }}
+          private-key: ${{ env.CI_MCP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-packages: write
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+          username: ${{ steps.app-token.outputs.token != '' && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Extract metadata for Docker
         id: meta
@@ -416,6 +427,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID || secrets.GHA_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY || secrets.GHA_APP_PRIVATE_KEY }}
 
     steps:
       - name: 🔒 Harden runner
@@ -443,7 +456,7 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_USER: ${{ steps.app-token.outputs.token != '' && 'x-access-token' || github.actor }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
@@ -533,8 +546,8 @@ jobs:
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+          username: ${{ steps.app-token.outputs.token != '' && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'
@@ -574,8 +587,8 @@ jobs:
       needs.determine-agents.outputs.tag_version != '' &&
       !contains(needs.determine-agents.outputs.tag_version, '-')
     env:
-      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID }}
-      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+      CI_MCP_APP_ID: ${{ secrets.CI_MCP_APP_ID || secrets.GHA_APP_ID }}
+      CI_MCP_APP_PRIVATE_KEY: ${{ secrets.CI_MCP_APP_PRIVATE_KEY || secrets.GHA_APP_PRIVATE_KEY }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
