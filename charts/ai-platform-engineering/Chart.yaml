@@ -60,6 +60,14 @@ dependencies:
         parent: global.enabledSubAgents.github
   - name: mcp-server
     version: 0.5.68-dev.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: mcp-figma
+    tags:
+      - mcp-figma
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.figma
+  - name: mcp-server
+    version: 0.5.68-dev.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: mcp-gitlab
     tags:
       - mcp-gitlab

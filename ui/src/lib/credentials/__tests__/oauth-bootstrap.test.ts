@@ -151,6 +151,35 @@ describe("OAuth connector env bootstrap", () => {
     ]);
   });
 
+  it("uses read-only Figma scopes by default and allows write scopes explicitly", () => {
+    const defaults = buildOAuthConnectorBootstrapInputs({
+      FIGMA_CLIENT_ID: "figma-client",
+      FIGMA_CLIENT_SECRET: "figma-secret",
+      FIGMA_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/figma/callback",
+    });
+    const overridden = buildOAuthConnectorBootstrapInputs({
+      FIGMA_CLIENT_ID: "figma-client",
+      FIGMA_CLIENT_SECRET: "figma-secret",
+      FIGMA_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/figma/callback",
+      FIGMA_SCOPES: "current_user:read file_content:read file_comments:write",
+    });
+
+    expect(defaults).toEqual([
+      expect.objectContaining({
+        provider: "figma",
+        authorizationUrl: "https://www.figma.com/oauth",
+        tokenUrl: "https://api.figma.com/v1/oauth/token",
+        scopes: expect.not.arrayContaining(["file_comments:write", "file_dev_resources:write"]),
+      }),
+    ]);
+    expect(overridden).toEqual([
+      expect.objectContaining({
+        provider: "figma",
+        scopes: ["current_user:read", "file_content:read", "file_comments:write"],
+      }),
+    ]);
+  });
+
   it("builds arbitrary deploy-configured connectors and resolves secret env references", () => {
     const inputs = buildOAuthConnectorBootstrapInputs({
       NEXTAUTH_URL: "https://caipe.example.com",

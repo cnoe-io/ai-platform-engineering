@@ -39,6 +39,7 @@ tags:
   dynamic-agents: true
   mcp-argocd: true
   mcp-github: true
+  mcp-figma: true
 
 caipe-ui:
   mongodb:
@@ -54,5 +55,8 @@ mcp-argocd:
   agentSecrets:
     secretName: existing-argocd-secret
 ```
+
+Enable the bundled Figma REST MCP with `tags.mcp-figma=true` and provide
+`FIGMA_ACCESS_TOKEN` through the `mcp-figma` secret.
 
 Use `values.yaml` in the chart source for the complete value schema.

@@ -63,6 +63,28 @@ describe("exchangeOAuthToken", () => {
       }),
     ).resolves.toEqual({ access_token: "access-token", expires_in: 3600 });
   });
+
+  it("uses Figma Basic auth and refresh endpoint for Figma OAuth", async () => {
+    const fetchMock = jest.fn(async () => tokenResponse(JSON.stringify({ access_token: "figma-token" })));
+    global.fetch = fetchMock as typeof fetch;
+
+    await exchangeOAuthToken("https://api.figma.com/v1/oauth/token", {
+      grant_type: "refresh_token",
+      client_id: "figma-client",
+      client_secret: "figma-secret",
+      refresh_token: "refresh-token",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.figma.com/v1/oauth/refresh",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("figma-client:figma-secret").toString("base64")}`,
+        }),
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "refresh-token" }),
+      }),
+    );
+  });
 });
 
 describe("getOAuthConnectorService", () => {

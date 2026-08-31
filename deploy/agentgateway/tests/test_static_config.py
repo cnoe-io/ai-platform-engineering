@@ -63,6 +63,21 @@ def test_gitlab_route_rewrites_provider_token_to_authorization() -> None:
     assert "authorization" in route["policies"]
 
 
+@pytest.mark.parametrize("config_path", [CONFIG_PATH, RBAC_CONFIG_PATH], ids=["config", "caipe-rbac"])
+def test_figma_route_rewrites_provider_token_to_authorization(config_path: Path) -> None:
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    route = _mcp_route(config, "figma")
+    target = _mcp_target(config, "figma")
+
+    assert target["mcp"]["host"] == "http://mcp-figma:8000/mcp"
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["authorization"] == PROVIDER_TOKEN_TRANSFORM
+    assert transform["x-caipe-provider-token"] == 'default(request.headers["x-caipe-provider-token"], "")'
+    assert "extAuthz" in route["policies"]
+    assert "authorization" in route["policies"]
+
+
 def test_knowledge_base_route_rewrites_provider_token_to_authorization() -> None:
     # The RAG server enforces its own OIDC auth, so the knowledge-base route must
     # rewrite the user-JWT/service-token (X-CAIPE-Provider-Token) into Authorization.

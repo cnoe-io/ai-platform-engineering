@@ -63,6 +63,7 @@ const PROVIDER_ENV: BootstrapProviderEnv[] = [
     clientIdEnv: "FIGMA_CLIENT_ID",
     clientSecretEnv: "FIGMA_CLIENT_SECRET",
     redirectUriEnv: "FIGMA_REDIRECT_URI",
+    scopesEnv: "FIGMA_SCOPES",
   },
   {
     provider: "linear",

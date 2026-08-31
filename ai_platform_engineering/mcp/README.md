@@ -37,6 +37,9 @@ mcp-agent-auth = { path = "../common/mcp-auth", editable = true }
 `github/` is special: it uses the **external** official image
 `ghcr.io/github/github-mcp-server` and has no local server — see its README.
 
+`figma/` is the CAIPE-maintained Figma REST API MCP server. It uses Figma
+OAuth/PAT authentication and is available in Compose as the `figma` profile.
+
 ## Adding / running a server
 
 Each server is an isolated uv project run from source:

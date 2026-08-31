@@ -1,0 +1,33 @@
+[project]
+name = "mcp-figma"
+version = "0.1.0"
+description = "CAIPE MCP server for the Figma REST API"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "httpx==0.28.1",
+  "python-dotenv==1.2.2",
+  "mcp==1.28.1",
+  "mcp-agent-auth",
+  "fastmcp==3.2.4",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==9.0.3",
+  "pytest-asyncio==1.3.0",
+  "ruff==0.14.8",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../common/mcp-auth", editable = true }
+
+[tool.ruff]
+line-length = 140
+
+[tool.ruff.lint]
+select = ["E", "F"]

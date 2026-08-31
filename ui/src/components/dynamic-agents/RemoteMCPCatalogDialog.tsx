@@ -103,7 +103,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     key: "figma",
     name: "Figma",
     description: "Inspect design files, components, assets, and variable tokens",
-    endpoint: "https://www.figma.com/api/mcp",
+    endpoint: "https://mcp.figma.com/mcp",
     logoSrc: "https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg",
     accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
     credential_sources: [
@@ -114,7 +114,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
         target: "header",
       },
     ],
-    note: "Early access — verify endpoint before use",
+    note: "Official Figma MCP is early access; use CAIPE's bundled REST MCP if unavailable",
   },
   {
     key: "github",

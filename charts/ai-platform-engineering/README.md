@@ -22,7 +22,7 @@ helm template caipe charts/ai-platform-engineering \
 ## MCP Servers
 
 Each MCP server is configured with an alias such as `mcp-argocd`,
-`mcp-github`, or `mcp-netutils`.
+`mcp-github`, `mcp-figma`, or `mcp-netutils`.
 
 Enable servers with tags:
 
@@ -30,6 +30,7 @@ Enable servers with tags:
 tags:
   mcp-argocd: true
   mcp-github: true
+  mcp-figma: true
   mcp-netutils: true
 ```
 
@@ -40,6 +41,9 @@ mcp-argocd:
   agentSecrets:
     secretName: existing-argocd-secret
 ```
+
+The bundled Figma REST MCP uses `FIGMA_ACCESS_TOKEN`; enable it with
+`tags.mcp-figma=true` and provide the token through the `mcp-figma` secret.
 
 ## Dynamic Agents
 
