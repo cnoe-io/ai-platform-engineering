@@ -33,12 +33,19 @@ def _provider_token() -> tuple[str | None, bool]:
 
 
 def get_client() -> FigmaClient:
-  """Resolve the caller's Figma OAuth token before the static fallback."""
+  """Resolve the caller's Figma token before the static fallback.
+
+  ``X-CAIPE-Provider-Token`` carries either a genuine per-user OAuth grant or
+  an org-level static PAT relayed as a fallback; the header alone doesn't say
+  which. Try it as an OAuth bearer token first and, if Figma rejects that
+  with 401, retry the same token as a personal access token.
+  """
   provider_token, header_present = _provider_token()
   if provider_token:
     return FigmaClient(
       provider_token,
       auth_mode="oauth",
+      retry_auth_mode="pat",
       base_url=os.getenv("FIGMA_BASE_URL", "https://api.figma.com"),
       timeout=float(os.getenv("FIGMA_TIMEOUT_SECONDS", "30")),
     )

@@ -49,6 +49,7 @@ class FigmaClient:
     access_token: str,
     *,
     auth_mode: str = "pat",
+    retry_auth_mode: str | None = None,
     base_url: str = DEFAULT_BASE_URL,
     timeout: float = 30.0,
     http_client: httpx.AsyncClient | None = None,
@@ -59,14 +60,19 @@ class FigmaClient:
     mode = auth_mode.strip().lower()
     if mode not in {"pat", "oauth", "bearer"}:
       raise FigmaConfigurationError("FIGMA_AUTH_MODE must be 'pat' or 'oauth'")
+    if retry_auth_mode is not None:
+      retry_auth_mode = retry_auth_mode.strip().lower()
+      if retry_auth_mode not in {"pat", "oauth", "bearer"}:
+        raise FigmaConfigurationError("retry_auth_mode must be 'pat' or 'oauth'")
     self.access_token = token
     self.auth_mode = mode
+    self.retry_auth_mode = retry_auth_mode
     self.base_url = base_url.rstrip("/")
     self.timeout = timeout
     self.http_client = http_client
 
-  def _headers(self) -> dict[str, str]:
-    if self.auth_mode in {"oauth", "bearer"}:
+  def _headers(self, auth_mode: str | None = None) -> dict[str, str]:
+    if (auth_mode or self.auth_mode) in {"oauth", "bearer"}:
       return {
         "Authorization": f"Bearer {self.access_token}",
         "Accept": "application/json",
@@ -78,6 +84,15 @@ class FigmaClient:
       "Content-Type": "application/json",
     }
 
+  async def _send(self, method: str, url: str, params: Mapping[str, Any], json: Any, auth_mode: str) -> httpx.Response:
+    request_kwargs: dict[str, Any] = {"method": method, "url": url, "headers": self._headers(auth_mode), "params": params}
+    if json is not None:
+      request_kwargs["json"] = json
+    if self.http_client is not None:
+      return await self.http_client.request(**request_kwargs)
+    async with httpx.AsyncClient(timeout=self.timeout) as client:
+      return await client.request(**request_kwargs)
+
   async def request(
     self,
     method: str,
@@ -86,21 +101,20 @@ class FigmaClient:
     params: Mapping[str, Any] | None = None,
     json: Any = None,
   ) -> dict[str, Any]:
-    """Call Figma and return its JSON object, with safe error handling."""
-    request_kwargs: dict[str, Any] = {
-      "method": method,
-      "url": f"{self.base_url}/{path.lstrip('/')}",
-      "headers": self._headers(),
-      "params": {key: value for key, value in (params or {}).items() if value is not None},
-    }
-    if json is not None:
-      request_kwargs["json"] = json
+    """Call Figma and return its JSON object, with safe error handling.
 
-    if self.http_client is not None:
-      response = await self.http_client.request(**request_kwargs)
-    else:
-      async with httpx.AsyncClient(timeout=self.timeout) as client:
-        response = await client.request(**request_kwargs)
+    A forwarded ``X-CAIPE-Provider-Token`` may hold either a genuine per-user
+    OAuth grant or an org-level static token relayed as-is; the header alone
+    doesn't say which. When ``retry_auth_mode`` is set, a 401 on the primary
+    auth mode is retried once with the same token under that mode before
+    giving up.
+    """
+    url = f"{self.base_url}/{path.lstrip('/')}"
+    clean_params = {key: value for key, value in (params or {}).items() if value is not None}
+
+    response = await self._send(method, url, clean_params, json, self.auth_mode)
+    if response.status_code == 401 and self.retry_auth_mode:
+      response = await self._send(method, url, clean_params, json, self.retry_auth_mode)
 
     if response.is_success:
       if response.status_code == 204 or not response.content:
