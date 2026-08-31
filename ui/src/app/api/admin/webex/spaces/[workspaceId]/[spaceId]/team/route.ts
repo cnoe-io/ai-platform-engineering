@@ -1,3 +1,4 @@
+import { ObjectId } from "mongodb";
 import { NextRequest } from "next/server";
 
 import {
@@ -73,14 +74,41 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
       ? body.space_name.trim()
       : existing?.space_name ?? existing?.space_title ?? spaceId;
 
+    // Mappings written by the bulk team-Webex-spaces route only store
+    // team_id, not team_slug. Fall back to resolving the previous team's
+    // slug by id so a stale OpenFGA grant still gets revoked on reassignment.
+    let previousTeamSlug = existing?.team_slug;
+    if (!previousTeamSlug && existing?.team_id && existing.team_id !== teamId) {
+      const oldTeamFilter = ObjectId.isValid(existing.team_id)
+        ? { _id: new ObjectId(existing.team_id) }
+        : { _id: existing.team_id };
+      const oldTeam = await teams.findOne(oldTeamFilter as never);
+      if (oldTeam) previousTeamSlug = teamSlugOf(oldTeam, existing.team_id);
+    }
+
     const writes = webexSpaceTeamVisibilityRelationships(workspaceId, spaceId, resolvedTeamSlug);
-    const deletes = existing?.team_slug && existing.team_slug !== resolvedTeamSlug
-      ? webexSpaceTeamVisibilityRelationships(workspaceId, spaceId, existing.team_slug)
+    const deletes = previousTeamSlug && previousTeamSlug !== resolvedTeamSlug
+      ? webexSpaceTeamVisibilityRelationships(workspaceId, spaceId, previousTeamSlug)
       : [];
     const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes }));
     if (!openfga.enabled) throw new ApiError("OpenFGA is not configured", 502);
 
     const now = new Date();
+
+    // Reassigning to a different bot must not leave the space with two
+    // active mappings: the upsert below is keyed on the new bot_id, so a
+    // mapping under the old bot_id would otherwise survive untouched.
+    if (existing?.bot_id && existing.bot_id !== botId) {
+      await mappings.updateOne(
+        {
+          bot_id: existing.bot_id,
+          webex_workspace_id: workspaceId,
+          webex_space_id: spaceId,
+        } as never,
+        { $set: { active: false, updated_at: now } } as never,
+      );
+    }
+
     await mappings.updateOne(
       {
         bot_id: botId,

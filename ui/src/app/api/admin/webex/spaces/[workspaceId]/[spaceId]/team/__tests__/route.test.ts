@@ -189,4 +189,87 @@ describe("PUT /api/admin/webex/spaces/[workspaceId]/[spaceId]/team", () => {
       PUT(request({ team_slug: "platform-engineering" }, "primary"), context()),
     ).rejects.toMatchObject({ statusCode: 502 });
   });
+
+  it("revokes the old team's OpenFGA tuples even when the mapping only has team_id (written by the bulk team route)", async () => {
+    mockMappingsFindOne.mockResolvedValueOnce({
+      bot_id: "primary",
+      webex_workspace_id: "WEBEX-WORKSPACE",
+      webex_space_id: "space-abc",
+      team_id: "team-security",
+      // no team_slug: this is what the bulk route used to write before it
+      // was fixed to also persist team_slug.
+    });
+    mockTeamsFindOne
+      .mockResolvedValueOnce({ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" })
+      .mockResolvedValueOnce({ _id: "team-security", slug: "security", name: "Security" });
+
+    const { PUT } = await import("../route");
+    const res = await PUT(
+      request({ team_slug: "platform-engineering" }, "primary"),
+      context(),
+    );
+    expect(res.status).toBe(200);
+
+    const diff = mockWriteOpenFgaTuples.mock.calls[0][0];
+    expect(diff.writes.some((t: { user: string }) => t.user.startsWith("team:platform-engineering#"))).toBe(true);
+    expect(diff.deletes.some((t: { user: string }) => t.user.startsWith("team:security#"))).toBe(true);
+  });
+
+  it("does not look up the old team or emit a delete when team_id is already the new team's id", async () => {
+    mockMappingsFindOne.mockResolvedValueOnce({
+      bot_id: "primary",
+      webex_workspace_id: "WEBEX-WORKSPACE",
+      webex_space_id: "space-abc",
+      team_id: "team-1",
+    });
+
+    const { PUT } = await import("../route");
+    await PUT(request({ team_slug: "platform-engineering" }, "primary"), context());
+
+    expect(mockTeamsFindOne).toHaveBeenCalledTimes(1);
+    const diff = mockWriteOpenFgaTuples.mock.calls[0][0];
+    expect(diff.deletes).toEqual([]);
+  });
+
+  it("deactivates the mapping under the old bot_id instead of leaving two active mappings when the bot changes", async () => {
+    mockMappingsFindOne.mockResolvedValueOnce({
+      bot_id: "secondary",
+      webex_workspace_id: "WEBEX-WORKSPACE",
+      webex_space_id: "space-abc",
+      team_slug: "platform-engineering",
+    });
+    mockRequireBot.mockImplementation(async (botId: string | null) => {
+      if (botId !== "primary" && botId !== "secondary") throw new Error(`Unknown Webex bot: ${botId ?? ""}`);
+      return { id: botId, name: `${botId} bot`, available: true };
+    });
+
+    const { PUT } = await import("../route");
+    const res = await PUT(request({ team_slug: "platform-engineering" }, "primary"), context());
+    expect(res.status).toBe(200);
+
+    expect(mockMappingsUpdateOne).toHaveBeenCalledWith(
+      { bot_id: "secondary", webex_workspace_id: "WEBEX-WORKSPACE", webex_space_id: "space-abc" },
+      { $set: { active: false, updated_at: expect.any(Date) } },
+    );
+    expect(mockMappingsUpdateOne).toHaveBeenCalledWith(
+      { bot_id: "primary", webex_workspace_id: "WEBEX-WORKSPACE", webex_space_id: "space-abc" },
+      expect.objectContaining({ $set: expect.objectContaining({ bot_id: "primary", active: true }) }),
+      { upsert: true },
+    );
+    expect(mockMappingsUpdateOne).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not deactivate any prior mapping when the bot_id is unchanged", async () => {
+    mockMappingsFindOne.mockResolvedValueOnce({
+      bot_id: "primary",
+      webex_workspace_id: "WEBEX-WORKSPACE",
+      webex_space_id: "space-abc",
+      team_slug: "security",
+    });
+
+    const { PUT } = await import("../route");
+    await PUT(request({ team_slug: "platform-engineering" }, "primary"), context());
+
+    expect(mockMappingsUpdateOne).toHaveBeenCalledTimes(1);
+  });
 });

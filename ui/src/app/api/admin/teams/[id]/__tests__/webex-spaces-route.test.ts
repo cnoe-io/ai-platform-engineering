@@ -160,6 +160,24 @@ describe("PUT /api/admin/teams/[id]/webex-spaces", () => {
     );
   });
 
+  // The single-space team route falls back to resolving the old team by
+  // team_id when team_slug is missing on the mapping doc, so every upsert
+  // here must also persist team_slug — otherwise a space last assigned via
+  // this bulk route can never have its stale OpenFGA grant revoked.
+  it("writes team_slug alongside team_id on every upsert", async () => {
+    const res = await putWebexSpaces([
+      { webex_space_id: "space-new", space_name: "New Space", bot_id: "primary" },
+    ]);
+    expect(res.status).toBe(200);
+    expect(
+      mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne
+    ).toHaveBeenCalledWith(
+      { webex_space_id: "space-new", team_id: teamId },
+      expect.objectContaining({ $set: expect.objectContaining({ team_id: teamId, team_slug: "team-a" }) }),
+      { upsert: true }
+    );
+  });
+
   // space_team_resolver.py filters `webex_space_team_mappings` on `bot_id`
   // (added for multi-bot support). A mapping written without it can never be
   // resolved at runtime, so a brand-new space must supply bot_id explicitly —

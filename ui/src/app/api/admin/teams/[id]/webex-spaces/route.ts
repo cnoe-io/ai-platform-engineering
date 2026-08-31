@@ -27,6 +27,7 @@ interface WebexSpaceTeamMappingDoc {
   bot_id?: string;
   webex_space_id: string;
   team_id: string;
+  team_slug?: string;
   space_name?: string;
   space_title?: string;
   webex_workspace_id?: string;
@@ -274,6 +275,7 @@ export const PUT = withErrorHandler(
             bot_id: botId,
             webex_space_id: s.webex_space_id,
             team_id: teamIdStr,
+            team_slug: ownerTeamSlug,
             space_name: s.space_name,
             webex_workspace_id: webexWorkspaceRef(s.webex_workspace_id),
             active: true,
