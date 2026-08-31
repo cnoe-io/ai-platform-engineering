@@ -114,17 +114,54 @@ jobs:
           echo "Child workflow: $run_url" >> "$GITHUB_STEP_SUMMARY"
           gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
 
+  build-mcp:
+    name: Build MCP AWS and Figma
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Dispatch and wait for MCP builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url=$(gh workflow run ci-mcp-servers.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f "tag_version=$VERSION" \
+            -f "source_sha=$SOURCE_SHA" \
+            -f "agents=aws,figma" \
+            -f "build_all=true")
+
+          if [[ ! "$run_url" =~ /actions/runs/([0-9]+)$ ]]; then
+            echo "Could not identify child workflow run from: $run_url"
+            exit 1
+          fi
+
+          run_id="${BASH_REMATCH[1]}"
+          echo "Child workflow: $run_url" >> "$GITHUB_STEP_SUMMARY"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+
   summary:
     name: Release summary
     if: always()
     needs:
       - prepare
       - build
+      - build-mcp
     runs-on: ubuntu-latest
     steps:
       - name: Write summary
         env:
           BUILD_RESULT: ${{ needs.build.result }}
+          MCP_BUILD_RESULT: ${{ needs.build-mcp.result }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
@@ -132,12 +169,15 @@ jobs:
             echo "## Tome image set"
             echo
             echo "Build result: **$BUILD_RESULT**"
+            echo "MCP build result: **$MCP_BUILD_RESULT**"
             echo
             echo "- \`ghcr.io/cisco-eti/caipe-ui:$VERSION\`"
             echo "- \`ghcr.io/cisco-eti/caipe-tome-agent:$VERSION\`"
             echo "- \`ghcr.io/cisco-eti/caipe-dynamic-agents:$VERSION\`"
             echo "- \`ghcr.io/cisco-eti/openfga-authz-bridge:$VERSION\`"
             echo "- \`ghcr.io/cisco-eti/caipe-agentic-app-runtime:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/mcp-aws:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/mcp-figma:$VERSION\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          [[ "$BUILD_RESULT" == "success" ]]
+          [[ "$BUILD_RESULT" == "success" && "$MCP_BUILD_RESULT" == "success" ]]

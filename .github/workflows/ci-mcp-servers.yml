@@ -1,5 +1,4 @@
 name: "[CI][MCP] MCP Servers Docker Build and Push"
-description: "Build and push MCP server Docker images"
 
 on:
   push:
@@ -22,6 +21,14 @@ on:
         description: 'Version tag to apply (e.g., 0.3.0-dev.5). If provided, unchanged agents will be retagged from previous version.'
         required: false
         type: string
+      source_sha:
+        description: 'Immutable source commit to build for a coordinated release.'
+        required: false
+        type: string
+      agents:
+        description: 'Optional comma-separated MCP agents to build (for example: aws,figma). Defaults to all agents.'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -29,7 +36,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.source_sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -42,6 +49,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false
 
@@ -84,6 +92,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
 
       - name: Determine Tag
@@ -127,12 +136,23 @@ jobs:
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           MANUAL_BUILD_ALL: ${{ inputs.build_all || 'false' }}
+          SELECTED_AGENTS: ${{ inputs.agents || '' }}
         with:
           script: |
-            const allAgents = JSON.parse(process.env.ALL_AGENTS);
+            const configuredAgents = JSON.parse(process.env.ALL_AGENTS);
             const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
             const tagVersion = process.env.TAG_VERSION;
             const manualBuildAll = process.env.MANUAL_BUILD_ALL === 'true';
+            const selectedAgents = process.env.SELECTED_AGENTS
+              .split(',')
+              .map(agent => agent.trim())
+              .filter(Boolean);
+            const unknownAgents = selectedAgents.filter(agent => !configuredAgents.includes(agent));
+            if (unknownAgents.length > 0) {
+              core.setFailed(`Unknown MCP agent(s): ${unknownAgents.join(', ')}`);
+              return;
+            }
+            const allAgents = selectedAgents.length > 0 ? selectedAgents : configuredAgents;
 
             // Chart-only tag: skip image builds entirely
             if (/-chart\.\d+$/.test(tagVersion)) {
@@ -234,6 +254,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Resolve per-agent build arguments
         id: build-args
@@ -265,10 +287,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-agents.outputs.tag_version }},enable=${{ needs.determine-agents.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
+            type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.source_sha || github.sha }}
 
       - name: Build and push MCP image by digest
         id: build
@@ -356,10 +380,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-agents.outputs.tag_version }},enable=${{ needs.determine-agents.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
+            type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.source_sha || github.sha }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -480,6 +506,8 @@ jobs:
       - name: Checkout repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Resolve per-agent build arguments
         id: fallback-build-args
