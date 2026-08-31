@@ -103,26 +103,33 @@ async def get_interrupt_state(
     # 4. Get MCP servers for the agent and its subagents (needed to create runtime)
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
-    # 5. Get or create runtime to access checkpointer
+    # 5. Create a non-cached Mongo-backed runtime to access the checkpointer.
+    #
+    # The interrupt-state request does not carry the short-lived trusted
+    # interaction proof that chat requests receive.  Putting a runtime created
+    # here into the shared cache can therefore poison the conversation cache:
+    # private MCP servers fail closed during initialization, and the next chat
+    # reuses that degraded tool set even though it has a valid proof.  A
+    # persistent one-shot runtime still reads the durable LangGraph checkpoint
+    # but is cleaned up immediately and cannot affect later chat requests.
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
 
-    runtime = await cache.get_or_create(
+    async with cache.persistent(
         agent,
         mcp_servers,
         conversation_id,
         user=user,
-    )
+    ) as runtime:
+        # 6. Check for pending interrupt only (no message extraction)
+        if not runtime._graph:
+            return InterruptStateResponse(
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                has_pending_interrupt=False,
+            )
 
-    # 6. Check for pending interrupt only (no message extraction)
-    if not runtime._graph:
-        return InterruptStateResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            has_pending_interrupt=False,
-        )
-
-    interrupt_data = await runtime.has_pending_interrupt(conversation_id)
+        interrupt_data = await runtime.has_pending_interrupt(conversation_id)
     has_pending_interrupt = interrupt_data is not None
 
     logger.debug(
