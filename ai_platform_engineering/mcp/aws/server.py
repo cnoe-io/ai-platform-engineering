@@ -239,14 +239,37 @@ def _resolve_account_profile(
 # AWS CLI tool
 # ---------------------------------------------------------------------------
 
-def _validate_aws_command(command: str) -> tuple[bool, str]:
+def _parse_aws_command(command: str) -> tuple[list[str], str]:
+    """Parse an AWS command without giving shell operators execution semantics."""
+
     command = command.strip()
-    for char in [";", "|", "&", "`", "$", "<", ">", "\\"]:
-        if char in command:
-            return False, f"Command contains shell character '{char}'. Use --query for filtering."
-    parts = command.split()
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        parts = list(lexer)
+    except ValueError as exc:
+        return [], f"Invalid command quoting: {exc}."
+
     if not parts:
-        return False, "Empty command provided."
+        return [], "Empty command provided."
+
+    # Shell punctuation inside a quoted JMESPath expression remains embedded
+    # in the query argument and is safe because execution uses argv, not a
+    # shell. Standalone operators indicate an attempted pipeline/redirection
+    # and are rejected for clarity and defense in depth.
+    for token in parts:
+        if token and all(char in ";&|<>" for char in token):
+            return [], f"Command contains shell operator '{token}'. Use --query for filtering."
+
+    return parts, ""
+
+
+def _validate_aws_command(command: str) -> tuple[bool, str]:
+    parts, parse_error = _parse_aws_command(command)
+    if parse_error:
+        return False, parse_error
+
     for pattern in BLOCKED_COMMAND_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return False, f"Command matches blocked pattern '{pattern}'. Destructive operations are disabled."
@@ -298,6 +321,11 @@ async def aws_cli_execute(
         account: Backward-compatible alias for profile. New callers should use
             profile. If both are supplied, their values must match.
     """
+    command_parts, error_msg = _parse_aws_command(command)
+    if error_msg:
+        logger.warning("AWS CLI command validation failed: %s", error_msg)
+        return f"❌ Command validation failed: {error_msg}"
+
     is_valid, error_msg = _validate_aws_command(command)
     if not is_valid:
         logger.warning("AWS CLI command validation failed: %s", error_msg)
@@ -311,19 +339,20 @@ async def aws_cli_execute(
         logger.warning("AWS account selection failed: %s", profile_error)
         return f"❌ {profile_error}"
 
-    profile_prefix = f"--profile {shlex.quote(selected_profile)} " if selected_profile else ""
+    full_command = ["aws"]
+    if selected_profile:
+        full_command.extend(["--profile", selected_profile])
+    full_command.extend(command_parts)
+    if not any(part == "--region" or part.startswith("--region=") for part in command_parts):
+        full_command.extend(["--region", aws_region])
+    full_command.extend(["--output", output_fmt])
 
-    if "--region" in command:
-        full_command = f"aws {profile_prefix}{command} --output {output_fmt}"
-    else:
-        full_command = f"aws {profile_prefix}{command} --region {aws_region} --output {output_fmt}"
-
-    logger.info("Executing AWS CLI: %s", full_command)
+    logger.info("Executing AWS CLI: %s", shlex.join(full_command))
 
     async with _aws_cli_semaphore:
         try:
-            process = await asyncio.create_subprocess_shell(
-                full_command,
+            process = await asyncio.create_subprocess_exec(
+                *full_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ},

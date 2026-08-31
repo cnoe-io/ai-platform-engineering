@@ -160,7 +160,7 @@ def test_aws_cli_rejects_empty_profile_before_using_bootstrap_credentials(server
 
 
 def test_aws_cli_legacy_account_alias_adds_profile(server, monkeypatch):
-    captured: list[str] = []
+    captured: list[tuple[str, ...]] = []
 
     class FakeProcess:
         returncode = 0
@@ -168,11 +168,11 @@ def test_aws_cli_legacy_account_alias_adds_profile(server, monkeypatch):
         async def communicate(self) -> tuple[bytes, bytes]:
             return b'{"Account": "111111111111"}', b""
 
-    async def fake_subprocess(command: str, **_kwargs: object) -> FakeProcess:
+    async def fake_subprocess(*command: str, **_kwargs: object) -> FakeProcess:
         captured.append(command)
         return FakeProcess()
 
-    monkeypatch.setattr(server.asyncio, "create_subprocess_shell", fake_subprocess)
+    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_subprocess)
     server._aws_cli_semaphore = server.asyncio.Semaphore(1)
 
     result = server.asyncio.run(
@@ -180,6 +180,76 @@ def test_aws_cli_legacy_account_alias_adds_profile(server, monkeypatch):
     )
 
     assert result == '{"Account": "111111111111"}'
-    assert captured == [
-        "aws --profile dev sts get-caller-identity --region us-west-2 --output json"
-    ]
+    assert captured == [(
+        "aws",
+        "--profile",
+        "dev",
+        "sts",
+        "get-caller-identity",
+        "--region",
+        "us-west-2",
+        "--output",
+        "json",
+    )]
+
+
+def test_aws_cli_allows_quoted_jmespath_pipe(server):
+    command = (
+        "ec2 describe-instances "
+        "--query \"Reservations[].Instances[].{"
+        "Name:Tags[?Key=='Name']|[0].Value}\""
+    )
+
+    is_valid, error = server._validate_aws_command(command)
+
+    assert is_valid is True
+    assert error == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ec2 describe-instances | cat",
+        "ec2 describe-instances|cat",
+        "ec2 describe-instances && whoami",
+        "ec2 describe-instances; whoami",
+        "ec2 describe-instances > /tmp/output",
+    ],
+)
+def test_aws_cli_rejects_real_shell_operators(server, command):
+    is_valid, error = server._validate_aws_command(command)
+
+    assert is_valid is False
+    assert "shell operator" in error
+
+
+def test_aws_cli_passes_jmespath_query_as_single_argv(server, monkeypatch):
+    captured: list[tuple[str, ...]] = []
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"[]", b""
+
+    async def fake_subprocess(*command: str, **_kwargs: object) -> FakeProcess:
+        captured.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_subprocess)
+    server._aws_cli_semaphore = server.asyncio.Semaphore(1)
+    query = (
+        "Reservations[].Instances[?contains(InstanceType, 'xlarge')]."
+        "{Name:Tags[?Key=='Name']|[0].Value}"
+    )
+
+    result = server.asyncio.run(
+        server.aws_cli_execute(
+            f'ec2 describe-instances --query "{query}"',
+            profile="dev",
+        )
+    )
+
+    assert result == "[]"
+    assert query in captured[0]
+    assert "|" not in captured[0]
