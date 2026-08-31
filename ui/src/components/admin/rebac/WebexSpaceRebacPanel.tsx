@@ -234,6 +234,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       selected={ctx.item}
       routes={ctx.routes}
       dynamicAgents={ctx.dynamicAgents}
+      teams={ctx.teams}
       disabled={ctx.disabled}
       loading={ctx.loading}
       selectedCanManage={ctx.selectedCanManage}
@@ -241,6 +242,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       onRefresh={ctx.onRefresh}
       onDeselect={ctx.onDeselect}
       routesFor={ctx.routesFor}
+      listApi={ctx.listApi}
     />
   ),
 
