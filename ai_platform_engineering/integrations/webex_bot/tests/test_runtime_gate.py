@@ -13,6 +13,7 @@ from ai_platform_engineering.integrations.webex_bot.app import (
     REASON_COMMAND_HANDLED,
     REASON_BOT_NOT_ASSIGNED,
     REASON_DISPATCH_ALLOWED,
+    REASON_DM_DISABLED,
     REASON_IGNORED_BOT,
     REASON_IGNORED_MALFORMED,
     REASON_IGNORED_SELF,
@@ -218,7 +219,7 @@ def test_thread_reply_is_forwarded_to_route_resolver() -> None:
     dispatcher = FakeDispatcher()
     route_resolver = FakeRouteResolver(agent_id="incident-agent")
     event = {**_event(text="reply in thread"), "parent_id": "parent-message-1"}
-    result = asyncio.run(
+    asyncio.run(
         handle_webex_message(
             event,
             identity_linker=FakeIdentityLinker(),
@@ -512,7 +513,13 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
     assert unspecified.is_direct is False
 
 
-def test_direct_webex_event_gets_explicit_deny_when_dm_access_is_disabled(monkeypatch) -> None:
+def test_linked_direct_webex_event_is_ignored_silently_when_dm_access_is_disabled(
+    monkeypatch,
+) -> None:
+    """A linked user DMing a bot whose DM channel is disabled deployment-wide
+    must be ignored the same way as an unlinked sender — not told to ask an
+    admin to enable 1:1 messages, since no per-space/per-user admin action
+    can fix a deployment-wide disable."""
     monkeypatch.setenv(
         "WEBEX_INTEGRATION_BOTS_JSON",
         json.dumps(
@@ -542,8 +549,8 @@ def test_direct_webex_event_gets_explicit_deny_when_dm_access_is_disabled(monkey
     )
 
     assert result.allowed is False
-    assert result.ignored is False
-    assert result.reason_code == "WEBEX_DM_NOT_ONBOARDED"
-    assert result.deny_message is not None
+    assert result.ignored is True
+    assert result.reason_code == REASON_DM_DISABLED
+    assert result.deny_message is None
     assert route_resolver.calls == []
     assert dispatcher.calls == []

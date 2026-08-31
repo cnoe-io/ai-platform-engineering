@@ -691,7 +691,12 @@ def _message_text(message: dict[str, Any]) -> str:
 
 def _is_webex_bot_reply(message: dict[str, Any]) -> bool:
     raw = str(message.get("markdown") or message.get("text") or "")
-    return _BOT_REPLY_MARKER in raw
+    if _BOT_REPLY_MARKER in raw:
+        return True
+    # Pre-upgrade replies lack the marker entirely — fall back to the old
+    # APP_NAME-dependent pattern so they're still recognized during the
+    # transition to marker-based detection.
+    return f"Mention @{_app_name()} to continue" in raw
 
 
 def _message_author(message: dict[str, Any]) -> str:

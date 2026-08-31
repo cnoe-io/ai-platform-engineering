@@ -164,7 +164,7 @@ def test_unlinked_direct_user_is_ignored_silently_when_dm_is_disabled(
     result = _run(direct_users, identity)
 
     assert result.ignored is True
-    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
+    assert result.reason_code == app_module.REASON_DM_DISABLED
     assert result.linking_url is None
     assert identity.resolve_calls == 1
     assert identity.link_calls == 0
@@ -182,6 +182,23 @@ def test_linked_but_not_onboarded_direct_user_gets_an_explicit_deny() -> None:
     assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
     assert result.deny_message is not None
     assert result.explicit_invocation is True
+
+
+def test_linked_direct_user_is_ignored_silently_when_dm_is_disabled() -> None:
+    """A linked deployment user must be ignored the same way as an unlinked
+    sender when this bot's DM channel is disabled deployment-wide — not told
+    to ask an admin to enable something a per-user allowlist change can never
+    fix."""
+    identity = _Identity()
+    direct_users = _DirectUsers(WebexDirectUserAccess(False, None, None, "disabled"))
+    calls: list[dict[str, Any]] = []
+    result = _run(direct_users, identity, dispatch_calls=calls)
+
+    assert result.ignored is True
+    assert result.allowed is False
+    assert result.reason_code == app_module.REASON_DM_DISABLED
+    assert result.deny_message is None
+    assert calls == []
 
 
 def test_onboarded_direct_user_resolver_receives_the_linked_identity() -> None:

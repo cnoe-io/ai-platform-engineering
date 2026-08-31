@@ -697,3 +697,21 @@ def test_bot_reply_recognized_after_app_name_changes(
     message = {"markdown": reply_markdown, "personEmail": "bot@example.com"}
     assert _is_webex_bot_reply(message) is True
     assert _format_thread_context([message]) == ""
+
+
+def test_bot_reply_recognized_via_legacy_app_name_pattern_pre_upgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replies the bot posted before the marker was introduced only contain
+    the old ``Mention @{app_name} to continue`` pattern — those must still be
+    recognized as bot replies during the transition to marker-based
+    detection, or they'll be mistaken for user messages in thread context."""
+    monkeypatch.setenv("APP_NAME", "CAIPE")
+    legacy_markdown = (
+        "prior bot answer\n\n_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+    )
+    assert _BOT_REPLY_MARKER not in legacy_markdown
+
+    message = {"markdown": legacy_markdown, "personEmail": "bot@example.com"}
+    assert _is_webex_bot_reply(message) is True
+    assert _format_thread_context([message]) == ""
