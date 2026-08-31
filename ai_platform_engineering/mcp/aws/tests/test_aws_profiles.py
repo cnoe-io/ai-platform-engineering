@@ -165,11 +165,12 @@ def test_aws_cli_legacy_account_alias_adds_profile(server, monkeypatch):
     class FakeProcess:
         returncode = 0
 
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b'{"Account": "111111111111"}', b""
+        async def wait(self) -> int:
+            return self.returncode
 
-    async def fake_subprocess(*command: str, **_kwargs: object) -> FakeProcess:
+    async def fake_subprocess(*command: str, **kwargs: object) -> FakeProcess:
         captured.append(command)
+        kwargs["stdout"].write(b'{"Account": "111111111111"}')
         return FakeProcess()
 
     monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_subprocess)
@@ -229,11 +230,12 @@ def test_aws_cli_passes_jmespath_query_as_single_argv(server, monkeypatch):
     class FakeProcess:
         returncode = 0
 
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"[]", b""
+        async def wait(self) -> int:
+            return self.returncode
 
-    async def fake_subprocess(*command: str, **_kwargs: object) -> FakeProcess:
+    async def fake_subprocess(*command: str, **kwargs: object) -> FakeProcess:
         captured.append(command)
+        kwargs["stdout"].write(b"[]")
         return FakeProcess()
 
     monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_subprocess)
@@ -253,3 +255,25 @@ def test_aws_cli_passes_jmespath_query_as_single_argv(server, monkeypatch):
     assert result == "[]"
     assert query in captured[0]
     assert "|" not in captured[0]
+
+
+def test_aws_cli_truncates_disk_backed_output(server, monkeypatch):
+    class FakeProcess:
+        returncode = 0
+
+        async def wait(self) -> int:
+            return self.returncode
+
+    async def fake_subprocess(*_command: str, **kwargs: object) -> FakeProcess:
+        kwargs["stdout"].write(b"0123456789abcdef")
+        return FakeProcess()
+
+    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_subprocess)
+    monkeypatch.setattr(server, "MAX_OUTPUT_SIZE", 10)
+    server._aws_cli_semaphore = server.asyncio.Semaphore(1)
+
+    result = server.asyncio.run(
+        server.aws_cli_execute("sts get-caller-identity", profile="dev")
+    )
+
+    assert result == "0123456789\n\n... [Truncated. Total: 16 bytes]"

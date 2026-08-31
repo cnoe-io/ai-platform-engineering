@@ -70,7 +70,7 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
         done; \
     fi && \
     if [ "$INSTALL_AWS_CLI" = "true" ]; then \
-        for i in 1 2 3; do apk add --no-cache curl unzip bash && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
+        for i in 1 2 3; do apk add --no-cache curl unzip bash jq && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
     fi && \
     if [ "$INSTALL_KUBECTL" = "true" ]; then \
         for i in 1 2 3; do apk add --no-cache kubectl-1.36-default && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \

@@ -17,7 +17,7 @@ import os
 import re
 import shlex
 import tempfile
-from typing import Optional
+from typing import BinaryIO, Optional
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -61,7 +61,7 @@ RESTRICT_KUBECTL_CP = os.getenv("RESTRICT_KUBECTL_CP", "false").lower() == "true
 RESTRICT_KUBECTL_PORT_FORWARD = os.getenv("RESTRICT_KUBECTL_PORT_FORWARD", "false").lower() == "true"
 
 MAX_OUTPUT_SIZE = int(os.getenv("AWS_CLI_MAX_OUTPUT_SIZE", "20000"))
-MAX_CONCURRENT_AWS_CALLS = int(os.getenv("MAX_CONCURRENT_AWS_CALLS", "10"))
+MAX_CONCURRENT_AWS_CALLS = int(os.getenv("MAX_CONCURRENT_AWS_CALLS", "3"))
 MAX_CONCURRENT_KUBECTL_CALLS = int(os.getenv("MAX_CONCURRENT_KUBECTL_CALLS", "5"))
 
 _aws_cli_semaphore: asyncio.Semaphore
@@ -74,6 +74,19 @@ _SUPPORTED_CREDENTIAL_SOURCES = {
     "EcsContainer",
     "Ec2InstanceMetadata",
 }
+
+
+def _read_captured_output(output_file: BinaryIO) -> str:
+    """Read a bounded response from a disk-backed subprocess output file."""
+    output_file.flush()
+    output_file.seek(0, os.SEEK_END)
+    total_size = output_file.tell()
+    output_file.seek(0)
+    data = output_file.read(MAX_OUTPUT_SIZE)
+    output = data.decode("utf-8", errors="replace")
+    if total_size > MAX_OUTPUT_SIZE:
+        output += f"\n\n... [Truncated. Total: {total_size} bytes]"
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -351,32 +364,33 @@ async def aws_cli_execute(
 
     async with _aws_cli_semaphore:
         try:
-            process = await asyncio.create_subprocess_exec(
-                *full_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ},
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=AWS_CLI_TIMEOUT)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                return f"❌ Command timed out after {AWS_CLI_TIMEOUT} seconds."
+            # AWS CLI can emit multi-megabyte responses. Capture them in
+            # anonymous temporary files so concurrent account queries do not
+            # retain every complete response in the MCP server's heap.
+            with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+                process = await asyncio.create_subprocess_exec(
+                    *full_command,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    env={**os.environ},
+                )
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=AWS_CLI_TIMEOUT)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    return f"❌ Command timed out after {AWS_CLI_TIMEOUT} seconds."
 
-            stdout_str = stdout.decode("utf-8", errors="replace")
-            stderr_str = stderr.decode("utf-8", errors="replace")
+                stdout_str = _read_captured_output(stdout_file)
+                stderr_str = _read_captured_output(stderr_file)
 
-            if process.returncode != 0:
-                return f"❌ Command failed (exit {process.returncode}):\n{stderr_str or stdout_str}"
+                if process.returncode != 0:
+                    return f"❌ Command failed (exit {process.returncode}):\n{stderr_str or stdout_str}"
 
-            if jq_filter and stdout_str:
-                stdout_str = await _apply_jq(stdout_str, jq_filter)
+                if jq_filter and stdout_str:
+                    stdout_str = await _apply_jq(stdout_file, jq_filter)
 
-            if len(stdout_str) > MAX_OUTPUT_SIZE:
-                stdout_str = stdout_str[:MAX_OUTPUT_SIZE] + f"\n\n... [Truncated. Total: {len(stdout_str)} chars]"
-
-            return stdout_str or "✅ Command completed (no output)."
+                return stdout_str or "✅ Command completed (no output)."
 
         except FileNotFoundError:
             return "❌ AWS CLI not found. Ensure it is installed in the container."
@@ -385,33 +399,38 @@ async def aws_cli_execute(
             return f"❌ Error: {exc}"
 
 
-async def _apply_jq(data: str, jq_filter: str) -> str:
-    """Apply a jq filter to JSON data, returning the filtered result or a warning."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as fh:
-        fh.write(data)
-        tmp = fh.name
-
+async def _apply_jq(data_file: BinaryIO, jq_filter: str) -> str:
+    """Apply jq without buffering the AWS response or invoking a shell."""
+    data_file.flush()
+    data_file.seek(0)
     try:
-        safe_filter = jq_filter.replace("'", "'\"'\"'")
-        proc = await asyncio.create_subprocess_shell(
-            f"jq '{safe_filter}' {tmp}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        jq_out, jq_err = await asyncio.wait_for(proc.communicate(), timeout=JQ_TIMEOUT)
-        if proc.returncode == 0:
-            return jq_out.decode("utf-8", errors="replace")
-        err = jq_err.decode("utf-8", errors="replace")
-        logger.warning("jq filter failed: %s", err)
-        return f"⚠️ jq filter failed ({err}), showing raw output:\n\n{data}"
+        with tempfile.TemporaryFile() as jq_stdout, tempfile.TemporaryFile() as jq_stderr:
+            proc = await asyncio.create_subprocess_exec(
+                "jq",
+                jq_filter,
+                stdin=data_file,
+                stdout=jq_stdout,
+                stderr=jq_stderr,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=JQ_TIMEOUT)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raw_output = _read_captured_output(data_file)
+                return f"⚠️ jq processing timed out, showing raw output:\n\n{raw_output}"
+
+            if proc.returncode == 0:
+                return _read_captured_output(jq_stdout)
+
+            err = _read_captured_output(jq_stderr)
+            logger.warning("jq filter failed: %s", err)
+            raw_output = _read_captured_output(data_file)
+            return f"⚠️ jq filter failed ({err}), showing raw output:\n\n{raw_output}"
     except Exception as exc:
         logger.warning("jq processing error: %s", exc)
-        return f"⚠️ jq processing failed ({exc}), showing raw output:\n\n{data}"
-    finally:
-        try:
-            os.unlink(tmp)
-        except Exception:
-            pass
+        raw_output = _read_captured_output(data_file)
+        return f"⚠️ jq processing failed ({exc}), showing raw output:\n\n{raw_output}"
 
 
 # ---------------------------------------------------------------------------
