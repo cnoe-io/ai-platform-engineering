@@ -609,6 +609,11 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
+        self._trusted_interaction: dict[str, str] = {
+            "token": "",
+            "signature": "",
+        }
+        self.refresh_trusted_interaction(client_context)
         # Spec 102 Phase 8 / T107: prefer the per-request bearer from
         # current_user_token (set by JwtAuthMiddleware) so the same token
         # the BFF authenticated us with is forwarded to MCP servers.
@@ -826,11 +831,22 @@ class AgentRuntime:
         )
 
     def _trusted_interaction_headers(self) -> dict[str, str]:
-        client_context = self._client_context.model_dump() if self._client_context else {}
-        return {
-            "token": str(client_context.get("_caipe_trusted_interaction") or ""),
-            "signature": str(client_context.get("_caipe_trusted_interaction_signature") or ""),
-        }
+        return self._trusted_interaction
+
+    def refresh_trusted_interaction(self, client_context: ClientContext | None) -> None:
+        """Refresh the signed web/DM proof used by long-lived MCP clients.
+
+        Agent runtimes and their HTTP clients are cached by conversation. The
+        BFF sends a new short-lived proof with every chat request, so update the
+        shared mapping in place. Existing httpx request hooks retain a reference
+        to this mapping and pick up the new proof without rebuilding MCP tools.
+        """
+
+        context = client_context.model_dump() if client_context else {}
+        self._trusted_interaction.update(
+            token=str(context.get("_caipe_trusted_interaction") or ""),
+            signature=str(context.get("_caipe_trusted_interaction_signature") or ""),
+        )
 
     def _record_mcp_credential_failures(
         self, failures: dict[str, McpCredentialUnavailableError]

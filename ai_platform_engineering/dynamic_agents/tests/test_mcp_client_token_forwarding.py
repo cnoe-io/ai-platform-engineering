@@ -20,8 +20,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from dynamic_agents.auth.token_context import current_user_token
-from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.models import ClientContext, MCPServerConfig, TransportType
 from dynamic_agents.services import mcp_client
+from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.mcp_client import (
     build_agent_context_headers,
     build_httpx_client_factory,
@@ -132,6 +133,54 @@ async def test_factory_preserves_caller_provided_headers():
         current_user_token.reset(token)
     assert _CapturingHandler.captured.get("x-trace-id") == "abc-123"
     assert _CapturingHandler.captured.get("authorization") == "Bearer xyz"
+
+
+@pytest.mark.asyncio
+async def test_cached_client_refreshes_request_auth_and_trusted_interaction():
+    """A cached MCP HTTP client must not retain the first chat request's proof."""
+
+    trusted_interaction = {"token": "proof-one", "signature": "signature-one"}
+    factory = build_httpx_client_factory(trusted_interaction=trusted_interaction)
+
+    with _running_server() as base:
+        async with factory(headers={"Authorization": "Bearer stale"}) as client:
+            first_token = current_user_token.set("user-token-one")
+            try:
+                await client.get(f"{base}/probe")
+            finally:
+                current_user_token.reset(first_token)
+
+            assert _CapturingHandler.captured.get("authorization") == "Bearer user-token-one"
+            assert _CapturingHandler.captured.get("x-caipe-trusted-interaction") == "proof-one"
+            assert _CapturingHandler.captured.get("x-caipe-trusted-interaction-signature") == "signature-one"
+
+            trusted_interaction.update(token="proof-two", signature="signature-two")
+            second_token = current_user_token.set("user-token-two")
+            try:
+                await client.get(f"{base}/probe")
+            finally:
+                current_user_token.reset(second_token)
+
+    assert _CapturingHandler.captured.get("authorization") == "Bearer user-token-two"
+    assert _CapturingHandler.captured.get("x-caipe-trusted-interaction") == "proof-two"
+    assert _CapturingHandler.captured.get("x-caipe-trusted-interaction-signature") == "signature-two"
+
+
+def test_runtime_refreshes_trusted_interaction_mapping_in_place():
+    runtime = object.__new__(AgentRuntime)
+    runtime._trusted_interaction = {"token": "old", "signature": "old-signature"}
+    shared_mapping = runtime._trusted_interaction
+
+    runtime.refresh_trusted_interaction(
+        ClientContext(
+            source="webui",
+            _caipe_trusted_interaction="new",
+            _caipe_trusted_interaction_signature="new-signature",
+        )
+    )
+
+    assert runtime._trusted_interaction is shared_mapping
+    assert shared_mapping == {"token": "new", "signature": "new-signature"}
 
 
 def test_streamable_http_connection_config_includes_context_bearer_header():

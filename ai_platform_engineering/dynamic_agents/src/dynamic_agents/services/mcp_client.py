@@ -13,7 +13,7 @@ import re
 import ssl
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import httpx
 from langchain_core.tools import BaseTool, StructuredTool
@@ -181,7 +181,10 @@ def warn_if_agent_gateway_missing_hmac() -> None:
     )
 
 
-def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., httpx.AsyncClient]:
+def build_httpx_client_factory(
+    agent_id: str | None = None,
+    trusted_interaction: Mapping[str, str] | None = None,
+) -> Callable[..., httpx.AsyncClient]:
     """Build an httpx.AsyncClient factory that injects per-request CAIPE auth.
 
     Spec 102 Phase 8 / T106. Each MCP HTTP connection opened by
@@ -213,6 +216,27 @@ def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., htt
     else:
         verify = True
 
+    async def _inject_request_context(request: httpx.Request) -> None:
+        """Refresh request-scoped auth on every send, including cached MCP sessions."""
+
+        token = current_user_token.get()
+        if token:
+            request.headers["Authorization"] = f"Bearer {token}"
+
+        if agent_id:
+            request.headers.pop("X-CAIPE-Agent-Context", None)
+            request.headers.pop("X-CAIPE-Agent-Context-Signature", None)
+            request.headers.update(build_agent_context_headers(agent_id))
+
+        request.headers.pop("X-CAIPE-Trusted-Interaction", None)
+        request.headers.pop("X-CAIPE-Trusted-Interaction-Signature", None)
+        if trusted_interaction:
+            interaction_token = trusted_interaction.get("token", "")
+            interaction_signature = trusted_interaction.get("signature", "")
+            if interaction_token and interaction_signature:
+                request.headers["X-CAIPE-Trusted-Interaction"] = interaction_token
+                request.headers["X-CAIPE-Trusted-Interaction-Signature"] = interaction_signature
+
     def _factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
@@ -236,6 +260,7 @@ def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., htt
             timeout=timeout or httpx.Timeout(30.0),
             auth=auth,
             verify=verify,
+            event_hooks={"request": [_inject_request_context]},
         )
 
     return _factory
@@ -272,7 +297,10 @@ def build_mcp_connection_config(
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
     # per-request user JWT and signed agent context are injected on every
     # outbound connection, even after this config is built.
-    factory = build_httpx_client_factory(agent_id=agent_id)
+    factory = build_httpx_client_factory(
+        agent_id=agent_id,
+        trusted_interaction=trusted_interaction,
+    )
     token = current_user_token.get()
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
