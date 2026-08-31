@@ -55,7 +55,11 @@ REASON_DISPATCH_ALLOWED = "WEBEX_DISPATCH_ALLOWED"
 # ReBAC so a non-mapped space still gets a useful response and
 # doesn't trip the "space not mapped" deny.
 REASON_COMMAND_HANDLED = "WEBEX_COMMAND_HANDLED"
+# Scoped to "the sender is not on this bot's DM allowlist / has no route" —
+# distinct from REASON_DM_DISABLED, which covers the bot's DM channel being
+# turned off deployment-wide (a per-user allowlist fix can never help there).
 REASON_DM_NOT_ONBOARDED = "WEBEX_DM_NOT_ONBOARDED"
+REASON_DM_DISABLED = "WEBEX_DM_DISABLED"
 REASON_BOT_NOT_ASSIGNED = "WEBEX_BOT_NOT_ASSIGNED"
 
 
@@ -507,9 +511,12 @@ async def handle_webex_message(
     Gate order: parse → ignore bot/self/malformed → space team (group spaces)
     → identity link → DM access (direct messages) → OBO → route → ReBAC →
     dispatch. Identity link runs before the DM access-mode check so an
-    unlinked user always gets the "link your account" flow instead of a
-    silent drop; route resolution runs before ReBAC because it supplies the
-    ``agent_id`` checked by the access-check endpoint.
+    unlinked user gets the "link your account" flow — except when the bot's
+    direct messages are disabled entirely, in which case both an unlinked
+    and a linked user are ignored silently rather than being prompted to
+    link, or told to ask an admin to enable something a per-user allowlist
+    change can never fix; route resolution runs before ReBAC because it
+    supplies the ``agent_id`` checked by the access-check endpoint.
     """
     linker = identity_linker or WebexIdentityLinker()
     resolver = team_resolver or WebexSpaceTeamResolver()
@@ -663,6 +670,16 @@ async def handle_webex_message(
         )
 
     if keycloak_user_id is None:
+        if parsed.is_direct and bot_config.direct_messages_access_mode == "disabled":
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=parsed.person_id,
+                outcome="deny",
+                reason_code=REASON_DM_DISABLED,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+            )
+            return _ignore(REASON_DM_DISABLED)
         linking_url: Optional[str] = None
         try:
             linking_url = await linker.linking_url(parsed.person_id)
@@ -703,6 +720,20 @@ async def handle_webex_message(
                 "Webex direct-user access lookup failed (type=%s)",
                 type(exc).__name__,
             )
+        if direct_access is not None and direct_access.reason == "disabled":
+            # DMs are disabled for this bot deployment-wide — same silent
+            # short-circuit as the unlinked-sender case above. An explicit
+            # "ask an admin to enable 1:1 messages" reply would be misleading
+            # here since no per-user allowlist change can fix this.
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=keycloak_user_id,
+                outcome="deny",
+                reason_code=REASON_DM_DISABLED,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+            )
+            return _ignore(REASON_DM_DISABLED)
         if direct_access is None or not direct_access.allowed:
             log_webex_authz_decision(
                 tenant_id=tenant_id,

@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,7 @@ import type {
   DynamicAgentOption,
   ItemAgentRoute,
   ItemSummary,
+  TeamOption,
 } from "../connector-admin-adapter";
 
 // Webex's Mercury transport only ever delivers @mention events to group
@@ -265,6 +268,7 @@ export function WebexConfiguredSpaceDetail({
   selected,
   routes,
   dynamicAgents,
+  teams,
   disabled,
   loading,
   setLoading,
@@ -272,10 +276,12 @@ export function WebexConfiguredSpaceDetail({
   onRefresh,
   onDeselect,
   routesFor,
+  listApi,
 }: {
   selected: ItemSummary;
   routes: ItemAgentRoute[];
   dynamicAgents: DynamicAgentOption[];
+  teams: TeamOption[];
   disabled: boolean;
   loading: boolean;
   setLoading: (loading: boolean) => void;
@@ -283,6 +289,7 @@ export function WebexConfiguredSpaceDetail({
   onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
   onDeselect: () => void;
   routesFor: (workspaceId: string, itemId: string, identityId?: string) => string;
+  listApi: string;
 }) {
   const { toast } = useToast();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -290,6 +297,27 @@ export function WebexConfiguredSpaceDetail({
   const label = selected.item_name || selected.item_id;
   // Webex enforces at most one route per bot per space server-side.
   const route = routes[0] ?? null;
+
+  const setSpaceTeam = async (teamSlug: string) => {
+    if (!teamSlug) return;
+    setLoading(true);
+    try {
+      const url = `${listApi}/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.item_id)}/team`;
+      const params = new URLSearchParams({ bot_id: selected.bot_id ?? "" });
+      const res = await fetch(`${url}?${params.toString()}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_slug: teamSlug, space_name: selected.item_name || selected.item_id }),
+      });
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Failed to update Webex space team"));
+      toast("Webex space team updated.", "success");
+      await onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to update Webex space team", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const deleteRouteConfirmed = async () => {
     if (!routePendingDelete) return;
@@ -313,6 +341,25 @@ export function WebexConfiguredSpaceDetail({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-md border bg-background/60 p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Team</div>
+            <p className="text-sm text-muted-foreground">Assign a team so this space can be managed and shown to the right admins.</p>
+          </div>
+          {selected.team_slug ? <Badge variant="secondary">team:{selected.team_slug}</Badge> : <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">no team</Badge>}
+        </div>
+        <TeamPicker
+          value={selected.team_slug ?? ""}
+          onChange={(teamSlug) => void setSpaceTeam(teamSlug)}
+          disabled={disabled || !selectedCanManage || loading || teams.length === 0}
+          placeholder={teams.length === 0 ? "No teams configured" : "Select team"}
+          searchPlaceholder="Search teams..."
+          ariaLabel={`Team for ${label}`}
+          options={teams.map<TeamPickerOption>((team) => ({ slug: team.slug, name: team.name || team.slug, id: team.id, _id: team._id }))}
+        />
+      </div>
+
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

@@ -250,7 +250,6 @@ config:
   WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
   # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
   # WEBEX_BOT_ADMIN_SCOPE: "webex:routes:read webex:routes:reload webex:routes:sync"
-  # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
   # Self-service Webex identity linking (Settings > Account & access) — a
   # separate Webex OAuth Integration from any WEBEX_CLIENT_ID connector app;
   # this one only reads the caller's Webex identity to link it to their

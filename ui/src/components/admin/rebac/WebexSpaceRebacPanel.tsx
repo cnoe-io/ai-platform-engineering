@@ -42,6 +42,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   itemSingular: "space",
   itemPlural: "spaces",
   singlePanelView: "onboard",
+  advancedTabMinimal: true,
   directMessagesPanel: {
     title: "1:1 Messages",
     description: "Configure who can message each Webex bot and how their agent is selected.",
@@ -233,6 +234,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       selected={ctx.item}
       routes={ctx.routes}
       dynamicAgents={ctx.dynamicAgents}
+      teams={ctx.teams}
       disabled={ctx.disabled}
       loading={ctx.loading}
       selectedCanManage={ctx.selectedCanManage}
@@ -240,6 +242,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       onRefresh={ctx.onRefresh}
       onDeselect={ctx.onDeselect}
       routesFor={ctx.routesFor}
+      listApi={ctx.listApi}
     />
   ),
 
