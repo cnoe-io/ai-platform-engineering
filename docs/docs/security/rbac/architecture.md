@@ -1419,6 +1419,21 @@ continue to replace each datasource's indexed rows wholesale, including
 removing stale pages when a source shrinks.
 
 - Direct Search/API calls use all datasources the caller can currently read.
+  The built-in `search` MCP tool also accepts an optional runtime
+  `collection_id` filter so a caller can scope a query to one or more
+  collections directly, without agent-level `rag_collection_ids`
+  configuration. `server/rbac.py`'s `get_datasource_ids_for_collection`
+  resolves a `rag_collection:<id>` to its member `knowledge_base`/
+  `data_source` ids via a structural OpenFGA tuple read on the
+  `parent_collection` edge — this resolution itself does **not** check the
+  caller's access to the collection or its members. Enforcement instead
+  comes from `tools.py`, which intersects the resolved ids with every other
+  datasource constraint (config-pinned `datasource_ids`, a `datasource_id`
+  filter, and the caller's live OpenFGA-accessible set) the same way
+  `datasource_id` narrowing already works: the result can only narrow, never
+  widen, so a collection containing a datasource the caller cannot read
+  simply drops that datasource from the results rather than exposing it or
+  erroring.
 - An agent stores direct `datasource_ids` plus `rag_collection_ids`. The runtime
   expands collection membership live for every RAG tool call, unions it with
   direct pins, and the RAG server intersects the result with the caller's live
