@@ -267,7 +267,7 @@ const config: Config = {
             },
             {
               label: 'Meeting Recordings',
-              href: 'https://www.youtube.com/@cnoe-community',
+              href: 'https://www.youtube.com/@caipe-io',
             },
             {
               label: 'Governance',
