@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+import pytest
 
 from ai_platform_engineering.integrations.webex_bot import app as app_module
 from ai_platform_engineering.integrations.webex_bot.utils.dm_authz_client import (
@@ -136,6 +139,35 @@ def test_unlinked_direct_user_is_prompted_to_link_before_dm_access_is_checked() 
     assert result.linking_url == "https://ui.example/link"
     assert identity.resolve_calls == 1
     assert identity.link_calls == 1
+    assert direct_users.calls == []
+
+
+def test_unlinked_direct_user_is_ignored_silently_when_dm_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": "secondary",
+                    "name": "Secondary",
+                    "tokenEnv": "SECONDARY_TOKEN",
+                    "spaces": {"accessMode": "allowlist"},
+                    "directMessages": {"accessMode": "disabled"},
+                },
+            ]
+        ),
+    )
+    identity = _Identity(user_id=None)
+    direct_users = _DirectUsers(WebexDirectUserAccess(False, None, None, "not_onboarded"))
+    result = _run(direct_users, identity)
+
+    assert result.ignored is True
+    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
+    assert result.linking_url is None
+    assert identity.resolve_calls == 1
+    assert identity.link_calls == 0
     assert direct_users.calls == []
 
 

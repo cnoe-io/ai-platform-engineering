@@ -37,8 +37,8 @@ import type {
   TeamOption,
 } from "./connector-admin-adapter";
 
-type PanelView = "channels" | "onboard" | "direct" | "migration" | "advanced";
-const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "direct", "migration", "advanced"];
+type PanelView = "channels" | "onboard" | "direct" | "advanced";
+const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "direct", "advanced"];
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
 
@@ -673,20 +673,20 @@ export function ConnectorAdminPanel({
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const singlePanelView = selfService ? undefined : adapter.singlePanelView;
   // When a singlePanelView is set (e.g. Webex → "onboard"), allow toggling
-  // between that view, the configured-items view, and any direct-messages /
-  // migration panels via a compact tab bar, mirrored to the `subtab` URL
-  // param. The valid values are scoped to this adapter's own tabs so a
-  // foreign `subtab` value (e.g. "advanced" from elsewhere) falls back to
-  // "channels" instead of rendering a view this switcher has no tab for.
+  // between that view, the configured-items view, any direct-messages
+  // panel, and Advanced (always last) via a compact tab bar, mirrored to
+  // the `subtab` URL param. The valid values are scoped to this adapter's
+  // own tabs so a foreign `subtab` value falls back to "channels" instead
+  // of rendering a view this switcher has no tab for.
   const singlePanelValidViews = useMemo<readonly PanelView[]>(() => {
     if (!singlePanelView) return ["channels"];
     return [
       "channels",
       singlePanelView,
       ...(adapter.directMessagesPanel ? (["direct"] as const) : []),
-      ...(adapter.migrationPanel ? (["migration"] as const) : []),
+      ...(singlePanelView === "advanced" ? [] : (["advanced"] as const)),
     ];
-  }, [singlePanelView, adapter.directMessagesPanel, adapter.migrationPanel]);
+  }, [singlePanelView, adapter.directMessagesPanel]);
   const [singlePanelViewState, setSinglePanelViewState] = useSubtabParam(
     singlePanelValidViews,
     "channels",
@@ -700,7 +700,7 @@ export function ConnectorAdminPanel({
   const showTabBar = !selfService && !singlePanelView;
   const showSelfServiceSwitcher = selfService;
   const showSinglePanelSwitcher = !selfService && Boolean(singlePanelView);
-  const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
+  const hasAdvancedView = !selfService;
   const configuredSearchFromUrl = configuredSearchParam
     ? searchParams.get(configuredSearchParam) ?? ""
     : "";
@@ -1496,20 +1496,16 @@ export function ConnectorAdminPanel({
     channels: adapter.copy.configuredTabTitle,
     onboard: adapter.copy.onboardTabTitle,
     direct: adapter.directMessagesPanel?.title ?? "1:1 Messages",
-    migration: adapter.migrationPanel?.title ?? "Migration",
     advanced: adapter.copy.advancedTabTitle,
   };
   const viewDescription: Record<PanelView, string> = {
     channels: adapter.copy.configuredTabDescription,
     onboard: adapter.copy.onboardTabDescription,
     direct: adapter.directMessagesPanel?.description ?? "Configure direct-message access.",
-    migration: adapter.migrationPanel?.description ?? "Migrate legacy connector data.",
     advanced: adapter.copy.advancedTabDescription,
   };
   const availablePanelViews = PANEL_VIEWS.filter(
-    (key) =>
-      (key !== "direct" || Boolean(adapter.directMessagesPanel)) &&
-      (key !== "migration" || Boolean(adapter.migrationPanel)),
+    (key) => key !== "direct" || Boolean(adapter.directMessagesPanel),
   );
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1613,19 +1609,18 @@ export function ConnectorAdminPanel({
                 {viewTitle.direct}
               </Button>
             )}
-            {adapter.migrationPanel && (
+            {singlePanelView !== "advanced" && (
               <Button role="tab" type="button" size="sm"
-                variant={panelView === "migration" ? "default" : "ghost"}
-                aria-selected={panelView === "migration"}
-                onClick={() => setSinglePanelViewState("migration")}>
-                {viewTitle.migration}
+                variant={panelView === "advanced" ? "default" : "ghost"}
+                aria-selected={panelView === "advanced"}
+                onClick={() => setSinglePanelViewState("advanced")}>
+                {viewTitle.advanced}
               </Button>
             )}
           </div>
         )}
 
         {!selfService && panelView === "direct" && adapter.directMessagesPanel?.render({ disabled })}
-        {!selfService && panelView === "migration" && adapter.migrationPanel?.render({ disabled })}
 
         {/* Auth disclaimer */}
         {adapter.authzDisclaimer && panelView === "onboard" && !showCompactOnboardingHeader && (
@@ -1637,6 +1632,31 @@ export function ConnectorAdminPanel({
         {/* Advanced tab */}
         {!selfService && panelView === "advanced" && (
           <div role="region" aria-label={adapter.ariaLabels.advancedRegion} className="space-y-3">
+            {adapter.advancedTabMinimal ? (
+              <div
+                data-section-tone="slate"
+                className="rounded-md border border-slate-500/20 bg-slate-500/5 p-4 space-y-3"
+              >
+                <div>
+                  <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
+                    <Settings2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    {adapter.copy.advancedHeading}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {adapter.copy.advancedSectionDescription ?? adapter.copy.advancedTabDescription}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <AdvancedActionButton
+                    label="Reload Bot Cache"
+                    description="Refreshes the running bot after UI route changes."
+                    icon={<RotateCw className="h-4 w-4" aria-hidden="true" />}
+                    onClick={() => void reloadBotRoutes()}
+                    disabled={disabled || loading}
+                  />
+                </div>
+              </div>
+            ) : (
             <div
               data-section-tone="slate"
               className="rounded-md border border-slate-500/20 bg-slate-500/5 p-4 space-y-3"
@@ -1696,6 +1716,7 @@ export function ConnectorAdminPanel({
                 </div>
               </div>
             </div>
+            )}
             {adapter.advancedTabExtraSection?.({ disabled })}
           </div>
         )}

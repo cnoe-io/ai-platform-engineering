@@ -667,7 +667,13 @@ services:
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      # Self-service Webex identity linking (Settings > Account & access). All
+      # four vars must be set (including the org allowlist) or the link
+      # button stays hidden; WEBEX_LINK_CLIENT_SECRET is sensitive.
+      - WEBEX_LINK_CLIENT_ID=${WEBEX_LINK_CLIENT_ID:-}
+      - WEBEX_LINK_CLIENT_SECRET=${WEBEX_LINK_CLIENT_SECRET:-}
+      - WEBEX_LINK_REDIRECT_URI=${WEBEX_LINK_REDIRECT_URI:-http://localhost:3000/api/auth/webex-link/callback}
+      - WEBEX_LINK_ALLOWED_ORG_ID=${WEBEX_LINK_ALLOWED_ORG_ID:-}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
       - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
       - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
@@ -869,7 +875,13 @@ services:
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      # Self-service Webex identity linking (Settings > Account & access). All
+      # four vars must be set (including the org allowlist) or the link
+      # button stays hidden; WEBEX_LINK_CLIENT_SECRET is sensitive.
+      - WEBEX_LINK_CLIENT_ID=${WEBEX_LINK_CLIENT_ID:-}
+      - WEBEX_LINK_CLIENT_SECRET=${WEBEX_LINK_CLIENT_SECRET:-}
+      - WEBEX_LINK_REDIRECT_URI=${WEBEX_LINK_REDIRECT_URI:-http://localhost:3000/api/auth/webex-link/callback}
+      - WEBEX_LINK_ALLOWED_ORG_ID=${WEBEX_LINK_ALLOWED_ORG_ID:-}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
       - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
       - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
@@ -2044,7 +2056,6 @@ services:
       - KEYCLOAK_WEBEX_BOT_CLIENT_ID=${KEYCLOAK_WEBEX_BOT_CLIENT_ID:-caipe-webex-bot}
       - KEYCLOAK_WEBEX_BOT_CLIENT_SECRET=${KEYCLOAK_WEBEX_BOT_CLIENT_SECRET:-caipe-webex-bot-dev-secret}
       - WEBEX_LINKING_BASE_URL=${WEBEX_LINKING_BASE_URL:-http://localhost:3000}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-}
     depends_on:
       caipe-ui:
         condition: service_started

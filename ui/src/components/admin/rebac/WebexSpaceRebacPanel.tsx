@@ -42,6 +42,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   itemSingular: "space",
   itemPlural: "spaces",
   singlePanelView: "onboard",
+  advancedTabMinimal: true,
   directMessagesPanel: {
     title: "1:1 Messages",
     description: "Configure who can message each Webex bot and how their agent is selected.",

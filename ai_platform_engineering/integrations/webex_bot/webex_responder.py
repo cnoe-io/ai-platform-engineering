@@ -578,12 +578,19 @@ def _app_name() -> str:
     return os.environ.get("APP_NAME", "CAIPE").strip() or "CAIPE"
 
 
+# Stable marker identifying bot-authored replies, independent of APP_NAME so
+# renaming the deployment does not orphan the recognition of older replies
+# already posted to a Webex thread.
+_BOT_REPLY_MARKER = "​<!-- caipe-agent-reply -->"
+
+
 def _agent_reply_markdown(agent_id: str, body: str) -> str:
     content = body.strip() or "Done."
     app_name = _app_name()
     return (
         f"{content}\n\n"
         f"_Agent: {agent_id}_ • **_Mention @{app_name} to continue_**"
+        f"{_BOT_REPLY_MARKER}"
     )
 
 
@@ -684,7 +691,7 @@ def _message_text(message: dict[str, Any]) -> str:
 
 def _is_webex_bot_reply(message: dict[str, Any]) -> bool:
     raw = str(message.get("markdown") or message.get("text") or "")
-    return f"Mention @{_app_name()} to continue" in raw
+    return _BOT_REPLY_MARKER in raw
 
 
 def _message_author(message: dict[str, Any]) -> str:

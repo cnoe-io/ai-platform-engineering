@@ -196,6 +196,46 @@ def test_linked_allowed_dispatches() -> None:
     assert dispatcher.calls[0]["team_slug"] == "platform-eng"
 
 
+def test_thread_reply_is_forwarded_to_route_resolver() -> None:
+    dispatcher = FakeDispatcher()
+    route_resolver = FakeRouteResolver(agent_id="incident-agent")
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="reply in thread"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=route_resolver,
+            dispatcher=dispatcher,
+        )
+    )
+    # Sanity check for the un-threaded control case: the resolver is called
+    # without a thread_parent_id and dispatch proceeds normally.
+    assert result.dispatched is True
+    assert route_resolver.calls[0]["thread_parent_id"] is None
+
+    dispatcher = FakeDispatcher()
+    route_resolver = FakeRouteResolver(agent_id="incident-agent")
+    event = {**_event(text="reply in thread"), "parent_id": "parent-message-1"}
+    result = asyncio.run(
+        handle_webex_message(
+            event,
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=route_resolver,
+            dispatcher=dispatcher,
+        )
+    )
+    # Regression coverage for the RouteResolverProtocol wiring: app.py must
+    # thread parsed.thread_parent_id through to resolve_route() so a real
+    # RouteResolverProtocol implementation (e.g. _WebexAgentRouteResolver)
+    # can exclude passive thread replies from message-mode routing.
+    assert route_resolver.calls[0]["thread_parent_id"] == "parent-message-1"
+
+
 def test_missing_team_mapping_is_silently_ignored(monkeypatch) -> None:
     dispatcher = FakeDispatcher()
     result = asyncio.run(

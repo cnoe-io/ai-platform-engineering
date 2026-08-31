@@ -507,9 +507,12 @@ async def handle_webex_message(
     Gate order: parse → ignore bot/self/malformed → space team (group spaces)
     → identity link → DM access (direct messages) → OBO → route → ReBAC →
     dispatch. Identity link runs before the DM access-mode check so an
-    unlinked user always gets the "link your account" flow instead of a
-    silent drop; route resolution runs before ReBAC because it supplies the
-    ``agent_id`` checked by the access-check endpoint.
+    unlinked user gets the "link your account" flow — except when the bot's
+    direct messages are disabled entirely, in which case an unlinked user is
+    ignored silently rather than being prompted to link an account that can
+    never be used to message this bot; route resolution runs before ReBAC
+    because it supplies the ``agent_id`` checked by the access-check
+    endpoint.
     """
     linker = identity_linker or WebexIdentityLinker()
     resolver = team_resolver or WebexSpaceTeamResolver()
@@ -663,6 +666,16 @@ async def handle_webex_message(
         )
 
     if keycloak_user_id is None:
+        if parsed.is_direct and bot_config.direct_messages_access_mode == "disabled":
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=parsed.person_id,
+                outcome="deny",
+                reason_code=REASON_DM_NOT_ONBOARDED,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+            )
+            return _ignore(REASON_DM_NOT_ONBOARDED)
         linking_url: Optional[str] = None
         try:
             linking_url = await linker.linking_url(parsed.person_id)
