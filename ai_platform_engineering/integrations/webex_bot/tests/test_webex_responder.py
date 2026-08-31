@@ -463,7 +463,7 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
             "parent_id": "message-public-id",
             "markdown": (
                 "Working on it...\n\n"
-                "_Agent: incident-agent_ • **_Mention @CAIPE to continue_**"
+                "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
                 f"{_BOT_REPLY_MARKER}"
             ),
         }
@@ -473,7 +473,7 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
         "room_id": "room-public-id",
         "markdown": (
             "hello world\n\n"
-            "_Agent: incident-agent_ • **_Mention @CAIPE to continue_**"
+            "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
             f"{_BOT_REPLY_MARKER}"
         ),
     }
@@ -532,7 +532,7 @@ def test_threaded_stream_dispatcher_reuses_root_parent_for_thread_replies() -> N
         "parent_id": "root-message-public-id",
         "markdown": (
             "Working on it...\n\n"
-            "_Agent: incident-agent_ • **_Mention @CAIPE to continue_**"
+            "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
             f"{_BOT_REPLY_MARKER}"
         ),
     }
@@ -579,7 +579,7 @@ def test_threaded_stream_dispatcher_includes_bounded_thread_context_in_agent_pro
                 "parentId": "root-message-public-id",
                 "markdown": (
                     "prior bot answer\n\n"
-                    "_Agent: incident-agent_ • **_Mention @CAIPE to continue_**"
+                    "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
                     f"{_BOT_REPLY_MARKER}"
                 ),
                 "personEmail": "bot@example.com",

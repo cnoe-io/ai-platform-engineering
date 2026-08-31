@@ -589,7 +589,7 @@ def _agent_reply_markdown(agent_id: str, body: str) -> str:
     app_name = _app_name()
     return (
         f"{content}\n\n"
-        f"_Agent: {agent_id}_ • **_Mention @{app_name} to continue_**"
+        f"_Agent: {agent_id}_ • **Mention @{app_name} to continue**"
         f"{_BOT_REPLY_MARKER}"
     )
 
