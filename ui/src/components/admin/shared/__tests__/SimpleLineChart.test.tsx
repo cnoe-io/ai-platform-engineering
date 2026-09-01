@@ -104,6 +104,41 @@ describe("SimpleLineChart", () => {
     expect(hasDataLabel).toBe(true);
   });
 
+  it("stretches to fill non-square render widths so edge hover lines up with the drawn points", () => {
+    // Regression test: the SVG viewBox is 800x200. Without preserveAspectRatio="none",
+    // the browser's default "xMidYMid meet" scaling letterboxes the content whenever the
+    // rendered box's aspect ratio differs from the viewBox's (e.g. a "wide" chart whose
+    // rendered width is wider than 800px), so the drawn line no longer spans the full box
+    // and the hover math (which assumes a 1:1 stretch) misses the leftmost/rightmost points
+    // near the edges. Asserting the attribute directly is the reliable way to catch this in
+    // jsdom, since jsdom does not implement real SVG viewport scaling.
+    const { container } = render(<SimpleLineChart data={sampleData} />);
+    const svg = container.querySelector("svg")!;
+    expect(svg).toHaveAttribute("preserveAspectRatio", "none");
+  });
+
+  it("resolves hover to the first and last data point at the rendered box's left/right edges", () => {
+    const { container } = render(<SimpleLineChart data={sampleData} />);
+    const svg = container.querySelector("svg")!;
+
+    // A "wide" chart: rendered wider than the 800-unit viewBox, the scenario that exposed
+    // the letterboxing bug in a real browser.
+    svg.getBoundingClientRect = () => ({
+      left: 0, top: 0, right: 1200, bottom: 200,
+      width: 1200, height: 200, x: 0, y: 0, toJSON: () => {},
+    });
+
+    fireEvent.mouseMove(svg, { clientX: 0, clientY: 100 });
+    let texts = container.querySelectorAll("tspan");
+    expect(Array.from(texts).some((t) => t.textContent?.includes(sampleData[0].label))).toBe(true);
+
+    fireEvent.mouseMove(svg, { clientX: 1200, clientY: 100 });
+    texts = container.querySelectorAll("tspan");
+    expect(
+      Array.from(texts).some((t) => t.textContent?.includes(sampleData[sampleData.length - 1].label))
+    ).toBe(true);
+  });
+
   it("renders drag selection with % change badge after drag across two points", () => {
     // Data: 10 → 20 = +100%
     const dragData = [

@@ -157,6 +157,10 @@ export function SimpleLineChart({
         width="100%"
         height={chartHeight}
         viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        // "none" forces a 1:1 stretch of the viewBox onto the rendered box so xToIndex's
+        // width-ratio math lines up with where points are actually drawn; the default
+        // "meet" scaling letterboxes the content whenever rendered width != chartWidth.
+        preserveAspectRatio="none"
         className="overflow-visible select-none"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
