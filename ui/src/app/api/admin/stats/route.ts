@@ -655,13 +655,18 @@ async function getAdminStats(request: NextRequest) {
     }
 
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    // "Today" and active-user cards retain their calendar semantics, but a
-    // shorter selected window must still narrow them. For example, the 1h
-    // preset must not quietly show all activity since midnight.
-    const todayRangeStart = new Date(Math.max(today.getTime(), rangeStart.getTime()));
-    const monthRangeStart = new Date(Math.max(thisMonth.getTime(), rangeStart.getTime()));
+    // "Today"/DAU and "This Month"/MAU are rolling windows (last 24h / last
+    // 30d from now), not calendar-aligned ones — a calendar-aligned window
+    // (midnight-to-now, 1st-of-month-to-now) would contradict the rolling
+    // windows used elsewhere on the dashboard as the day/month progresses
+    // (e.g. MAU showing all of a prior calendar month on the 1st of a new
+    // one, next to a "This Month" card that's rolling).
+    const rollingToday = new Date(now.getTime() - DAY_MS);
+    const rollingMonth = new Date(now.getTime() - 30 * DAY_MS);
+    // A shorter selected window must still narrow them. For example, the 1h
+    // preset must not quietly show all activity from the last 24h.
+    const todayRangeStart = new Date(Math.max(rollingToday.getTime(), rangeStart.getTime()));
+    const monthRangeStart = new Date(Math.max(rollingMonth.getTime(), rangeStart.getTime()));
 
     // ═══════════════════════════════════════════════════════════════
     // OVERVIEW STATS (parallel queries for speed)

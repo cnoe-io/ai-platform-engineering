@@ -482,6 +482,46 @@ describe('GET /api/admin/stats — Overview', () => {
 });
 
 // ============================================================================
+// Tests: Rolling DAU/MAU windows (not calendar-aligned)
+// ============================================================================
+
+describe('GET /api/admin/stats — Rolling DAU/MAU windows', () => {
+  beforeEach(resetMocks);
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('computes DAU/MAU as rolling last-24h/last-30d windows, not calendar-aligned', async () => {
+    // Freeze time just after a day+month boundary. A calendar-aligned window
+    // (midnight-to-now / 1st-of-month-to-now) would start only ~2 hours ago;
+    // a rolling window (last 24h / last 30d) starts exactly 24h/30d before
+    // "now" regardless of the boundary. Pins DAU/MAU to the rolling behavior
+    // used by every other range-aware metric on this dashboard.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const frozenNow = new Date('2026-03-01T02:00:00.000Z');
+    jest.useFakeTimers();
+    jest.setSystemTime(frozenNow);
+
+    const { usersCol } = setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    await GET(req);
+
+    const [, dauCall, mauCall] = usersCol.countDocuments.mock.calls as [
+      unknown,
+      [{ last_login: { $gte: Date } }],
+      [{ last_login: { $gte: Date } }],
+    ];
+    const dauStart = dauCall[0].last_login.$gte;
+    const mauStart = mauCall[0].last_login.$gte;
+
+    expect(dauStart.getTime()).toBe(frozenNow.getTime() - DAY_MS);
+    expect(mauStart.getTime()).toBe(frozenNow.getTime() - 30 * DAY_MS);
+  });
+});
+
+// ============================================================================
 // Tests: Daily Activity (30-day aggregation)
 // ============================================================================
 
