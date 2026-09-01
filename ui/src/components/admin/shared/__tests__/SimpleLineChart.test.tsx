@@ -139,6 +139,34 @@ describe("SimpleLineChart", () => {
     ).toBe(true);
   });
 
+  it("matches the viewBox width to the actual rendered width to avoid anisotropic stretching", () => {
+    // Regression test: a fixed 800-unit viewBox stretched via preserveAspectRatio="none" onto
+    // a much wider rendered box (e.g. a 1200px-wide dashboard card) scales X and Y unevenly,
+    // turning circular data points into ellipses and distorting stroke widths and text glyphs.
+    // The component measures its own rendered width on mount and uses that as the viewBox
+    // width instead, so the scale factor is always ~1:1 in both axes.
+    const originalGetBoundingClientRect = SVGSVGElement.prototype.getBoundingClientRect;
+    SVGSVGElement.prototype.getBoundingClientRect = () => ({
+      left: 0, top: 0, right: 1200, bottom: 200,
+      width: 1200, height: 200, x: 0, y: 0, toJSON: () => {},
+    });
+    try {
+      const { container } = render(<SimpleLineChart data={sampleData} />);
+      const svg = container.querySelector("svg")!;
+      expect(svg).toHaveAttribute("viewBox", "0 0 1200 200");
+    } finally {
+      SVGSVGElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    }
+  });
+
+  it("falls back to the default 800-unit viewBox when the rendered width can't be measured", () => {
+    // jsdom's default getBoundingClientRect returns width 0, which must be ignored rather
+    // than collapsing the chart's coordinate space.
+    const { container } = render(<SimpleLineChart data={sampleData} />);
+    const svg = container.querySelector("svg")!;
+    expect(svg).toHaveAttribute("viewBox", "0 0 800 200");
+  });
+
   it("renders drag selection with % change badge after drag across two points", () => {
     // Data: 10 → 20 = +100%
     const dragData = [
