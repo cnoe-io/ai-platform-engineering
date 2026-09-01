@@ -138,5 +138,6 @@ ui/src/types/               Shared TypeScript types
 
 - [UI overview](../docs/docs/ui/index.md)
 - [UI configuration](../docs/docs/ui/configuration.md)
+- [Tome Webex meeting-series auto-ingest](src/lib/tome/auto-ingest/README.md)
 - [Dynamic Agents API](../docs/docs/api/dynamic-agents-mcp.md)
 - [Helm chart reference](../docs/docs/installation/helm-charts/ai-platform-engineering/caipe-ui.md)
