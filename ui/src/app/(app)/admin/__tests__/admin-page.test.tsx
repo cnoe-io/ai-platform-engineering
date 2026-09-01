@@ -1591,6 +1591,44 @@ describe('Admin Dashboard Page', () => {
     });
   });
 
+  describe('API source option', () => {
+    it('always shows an API option in the Statistics source picker, unlike Webex there is no enablement flag', async () => {
+      currentPathname = '/admin/insights/statistics';
+      const fetchMock = setupFetchMock({
+        userPreferences: { success: true, data: { integrations: { webex: false } } },
+      });
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const sourceSelect = await screen.findByDisplayValue('All Sources');
+      expect(within(sourceSelect as HTMLElement).getByRole('option', { name: 'API' })).toBeInTheDocument();
+
+      fireEvent.change(sourceSelect, { target: { value: 'api' } });
+
+      await waitFor(() => {
+        const sourceRefreshes = fetchMock.mock.calls.filter(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats' && parsed.searchParams.get('source') === 'api';
+        });
+        expect(sourceRefreshes.length).toBeGreaterThan(0);
+      });
+      expect(sourceSelect).toHaveValue('api');
+    });
+
+    it('never shows an API option in the Feedback source picker', async () => {
+      currentPathname = '/admin/insights/feedback';
+      setupFetchMock({
+        userPreferences: { success: true, data: { integrations: { webex: true } } },
+      });
+
+      render(<AdminPage />);
+
+      const sourceSelect = await screen.findByDisplayValue('All Sources');
+      expect(within(sourceSelect as HTMLElement).queryByRole('option', { name: 'API' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('Stats rendering', () => {
     beforeEach(() => {
       currentPathname = '/admin/insights/statistics';
@@ -1631,8 +1669,8 @@ describe('Admin Dashboard Page', () => {
       const statsUrls = fetchMock.mock.calls
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(statsUrls).toHaveLength(11);
-      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(11);
+      expect(statsUrls).toHaveLength(12);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(12);
       expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
     });
 
@@ -1934,14 +1972,14 @@ describe('Admin Dashboard Page', () => {
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'))
         .filter(Boolean);
-      expect(refreshCalls).toHaveLength(10);
-      expect(new Set(refreshCalls).size).toBe(10);
+      expect(refreshCalls).toHaveLength(11);
+      expect(new Set(refreshCalls).size).toBe(11);
       expect(refreshCalls).not.toContain('filters');
       const refreshUrls = fetchMock.mock.calls
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(refreshUrls).toHaveLength(10);
+      expect(refreshUrls).toHaveLength(11);
       expect(refreshUrls.every((url) => url.searchParams.get('source') === 'web')).toBe(true);
       await waitFor(() => {
         expect(fetchMock.mock.calls.slice(callsBeforeFilter).some(([url]) => {
@@ -2015,7 +2053,7 @@ describe('Admin Dashboard Page', () => {
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(refreshUrls).toHaveLength(10);
+      expect(refreshUrls).toHaveLength(11);
       expect(refreshUrls.every((url) => url.searchParams.get('agent') === 'agent-primary')).toBe(true);
       expect(refreshUrls.find((url) => url.searchParams.get('section') === 'overview'))
         .toBeDefined();
@@ -2048,7 +2086,7 @@ describe('Admin Dashboard Page', () => {
           .slice(callsBeforeChannel)
           .map(([url]) => new URL(url, 'http://localhost'))
           .filter((url) => url.pathname === '/api/admin/stats');
-        expect(channelRefreshes).toHaveLength(10);
+        expect(channelRefreshes).toHaveLength(11);
         expect(channelRefreshes.every((url) => (
           url.searchParams.get('source') === 'slack'
           && url.searchParams.get('channel') === 'primary-channel'
@@ -2071,7 +2109,7 @@ describe('Admin Dashboard Page', () => {
           .slice(callsBeforeTeam)
           .map(([url]) => new URL(url, 'http://localhost'))
           .filter((url) => url.pathname === '/api/admin/stats');
-        expect(teamRefreshes).toHaveLength(10);
+        expect(teamRefreshes).toHaveLength(11);
         expect(teamRefreshes.every((url) => (
           url.searchParams.get('team') === 'platform-team'
           && url.searchParams.has('user') === false

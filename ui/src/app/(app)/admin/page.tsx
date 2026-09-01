@@ -29,6 +29,7 @@ import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDial
 import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
 import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
+import { ApiStatsSection } from "@/components/admin/platform/ApiStatsSection";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
 import { WebexStatsSection } from "@/components/admin/platform/WebexStatsSection";
@@ -690,8 +691,8 @@ function AdminPage() {
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const requestedSource = searchParams.get('source');
-  const sourceFromUrl: 'all' | 'web' | 'slack' | 'webex' =
-    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'webex' ? requestedSource : 'all';
+  const sourceFromUrl: 'all' | 'web' | 'slack' | 'webex' | 'api' =
+    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'webex' || requestedSource === 'api' ? requestedSource : 'all';
   const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
   const requestedDatePreset = searchParams.get('dateRange');
   const requestedFrom = searchParams.get('from');
@@ -706,7 +707,7 @@ function AdminPage() {
     ? { from: requestedFrom as string, to: requestedTo as string }
     : presetToRange(datePresetFromUrl);
 
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'webex'>(
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'webex' | 'api'>(
     sourceFromUrl
   );
   const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
@@ -1315,7 +1316,7 @@ function AdminPage() {
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
     page = 1,
-    source?: 'all' | 'web' | 'slack' | 'webex',
+    source?: 'all' | 'web' | 'slack' | 'webex' | 'api',
     channels?: string[],
     searchTags?: string[],
     users?: string[],
@@ -1368,7 +1369,7 @@ function AdminPage() {
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
-  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'webex') => {
+  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'webex' | 'api') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
@@ -2048,7 +2049,7 @@ function AdminPage() {
                     <div className="h-5 w-px bg-border" />
                     <Select
                       value={sourceFilter}
-                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'webex')}
+                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'webex' | 'api')}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       <option value="all">All Sources</option>
@@ -2281,7 +2282,7 @@ function AdminPage() {
                     <Select
                       value={sourceFilter}
                       onChange={(e) => {
-                        const src = e.target.value as 'all' | 'web' | 'slack' | 'webex';
+                        const src = e.target.value as 'all' | 'web' | 'slack' | 'webex' | 'api';
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
@@ -2293,6 +2294,7 @@ function AdminPage() {
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
                       {webexEnabled ? <option value="webex">Webex</option> : null}
+                      <option value="api">API</option>
                     </Select>
                     {sourceFilter === 'slack' && statsChannels.length > 0 && (
                       <MultiSelect
@@ -3006,6 +3008,14 @@ function AdminPage() {
                         webex={stats.webex}
                       />
                     )}
+
+                    {/* ─── API Section ─── */}
+                    <ApiStatsSection
+                      api={stats.api}
+                      error={statsSectionStatuses.api.error}
+                      loading={statsSectionStatuses.api.loading}
+                      rangeLabel={rangeLabel}
+                    />
                   </div>
 
                 {/* ─── Skills Section ─── */}

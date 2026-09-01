@@ -115,6 +115,14 @@ jest.mock('@/lib/mongodb', () => ({
   },
 }));
 
+// Direct MCP Activity queries the audit-service over HTTP (not Mongo). Every
+// admin request exercises this (it's part of the default `section=all`
+// response), so a default resolved value is required — otherwise every
+// existing admin test in this file would issue a real network call to
+// http://audit-service:8010.
+const mockFetch = jest.fn();
+global.fetch = mockFetch as unknown as typeof fetch;
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -216,6 +224,11 @@ function resetMocks() {
   mockLoadTeamMembersForSlugs.mockReset();
   mockLoadTeamMembersForSlugs.mockResolvedValue(new Map());
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
+  mockFetch.mockReset();
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ records: [], total: 0 }),
+  });
 }
 
 /**
@@ -1814,9 +1827,14 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     await GET(makeRequest('/api/admin/stats'));
 
     // The probe is the only countDocuments call that passes an options object
-    // ({ limit: 1 }) as its second argument.
+    // ({ limit: 1 }) as its second argument. Unlike Slack/Webex, the API block
+    // has no channel/space concept to gate its own probe on, so it always
+    // probes (any non-admin could have their own api conversations via the
+    // owner_id scope) — exclude it here since this test is specifically about
+    // the Slack block's channel-gated skip.
     const probeCalls = convCol.countDocuments.mock.calls.filter(
       (call: unknown[]) => call[1]?.limit === 1
+        && (call[0] as { client_type?: string })?.client_type !== 'api'
     );
     expect(probeCalls).toHaveLength(0);
   });
@@ -2272,5 +2290,181 @@ describe('GET /api/admin/stats — Configured Spaces (Webex)', () => {
       expect(filter['metadata.webex_is_direct']).toBeUndefined();
     }
     expect(body.data.webex.total_interactions).toBe(1);
+  });
+});
+
+// ============================================================================
+// Tests: API Activity (Mongo — conversations with client_type:"api")
+// ============================================================================
+
+describe('GET /api/admin/stats — API Activity', () => {
+  beforeEach(resetMocks);
+
+  it('applies source=api filter to conversation queries and scopes messages via a conversation_id join', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?source=api'));
+
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasApiFilter = convCountCalls.some(
+      (call: unknown[]) => (call[0] as { client_type?: string })?.client_type === 'api',
+    );
+    expect(hasApiFilter).toBe(true);
+
+    // Unlike Slack/Webex, messages are NOT filtered by metadata.source (that
+    // field is not reliably stamped 'api') — they're scoped by conversation_id,
+    // resolved from conversations.distinct('_id', API_CONV_MATCH).
+    expect(convCol.distinct).toHaveBeenCalledWith('_id', { client_type: 'api' });
+    const msgCountCalls = msgCol.countDocuments.mock.calls;
+    const hasConversationIdJoin = msgCountCalls.some(
+      (call: unknown[]) => Array.isArray((call[0] as { conversation_id?: { $in?: unknown[] } })?.conversation_id?.$in),
+    );
+    expect(hasConversationIdJoin).toBe(true);
+  });
+
+  it('source=web excludes API conversations too', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?source=web'));
+
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasWebOnlyFilter = convCountCalls.some((call: unknown[]) => {
+      const filter = call[0] as { client_type?: { $nin?: string[] } };
+      return Array.isArray(filter?.client_type?.$nin) && filter.client_type!.$nin!.includes('api');
+    });
+    expect(hasWebOnlyFilter).toBe(true);
+  });
+
+  it('omits the API section when source=web', async () => {
+    setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api&source=web'));
+    const body = await res.json();
+
+    expect(body.data).not.toHaveProperty('api');
+  });
+
+  it('reports total_interactions/unique_users/daily from api-classified conversations', async () => {
+    const { convCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(3);
+    convCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([
+        { _id: '2026-08-01', interactions: 2, unique_users: ['a@example.com'] },
+        { _id: '2026-08-02', interactions: 1, unique_users: ['a@example.com', 'b@example.com'] },
+      ]),
+    });
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api&source=api'));
+    const body = await res.json();
+
+    expect(body.data.api.total_interactions).toBe(3);
+    expect(Array.isArray(body.data.api.daily)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Tests: Direct MCP Activity (audit-service, not Mongo)
+// ============================================================================
+
+describe('GET /api/admin/stats — Direct MCP Activity', () => {
+  beforeEach(resetMocks);
+
+  it('queries the audit-service for OK_LOCAL_AGENT_CONTEXT events within the selected range', async () => {
+    setupAdminWithCollections();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        records: [
+          { ts: '2026-08-01T10:00:00Z', subject_ref: 'user:alice' },
+          { ts: '2026-08-01T11:00:00Z', subject_ref: 'user:bob' },
+        ],
+      }),
+    });
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api&range=7d'));
+    const body = await res.json();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url] = mockFetch.mock.calls[0] as [string];
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe('/v1/audit/events');
+    expect(parsed.searchParams.get('reason_code')).toBe('OK_LOCAL_AGENT_CONTEXT');
+    expect(parsed.searchParams.has('since')).toBe(true);
+    expect(parsed.searchParams.has('until')).toBe(true);
+
+    expect(body.data.api.mcp_activity.total_events).toBe(2);
+    expect(body.data.api.mcp_activity.unique_users).toBe(2);
+  });
+
+  it('does not count a record with a missing subject_ref toward unique_users', async () => {
+    setupAdminWithCollections();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        records: [
+          { ts: '2026-08-01T10:00:00Z' },
+          { ts: '2026-08-01T11:00:00Z', subject_ref: 'user:alice' },
+        ],
+      }),
+    });
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api'));
+    const body = await res.json();
+
+    expect(body.data.api.mcp_activity.total_events).toBe(2);
+    expect(body.data.api.mcp_activity.unique_users).toBe(1);
+  });
+
+  it('marks mcp_activity unavailable when the audit-service call fails, without failing the request', async () => {
+    setupAdminWithCollections();
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.data.api.mcp_activity.unavailable).toBe(true);
+    expect(body.data.api.mcp_activity.total_events).toBe(0);
+  });
+
+  it('marks mcp_activity unavailable when the audit-service responds with a non-2xx status', async () => {
+    setupAdminWithCollections();
+    mockFetch.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api'));
+    const body = await res.json();
+
+    expect(body.data.api.mcp_activity.unavailable).toBe(true);
+  });
+
+  it('caps the queried range to 31 days and flags range_capped for a wider dashboard range', async () => {
+    setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api&range=90d'));
+    const body = await res.json();
+
+    const [url] = mockFetch.mock.calls[0] as [string];
+    const parsed = new URL(url);
+    const since = new Date(parsed.searchParams.get('since')!);
+    const until = new Date(parsed.searchParams.get('until')!);
+    const days = (until.getTime() - since.getTime()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeLessThanOrEqual(31.01);
+    expect(body.data.api.mcp_activity.range_capped).toBe(true);
+  });
+
+  it('never includes mcp_activity for a non-admin caller', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    setupNonAdminCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=api'));
+    const body = await res.json();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    if (body.data.api) {
+      expect(body.data.api).not.toHaveProperty('mcp_activity');
+    }
   });
 });

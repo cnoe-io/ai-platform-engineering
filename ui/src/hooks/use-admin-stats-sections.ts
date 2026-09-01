@@ -40,6 +40,9 @@ function mergeSectionData(
   if (section === 'webex' && !Object.hasOwn(incoming, 'webex')) {
     delete next.webex;
   }
+  if (section === 'api' && !Object.hasOwn(incoming, 'api')) {
+    delete next.api;
+  }
 
   return next;
 }
