@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { CalendarDays, Loader2, Plus, Search, Trash2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -13,11 +14,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { WebexMeetingSeriesSubscription } from "@/types/projects";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Candidate {
   seriesKey: string;
   title: string;
+  hostEmail?: string;
   sources: string[];
+  canAutoIngest: boolean;
+  unavailableReason?: string;
   nextOccurrence?: { start: string };
 }
 
@@ -52,6 +62,7 @@ export function WebexMeetingSeriesSettings({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const loadSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -78,15 +89,18 @@ export function WebexMeetingSeriesSettings({
     setDiscovering(true);
     setError("");
     setErrorCode("");
+    setSearchQuery("");
     try {
       const response = await fetch(`${endpoint}?discover=1`, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as ApiEnvelope<{
+        subscriptions?: WebexMeetingSeriesSubscription[];
         candidates?: Candidate[];
       }>;
       if (!response.ok) {
         setErrorCode(body.code ?? "");
         throw new Error(apiError(body, "Could not find recurring meetings."));
       }
+      setSubscriptions(body.data?.subscriptions ?? []);
       setCandidates(body.data?.candidates ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not find recurring meetings.");
@@ -170,6 +184,13 @@ export function WebexMeetingSeriesSettings({
     () => candidates.filter((candidate) => !subscriptions.some((item) => item.seriesKey === candidate.seriesKey)),
     [candidates, subscriptions],
   );
+  const visibleAvailable = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return available;
+    return available.filter((candidate) =>
+      [candidate.title, candidate.hostEmail].some((value) => value?.toLowerCase().includes(query)),
+    );
+  }, [available, searchQuery]);
 
   return (
     <div className="rounded-xl border border-border/60 p-4">
@@ -212,6 +233,9 @@ export function WebexMeetingSeriesSettings({
                   {subscription.lastOccurrenceAt
                     ? ` · Last occurrence ${new Date(subscription.lastOccurrenceAt).toLocaleString()}`
                     : ""}
+                  {subscription.nextOccurrenceStartAt
+                    ? ` · Next ${new Date(subscription.nextOccurrenceStartAt).toLocaleString()}`
+                    : ""}
                 </p>
                 {subscription.lastError && (
                   <p className="mt-1 text-xs text-destructive">{subscription.lastError}</p>
@@ -248,7 +272,8 @@ export function WebexMeetingSeriesSettings({
             <DialogTitle>Add recurring Webex meeting</DialogTitle>
             <DialogDescription>
               Results combine Webex Meetings and User Hub calendar discovery. The selected series
-              will use your Webex (Meetings) connection.
+              will use your Webex (Meetings) connection. Series are not date-limited; occurrences
+              are checked from 48 hours ago through the next 90 days.
             </DialogDescription>
           </DialogHeader>
           {discovering ? (
@@ -267,28 +292,74 @@ export function WebexMeetingSeriesSettings({
           ) : available.length === 0 ? (
             <p className="py-8 text-sm text-muted-foreground">No unselected recurring meetings were found.</p>
           ) : (
-            <div className="divide-y rounded-lg border border-border/60">
-              {available.map((candidate) => (
-                <div key={candidate.seriesKey} className="flex items-center gap-3 px-3 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{candidate.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {candidate.nextOccurrence
-                        ? `Next: ${new Date(candidate.nextOccurrence.start).toLocaleString()}`
-                        : "No upcoming occurrence in the next 90 days"}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={mutating === candidate.seriesKey}
-                    onClick={() => void add(candidate)}
-                  >
-                    {mutating === candidate.seriesKey && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                    Add
-                  </Button>
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search by meeting title or host"
+                  className="pl-9"
+                  autoFocus
+                />
+              </div>
+              {visibleAvailable.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No meetings match “{searchQuery.trim()}”.
+                </p>
+              ) : (
+                <div className="divide-y rounded-lg border border-border/60">
+                  {visibleAvailable.map((candidate) => (
+                    <div
+                      key={candidate.seriesKey}
+                      className={`flex items-center gap-3 px-3 py-3 ${
+                        candidate.canAutoIngest ? "" : "cursor-not-allowed opacity-50"
+                      }`}
+                      title={candidate.canAutoIngest ? undefined : candidate.unavailableReason}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{candidate.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {candidate.nextOccurrence
+                            ? `Next: ${new Date(candidate.nextOccurrence.start).toLocaleString()}`
+                            : "No upcoming occurrence in the next 90 days"}
+                          {candidate.hostEmail ? ` · Host: ${candidate.hostEmail}` : ""}
+                        </p>
+                      </div>
+                      {candidate.canAutoIngest ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={mutating === candidate.seriesKey}
+                          onClick={() => void add(candidate)}
+                        >
+                          {mutating === candidate.seriesKey && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                          Add
+                        </Button>
+                      ) : (
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="inline-flex cursor-not-allowed"
+                                tabIndex={0}
+                                aria-label="Only the meeting host can add this series"
+                              >
+                                <Button type="button" size="sm" disabled>
+                                  Add
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              Only the meeting host can add this series.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </DialogContent>

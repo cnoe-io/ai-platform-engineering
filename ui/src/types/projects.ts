@@ -244,9 +244,14 @@ export interface WebexMeetingSeriesSubscription {
   /** The caller who selected the series and whose connection executes it. */
   credentialOwner: AutoIngestCredentialOwner;
   createdAt: string;
+  /** Most recent user-level Webex calendar reconciliation. */
+  lastCalendarCheckAt?: string;
+  /** Latest upcoming occurrence discovered from Webex. */
+  nextOccurrenceStartAt?: string;
+  nextOccurrenceEndAt?: string;
   lastOccurrenceAt?: string;
   lastRunId?: string;
-  lastStatus?: "pending" | "waiting_transcript" | "queued" | "ingested" | "failed";
+  lastStatus?: "pending" | "waiting_transcript" | "queued" | "ingested" | "skipped" | "failed";
   lastError?: string;
 }
 

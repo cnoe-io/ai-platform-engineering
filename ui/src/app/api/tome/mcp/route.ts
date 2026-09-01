@@ -280,6 +280,9 @@ function autoIngestView(project: any): Record<string, unknown> {
                 }
               : null,
           last_occurrence_at: series.lastOccurrenceAt ?? null,
+          last_calendar_check_at: series.lastCalendarCheckAt ?? null,
+          next_occurrence_start_at: series.nextOccurrenceStartAt ?? null,
+          next_occurrence_end_at: series.nextOccurrenceEndAt ?? null,
           last_run_id: series.lastRunId ?? null,
           last_status: series.lastStatus ?? null,
           last_error: series.lastError || null,

@@ -6,10 +6,12 @@ import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middlewar
 import { getCollection } from "@/lib/mongodb";
 import { sessionSub } from "@/lib/tome/agent-proxy";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
+import { requestWebexMeetingOwnerCheck } from "@/lib/tome/auto-ingest/cursor";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import {
   discoverMeetingSeries,
   interactiveWebexMeetingInvoker,
+  meetingSeriesHostEligibility,
   meetingSeriesSlug,
   meetingSeriesMatches,
 } from "@/lib/tome/webex-meeting-series";
@@ -66,8 +68,38 @@ export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) =
 
   requireTomeEditor(tctx);
   const invoke = await interactiveWebexMeetingInvoker(request, tctx);
-  const candidates = await discoverMeetingSeries(invoke, discoveryWindow());
-  return successResponse({ subscriptions, candidates, canEdit: true });
+  const now = new Date();
+  const candidates = (await discoverMeetingSeries(invoke, discoveryWindow(now))).map((candidate) => ({
+    ...candidate,
+    ...meetingSeriesHostEligibility(candidate, tctx.user.email),
+  }));
+  const ownerSubject = sessionSub(tctx.session);
+  const refreshedSubscriptions = subscriptions.map((subscription) => {
+    if (!ownerSubject || subscription.credentialOwner.subject !== ownerSubject) return subscription;
+    const candidate = candidates.find((item) => meetingSeriesMatches(item, subscription));
+    if (!candidate) return subscription;
+    return {
+      ...subscription,
+      title: candidate.title,
+      siteUrl: candidate.siteUrl || subscription.siteUrl,
+      lastCalendarCheckAt: now.toISOString(),
+      nextOccurrenceStartAt: candidate.nextOccurrence?.start,
+      nextOccurrenceEndAt: candidate.nextOccurrence?.end,
+    };
+  });
+
+  if (ownerSubject) {
+    const sites = new Set(
+      subscriptions
+        .filter((subscription) => subscription.credentialOwner.subject === ownerSubject)
+        .map((subscription) => subscription.siteUrl?.trim().replace(/\/+$/, "") ?? ""),
+    );
+    await Promise.all(
+      [...sites].map((siteUrl) => requestWebexMeetingOwnerCheck(ownerSubject, siteUrl, now)),
+    );
+  }
+
+  return successResponse({ subscriptions: refreshedSubscriptions, candidates, canEdit: true });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) => {
@@ -91,6 +123,14 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
       "That recurring meeting is no longer available from Webex.",
       404,
       "MEETING_SERIES_NOT_FOUND",
+    );
+  }
+  const eligibility = meetingSeriesHostEligibility(candidate, tctx.user.email);
+  if (!eligibility.canAutoIngest) {
+    throw new ApiError(
+      eligibility.unavailableReason || "Only meetings hosted by you can be auto-ingested.",
+      403,
+      "WEBEX_MEETING_HOST_REQUIRED",
     );
   }
 
@@ -123,6 +163,8 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
       confirmedAt: now.toISOString(),
     },
     createdAt: now.toISOString(),
+    nextOccurrenceStartAt: candidate.nextOccurrence?.start,
+    nextOccurrenceEndAt: candidate.nextOccurrence?.end,
     lastStatus: "pending",
   };
 

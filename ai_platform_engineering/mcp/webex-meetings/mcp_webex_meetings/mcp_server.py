@@ -476,14 +476,23 @@ def _normalize_userhub_calendar_item(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {"raw": item}
 
-    start_iso, start_tz, start_raw = _userhub_time_to_iso(item.get("startTime") or item.get("start"))
-    end_iso, end_tz, end_raw = _userhub_time_to_iso(item.get("endTime") or item.get("end"))
-    subject = item.get("subject") or item.get("title")
+    start_iso, start_tz, start_raw = _userhub_time_to_iso(
+        item.get("startTime") or item.get("start") or item.get("startDateTime")
+    )
+    end_iso, end_tz, end_raw = _userhub_time_to_iso(
+        item.get("endTime") or item.get("end") or item.get("endDateTime")
+    )
+    subject = item.get("subject") or item.get("title") or item.get("meetingName")
     location = item.get("location")
+    organizer = item.get("organizer") or item.get("host") or item.get("hostInfo")
 
     return {
-        "id": item.get("id"),
-        "seriesId": item.get("seriesId"),
+        "id": item.get("id") or item.get("meetingId") or item.get("confId"),
+        "seriesId": (
+            item.get("seriesId")
+            or item.get("meetingSeriesId")
+            or item.get("recurrenceId")
+        ),
         "subject": subject,
         "source": item.get("externalType") or item.get("source"),
         "start": start_iso,
@@ -492,11 +501,17 @@ def _normalize_userhub_calendar_item(item: Any) -> dict[str, Any]:
         "startRaw": start_raw,
         "endRaw": end_raw,
         "location": location,
-        "webLink": item.get("webLink") or _webex_link_from_text(location),
-        "organizerEmail": _organizer_email(item.get("organizer")),
-        "organizer": item.get("organizer"),
-        "occurrenceType": item.get("occurrenceType"),
-        "isCancelled": item.get("isCancelled"),
+        "webLink": (
+            item.get("webLink")
+            or item.get("joinLink")
+            or item.get("joinUrl")
+            or item.get("meetingLink")
+            or _webex_link_from_text(location)
+        ),
+        "organizerEmail": _organizer_email(organizer),
+        "organizer": organizer,
+        "occurrenceType": item.get("occurrenceType") or item.get("recurrenceType"),
+        "isCancelled": item.get("isCancelled") or item.get("cancelled"),
         "isAllDay": item.get("isAllDay"),
         "originalStartTime": item.get("originalStartTime"),
     }
@@ -516,16 +531,38 @@ def _sanitize_sensitive(obj: Any) -> Any:
     return obj
 
 
-def _extract_items(payload: Any) -> list[Any] | None:
+def _extract_items(payload: Any, depth: int = 0) -> list[Any] | None:
     if isinstance(payload, list):
         return payload
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or depth >= 4:
         return None
     for key in ("items", "data", "meetings", "meetingList", "calendarItems", "entries"):
         value = payload.get(key)
         if isinstance(value, list):
             return value
+    # User Hub has returned both top-level arrays and nested result/data
+    # wrappers over time. Walk only known wrapper keys so an unrelated nested
+    # list cannot be mistaken for calendar rows.
+    for key in ("data", "result", "body", "calendar", "meetingList"):
+        value = payload.get(key)
+        nested = _extract_items(value, depth + 1)
+        if nested is not None:
+            return nested
     return None
+
+
+def _userhub_calendar_params(args: UserHubCalendar) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "meetingListType": args.meeting_list_type,
+        "offset": 0,
+        "limit": args.max_results,
+        "hidePastMeeting": "false",
+        "showMeetings": 1,
+    }
+    from_dt = _parse_iso_datetime(args.from_iso)
+    if from_dt is not None:
+        params["startDate"] = from_dt.date().isoformat()
+    return params
 
 
 # Tool registration
@@ -597,10 +634,7 @@ def register_tools(server) -> None:
     @_handle_errors
     async def userhub_calendar(args: UserHubCalendar) -> dict[str, Any]:
         """Read the user's Webex User Hub calendar feed."""
-        params: dict[str, Any] = {
-            "meetingListType": args.meeting_list_type,
-            "limit": args.max_results,
-        }
+        params = _userhub_calendar_params(args)
         payload = await _userhub_calendar_request(args.site_url, params=params)
         raw_items = _extract_items(payload)
         if raw_items is None:

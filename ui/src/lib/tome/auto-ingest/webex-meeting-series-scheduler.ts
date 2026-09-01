@@ -14,13 +14,19 @@ import {
   resolveOccurrenceMeetingId,
   type WebexMeetingOccurrenceCandidate,
 } from "../webex-meeting-series";
-import { claimWebexMeetingSeriesPoll } from "./cursor";
+import {
+  claimWebexMeetingOwnerCheck,
+  scheduleWebexMeetingOwnerCheck,
+} from "./cursor";
 
 const COLLECTION = "tome_webex_meeting_occurrences";
-const POLL_INTERVAL_MS = Math.max(
+const REFRESH_INTERVAL_MS = Math.max(
   5 * 60_000,
-  Number(process.env.TOME_WEBEX_SERIES_POLL_MS) || 15 * 60_000,
+  Number(process.env.TOME_WEBEX_SERIES_REFRESH_MS) || 24 * 60 * 60_000,
 );
+const POST_MEETING_DELAY_MS = 10 * 60_000;
+const OWNER_CHECK_CLAIM_MS = 10 * 60_000;
+const DISCOVERY_FAILURE_RETRY_MS = 15 * 60_000;
 const LOOKBACK_MS = 48 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
 const TRANSCRIPT_DEADLINE_MS = 24 * 60 * 60 * 1000;
@@ -37,6 +43,7 @@ type OccurrenceStatus =
   | "ready"
   | "queued"
   | "ingested"
+  | "skipped"
   | "failed";
 
 type BackgroundInvoke = Awaited<ReturnType<typeof backgroundWebexMeetingInvoker>>;
@@ -66,10 +73,6 @@ interface MeetingOccurrenceDocument {
   updated_at: Date;
 }
 
-function pollWindowKey(now: Date): string {
-  return String(Math.floor(now.getTime() / POLL_INTERVAL_MS));
-}
-
 function mongoProjectId(projectId: string): string {
   return (ObjectId.isValid(projectId) ? new ObjectId(projectId) : projectId) as unknown as string;
 }
@@ -93,87 +96,106 @@ async function updateSubscription(
     lastRunId: string;
     lastStatus: NonNullable<WebexMeetingSeriesSubscription["lastStatus"]>;
     lastError: string;
+    title: string;
+    siteUrl: string | null;
+    lastCalendarCheckAt: string;
+    nextOccurrenceStartAt: string | null;
+    nextOccurrenceEndAt: string | null;
   }>,
 ): Promise<void> {
   const projects = await getCollection<ProjectDocument>("projects");
   const set: Record<string, unknown> = { updated_at: new Date() };
+  const unset: Record<string, ""> = {};
   for (const [key, value] of Object.entries(fields)) {
-    set[`autoIngest.webexMeetingSeries.$[series].${key}`] = value;
+    const path = `autoIngest.webexMeetingSeries.$[series].${key}`;
+    if (value === null) unset[path] = "";
+    else set[path] = value;
   }
   await projects.updateOne(
     { _id: mongoProjectId(projectId) },
-    { $set: set },
+    { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
     { arrayFilters: [{ "series.id": subscriptionId }] },
   );
 }
 
-async function discoverOccurrences(
+async function reconcileSubscriptionCalendar(
   project: ProjectDocument & { _id: string },
   subscription: WebexMeetingSeriesSubscription,
   now: Date,
-  loadCandidates: () => Promise<SeriesDiscovery>,
-): Promise<void> {
-  if (!(await claimWebexMeetingSeriesPoll(project._id, subscription.id, pollWindowKey(now)))) {
-    return;
-  }
-  try {
-    const candidates = await loadCandidates();
-    const series = candidates.find((candidate) => meetingSeriesMatches(candidate, subscription));
-    if (!series) {
-      await updateSubscription(project._id, subscription.id, {
-        lastStatus: "failed",
-        lastError: "The recurring meeting was not returned by Webex. It will be checked again.",
-      });
-      return;
-    }
-
-    const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
-    const subscribedAt = new Date(subscription.createdAt);
-    for (const occurrence of series.occurrences) {
-      const end = new Date(occurrence.end);
-      if (occurrence.cancelled || !Number.isFinite(end.getTime()) || end > now) continue;
-      // Selecting a series is forward-looking. Do not silently backfill old
-      // calendar history; a meeting already in progress when selected is okay.
-      if (Number.isFinite(subscribedAt.getTime()) && end < subscribedAt) continue;
-      const start = new Date(occurrence.start);
-      if (!Number.isFinite(start.getTime())) continue;
-      const id = occurrenceId(project._id, subscription.id, occurrence.occurrenceKey);
-      await occurrences.updateOne(
-        { _id: id },
-        {
-          $setOnInsert: {
-            _id: id,
-            project_id: project._id,
-            project_slug: project.slug,
-            subscription_id: subscription.id,
-            series_key: subscription.seriesKey,
-            series_title: subscription.title,
-            occurrence_key: occurrence.occurrenceKey,
-            meeting_id: occurrence.meetingId,
-            title: occurrence.title,
-            start,
-            end,
-            web_link: occurrence.webLink,
-            source: occurrence.source,
-            status: "pending",
-            attempts: 0,
-            next_attempt_at: now,
-            created_at: now,
-            updated_at: now,
-          },
-        },
-        { upsert: true },
-      );
-    }
-    await updateSubscription(project._id, subscription.id, { lastError: "" });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[WebexSeries] ${project.slug}/${subscription.title}: discovery failed: ${message}`);
+  candidates: SeriesDiscovery,
+): Promise<Date | null> {
+  const series = candidates.find((candidate) => meetingSeriesMatches(candidate, subscription));
+  if (!series) {
     await updateSubscription(project._id, subscription.id, {
+      lastCalendarCheckAt: now.toISOString(),
+      nextOccurrenceStartAt: null,
+      nextOccurrenceEndAt: null,
       lastStatus: "failed",
-      lastError: message,
+      lastError: "The recurring meeting was not returned by Webex. It will be checked again.",
     });
+    return null;
   }
+
+  const next = series.nextOccurrence;
+  await updateSubscription(project._id, subscription.id, {
+    title: series.title,
+    siteUrl: series.siteUrl || subscription.siteUrl || null,
+    lastCalendarCheckAt: now.toISOString(),
+    nextOccurrenceStartAt: next?.start ?? null,
+    nextOccurrenceEndAt: next?.end ?? null,
+    lastError: "",
+  });
+
+  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const subscribedAt = new Date(subscription.createdAt);
+  for (const occurrence of series.occurrences) {
+    const end = new Date(occurrence.end);
+    if (
+      occurrence.cancelled ||
+      occurrence.state?.toLowerCase() === "missed" ||
+      !Number.isFinite(end.getTime()) ||
+      end > now
+    ) {
+      continue;
+    }
+    // Selecting a series is forward-looking. Do not silently backfill old
+    // calendar history; a meeting already in progress when selected is okay.
+    if (Number.isFinite(subscribedAt.getTime()) && end < subscribedAt) continue;
+    const start = new Date(occurrence.start);
+    if (!Number.isFinite(start.getTime())) continue;
+    const id = occurrenceId(project._id, subscription.id, occurrence.occurrenceKey);
+    await occurrences.updateOne(
+      { _id: id },
+      {
+        $setOnInsert: {
+          _id: id,
+          project_id: project._id,
+          project_slug: project.slug,
+          subscription_id: subscription.id,
+          series_key: subscription.seriesKey,
+          series_title: series.title,
+          occurrence_key: occurrence.occurrenceKey,
+          meeting_id: occurrence.meetingId,
+          title: occurrence.title,
+          start,
+          end,
+          web_link: occurrence.webLink,
+          source: occurrence.source,
+          status: "pending",
+          attempts: 0,
+          next_attempt_at: now,
+          created_at: now,
+          updated_at: now,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
+  if (!next) return null;
+  const nextEnd = new Date(next.end);
+  if (!Number.isFinite(nextEnd.getTime())) return null;
+  return new Date(nextEnd.getTime() + POST_MEETING_DELAY_MS);
 }
 
 async function reconcileRuns(
@@ -216,6 +238,7 @@ async function markRetry(
   occurrence: MeetingOccurrenceDocument,
   now: Date,
   error: string,
+  terminalStatus: "failed" | "skipped" = "failed",
 ): Promise<void> {
   const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
   const expired = now.getTime() - occurrence.end.getTime() >= TRANSCRIPT_DEADLINE_MS;
@@ -223,7 +246,7 @@ async function markRetry(
     { _id: occurrence._id, status: "processing" },
     {
       $set: {
-        status: expired ? "failed" : "waiting_transcript",
+        status: expired ? terminalStatus : "waiting_transcript",
         next_attempt_at: retryAt(now, occurrence.attempts + 1),
         last_error: error,
         updated_at: now,
@@ -232,7 +255,7 @@ async function markRetry(
     },
   );
   await updateSubscription(occurrence.project_id, occurrence.subscription_id, {
-    lastStatus: expired ? "failed" : "waiting_transcript",
+    lastStatus: expired ? terminalStatus : "waiting_transcript",
     lastError: error,
   });
 }
@@ -297,7 +320,12 @@ async function processOccurrence(
     };
     const meetingId = await resolveOccurrenceMeetingId(invoke, candidate);
     if (!meetingId) {
-      await markRetry(claimed, now, "Webex has not exposed an official meeting occurrence yet.");
+      await markRetry(
+        claimed,
+        now,
+        "Webex has not exposed an official meeting occurrence yet.",
+        "skipped",
+      );
       return false;
     }
     const downloaded = await downloadMeetingTranscript(invoke, meetingId);
@@ -377,7 +405,43 @@ async function processOccurrence(
   }
 }
 
-/** Discover ended occurrences and enqueue transcript-backed Tome ingests. */
+interface SubscriptionWorkItem {
+  project: ProjectDocument & { _id: string };
+  subscription: WebexMeetingSeriesSubscription;
+}
+
+interface OwnerSiteGroup {
+  ownerSubject: string;
+  siteUrl: string;
+  items: SubscriptionWorkItem[];
+}
+
+function normalizedSiteUrl(value: string | undefined): string {
+  return value?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function ownerSiteGroups(
+  projects: Array<ProjectDocument & { _id: string }>,
+): OwnerSiteGroup[] {
+  const groups = new Map<string, OwnerSiteGroup>();
+  for (const project of projects) {
+    for (const subscription of project.autoIngest?.webexMeetingSeries ?? []) {
+      if (!subscription.enabled) continue;
+      const ownerSubject = subscription.credentialOwner.subject;
+      const siteUrl = normalizedSiteUrl(subscription.siteUrl);
+      const key = `${ownerSubject}\0${siteUrl.toLowerCase()}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { ownerSubject, siteUrl, items: [] };
+        groups.set(key, group);
+      }
+      group.items.push({ project, subscription });
+    }
+  }
+  return [...groups.values()];
+}
+
+/** Reconcile user-level calendars and enqueue transcript-backed Tome ingests. */
 export async function tickWebexMeetingSeriesScheduler(
   now: Date,
   projects: Array<ProjectDocument & { _id: string }>,
@@ -391,11 +455,10 @@ export async function tickWebexMeetingSeriesScheduler(
     { $set: { status: "waiting_transcript", next_attempt_at: now, updated_at: now } },
   );
 
-  // One token refresh per owner and one four-tool discovery sweep per
-  // owner/site during a tick, even when several projects subscribe to series
-  // on the same calendar.
+  // A user's OAuth token is shared across sites, while each site has its own
+  // User Hub calendar. Cache the token once and reconcile every subscribed
+  // series in a site from one four-tool discovery sweep.
   const invokers = new Map<string, Promise<BackgroundInvoke>>();
-  const discoveries = new Map<string, Promise<SeriesDiscovery>>();
   const invokeFor = (subscription: WebexMeetingSeriesSubscription): Promise<BackgroundInvoke> => {
     const key = subscription.credentialOwner.subject;
     let pending = invokers.get(key);
@@ -405,24 +468,87 @@ export async function tickWebexMeetingSeriesScheduler(
     }
     return pending;
   };
-  const discoveryFor = (
-    subscription: WebexMeetingSeriesSubscription,
-  ): Promise<SeriesDiscovery> => {
-    const key = `${subscription.credentialOwner.subject}\0${subscription.siteUrl ?? ""}`;
-    let pending = discoveries.get(key);
-    if (!pending) {
-      pending = invokeFor(subscription).then((invoke) =>
-        discoverMeetingSeries(invoke, {
-          from: new Date(now.getTime() - LOOKBACK_MS),
-          to: new Date(now.getTime() + LOOKAHEAD_MS),
-          siteUrl: subscription.siteUrl,
-          now,
-        }),
+
+  for (const group of ownerSiteGroups(projects)) {
+    let claimed = false;
+    try {
+      claimed = await claimWebexMeetingOwnerCheck(
+        group.ownerSubject,
+        group.siteUrl,
+        now,
+        new Date(now.getTime() + OWNER_CHECK_CLAIM_MS),
       );
-      discoveries.set(key, pending);
+    } catch (error) {
+      console.error(
+        `[WebexSeries] ${group.ownerSubject}: failed to claim calendar check: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
-    return pending;
-  };
+    if (!claimed) continue;
+
+    let nextCheckAt = new Date(now.getTime() + REFRESH_INTERVAL_MS);
+    try {
+      const representative = group.items[0]?.subscription;
+      if (!representative) continue;
+      const invoke = await invokeFor(representative);
+      const candidates = await discoverMeetingSeries(invoke, {
+        from: new Date(now.getTime() - LOOKBACK_MS),
+        to: new Date(now.getTime() + LOOKAHEAD_MS),
+        siteUrl: group.siteUrl || undefined,
+        now,
+      });
+      for (const item of group.items) {
+        try {
+          const eventCheckAt = await reconcileSubscriptionCalendar(
+            item.project,
+            item.subscription,
+            now,
+            candidates,
+          );
+          if (eventCheckAt && eventCheckAt > now && eventCheckAt < nextCheckAt) {
+            nextCheckAt = eventCheckAt;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(
+            `[WebexSeries] ${item.project.slug}/${item.subscription.title}: reconciliation failed: ${message}`,
+          );
+          await updateSubscription(item.project._id, item.subscription.id, {
+            lastCalendarCheckAt: now.toISOString(),
+            lastStatus: "failed",
+            lastError: message,
+          });
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[WebexSeries] ${group.ownerSubject}: discovery failed: ${message}`);
+      nextCheckAt = new Date(now.getTime() + DISCOVERY_FAILURE_RETRY_MS);
+      for (const item of group.items) {
+        await updateSubscription(item.project._id, item.subscription.id, {
+          lastCalendarCheckAt: now.toISOString(),
+          lastStatus: "failed",
+          lastError: message,
+        });
+      }
+    }
+
+    try {
+      await scheduleWebexMeetingOwnerCheck(
+        group.ownerSubject,
+        group.siteUrl,
+        now,
+        nextCheckAt,
+      );
+    } catch (error) {
+      console.error(
+        `[WebexSeries] ${group.ownerSubject}: failed to schedule next calendar check: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   for (const project of projects) {
     const subscriptions = (project.autoIngest?.webexMeetingSeries ?? []).filter(
@@ -430,9 +556,6 @@ export async function tickWebexMeetingSeriesScheduler(
     );
     if (!subscriptions.length) continue;
     await reconcileRuns(project, subscriptions);
-    for (const subscription of subscriptions) {
-      await discoverOccurrences(project, subscription, now, () => discoveryFor(subscription));
-    }
 
     const subscriptionsById = new Map(subscriptions.map((item) => [item.id, item]));
     const due = await occurrences

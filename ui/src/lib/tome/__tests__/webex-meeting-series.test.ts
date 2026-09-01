@@ -1,10 +1,24 @@
 import {
   meetingSeriesMatches,
+  meetingSeriesHostEligibility,
   meetingSeriesSlug,
   normalizeMeetingSeries,
   readMcpToolJson,
+  resolveOccurrenceMeetingId,
   webexMcpToolArguments,
 } from "../webex-meeting-series";
+
+jest.mock("@/lib/mcp-http-server-client", () => ({
+  invokeDirectHttpMcpTool: jest.fn(),
+  invokeHttpMcpTool: jest.fn(),
+}));
+jest.mock("@/lib/mcp-credential-headers", () => ({
+  resolveMcpHeaderCredentials: jest.fn(),
+}));
+jest.mock("@/lib/mongodb", () => ({ getCollection: jest.fn() }));
+jest.mock("@/lib/projects/onboarding-providers", () => ({
+  collectForwardedCredentials: jest.fn(),
+}));
 
 describe("Webex recurring meeting discovery", () => {
   const now = new Date("2026-09-01T12:00:00Z");
@@ -22,6 +36,7 @@ describe("Webex recurring meeting discovery", () => {
             id: "series-1",
             meetingType: "meetingSeries",
             title: "Platform sync",
+            hostEmail: "host@example.com",
             webLink: "https://cisco.webex.com/meet/platform-sync",
           },
         ],
@@ -76,9 +91,64 @@ describe("Webex recurring meeting discovery", () => {
         scheduledMeetingId: "scheduled-1",
         userHubSeriesId: "calendar-series",
       },
+      hostEmail: "host@example.com",
     });
     expect(result[0].occurrences).toHaveLength(1);
     expect(result[0].occurrences[0].meetingId).toBe("actual-1");
+  });
+
+  it("keeps distinct series that reuse the same personal-room link and meeting number", () => {
+    const shared = {
+      meetingNumber: "123456789",
+      webLink: "https://cisco.webex.com/meet/shared-personal-room",
+      hostEmail: "host@example.com",
+    };
+    const result = normalizeMeetingSeries({
+      meetingSeries: {
+        items: [
+          { ...shared, id: "series-1", meetingType: "meetingSeries", title: "First sync" },
+          { ...shared, id: "series-2", meetingType: "meetingSeries", title: "Second sync" },
+        ],
+      },
+      scheduledMeetings: {
+        items: [
+          {
+            ...shared,
+            id: "scheduled-1",
+            meetingSeriesId: "series-1",
+            meetingType: "scheduledMeeting",
+            title: "First sync",
+            start: "2026-09-02T10:00:00Z",
+            end: "2026-09-02T11:00:00Z",
+          },
+          {
+            ...shared,
+            id: "scheduled-2",
+            meetingSeriesId: "series-2",
+            meetingType: "scheduledMeeting",
+            title: "Second sync",
+            start: "2026-09-02T12:00:00Z",
+            end: "2026-09-02T13:00:00Z",
+          },
+        ],
+      },
+      meetingInstances: { items: [] },
+      userHubCalendar: { items: [] },
+      now,
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.title)).toEqual(["First sync", "Second sync"]);
+    expect(
+      meetingSeriesMatches(result[0], {
+        seriesKey: "webex:other",
+        sourceRefs: {
+          meetingSeriesId: "series-2",
+          meetingNumber: shared.meetingNumber,
+          webLink: shared.webLink,
+        },
+      }),
+    ).toBe(false);
   });
 
   it("keeps a recurring series found only in User Hub and ignores one-off calendar rows", () => {
@@ -117,6 +187,44 @@ describe("Webex recurring meeting discovery", () => {
     ).toBe(true);
   });
 
+  it("uses an unmarked User Hub occurrence when the public series template is expired", () => {
+    const result = normalizeMeetingSeries({
+      meetingSeries: {
+        items: [
+          {
+            id: "expired-series",
+            meetingType: "meetingSeries",
+            title: "OpenClaw UCL MSc Student Project Weekly Sync",
+            hostEmail: "suwhang@cisco.com",
+          },
+        ],
+      },
+      scheduledMeetings: { items: [] },
+      meetingInstances: { items: [] },
+      userHubCalendar: {
+        items: [
+          {
+            id: "calendar-occurrence-today",
+            subject: "OpenClaw UCL MSc Student Project Weekly Sync",
+            organizerEmail: "suwhang@cisco.com",
+            start: "2026-09-01T17:00:00Z",
+            end: "2026-09-01T18:00:00Z",
+          },
+        ],
+      },
+      now,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].sources).toEqual(["meetings_api", "userhub_calendar"]);
+    expect(result[0].nextOccurrence).toMatchObject({
+      occurrenceKey: "calendar-occurrence-today",
+      start: "2026-09-01T17:00:00Z",
+      end: "2026-09-01T18:00:00Z",
+      source: "userhub_calendar",
+    });
+  });
+
   it("unwraps structured and text MCP tool responses", () => {
     expect(
       readMcpToolJson({
@@ -134,6 +242,61 @@ describe("Webex recurring meeting discovery", () => {
   it("wraps typed Webex MCP inputs in the FastMCP args parameter", () => {
     expect(webexMcpToolArguments({ meeting_type: "meetingSeries", max_results: 100 })).toEqual({
       args: { meeting_type: "meetingSeries", max_results: 100 },
+    });
+  });
+
+  it("resolves a scheduled occurrence to an actual meeting before transcript lookup", async () => {
+    const invoke = jest.fn().mockResolvedValue({
+      items: [
+        {
+          id: "scheduled-1",
+          meetingType: "scheduledMeeting",
+          start: "2026-09-02T10:00:00Z",
+        },
+        {
+          id: "actual-1",
+          meetingType: "meeting",
+          start: "2026-09-02T10:00:00Z",
+        },
+      ],
+    });
+
+    await expect(
+      resolveOccurrenceMeetingId(invoke, {
+        occurrenceKey: "scheduled-1",
+        title: "Platform sync",
+        start: "2026-09-02T10:00:00Z",
+        end: "2026-09-02T11:00:00Z",
+        webLink: "https://cisco.webex.com/meet/platform-sync",
+        cancelled: false,
+        source: "meetings_api",
+      }),
+    ).resolves.toBe("actual-1");
+  });
+
+  it("allows only the meeting host to configure transcript auto-ingest", () => {
+    const [candidate] = normalizeMeetingSeries({
+      meetingSeries: {
+        items: [
+          {
+            id: "series-1",
+            meetingType: "meetingSeries",
+            title: "Platform sync",
+            hostEmail: "Host@Example.com",
+          },
+        ],
+      },
+      scheduledMeetings: { items: [] },
+      meetingInstances: { items: [] },
+      userHubCalendar: { items: [] },
+      now,
+    });
+
+    expect(meetingSeriesHostEligibility(candidate, "host@example.com")).toEqual({
+      canAutoIngest: true,
+    });
+    expect(meetingSeriesHostEligibility(candidate, "attendee@example.com")).toMatchObject({
+      canAutoIngest: false,
     });
   });
 });

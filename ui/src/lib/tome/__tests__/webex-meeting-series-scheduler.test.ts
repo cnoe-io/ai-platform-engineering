@@ -1,18 +1,41 @@
 const projectUpdate = jest.fn();
 const enqueueRun = jest.fn();
 const isIngestRunning = jest.fn();
-const claimPoll = jest.fn();
+const claimOwnerCheck = jest.fn();
+const scheduleOwnerCheck = jest.fn();
 const backgroundInvoker = jest.fn();
 const discoverMeetingSeries = jest.fn();
 const downloadMeetingTranscript = jest.fn();
 const resolveOccurrenceMeetingId = jest.fn();
 const runFindOne = jest.fn();
 
-let occurrences: Array<Record<string, any>> = [];
+interface TestOccurrence {
+  _id?: unknown;
+  project_id?: unknown;
+  subscription_id?: unknown;
+  status?: unknown;
+  attempts?: number;
+  [key: string]: unknown;
+}
+
+interface TestOccurrenceQuery {
+  _id?: unknown;
+  project_id?: unknown;
+  subscription_id?: { $in: unknown[] };
+  status?: string | { $in: unknown[] };
+}
+
+interface TestOccurrenceUpdate {
+  $setOnInsert?: TestOccurrence;
+  $set?: TestOccurrence;
+  $inc?: { attempts?: number };
+}
+
+let occurrences: TestOccurrence[] = [];
 
 const occurrenceCollection = {
   updateMany: jest.fn(async () => ({ modifiedCount: 0 })),
-  updateOne: jest.fn(async (filter: Record<string, any>, update: Record<string, any>) => {
+  updateOne: jest.fn(async (filter: TestOccurrenceQuery, update: TestOccurrenceUpdate) => {
     const index = occurrences.findIndex((item) => item._id === filter._id);
     if (index < 0 && update.$setOnInsert) {
       occurrences.push({ ...update.$setOnInsert });
@@ -22,23 +45,25 @@ const occurrenceCollection = {
       occurrences[index] = {
         ...occurrences[index],
         ...(update.$set ?? {}),
-        attempts: occurrences[index].attempts + (update.$inc?.attempts ?? 0),
+        attempts: (occurrences[index].attempts ?? 0) + (update.$inc?.attempts ?? 0),
       };
       return { upsertedCount: 0, modifiedCount: 1 };
     }
     return { upsertedCount: 0, modifiedCount: 0 };
   }),
-  findOneAndUpdate: jest.fn(async (filter: Record<string, any>, update: Record<string, any>) => {
+  findOneAndUpdate: jest.fn(async (filter: TestOccurrenceQuery, update: TestOccurrenceUpdate) => {
     const index = occurrences.findIndex((item) => item._id === filter._id);
     if (index < 0) return null;
     occurrences[index] = { ...occurrences[index], ...(update.$set ?? {}) };
     return occurrences[index];
   }),
-  find: jest.fn((query: Record<string, any>) => {
+  find: jest.fn((query: TestOccurrenceQuery) => {
     const selected = occurrences.filter((item) => {
       if (query.project_id && item.project_id !== query.project_id) return false;
       if (typeof query.status === "string") return item.status === query.status;
-      if (query.status?.$in && !query.status.$in.includes(item.status)) return false;
+      if (typeof query.status !== "string" && query.status?.$in && !query.status.$in.includes(item.status)) {
+        return false;
+      }
       if (query.subscription_id?.$in && !query.subscription_id.$in.includes(item.subscription_id)) {
         return false;
       }
@@ -59,6 +84,13 @@ jest.mock("@/lib/mongodb", () => ({
       ? occurrenceCollection
       : { updateOne: projectUpdate },
 }));
+jest.mock("mongodb", () => ({
+  ObjectId: class MockObjectId {
+    static isValid() {
+      return false;
+    }
+  },
+}));
 jest.mock("../mongo-collections", () => ({
   getTomeIngestRunsCollection: async () => ({ findOne: runFindOne }),
 }));
@@ -67,7 +99,8 @@ jest.mock("../ingest-runner", () => ({
   isIngestRunning: (...args: unknown[]) => isIngestRunning(...args),
 }));
 jest.mock("../auto-ingest/cursor", () => ({
-  claimWebexMeetingSeriesPoll: (...args: unknown[]) => claimPoll(...args),
+  claimWebexMeetingOwnerCheck: (...args: unknown[]) => claimOwnerCheck(...args),
+  scheduleWebexMeetingOwnerCheck: (...args: unknown[]) => scheduleOwnerCheck(...args),
 }));
 jest.mock("../webex-meeting-series", () => ({
   backgroundWebexMeetingInvoker: (...args: unknown[]) => backgroundInvoker(...args),
@@ -114,7 +147,8 @@ describe("Webex meeting-series scheduler", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     occurrences = [];
-    claimPoll.mockResolvedValue(true);
+    claimOwnerCheck.mockResolvedValue(true);
+    scheduleOwnerCheck.mockResolvedValue(undefined);
     backgroundInvoker.mockResolvedValue(jest.fn());
     discoverMeetingSeries.mockResolvedValue([
       {
@@ -171,6 +205,76 @@ describe("Webex meeting-series scheduler", () => {
       }),
     );
     expect(occurrences[0]).toMatchObject({ status: "queued", run_id: "run-1" });
+    expect(scheduleOwnerCheck).toHaveBeenCalledWith(
+      "owner-sub",
+      "",
+      now,
+      new Date("2026-09-02T12:00:00Z"),
+    );
+  });
+
+  it("uses one discovery sweep for every series owned by the same user and site", async () => {
+    const secondProject = {
+      ...project,
+      _id: "project-2",
+      slug: "project-two",
+      autoIngest: {
+        ...project.autoIngest,
+        webexMeetingSeries: [
+          {
+            ...project.autoIngest!.webexMeetingSeries![0],
+            id: "subscription-2",
+            seriesKey: "webex:series-2",
+          },
+        ],
+      },
+    } as ProjectDocument & { _id: string };
+
+    await tickWebexMeetingSeriesScheduler(now, [project, secondProject]);
+
+    expect(claimOwnerCheck).toHaveBeenCalledTimes(1);
+    expect(backgroundInvoker).toHaveBeenCalledTimes(1);
+    expect(discoverMeetingSeries).toHaveBeenCalledTimes(1);
+    expect(scheduleOwnerCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call Webex before the user-level calendar check is due", async () => {
+    claimOwnerCheck.mockResolvedValueOnce(false);
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(backgroundInvoker).not.toHaveBeenCalled();
+    expect(discoverMeetingSeries).not.toHaveBeenCalled();
+    expect(scheduleOwnerCheck).not.toHaveBeenCalled();
+  });
+
+  it("wakes after the earliest upcoming meeting instead of waiting for the daily refresh", async () => {
+    discoverMeetingSeries.mockResolvedValueOnce([
+      {
+        seriesKey: "webex:series-1",
+        title: "Platform sync",
+        sourceRefs: { meetingSeriesId: "series-1" },
+        sources: ["meetings_api"],
+        nextOccurrence: {
+          occurrenceKey: "scheduled-2",
+          title: "Platform sync",
+          start: "2026-09-02T10:00:00Z",
+          end: "2026-09-02T11:00:00Z",
+          cancelled: false,
+          source: "meetings_api",
+        },
+        occurrences: [],
+      },
+    ]);
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(scheduleOwnerCheck).toHaveBeenCalledWith(
+      "owner-sub",
+      "",
+      now,
+      new Date("2026-09-02T11:10:00Z"),
+    );
   });
 
   it("does not backfill an occurrence that ended before subscription creation", async () => {
