@@ -1,3 +1,33 @@
+## 1.0.0-dev.15 (2026-09-01)
+
+## 1.0.0-dev.14 (2026-08-31)
+
+### Feat
+
+- **ui**: add owner team editor to Webex configured space detail
+- **ui**: add Webex Advanced admin tab and harden Slack/Webex parity
+- **ui**: unify Webex/Slack DM default-agent settings
+- **rag**: show collection id in the collections detail pane
+- **rag**: filter search MCP tool by collection_id
+
+### Fix
+
+- **ui**: skip unused runtime-status fetch, filter malformed direct-user rows
+- **webex-bot**: silence linked users on disabled DMs, recognize legacy reply marker
+- **ui**: fix stale-response race and double-fetch in Webex 1:1 panel
+- **rbac**: revoke stale team grant and avoid duplicate Webex space mapping
+- **webex-bot**: stop nesting bold and italic in agent-reply footer
+- **rbac**: require bot_id on Webex team-space assignments
+- **ui**: use public origin for Webex link callback redirect
+
+### Perf
+
+- **ui**: paginate and search the 1:1 Messages admin tab
+
+## 1.0.0-dev.13 (2026-08-28)
+
+## 1.0.0-rc.4 (2026-08-28)
+
 ## 1.0.0-dev.12 (2026-08-28)
 
 ### Refactor
