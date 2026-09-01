@@ -201,6 +201,35 @@ describe("filterSkillsByOpenFga", () => {
     );
   });
 
+  it("keeps hub-projected skills visible for signed-in readers without per-skill tuples", async () => {
+    // hub_skills is a live cache (hub-crawl.ts) never routed through
+    // /api/skills/configs, so it never gets the per-object OpenFGA tuple
+    // that flow grants on create — hub skills must be treated like
+    // `default` here or every one of them fails closed.
+    const check = jest.fn(async () => ({ allowed: false }));
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "hub-1", source: "hub", name: "Hub skill" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "read",
+        check,
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["hub-1"]);
+    expect(check).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_read",
+      object: "skill:team-private",
+    });
+    expect(check).not.toHaveBeenCalledWith(
+      expect.objectContaining({ object: "skill:hub-1" }),
+    );
+  });
+
   it("requires can_use when content is being loaded for runtime consumers", async () => {
     const filtered = await filterSkillsByOpenFga(
       [{ ...baseSkill, id: "hub-h1-runnable" }],
@@ -232,6 +261,30 @@ describe("filterSkillsByOpenFga", () => {
     );
 
     expect(filtered.map((skill) => skill.id)).toEqual(["builtin-safe"]);
+    expect(checks).toEqual([
+      "user:alice-sub can_use organization:caipe",
+      "user:alice-sub can_use skill:team-private",
+    ]);
+  });
+
+  it("keeps hub-projected skills visible in use mode for users with baseline org access", async () => {
+    const checks: string[] = [];
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "hub-1", source: "hub", name: "Hub skill" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "use",
+        check: async (tuple) => {
+          checks.push(`${tuple.user} ${tuple.relation} ${tuple.object}`);
+          return { allowed: tuple.object === "organization:caipe" };
+        },
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["hub-1"]);
     expect(checks).toEqual([
       "user:alice-sub can_use organization:caipe",
       "user:alice-sub can_use skill:team-private",
@@ -279,6 +332,10 @@ describe("filterSkillsByOpenFga", () => {
 
     expect(checkedObjects).toEqual([
       "can_use skill:local-skill",
+      // Hub skills are a shared-catalog source (see the "hub-projected
+      // skills" tests above), so they hit the baseline org check first,
+      // same as `default`.
+      "can_use organization:caipe",
       "can_use skill:hub-hub1-skill2",
     ]);
   });
