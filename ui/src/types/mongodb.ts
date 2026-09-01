@@ -43,14 +43,21 @@ export interface UserPublicInfo {
 // Conversation Collection
 // ============================================================================
 
-/** Valid client types for conversation creation. */
-export type ClientType = "webui" | "slack" | "webex";
+/**
+ * Valid client types for conversation creation.
+ * 'api' is never caller-declared in practice: the server forces it onto any
+ * Bearer-authenticated request that doesn't self-declare 'slack' or 'webex'
+ * (see the POST handler in chat/conversations/route.ts), overriding a false
+ * 'webui' claim from a non-first-party caller.
+ */
+export type ClientType = "webui" | "slack" | "webex" | "api";
 
 /** All valid client_type values — used for runtime validation. */
 export const VALID_CLIENT_TYPES: readonly ClientType[] = [
   "webui",
   "slack",
   "webex",
+  "api",
 ] as const;
 
 /**
