@@ -307,8 +307,17 @@ export async function filterSkillsByOpenFga(
 
   const decisions = await Promise.all(
     skills.map(async (skill) => {
-      if (options.mode === "read" && skill.source === "default") return skill;
-      if (options.mode === "use" && skill.source === "default" && await hasBaselineUseAccess()) {
+      // Hub-projected skills are a live cache (see hub-crawl.ts), never
+      // created through /api/skills/configs, so they never get the
+      // per-object OpenFGA tuple that flow grants on create. Without this
+      // carve-out every hub skill fails the per-skill check below and is
+      // silently stripped for any non-admin caller. Treat them like
+      // `default` (built-in templates): a shared, admin-managed catalog
+      // with no per-object ACL, not a per-user-owned resource.
+      const isSharedCatalogSource =
+        skill.source === "default" || skill.source === "hub";
+      if (options.mode === "read" && isSharedCatalogSource) return skill;
+      if (options.mode === "use" && isSharedCatalogSource && await hasBaselineUseAccess()) {
         return skill;
       }
       try {
