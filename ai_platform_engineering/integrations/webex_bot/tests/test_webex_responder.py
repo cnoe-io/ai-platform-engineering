@@ -509,6 +509,7 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
                 "webex_space_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
                 "webex_message_id": "message-public-id",
                 "webex_room_id": "room-public-id",
+                "webex_is_direct": False,
             },
             "bearer_token": "obo-access-token",
         }
@@ -570,12 +571,43 @@ def test_threaded_stream_dispatcher_tags_message_turns_with_webex_source() -> No
     assert user_turn["metadata"]["webex_room_id"] == "room-id"
     assert user_turn["metadata"]["webex_thread_parent_id"] == "trigger-message-id"
     assert user_turn["metadata"]["webex_message_id"] == "trigger-message-id"
+    assert user_turn["metadata"]["webex_is_direct"] is False
     assert user_turn["bearer_token"] == "obo-access-token"
 
     assert assistant_turn["role"] == "assistant"
     assert assistant_turn["metadata"]["source"] == "webex"
     assert assistant_turn["metadata"]["is_final"] is True
     assert isinstance(assistant_turn["metadata"]["latency_ms"], int)
+
+
+def test_threaded_stream_dispatcher_tags_direct_messages_as_is_direct() -> None:
+    """A Webex 1:1 DM propagates ``is_direct`` into conversation and turn metadata.
+
+    Insights must be able to tell DM conversations apart from real spaces so it
+    can exclude them from the Top Spaces / Configured Spaces breakdowns while
+    still counting their activity in aggregate totals.
+    """
+    api = FakeWebexApi()
+    sse = FakeSseClient(events=[SSEEvent(SSEEventType.RUN_FINISHED)])
+    dispatcher = WebexThreadedStreamDispatcher(webex_api=api, sse_client=sse)
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "dm-space-id",
+                "webex_room_id": "dm-room-id",
+                "message_id": "dm-message-id",
+                "text": "neo-coder hello",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+                "is_direct": True,
+            }
+        )
+    )
+
+    assert sse.conversations[0]["metadata"]["webex_is_direct"] is True
+    user_turn, _assistant_turn = sse.messages
+    assert user_turn["metadata"]["webex_is_direct"] is True
 
 
 def test_threaded_stream_dispatcher_does_not_tag_message_turns_on_denied_agent() -> None:
@@ -732,7 +764,9 @@ def test_threaded_stream_dispatcher_overrides_reconfigured_space_route_for_exist
     and second message in the same Webex thread: the runtime gate resolves
     the new route (``agent_id="new-agent"``), but the conversation already
     carries a persisted ``thread_owner_agent_id`` from the first reply, so
-    the dispatcher must override back to the original owner.
+    the dispatcher must override back to the original owner *before* the
+    placeholder is created — the owner should be shown from the very first
+    message, with no create-then-correct flash.
     """
     api = FakeWebexApi()
     sse = FakeSseClient(
@@ -760,16 +794,54 @@ def test_threaded_stream_dispatcher_overrides_reconfigured_space_route_for_exist
     )
 
     assert sse.calls[0]["agent_id"] == "original-agent"
-    # Placeholder reply was corrected from the requested agent to the owner.
+    # Placeholder reply was created with the owner's agent from the start —
+    # never shows the requested/reconfigured agent, so nothing needs correcting.
+    assert len(api.created) == 1
     assert api.created[0]["markdown"].startswith(
-        "Working on it...\n\n_Agent: new-agent_"
-    )
-    assert api.updated[0]["markdown"].startswith(
         "Working on it...\n\n_Agent: original-agent_"
     )
     assert api.updated[-1]["markdown"].startswith("Done.\n\n_Agent: original-agent_")
     # Ownership was already persisted — no redundant metadata write.
     assert sse.metadata_updates == []
+
+
+def test_threaded_stream_dispatcher_posts_fresh_error_when_conversation_setup_fails() -> None:
+    """A failure while resolving ownership/conversation setup still notifies the user.
+
+    Because ownership is now resolved before the placeholder is created, a
+    failure in that earlier step (e.g. conversation creation) means no
+    placeholder exists yet. The dispatcher must post a fresh error message
+    instead of trying to edit a message_id that was never created.
+    """
+
+    class FailingConversationSseClient(FakeSseClient):
+        def create_conversation(self, **kwargs: Any) -> dict[str, Any]:
+            raise AgentAccessDeniedError("incident-agent")
+
+    api = FakeWebexApi()
+    sse = FailingConversationSseClient(events=[])
+    dispatcher = WebexThreadedStreamDispatcher(webex_api=api, sse_client=sse)
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-id",
+                "message_id": "trigger-message-id",
+                "text": "neo-coder hello",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    # No placeholder was ever created, so the error is posted as a fresh
+    # message rather than an update to a nonexistent message_id.
+    assert api.updated == []
+    assert len(api.created) == 1
+    assert api.created[0]["room_id"] == "room-id"
+    assert api.created[0]["parent_id"] == "trigger-message-id"
+    assert "don't have permission" in api.created[0]["markdown"]
 
 
 def test_threaded_stream_dispatcher_uses_in_memory_owner_cache_before_server_metadata() -> None:

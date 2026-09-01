@@ -2216,4 +2216,61 @@ describe('GET /api/admin/stats — Configured Spaces (Webex)', () => {
       { space_name: 'design-crit', interactions: 5 },
     ]);
   });
+
+  it('excludes 1:1 DM conversations from the Top Spaces ranking', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubSpaceMappings([]);
+
+    // Simulate Mongo applying the query: a DM-flagged conversation (id "DM1")
+    // is filtered out of the Top Spaces group-by because the pipeline's
+    // $match must exclude metadata.webex_is_direct: true.
+    const conversationDocs = [
+      { metadata: { webex_space_id: 'S1', webex_is_direct: false } },
+      { metadata: { webex_space_id: 'DM1', webex_is_direct: true } },
+    ];
+    convCol.aggregate.mockImplementation((pipeline: unknown[]) => {
+      const stages = pipeline as Array<Record<string, unknown>>;
+      const matchStage = stages.find((stage) => 'match' in stage || '$match' in stage) as
+        | { $match?: Record<string, unknown> }
+        | undefined;
+      const groupStage = stages.find((stage) => '$group' in stage) as
+        | { $group?: { _id?: string } }
+        | undefined;
+      const isTopSpacesPipeline = groupStage?.$group?._id === '$metadata.webex_space_id';
+      if (!isTopSpacesPipeline) {
+        return { toArray: jest.fn().mockResolvedValue([]) };
+      }
+      // Assert the DM exclusion clause is present on the Top Spaces $match.
+      expect(matchStage?.$match?.['metadata.webex_is_direct']).toEqual({ $ne: true });
+      const surviving = conversationDocs.filter(
+        (doc) => doc.metadata.webex_is_direct !== true,
+      );
+      return {
+        toArray: jest.fn().mockResolvedValue(
+          surviving.map((doc) => ({ _id: doc.metadata.webex_space_id, interactions: 1 })),
+        ),
+      };
+    });
+
+    const res = await GET(makeRequest('/api/admin/stats?section=webex'));
+    const body = await res.json();
+
+    expect(body.data.webex.top_spaces).toEqual([{ space_name: 'S1', interactions: 1 }]);
+    expect(body.data.webex.top_spaces).not.toContainEqual(
+      expect.objectContaining({ space_name: 'DM1' }),
+    );
+    // The base webexFilter used for total_interactions/unique_users/daily
+    // carries no is_direct exclusion, so DM activity is still counted in the
+    // aggregate totals — only the space-specific breakdown excludes it.
+    const countDocumentsFilters = convCol.countDocuments.mock.calls.map(
+      (call: unknown[]) => call[0] as Record<string, unknown>,
+    );
+    for (const filter of countDocumentsFilters) {
+      expect(filter['metadata.webex_is_direct']).toBeUndefined();
+    }
+    expect(body.data.webex.total_interactions).toBe(1);
+  });
 });

@@ -1578,7 +1578,17 @@ async function getAdminStats(request: NextRequest) {
               { $sort: { _id: 1 } },
             ]).toArray(),
             conversations.aggregate([
-              { $match: { ...webexFilter, 'metadata.webex_space_id': { $ne: null } } },
+              {
+                $match: {
+                  ...webexFilter,
+                  'metadata.webex_space_id': { $ne: null },
+                  // 1:1 DMs are not spaces — keep them out of the Top Spaces
+                  // ranking (they're still counted in total_interactions/
+                  // unique_users above via webexFilter, which applies no
+                  // such exclusion).
+                  'metadata.webex_is_direct': { $ne: true },
+                },
+              },
               {
                 $group: {
                   _id: '$metadata.webex_space_id',

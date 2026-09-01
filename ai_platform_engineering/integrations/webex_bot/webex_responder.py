@@ -354,15 +354,12 @@ class WebexThreadedStreamDispatcher:
         agent_id = str(payload.get("agent_id") or "")
         text = str(payload.get("text") or "")
         obo_token = str(payload.get("obo_token") or "")
+        is_direct = bool(payload.get("is_direct") or False)
         if not all((room_id, message_id, parent_id, space_id, agent_id, text, obo_token)):
             raise ValueError("Webex threaded stream dispatch payload is missing required fields")
 
         t0 = time.monotonic()
-        reply_id = self._webex_api.create_message(
-            room_id=room_id,
-            parent_id=parent_id,
-            markdown=_agent_reply_markdown(agent_id, "Working on it..."),
-        )
+        reply_id: str | None = None
         accumulated = ""
         last_sent_len = 0
 
@@ -383,6 +380,7 @@ class WebexThreadedStreamDispatcher:
                     "webex_space_id": space_id,
                     "webex_message_id": parent_id,
                     "webex_room_id": room_id,
+                    "webex_is_direct": is_direct,
                 },
                 bearer_token=obo_token,
             )
@@ -396,6 +394,9 @@ class WebexThreadedStreamDispatcher:
             # changes later — mirrors Slack's thread-owner pinning. Only
             # replies (never the root message) look up an existing owner;
             # thread_parent_id is populated exclusively on true replies.
+            # Resolved before the placeholder message is created so the
+            # first thing users see already shows the pinned/owner agent,
+            # instead of flashing the reconfigured route and self-correcting.
             conv_metadata = conversation.get("metadata") or {}
             thread_key = f"{space_id}:{parent_id}"
             if thread_parent_id:
@@ -412,11 +413,12 @@ class WebexThreadedStreamDispatcher:
                         agent_id,
                     )
                     agent_id = owner_id
-                    self._webex_api.update_message(
-                        message_id=reply_id,
-                        room_id=room_id,
-                        markdown=_agent_reply_markdown(agent_id, "Working on it..."),
-                    )
+
+            reply_id = self._webex_api.create_message(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=_agent_reply_markdown(agent_id, "Working on it..."),
+            )
 
             self._thread_owner_cache.set(thread_key, agent_id)
             if not conv_metadata.get("thread_owner_agent_id"):
@@ -478,9 +480,10 @@ class WebexThreadedStreamDispatcher:
                 space_id,
                 exc.agent_id,
             )
-            self._webex_api.update_message(
-                message_id=reply_id,
+            self._post_or_update_reply(
+                reply_id=reply_id,
                 room_id=room_id,
+                parent_id=parent_id,
                 markdown=_agent_reply_markdown(
                     agent_id,
                     (
@@ -492,9 +495,10 @@ class WebexThreadedStreamDispatcher:
             return
         except Exception as exc:
             logger.warning("Webex threaded stream dispatch failed (type=%s)", type(exc).__name__)
-            self._webex_api.update_message(
-                message_id=reply_id,
+            self._post_or_update_reply(
+                reply_id=reply_id,
                 room_id=room_id,
+                parent_id=parent_id,
                 markdown=_agent_reply_markdown(
                     agent_id,
                     "I could not complete the request. Please try again.",
@@ -518,9 +522,24 @@ class WebexThreadedStreamDispatcher:
             parent_id=parent_id,
             message_id=message_id,
             agent_id=agent_id,
+            is_direct=is_direct,
             response_time_ms=int((time.monotonic() - t0) * 1000),
             bearer_token=obo_token,
         )
+
+    def _post_or_update_reply(
+        self, *, reply_id: str | None, room_id: str, parent_id: str, markdown: str
+    ) -> None:
+        """Surface an error, editing the placeholder if it exists or posting fresh otherwise.
+
+        ``reply_id`` is ``None`` when the failure happened while resolving
+        thread ownership/conversation setup, before the placeholder message
+        was created.
+        """
+        if reply_id:
+            self._webex_api.update_message(message_id=reply_id, room_id=room_id, markdown=markdown)
+        else:
+            self._webex_api.create_message(room_id=room_id, parent_id=parent_id, markdown=markdown)
 
     def _record_message_turns(
         self,
@@ -531,6 +550,7 @@ class WebexThreadedStreamDispatcher:
         parent_id: str,
         message_id: str,
         agent_id: str,
+        is_direct: bool = False,
         response_time_ms: int | None = None,
         bearer_token: str | None = None,
     ) -> None:
@@ -550,6 +570,7 @@ class WebexThreadedStreamDispatcher:
             "webex_room_id": room_id,
             "webex_thread_parent_id": parent_id,
             "webex_message_id": message_id,
+            "webex_is_direct": is_direct,
         }
         base_id = f"webex-{conversation_id}-{message_id}"
 
