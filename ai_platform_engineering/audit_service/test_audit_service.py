@@ -386,7 +386,9 @@ def test_verbosity_allowed_types_minimal() -> None:
 
 def test_verbosity_allowed_types_standard() -> None:
     types = allowed_types("standard")
-    assert types == frozenset({"auth", "cas_grant", "cas_reconcile", "cas_decision", "credential_action"})
+    assert types == frozenset(
+        {"auth", "cas_grant", "cas_reconcile", "cas_decision", "credential_action", "openfga_rebac"}
+    )
 
 
 def test_verbosity_allowed_types_il2() -> None:
@@ -416,6 +418,11 @@ def test_is_event_allowed_passes_and_blocks() -> None:
     assert is_event_allowed("cas_grant", "minimal") is True
     assert is_event_allowed("tool_action", "minimal") is False
     assert is_event_allowed(None, "minimal") is False
+
+
+def test_is_event_allowed_openfga_rebac_standard_not_minimal() -> None:
+    assert is_event_allowed("openfga_rebac", "standard") is True
+    assert is_event_allowed("openfga_rebac", "minimal") is False
 
 
 def test_filter_records_removes_disallowed() -> None:
