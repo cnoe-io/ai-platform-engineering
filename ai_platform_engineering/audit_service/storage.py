@@ -344,6 +344,10 @@ class LocalAuditStore:
             return
 
 
+class S3RetentionError(Exception):
+    """Raised when an S3 lifecycle-rule update fails (e.g. missing IAM permissions)."""
+
+
 class S3AuditStore:
     """S3-backed audit store using minute-partitioned Parquet objects."""
 
@@ -441,10 +445,17 @@ class S3AuditStore:
         except Exception:  # noqa: BLE001
             rules = []
         rules.append(new_rule)
-        self._client.put_bucket_lifecycle_configuration(
-            Bucket=self.bucket,
-            LifecycleConfiguration={"Rules": rules},
-        )
+        try:
+            self._client.put_bucket_lifecycle_configuration(
+                Bucket=self.bucket,
+                LifecycleConfiguration={"Rules": rules},
+            )
+        except Exception as exc:  # noqa: BLE001
+            reason = getattr(exc, "response", {}).get("Error", {}).get("Message") or str(exc)
+            raise S3RetentionError(
+                f"Failed to update S3 lifecycle rule (check S3 permissions, e.g. "
+                f"s3:PutLifecycleConfiguration on bucket {self.bucket}): {reason}"
+            ) from exc
 
     def storage_usage(self, *, max_objects: int = 10_000) -> dict[str, Any]:
         """Return approximate storage usage under this prefix.

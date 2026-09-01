@@ -7,12 +7,18 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.main import create_app
 from ai_platform_engineering.audit_service.queue_service import PUBLIC_FLUSH_ERROR, AuditQueueService
-from ai_platform_engineering.audit_service.storage import AuditQuery, LocalAuditStore, S3AuditStore
+from ai_platform_engineering.audit_service.storage import (
+    AuditQuery,
+    LocalAuditStore,
+    S3AuditStore,
+    S3RetentionError,
+)
 from ai_platform_engineering.audit_service.verbosity import (
     allowed_types,
     filter_records,
@@ -464,6 +470,7 @@ class LifecycleFakeS3Client:
         self.objects: dict[str, int] = {}  # key → size in bytes
         self._rules: list[dict] = []
         self.delete_lifecycle_called = False
+        self.put_lifecycle_error: Exception | None = None
 
     def head_bucket(self, *, Bucket: str) -> None:  # noqa: N803
         pass
@@ -479,6 +486,8 @@ class LifecycleFakeS3Client:
         return {"Rules": list(self._rules)}
 
     def put_bucket_lifecycle_configuration(self, *, Bucket: str, LifecycleConfiguration: dict) -> None:  # noqa: N803
+        if self.put_lifecycle_error is not None:
+            raise self.put_lifecycle_error
         self._rules = list(LifecycleConfiguration.get("Rules", []))
 
     def delete_bucket_lifecycle(self, *, Bucket: str) -> None:  # noqa: N803
@@ -550,6 +559,25 @@ def test_s3_set_retention_zero_calls_delete_when_no_rules_remain(monkeypatch) ->
     store = S3AuditStore(bucket="test-bucket", prefix="audit", region="us-east-1")
     store.set_s3_retention_days(0)
     assert fake.delete_lifecycle_called
+
+
+def test_s3_set_retention_raises_clean_error_on_access_denied(monkeypatch) -> None:
+    fake = LifecycleFakeS3Client()
+    access_denied = Exception(
+        "An error occurred (AccessDenied) when calling the PutBucketLifecycleConfiguration operation: "
+        "not authorized to perform: s3:PutLifecycleConfiguration"
+    )
+    access_denied.response = {  # type: ignore[attr-defined]
+        "Error": {
+            "Code": "AccessDenied",
+            "Message": "not authorized to perform: s3:PutLifecycleConfiguration",
+        }
+    }
+    fake.put_lifecycle_error = access_denied
+    monkeypatch.setattr(S3AuditStore, "_build_client", lambda self: fake)
+    store = S3AuditStore(bucket="test-bucket", prefix="audit", region="us-east-1")
+    with pytest.raises(S3RetentionError, match="s3:PutLifecycleConfiguration"):
+        store.set_s3_retention_days(30)
 
 
 def test_s3_storage_usage_empty(monkeypatch) -> None:
@@ -708,3 +736,26 @@ def test_put_retention_negative_days(tmp_path: Path, monkeypatch) -> None:
     with TestClient(app) as client:
         response = client.put("/v1/audit/retention", json={"days": -1})
     assert response.status_code == 400
+
+
+def test_put_retention_s3_access_denied_returns_clean_error(tmp_path: Path, monkeypatch) -> None:
+    fake = LifecycleFakeS3Client()
+    access_denied = Exception(
+        "An error occurred (AccessDenied) when calling the PutBucketLifecycleConfiguration operation: "
+        "not authorized to perform: s3:PutLifecycleConfiguration"
+    )
+    access_denied.response = {  # type: ignore[attr-defined]
+        "Error": {
+            "Code": "AccessDenied",
+            "Message": "not authorized to perform: s3:PutLifecycleConfiguration",
+        }
+    }
+    fake.put_lifecycle_error = access_denied
+    monkeypatch.setattr(S3AuditStore, "_build_client", lambda self: fake)
+    app = create_app(_settings(tmp_path, backend="s3", s3_bucket="test-bucket"))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.put("/v1/audit/retention", json={"days": 30})
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "s3:PutLifecycleConfiguration" in detail
+    assert "not authorized" in detail
