@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -328,6 +329,137 @@ def test_s3_store_writes_and_reads_parquet_objects(monkeypatch) -> None:
     assert result.records[0]["correlation_id"] == "corr-1"
     assert result.records[0]["subject_ref"] == "user:alice"
     assert result.records[0]["actor_ref"] == "user:alice"
+
+
+def test_s3_query_scopes_listing_and_fetch_to_date_range(monkeypatch) -> None:
+    class ScopedFakeS3Client:
+        def __init__(self) -> None:
+            self.objects: dict[str, bytes] = {}
+            self.list_prefixes: list[str] = []
+            self.get_keys: list[str] = []
+            self._lock = threading.Lock()
+
+        def head_bucket(self, *, Bucket: str) -> None:  # noqa: N803
+            pass
+
+        def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:  # noqa: N803
+            self.objects[Key] = Body
+
+        def list_objects_v2(
+            self,
+            *,
+            Bucket: str,
+            Prefix: str,
+            ContinuationToken: str | None = None,
+            Delimiter: str | None = None,
+        ) -> dict[str, object]:  # noqa: N803
+            with self._lock:
+                self.list_prefixes.append(Prefix)
+            return {
+                "Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)],
+                "IsTruncated": False,
+            }
+
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, object]:  # noqa: N803
+            with self._lock:
+                self.get_keys.append(Key)
+            return {"Body": BytesIO(self.objects[Key])}
+
+    fake_client = ScopedFakeS3Client()
+    monkeypatch.setattr(S3AuditStore, "_build_client", lambda self: fake_client)
+    store = S3AuditStore(bucket="audit-bucket", prefix="audit", region="us-east-1")
+
+    store.write_batch(
+        [{"ts": "2026-06-20T01:00:00Z", "type": "auth", "outcome": "allow", "correlation_id": "in-range"}]
+    )
+    store.write_batch(
+        [{"ts": "2026-07-15T01:00:00Z", "type": "auth", "outcome": "allow", "correlation_id": "out-of-range"}]
+    )
+
+    fake_client.list_prefixes.clear()
+    fake_client.get_keys.clear()
+
+    result = store.query(
+        AuditQuery(
+            since=datetime(2026, 6, 20, 0, 0, tzinfo=timezone.utc),
+            until=datetime(2026, 6, 20, 2, 0, tzinfo=timezone.utc),
+            limit=10,
+        )
+    )
+
+    assert result.total == 1
+    assert result.records[0]["correlation_id"] == "in-range"
+    assert all("2026/07" not in prefix for prefix in fake_client.list_prefixes)
+    assert all("2026/07" not in key for key in fake_client.get_keys)
+
+
+def test_s3_query_fetches_objects_concurrently_and_assembles_correctly(monkeypatch) -> None:
+    class ConcurrentFakeS3Client:
+        def __init__(self) -> None:
+            self.objects: dict[str, bytes] = {}
+            self._lock = threading.Lock()
+            self.get_object_threads: set[int] = set()
+
+        def head_bucket(self, *, Bucket: str) -> None:  # noqa: N803
+            pass
+
+        def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:  # noqa: N803
+            self.objects[Key] = Body
+
+        def list_objects_v2(
+            self,
+            *,
+            Bucket: str,
+            Prefix: str,
+            ContinuationToken: str | None = None,
+            Delimiter: str | None = None,
+        ) -> dict[str, object]:  # noqa: N803
+            return {
+                "Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)],
+                "IsTruncated": False,
+            }
+
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, object]:  # noqa: N803
+            with self._lock:
+                self.get_object_threads.add(threading.get_ident())
+            time.sleep(0.05)
+            return {"Body": BytesIO(self.objects[Key])}
+
+    fake_client = ConcurrentFakeS3Client()
+    monkeypatch.setattr(S3AuditStore, "_build_client", lambda self: fake_client)
+    store = S3AuditStore(bucket="audit-bucket", prefix="audit", region="us-east-1")
+
+    expected_ids = set()
+    for minute in range(8):
+        corr_id = f"corr-{minute}"
+        expected_ids.add(corr_id)
+        store.write_batch(
+            [
+                {
+                    "ts": f"2026-06-20T01:{minute:02d}:00Z",
+                    "type": "auth",
+                    "outcome": "allow",
+                    "correlation_id": corr_id,
+                }
+            ]
+        )
+
+    start = time.monotonic()
+    result = store.query(
+        AuditQuery(
+            since=datetime(2026, 6, 20, 1, 0, tzinfo=timezone.utc),
+            until=datetime(2026, 6, 20, 1, 10, tzinfo=timezone.utc),
+            limit=100,
+        )
+    )
+    elapsed = time.monotonic() - start
+
+    assert result.total == 8
+    assert {record["correlation_id"] for record in result.records} == expected_ids
+    # Fetches ran concurrently across multiple worker threads...
+    assert len(fake_client.get_object_threads) > 1
+    # ...so total time is well under the fully-serial 8 * 0.05s baseline.
+    assert elapsed < 0.3
 
 
 def test_verbosity_filters_ingest(tmp_path: Path) -> None:
