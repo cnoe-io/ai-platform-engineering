@@ -357,6 +357,7 @@ class WebexThreadedStreamDispatcher:
         if not all((room_id, message_id, parent_id, space_id, agent_id, text, obo_token)):
             raise ValueError("Webex threaded stream dispatch payload is missing required fields")
 
+        t0 = time.monotonic()
         reply_id = self._webex_api.create_message(
             room_id=room_id,
             parent_id=parent_id,
@@ -507,6 +508,73 @@ class WebexThreadedStreamDispatcher:
             room_id=room_id,
             markdown=_agent_reply_markdown(agent_id, final_markdown),
         )
+
+        # Persist per-turn message rows for stats/linking — only reached on a
+        # genuine successful response (denied/error dispatches return above).
+        self._record_message_turns(
+            conversation_id=conversation_id,
+            space_id=space_id,
+            room_id=room_id,
+            parent_id=parent_id,
+            message_id=message_id,
+            agent_id=agent_id,
+            response_time_ms=int((time.monotonic() - t0) * 1000),
+            bearer_token=obo_token,
+        )
+
+    def _record_message_turns(
+        self,
+        *,
+        conversation_id: str,
+        space_id: str,
+        room_id: str,
+        parent_id: str,
+        message_id: str,
+        agent_id: str,
+        response_time_ms: int | None = None,
+        bearer_token: str | None = None,
+    ) -> None:
+        """Persist per-turn message rows (metadata-only) for a Webex exchange.
+
+        Mirrors Slack's ``_record_message_turns``: Webex turn content lives in
+        Webex / the LangGraph checkpointer, so we do NOT duplicate it here. We
+        write two content-less ``messages`` rows — one ``user`` turn and one
+        ``assistant`` turn — carrying just the metadata admin stats need to
+        count Webex messages the same way as web and Slack (source, agent,
+        latency).
+        """
+        link_meta: dict[str, object] = {
+            "source": "webex",
+            "agent_id": agent_id,
+            "webex_space_id": space_id,
+            "webex_room_id": room_id,
+            "webex_thread_parent_id": parent_id,
+            "webex_message_id": message_id,
+        }
+        base_id = f"webex-{conversation_id}-{message_id}"
+
+        try:
+            self._sse_client.add_message(
+                conversation_id=conversation_id,
+                message_id=f"{base_id}-user",
+                role="user",
+                metadata={**link_meta, "turn_id": f"{message_id}-user"},
+                bearer_token=bearer_token,
+            )
+            self._sse_client.add_message(
+                conversation_id=conversation_id,
+                message_id=f"{base_id}-assistant",
+                role="assistant",
+                metadata={
+                    **link_meta,
+                    "turn_id": f"{message_id}-assistant",
+                    "is_final": True,
+                    **({"latency_ms": response_time_ms} if response_time_ms is not None else {}),
+                },
+                bearer_token=bearer_token,
+            )
+        except Exception:  # noqa: BLE001 - best-effort telemetry; never break the Webex reply.
+            logger.warning("Failed to record Webex message turns for conversation=%s", conversation_id)
 
 
 def _thread_refs(event: dict[str, Any]) -> tuple[str | None, str | None]:

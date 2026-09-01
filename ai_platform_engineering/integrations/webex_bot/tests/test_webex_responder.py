@@ -12,7 +12,11 @@ from typing import Any
 import pytest
 
 from ai_platform_engineering.integrations.webex_bot.app import WebexMessageResult
-from ai_platform_engineering.integrations.webex_bot.a2a_client import SSEEvent, SSEEventType
+from ai_platform_engineering.integrations.webex_bot.a2a_client import (
+    AgentAccessDeniedError,
+    SSEEvent,
+    SSEEventType,
+)
 from ai_platform_engineering.integrations.webex_bot.utils.thread_ownership import ThreadOwnerCache
 from ai_platform_engineering.integrations.webex_bot.webex_responder import (
     WebexResponder,
@@ -87,6 +91,7 @@ class FakeSseClient:
     conversations: list[dict[str, Any]] = field(default_factory=list)
     conversation_metadata: dict[str, Any] = field(default_factory=dict)
     metadata_updates: list[dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
 
     def create_conversation(self, **kwargs: Any) -> dict[str, Any]:
         self.conversations.append(kwargs)
@@ -106,6 +111,9 @@ class FakeSseClient:
         self.metadata_updates.append(
             {"conversation_id": conversation_id, "metadata": metadata, "bearer_token": bearer_token}
         )
+
+    def add_message(self, **kwargs: Any) -> None:
+        self.messages.append(kwargs)
 
 
 class FailingThreadContextWebexApi(FakeWebexApi):
@@ -517,6 +525,86 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
         "channel_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
         "surface_kind": "channel",
     }
+
+
+def test_threaded_stream_dispatcher_tags_message_turns_with_webex_source() -> None:
+    """A successful Webex dispatch records source="webex" message turns.
+
+    Mirrors the Slack bot's equivalent per-turn tagging (source="slack") so
+    Insights can count Webex activity the same way as web and Slack.
+    """
+    api = FakeWebexApi()
+    sse = FakeSseClient(
+        events=[
+            SSEEvent(SSEEventType.TEXT_MESSAGE_CONTENT, delta="hello"),
+            SSEEvent(SSEEventType.RUN_FINISHED),
+        ]
+    )
+    dispatcher = WebexThreadedStreamDispatcher(
+        webex_api=api,
+        sse_client=sse,
+        update_every_chars=1,
+    )
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-id",
+                "message_id": "trigger-message-id",
+                "text": "neo-coder hello",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    assert len(sse.messages) == 2
+    user_turn, assistant_turn = sse.messages
+    assert user_turn["conversation_id"] == "server-conversation-id"
+    assert user_turn["message_id"] == "webex-server-conversation-id-trigger-message-id-user"
+    assert user_turn["role"] == "user"
+    assert user_turn["metadata"]["source"] == "webex"
+    assert user_turn["metadata"]["agent_id"] == "incident-agent"
+    assert user_turn["metadata"]["webex_space_id"] == "space-id"
+    assert user_turn["metadata"]["webex_room_id"] == "room-id"
+    assert user_turn["metadata"]["webex_thread_parent_id"] == "trigger-message-id"
+    assert user_turn["metadata"]["webex_message_id"] == "trigger-message-id"
+    assert user_turn["bearer_token"] == "obo-access-token"
+
+    assert assistant_turn["role"] == "assistant"
+    assert assistant_turn["metadata"]["source"] == "webex"
+    assert assistant_turn["metadata"]["is_final"] is True
+    assert isinstance(assistant_turn["metadata"]["latency_ms"], int)
+
+
+def test_threaded_stream_dispatcher_does_not_tag_message_turns_on_denied_agent() -> None:
+    """No message-turn rows are recorded when the agent access is denied."""
+
+    class DenyingSseClient(FakeSseClient):
+        def stream_chat(self, **kwargs: Any):
+            self.calls.append(kwargs)
+            raise AgentAccessDeniedError("incident-agent")
+            yield  # pragma: no cover - unreachable, keeps this a generator
+
+    api = FakeWebexApi()
+    sse = DenyingSseClient(events=[])
+    dispatcher = WebexThreadedStreamDispatcher(webex_api=api, sse_client=sse)
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-id",
+                "message_id": "trigger-message-id",
+                "text": "neo-coder hello",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    assert sse.messages == []
 
 
 def test_threaded_stream_dispatcher_reuses_root_parent_for_thread_replies() -> None:

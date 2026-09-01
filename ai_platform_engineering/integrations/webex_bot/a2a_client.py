@@ -314,6 +314,57 @@ class WebexSSEClient:
             if owns_client:
                 client.close()
 
+    def add_message(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        role: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        content: str = "",
+        bearer_token: Optional[str] = None,
+    ) -> None:
+        """Persist a single message row via the shared API (metadata-only).
+
+        Calls ``POST /api/chat/conversations/{id}/messages``. Mirrors the
+        Slack bot's ``SSEClient.add_message``: records per-turn message
+        metadata (source, agent, latency, linking) so admin stats count
+        Webex messages the same way as web and Slack — WITHOUT duplicating
+        the message content that already lives in Webex. ``content``
+        defaults to empty.
+
+        The upsert is keyed on ``message_id``, so this is idempotent — a
+        retried dispatch updates the row instead of duplicating it.
+        """
+        url = f"{self.base_url}/api/chat/conversations/{conversation_id}/messages"
+        headers = {
+            **self._get_headers(bearer_token=bearer_token),
+            "Accept": "application/json",
+        }
+        payload: Dict[str, Any] = {
+            "message_id": message_id,
+            "role": role,
+            "content": content,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+
+        client = self._http_client
+        owns_client = client is None
+        if owns_client:
+            client = httpx.Client(timeout=30)
+        assert client is not None
+        try:
+            response = client.post(url, json=payload, headers=headers)
+            if response.status_code not in (200, 201):
+                safe_detail = redact_sse_error_body(response.text)
+                raise RuntimeError(
+                    f"Failed to add Webex message: {response.status_code} {safe_detail}"
+                )
+        finally:
+            if owns_client:
+                client.close()
+
     def _stream_sse(
         self,
         url: str,
