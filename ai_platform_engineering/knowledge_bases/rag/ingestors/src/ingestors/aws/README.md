@@ -36,6 +36,7 @@ Ingests AWS resources as graph entities into the RAG system. Discovers and fetch
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
 - `AWS_ACCOUNT_LIST` - Comma-separated list of `name:account_id` pairs for multi-account ingestion (default: empty, single-account mode)
+- `AWS_CREDENTIAL_SOURCE` - Optional bootstrap credential source override: `Environment`, `EcsContainer`, or `Ec2InstanceMetadata`
 - `CROSS_ACCOUNT_ROLE_NAME` - IAM role name to assume in each target account (default: `caipe-read-only`)
 
 ## AWS Permissions Required
@@ -108,6 +109,11 @@ docker compose --profile aws up --build aws_ingestor
 The ingestor supports ingesting resources from multiple AWS accounts in a single process. Each account becomes a separate datasource (`aws-account-{account_id}`).
 
 This uses the same `AWS_ACCOUNT_LIST` and `CROSS_ACCOUNT_ROLE_NAME` env vars as the AWS agent. The ingestor generates `~/.aws/config` profiles at startup and uses `boto3.Session(profile_name=...)` for transparent cross-account STS AssumeRole.
+
+On EKS, the ingestor automatically uses the container credential endpoint from
+EKS Pod Identity. IRSA is also supported when `AWS_ROLE_ARN` and
+`AWS_WEB_IDENTITY_TOKEN_FILE` are injected. Static environment credentials
+remain available as a backward-compatible fallback for local deployments.
 
 When `AWS_ACCOUNT_LIST` is not set, the ingestor falls back to single-account mode using default credentials (fully backward compatible).
 
@@ -206,4 +212,3 @@ You can filter which resources to ingest using the `RESOURCE_TYPES` environment 
 - `dynamodb:table` - DynamoDB Tables (regional)
 
 Example: `RESOURCE_TYPES=ec2:instance,s3:bucket,eks:cluster`
-

@@ -53,6 +53,12 @@ AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"
 AWS_ACCOUNT_LIST = os.environ.get("AWS_ACCOUNT_LIST", "")
 CROSS_ACCOUNT_ROLE_NAME = os.environ.get("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
 
+SUPPORTED_CREDENTIAL_SOURCES = {
+  "Environment",
+  "EcsContainer",
+  "Ec2InstanceMetadata",
+}
+
 # Resource type configuration - defines how to fetch and process each resource type
 RESOURCE_CONFIG = {
   "ec2:instance": {"fetch_fn": "get_ec2_details", "primary_key": ["Arn"], "additional_keys": [["InstanceId"], ["PrivateDnsName"], ["PrivateIpAddress"], ["PublicDnsName"], ["PublicIpAddress"]], "regional": True},
@@ -114,6 +120,38 @@ def parse_account_list() -> List[Dict[str, str]]:
   return accounts
 
 
+def _single_line_env(name: str) -> str:
+  """Read an AWS profile value while preventing config-file injection."""
+  value = os.getenv(name, "").strip()
+  if "\n" in value or "\r" in value:
+    raise ValueError(f"{name} must be a single-line value")
+  return value
+
+
+def credential_source() -> str:
+  """Select the bootstrap credential source for cross-account profiles.
+
+  EKS Pod Identity exposes credentials through the container credential
+  endpoint, which botocore identifies as ``EcsContainer``. Static environment
+  credentials remain the fallback for local and legacy deployments.
+  """
+  configured = os.getenv("AWS_CREDENTIAL_SOURCE", "").strip()
+  if configured:
+    if configured not in SUPPORTED_CREDENTIAL_SOURCES:
+      supported = ", ".join(sorted(SUPPORTED_CREDENTIAL_SOURCES))
+      raise ValueError(
+        f"Unsupported AWS_CREDENTIAL_SOURCE '{configured}'. Expected one of: {supported}."
+      )
+    return configured
+
+  if os.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") or os.getenv(
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"
+  ):
+    return "EcsContainer"
+
+  return "Environment"
+
+
 def setup_aws_profiles(accounts: List[Dict[str, str]]) -> None:
   """
   Generate AWS config profiles for cross-account access when needed.
@@ -122,8 +160,9 @@ def setup_aws_profiles(accounts: List[Dict[str, str]]) -> None:
   no config entry is generated — boto3 will use the credentials directly.
 
   For profiles without direct credentials, generates assume-role config using
-  role_arn + credential_source=Environment, so boto3 will transparently
-  perform STS AssumeRole using the base credentials from env vars.
+  EKS Pod Identity, IRSA web identity, or static environment credentials. This
+  lets boto3 transparently perform STS AssumeRole without requiring access
+  keys in Kubernetes Secrets.
 
   Same approach as the AWS agent (agent_aws/tools.py:setup_aws_profiles).
 
@@ -163,17 +202,39 @@ def setup_aws_profiles(accounts: List[Dict[str, str]]) -> None:
   profile_sections = ["# AUTO-GENERATED PROFILES FROM AWS_ACCOUNT_LIST"]
   profile_sections.append("# Regenerated at ingestor startup - do not edit manually\n")
 
+  web_identity_role = _single_line_env("AWS_ROLE_ARN")
+  web_identity_token_file = _single_line_env("AWS_WEB_IDENTITY_TOKEN_FILE")
+  use_web_identity = bool(web_identity_role and web_identity_token_file)
+
+  if use_web_identity:
+    profile_sections.append(
+      "[profile rag-workload-identity]\n"
+      f"role_arn = {web_identity_role}\n"
+      f"web_identity_token_file = {web_identity_token_file}\n"
+      "role_session_name = caipe-rag-ingestor\n"
+    )
+  else:
+    source = credential_source()
+
   for acc in needs_config:
-    profile_section = f"""[profile {acc["name"]}]
-role_arn = arn:aws:iam::{acc["id"]}:role/{CROSS_ACCOUNT_ROLE_NAME}
-credential_source = Environment
-"""
+    profile_section = (
+      f"[profile {acc['name']}]\n"
+      f"role_arn = arn:aws:iam::{acc['id']}:role/{CROSS_ACCOUNT_ROLE_NAME}\n"
+    )
+    if use_web_identity:
+      profile_section += "source_profile = rag-workload-identity\n"
+    else:
+      profile_section += f"credential_source = {source}\n"
     profile_sections.append(profile_section)
 
   with open(aws_config_file, "w") as f:
     f.write("\n".join(profile_sections))
 
-  logging.info(f"Generated AWS config for {len(needs_config)} accounts needing role assumption: {[a['name'] for a in needs_config]}")
+  source_type = "WebIdentity" if use_web_identity else source
+  logging.info(
+    f"Generated AWS config for {len(needs_config)} accounts using {source_type}: "
+    f"{[a['name'] for a in needs_config]}"
+  )
 
 
 def create_session(profile_name: Optional[str] = None) -> boto3.Session:
