@@ -74,7 +74,8 @@ export async function register() {
   }
 
   // Start the Tome auto-ingest scheduler. Opt-in via TOME_AUTO_INGEST_ENABLED.
-  // Fires CRON-scheduled ingest runs for projects that opted in. Idempotent;
+  // Fires CRON-scheduled ingest runs and calendar-driven Webex meeting-series
+  // runs for projects that opted in. Idempotent;
   // failures here must not take down the server.
   try {
     const { startAutoIngestScheduler } = await import("./lib/tome/auto-ingest/scheduler");

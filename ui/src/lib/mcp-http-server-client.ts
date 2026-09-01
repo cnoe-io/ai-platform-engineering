@@ -476,6 +476,52 @@ export async function invokeHttpMcpTool(input: {
   }
 }
 
+/**
+ * Invoke a Streamable HTTP MCP tool with already-resolved headers.
+ *
+ * Background workers do not have a live NextRequest/session, but may have
+ * legitimately resolved a caller-scoped provider token from a stored owner
+ * subject. Keep the MCP transport/session handling in one place while making
+ * the credential boundary explicit to the caller.
+ */
+export async function invokeDirectHttpMcpTool(input: {
+  endpoint: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+}): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  const endpoint = input.endpoint.trim();
+  const headers = input.headers ?? {};
+  const initialized = await initializeMcpSession({
+    endpoint,
+    headers,
+    agentGatewayManaged: false,
+    timeoutMs: input.timeoutMs ?? 15_000,
+  });
+  try {
+    const invoked = await mcpJsonRpc({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: `tools-call-${Date.now()}`,
+        method: "tools/call",
+        params: { name: input.toolName, arguments: input.params },
+      },
+      timeoutMs: input.timeoutMs ?? 30_000,
+    });
+    return { ok: invoked.ok, status: invoked.status, payload: invoked.payload };
+  } finally {
+    await terminateMcpSession({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+    });
+  }
+}
+
 export async function listDirectHttpMcpTools(input: {
   endpoint: string;
   timeoutMs?: number;

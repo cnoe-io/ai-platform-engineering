@@ -1,0 +1,463 @@
+import { createHash } from "node:crypto";
+import { ObjectId } from "mongodb";
+
+import { getCollection } from "@/lib/mongodb";
+import type { ProjectDocument, WebexMeetingSeriesSubscription } from "@/types/projects";
+
+import { getTomeIngestRunsCollection } from "../mongo-collections";
+import { enqueueRun, isIngestRunning } from "../ingest-runner";
+import {
+  backgroundWebexMeetingInvoker,
+  discoverMeetingSeries,
+  downloadMeetingTranscript,
+  meetingSeriesMatches,
+  resolveOccurrenceMeetingId,
+  type WebexMeetingOccurrenceCandidate,
+} from "../webex-meeting-series";
+import { claimWebexMeetingSeriesPoll } from "./cursor";
+
+const COLLECTION = "tome_webex_meeting_occurrences";
+const POLL_INTERVAL_MS = Math.max(
+  5 * 60_000,
+  Number(process.env.TOME_WEBEX_SERIES_POLL_MS) || 15 * 60_000,
+);
+const LOOKBACK_MS = 48 * 60 * 60 * 1000;
+const LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
+const TRANSCRIPT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const MAX_TRANSCRIPT_CHARS = Math.max(
+  50_000,
+  Number(process.env.TOME_WEBEX_TRANSCRIPT_MAX_CHARS) || 400_000,
+);
+const PROCESS_LIMIT = 10;
+
+type OccurrenceStatus =
+  | "pending"
+  | "processing"
+  | "waiting_transcript"
+  | "ready"
+  | "queued"
+  | "ingested"
+  | "failed";
+
+type BackgroundInvoke = Awaited<ReturnType<typeof backgroundWebexMeetingInvoker>>;
+type SeriesDiscovery = Awaited<ReturnType<typeof discoverMeetingSeries>>;
+
+interface MeetingOccurrenceDocument {
+  _id: string;
+  project_id: string;
+  project_slug: string;
+  subscription_id: string;
+  series_key: string;
+  series_title: string;
+  occurrence_key: string;
+  meeting_id?: string;
+  title: string;
+  start: Date;
+  end: Date;
+  web_link?: string;
+  source: "meetings_api" | "userhub_calendar";
+  status: OccurrenceStatus;
+  attempts: number;
+  next_attempt_at: Date;
+  run_id?: string;
+  transcript_id?: string;
+  last_error?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function pollWindowKey(now: Date): string {
+  return String(Math.floor(now.getTime() / POLL_INTERVAL_MS));
+}
+
+function mongoProjectId(projectId: string): string {
+  return (ObjectId.isValid(projectId) ? new ObjectId(projectId) : projectId) as unknown as string;
+}
+
+function occurrenceId(projectId: string, subscriptionId: string, occurrenceKey: string): string {
+  return createHash("sha256")
+    .update(`${projectId}\0${subscriptionId}\0${occurrenceKey}`)
+    .digest("hex");
+}
+
+function retryAt(now: Date, attempts: number): Date {
+  const delay = Math.min(2 * 60 * 60_000, 15 * 60_000 * 2 ** Math.max(0, attempts - 1));
+  return new Date(now.getTime() + delay);
+}
+
+async function updateSubscription(
+  projectId: string,
+  subscriptionId: string,
+  fields: Partial<{
+    lastOccurrenceAt: string;
+    lastRunId: string;
+    lastStatus: NonNullable<WebexMeetingSeriesSubscription["lastStatus"]>;
+    lastError: string;
+  }>,
+): Promise<void> {
+  const projects = await getCollection<ProjectDocument>("projects");
+  const set: Record<string, unknown> = { updated_at: new Date() };
+  for (const [key, value] of Object.entries(fields)) {
+    set[`autoIngest.webexMeetingSeries.$[series].${key}`] = value;
+  }
+  await projects.updateOne(
+    { _id: mongoProjectId(projectId) },
+    { $set: set },
+    { arrayFilters: [{ "series.id": subscriptionId }] },
+  );
+}
+
+async function discoverOccurrences(
+  project: ProjectDocument & { _id: string },
+  subscription: WebexMeetingSeriesSubscription,
+  now: Date,
+  loadCandidates: () => Promise<SeriesDiscovery>,
+): Promise<void> {
+  if (!(await claimWebexMeetingSeriesPoll(project._id, subscription.id, pollWindowKey(now)))) {
+    return;
+  }
+  try {
+    const candidates = await loadCandidates();
+    const series = candidates.find((candidate) => meetingSeriesMatches(candidate, subscription));
+    if (!series) {
+      await updateSubscription(project._id, subscription.id, {
+        lastStatus: "failed",
+        lastError: "The recurring meeting was not returned by Webex. It will be checked again.",
+      });
+      return;
+    }
+
+    const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+    const subscribedAt = new Date(subscription.createdAt);
+    for (const occurrence of series.occurrences) {
+      const end = new Date(occurrence.end);
+      if (occurrence.cancelled || !Number.isFinite(end.getTime()) || end > now) continue;
+      // Selecting a series is forward-looking. Do not silently backfill old
+      // calendar history; a meeting already in progress when selected is okay.
+      if (Number.isFinite(subscribedAt.getTime()) && end < subscribedAt) continue;
+      const start = new Date(occurrence.start);
+      if (!Number.isFinite(start.getTime())) continue;
+      const id = occurrenceId(project._id, subscription.id, occurrence.occurrenceKey);
+      await occurrences.updateOne(
+        { _id: id },
+        {
+          $setOnInsert: {
+            _id: id,
+            project_id: project._id,
+            project_slug: project.slug,
+            subscription_id: subscription.id,
+            series_key: subscription.seriesKey,
+            series_title: subscription.title,
+            occurrence_key: occurrence.occurrenceKey,
+            meeting_id: occurrence.meetingId,
+            title: occurrence.title,
+            start,
+            end,
+            web_link: occurrence.webLink,
+            source: occurrence.source,
+            status: "pending",
+            attempts: 0,
+            next_attempt_at: now,
+            created_at: now,
+            updated_at: now,
+          },
+        },
+        { upsert: true },
+      );
+    }
+    await updateSubscription(project._id, subscription.id, { lastError: "" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[WebexSeries] ${project.slug}/${subscription.title}: discovery failed: ${message}`);
+    await updateSubscription(project._id, subscription.id, {
+      lastStatus: "failed",
+      lastError: message,
+    });
+  }
+}
+
+async function reconcileRuns(
+  project: ProjectDocument & { _id: string },
+  subscriptions: WebexMeetingSeriesSubscription[],
+): Promise<void> {
+  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const queued = await occurrences.find({ project_id: project._id, status: "queued" }).toArray();
+  if (!queued.length) return;
+  const runs = await getTomeIngestRunsCollection();
+  const bySubscription = new Map(subscriptions.map((item) => [item.id, item]));
+  for (const occurrence of queued) {
+    if (!occurrence.run_id) continue;
+    const run = await runs.findOne({ _id: occurrence.run_id });
+    if (!run || !["succeeded", "failed"].includes(run.status)) continue;
+    const succeeded = run.status === "succeeded";
+    const message = succeeded ? "" : run.error || "The Tome ingest run failed.";
+    await occurrences.updateOne(
+      { _id: occurrence._id, status: "queued" },
+      {
+        $set: {
+          status: succeeded ? "ingested" : "failed",
+          last_error: message,
+          updated_at: new Date(),
+        },
+      },
+    );
+    if (bySubscription.has(occurrence.subscription_id)) {
+      await updateSubscription(project._id, occurrence.subscription_id, {
+        lastOccurrenceAt: occurrence.start.toISOString(),
+        lastRunId: occurrence.run_id,
+        lastStatus: succeeded ? "ingested" : "failed",
+        lastError: message,
+      });
+    }
+  }
+}
+
+async function markRetry(
+  occurrence: MeetingOccurrenceDocument,
+  now: Date,
+  error: string,
+): Promise<void> {
+  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const expired = now.getTime() - occurrence.end.getTime() >= TRANSCRIPT_DEADLINE_MS;
+  await occurrences.updateOne(
+    { _id: occurrence._id, status: "processing" },
+    {
+      $set: {
+        status: expired ? "failed" : "waiting_transcript",
+        next_attempt_at: retryAt(now, occurrence.attempts + 1),
+        last_error: error,
+        updated_at: now,
+      },
+      $inc: { attempts: 1 },
+    },
+  );
+  await updateSubscription(occurrence.project_id, occurrence.subscription_id, {
+    lastStatus: expired ? "failed" : "waiting_transcript",
+    lastError: error,
+  });
+}
+
+async function processOccurrence(
+  project: ProjectDocument & { _id: string },
+  subscription: WebexMeetingSeriesSubscription,
+  occurrence: MeetingOccurrenceDocument,
+  now: Date,
+  loadInvoke: () => Promise<BackgroundInvoke>,
+): Promise<boolean> {
+  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const claimed = await occurrences.findOneAndUpdate(
+    {
+      _id: occurrence._id,
+      status: { $in: ["pending", "waiting_transcript", "ready"] },
+      next_attempt_at: { $lte: now },
+    },
+    { $set: { status: "processing", updated_at: now } },
+    { returnDocument: "after" },
+  );
+  if (!claimed) return false;
+
+  try {
+    // Recover the narrow crash window between creating the run and updating
+    // the occurrence row. The occurrence id remains the durable idempotency key.
+    const runs = await getTomeIngestRunsCollection();
+    const existingRun = await runs.findOne({ "dispatch.meetingOccurrenceId": claimed._id });
+    if (existingRun) {
+      const terminal = existingRun.status === "succeeded" || existingRun.status === "failed";
+      const succeeded = existingRun.status === "succeeded";
+      await occurrences.updateOne(
+        { _id: claimed._id, status: "processing" },
+        {
+          $set: {
+            status: terminal ? (succeeded ? "ingested" : "failed") : "queued",
+            run_id: String(existingRun._id),
+            last_error: existingRun.status === "failed" ? existingRun.error || "The Tome ingest run failed." : "",
+            updated_at: now,
+          },
+        },
+      );
+      await updateSubscription(project._id, subscription.id, {
+        lastOccurrenceAt: claimed.start.toISOString(),
+        lastRunId: String(existingRun._id),
+        lastStatus: terminal ? (succeeded ? "ingested" : "failed") : "queued",
+        lastError: existingRun.status === "failed" ? existingRun.error || "The Tome ingest run failed." : "",
+      });
+      return !terminal;
+    }
+
+    const invoke = await loadInvoke();
+    const candidate: WebexMeetingOccurrenceCandidate = {
+      occurrenceKey: claimed.occurrence_key,
+      meetingId: claimed.meeting_id,
+      title: claimed.title,
+      start: claimed.start.toISOString(),
+      end: claimed.end.toISOString(),
+      webLink: claimed.web_link,
+      cancelled: false,
+      source: claimed.source,
+    };
+    const meetingId = await resolveOccurrenceMeetingId(invoke, candidate);
+    if (!meetingId) {
+      await markRetry(claimed, now, "Webex has not exposed an official meeting occurrence yet.");
+      return false;
+    }
+    const downloaded = await downloadMeetingTranscript(invoke, meetingId);
+    if (!downloaded?.transcript) {
+      await markRetry(claimed, now, "The meeting ended, but its transcript is not available yet.");
+      return false;
+    }
+    if (await isIngestRunning(project._id)) {
+      await occurrences.updateOne(
+        { _id: claimed._id, status: "processing" },
+        {
+          $set: {
+            status: "ready",
+            meeting_id: meetingId,
+            transcript_id: downloaded.transcriptId,
+            next_attempt_at: new Date(now.getTime() + 5 * 60_000),
+            updated_at: now,
+          },
+        },
+      );
+      return false;
+    }
+
+    const transcript = downloaded.transcript.slice(0, MAX_TRANSCRIPT_CHARS);
+    const runId = await enqueueRun(project, {
+      sub: subscription.credentialOwner.subject,
+      email: subscription.credentialOwner.email,
+      triggeredBy: "auto",
+      dispatch: {
+        endpoint: "/ingest",
+        seed: null,
+        mode: "quick",
+        triggeredBy: "auto",
+        meetingOccurrenceId: claimed._id,
+        webexMeetings: [
+          {
+            id: meetingId,
+            title: claimed.title,
+            start: claimed.start.toISOString(),
+            seriesKey: subscription.seriesKey,
+            seriesSlug: subscription.seriesSlug,
+            seriesTitle: subscription.title,
+            occurrenceKey: claimed.occurrence_key,
+            transcript,
+          },
+        ],
+      },
+    });
+    await occurrences.updateOne(
+      { _id: claimed._id, status: "processing" },
+      {
+        $set: {
+          status: "queued",
+          meeting_id: meetingId,
+          transcript_id: downloaded.transcriptId,
+          run_id: runId,
+          last_error:
+            downloaded.transcript.length > transcript.length
+              ? `Transcript was capped at ${MAX_TRANSCRIPT_CHARS} characters.`
+              : "",
+          updated_at: now,
+        },
+      },
+    );
+    await updateSubscription(project._id, subscription.id, {
+      lastOccurrenceAt: claimed.start.toISOString(),
+      lastRunId: runId,
+      lastStatus: "queued",
+      lastError: "",
+    });
+    console.log(`[WebexSeries] ${project.slug}/${subscription.title}: queued ${runId}`);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await markRetry(claimed, now, message);
+    return false;
+  }
+}
+
+/** Discover ended occurrences and enqueue transcript-backed Tome ingests. */
+export async function tickWebexMeetingSeriesScheduler(
+  now: Date,
+  projects: Array<ProjectDocument & { _id: string }>,
+): Promise<void> {
+  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  await occurrences.updateMany(
+    {
+      status: "processing",
+      updated_at: { $lt: new Date(now.getTime() - 10 * 60_000) },
+    },
+    { $set: { status: "waiting_transcript", next_attempt_at: now, updated_at: now } },
+  );
+
+  // One token refresh per owner and one four-tool discovery sweep per
+  // owner/site during a tick, even when several projects subscribe to series
+  // on the same calendar.
+  const invokers = new Map<string, Promise<BackgroundInvoke>>();
+  const discoveries = new Map<string, Promise<SeriesDiscovery>>();
+  const invokeFor = (subscription: WebexMeetingSeriesSubscription): Promise<BackgroundInvoke> => {
+    const key = subscription.credentialOwner.subject;
+    let pending = invokers.get(key);
+    if (!pending) {
+      pending = backgroundWebexMeetingInvoker(key);
+      invokers.set(key, pending);
+    }
+    return pending;
+  };
+  const discoveryFor = (
+    subscription: WebexMeetingSeriesSubscription,
+  ): Promise<SeriesDiscovery> => {
+    const key = `${subscription.credentialOwner.subject}\0${subscription.siteUrl ?? ""}`;
+    let pending = discoveries.get(key);
+    if (!pending) {
+      pending = invokeFor(subscription).then((invoke) =>
+        discoverMeetingSeries(invoke, {
+          from: new Date(now.getTime() - LOOKBACK_MS),
+          to: new Date(now.getTime() + LOOKAHEAD_MS),
+          siteUrl: subscription.siteUrl,
+          now,
+        }),
+      );
+      discoveries.set(key, pending);
+    }
+    return pending;
+  };
+
+  for (const project of projects) {
+    const subscriptions = (project.autoIngest?.webexMeetingSeries ?? []).filter(
+      (subscription) => subscription.enabled,
+    );
+    if (!subscriptions.length) continue;
+    await reconcileRuns(project, subscriptions);
+    for (const subscription of subscriptions) {
+      await discoverOccurrences(project, subscription, now, () => discoveryFor(subscription));
+    }
+
+    const subscriptionsById = new Map(subscriptions.map((item) => [item.id, item]));
+    const due = await occurrences
+      .find({
+        project_id: project._id,
+        subscription_id: { $in: subscriptions.map((item) => item.id) },
+        status: { $in: ["pending", "waiting_transcript", "ready"] },
+        next_attempt_at: { $lte: now },
+      })
+      .sort({ start: 1 })
+      .limit(PROCESS_LIMIT)
+      .toArray();
+    for (const occurrence of due) {
+      const subscription = subscriptionsById.get(occurrence.subscription_id);
+      if (!subscription) continue;
+      // Preserve project serialization. At most one new run is enqueued per tick.
+      if (await processOccurrence(
+        project,
+        subscription,
+        occurrence,
+        now,
+        () => invokeFor(subscription),
+      )) {
+        break;
+      }
+    }
+  }
+}

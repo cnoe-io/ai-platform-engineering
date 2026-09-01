@@ -28,11 +28,15 @@ export async function tickIngestQueue(): Promise<void> {
   await reapStaleRuns(STALE_MS);
   await promoteOverdueRuns();
 
-  const runningRuns = await runs.find({ status: "running" }).project({ project_id: 1 }).toArray();
-  let budget = CONCURRENCY - runningRuns.length;
+  const activeRuns = await runs
+    .find({ status: { $in: ["running", "awaiting_review"] } })
+    .project({ project_id: 1, status: 1 })
+    .toArray();
+  const runningCount = activeRuns.filter((run) => run.status === "running").length;
+  let budget = CONCURRENCY - runningCount;
   if (budget <= 0) return;
 
-  const runningProjects = new Set(runningRuns.map((r) => r.project_id));
+  const runningProjects = new Set(activeRuns.map((r) => r.project_id));
 
   const queued = await runs.find({ status: "queued" }).sort({ queued_at: 1, started_at: 1 }).limit(100).toArray();
 

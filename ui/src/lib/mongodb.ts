@@ -342,6 +342,10 @@ async function createIndexes(db: Db) {
     // TOME scheduled-ingest token health. One snapshot per credential owner
     // and provider; _id enforces uniqueness, while status supports admin triage.
     safeCreateIndex(db, 'tome_auto_ingest_credential_health', { status: 1, last_attempt_at: -1 }),
+    // Calendar-driven Webex occurrence jobs. `_id` is a deterministic
+    // project/subscription/occurrence hash, so rediscovery is idempotent.
+    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { project_id: 1, subscription_id: 1, status: 1, next_attempt_at: 1 }),
+    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { run_id: 1 }),
 
     // TOME chat run replay buffers. Completed buffers are disposable; the
     // durable transcript lives in tome_chat_messages.

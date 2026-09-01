@@ -21,6 +21,7 @@ import {
   refreshAutoIngestCredentialHealth,
 } from "./credential-health";
 import { claimAutoIngestCredentialRefresh, claimAutoIngestFire } from "./cursor";
+import { tickWebexMeetingSeriesScheduler } from "./webex-meeting-series-scheduler";
 
 const TICK_INTERVAL_MS = Number(process.env.TOME_AUTO_INGEST_TICK_MS) || 60 * 1000;
 
@@ -125,12 +126,19 @@ async function maybeFireForProject(
   }
 }
 
-/** One scheduler pass: evaluate every project with auto-ingest enabled. */
+/** One pass: evaluate CRON schedules plus enabled meeting-series subscriptions. */
 export async function tickAutoIngestScheduler(now: Date): Promise<void> {
   let projects: (ProjectDocument & { _id: string })[];
   try {
     const col = await getCollection<ProjectDocument>("projects");
-    const docs = await col.find({ "autoIngest.enabled": true }).toArray();
+    const docs = await col
+      .find({
+        $or: [
+          { "autoIngest.enabled": true },
+          { "autoIngest.webexMeetingSeries": { $elemMatch: { enabled: true } } },
+        ],
+      })
+      .toArray();
     projects = docs.map((p) => ({ ...p, _id: String(p._id) }));
   } catch (err) {
     console.error(
@@ -142,7 +150,10 @@ export async function tickAutoIngestScheduler(now: Date): Promise<void> {
 
   try {
     if (await claimAutoIngestCredentialRefresh(credentialRefreshWindowKey(now))) {
-      await refreshAutoIngestCredentialHealth(now, projects);
+      await refreshAutoIngestCredentialHealth(
+        now,
+        projects.filter((project) => project.autoIngest?.enabled),
+      );
     }
   } catch (err) {
     console.error(
@@ -160,6 +171,15 @@ export async function tickAutoIngestScheduler(now: Date): Promise<void> {
           (err instanceof Error ? err.message : String(err)),
       );
     }
+  }
+
+  try {
+    await tickWebexMeetingSeriesScheduler(now, projects);
+  } catch (err) {
+    console.error(
+      "[WebexSeries] scheduler failed: " +
+        (err instanceof Error ? err.message : String(err)),
+    );
   }
 }
 

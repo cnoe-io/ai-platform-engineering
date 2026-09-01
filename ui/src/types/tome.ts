@@ -225,7 +225,9 @@ export interface IngestDispatch {
   /** "quick" skips the breadth-first source sweep. Default "full". */
   mode?: "full" | "quick";
   seedStablePages?: boolean;
-  webexMeetings?: { id: string; title: string; start: string }[];
+  webexMeetings?: WebexMeetingIngestItem[];
+  /** Durable idempotency marker for one calendar-driven meeting occurrence. */
+  meetingOccurrenceId?: string;
   /**
    * Bypass draft review: promote this run's pages straight to "live" on
    * completion, same as before the draft-review feature existed.
@@ -237,6 +239,19 @@ export interface IngestDispatch {
    * rather than expecting fresh human intent. Default "manual".
    */
   triggeredBy?: "manual" | "auto";
+}
+
+/** A meeting selected manually or emitted by the recurring-series scheduler. */
+export interface WebexMeetingIngestItem {
+  id: string;
+  title: string;
+  start: string;
+  seriesKey?: string;
+  seriesSlug?: string;
+  seriesTitle?: string;
+  occurrenceKey?: string;
+  /** Pre-fetched by the scheduler through the normal webex_meetings MCP. */
+  transcript?: string;
 }
 
 /** Lifecycle + streamed log for one ingest run. */

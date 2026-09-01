@@ -11,6 +11,28 @@ interface AutoIngestCursorDoc {
   _id: string; // `${projectId}`
   last_fire_minute?: string;
   last_credential_refresh_window?: string;
+  last_webex_poll_window?: string;
+}
+
+/** Claim one recurring-series discovery window for one subscription. */
+export async function claimWebexMeetingSeriesPoll(
+  projectId: string,
+  subscriptionId: string,
+  windowKey: string,
+): Promise<boolean> {
+  const col = await getCollection<AutoIngestCursorDoc>(COLLECTION);
+  const id = `${projectId}:webex-series:${subscriptionId}`;
+  const res = await col.updateOne(
+    { _id: id, last_webex_poll_window: { $ne: windowKey } },
+    { $set: { last_webex_poll_window: windowKey } },
+  );
+  if (res.modifiedCount === 1) return true;
+  try {
+    await col.insertOne({ _id: id, last_webex_poll_window: windowKey });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const CREDENTIAL_REFRESH_CURSOR_ID = "__credential_refresh__";

@@ -47,7 +47,7 @@ import { auditTome } from "./audit";
 import { isMyceliumConfigured, postEvent } from "./mycelium";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
-import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
+import type { IngestDispatch, IngestRun, Report, WebexMeetingIngestItem } from "@/types/tome";
 import {
   isTomeAdminSubject,
   listReadableTomeProjects,
@@ -424,7 +424,7 @@ export async function startIngestRun(
   opts: {
     seed?: string | null;
     mode?: "full" | "quick";
-    webexMeetings?: { id: string; title: string; start: string }[];
+    webexMeetings?: WebexMeetingIngestItem[];
     seedStablePages?: boolean;
     agentEndpoint?: string;
     /** Bypass draft review: pages this run writes go straight to "live". */
@@ -481,6 +481,7 @@ export async function enqueueRun(
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
     blockedByCascadeIds?: string[];
+    triggeredBy?: "manual" | "auto";
   },
 ): Promise<string> {
   const { runId } = await createRunRecord(project, { status: "queued", ...opts });
@@ -502,7 +503,7 @@ export async function enqueueBhagCascade(
   opts: {
     seed?: string | null;
     seedStablePages?: boolean;
-    webexMeetings?: { id: string; title: string; start: string }[];
+    webexMeetings?: WebexMeetingIngestItem[];
   },
 ): Promise<{ cascadeId: string; parentRunId: string; childCount: number }> {
   const sub = sessionSub(ctx.session);

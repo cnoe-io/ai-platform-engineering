@@ -44,6 +44,7 @@ import { EntityModelSettings } from "@/components/tome/EntityModelSettings";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
+import { WebexMeetingSeriesSettings } from "@/components/tome/WebexMeetingSeriesSettings";
 import type {
   AutoIngestConfig,
   ProjectDocument,
@@ -1513,6 +1514,7 @@ export function ProjectSettingsPanel({
                         )}
                       </fieldset>
                     </Field>
+                    <WebexMeetingSeriesSettings slug={slug} canEdit={canEdit} />
                   </div>
                 </TabsContent>
               )}
