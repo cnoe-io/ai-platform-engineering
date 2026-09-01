@@ -232,6 +232,11 @@ def test_onboarded_direct_user_dispatches_selected_agent_with_user_obo() -> None
         "keycloak_user_id": "kc-user-1",
     }]
     assert authz.calls == [{"agent_id": "agent-1", "bearer_token": "obo-token"}]
+    # DM dispatch payloads must carry is_direct=True so downstream Webex
+    # conversation/message metadata can be excluded from space-scoped Insights
+    # breakdowns (Top Spaces / Configured Spaces) while still counting the
+    # activity in aggregate totals.
+    assert calls[0]["is_direct"] is True
     assert calls[0]["agent_id"] == "agent-1"
     assert calls[0]["bot_id"] == "secondary"
     assert calls[0]["keycloak_user_id"] == "kc-user-1"
