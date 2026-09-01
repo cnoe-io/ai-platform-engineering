@@ -21,6 +21,7 @@ from .a2a_client import (
 )
 from .app import WebexMessageResult
 from .utils.chat_envelope import augment_webex_client_context
+from .utils.thread_ownership import ThreadOwnerCache, get_default_thread_owner_cache
 from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIED_MESSAGE
 from .utils.webex_runtime_policy import should_post_denial_notice
 
@@ -332,12 +333,14 @@ class WebexThreadedStreamDispatcher:
         webex_api: WebexApiProtocol | None = None,
         sse_client: WebexSSEClient | None = None,
         update_every_chars: int = 240,
+        thread_owner_cache: ThreadOwnerCache | None = None,
     ) -> None:
         self._webex_api = webex_api or WebexRestApi()
         self._sse_client = sse_client or WebexSSEClient(
             os.environ.get("CAIPE_API_URL", "http://caipe-ui:3000")
         )
         self._update_every_chars = max(1, update_every_chars)
+        self._thread_owner_cache = thread_owner_cache or get_default_thread_owner_cache()
 
     async def __call__(self, payload: dict[str, Any]) -> None:
         await asyncio.to_thread(self._dispatch_sync, payload)
@@ -386,6 +389,45 @@ class WebexThreadedStreamDispatcher:
                 conversation.get("conversation_id")
                 or space_message_to_conversation_id(space_id, parent_id)
             )
+
+            # Thread ownership: once an agent has responded in this thread,
+            # keep routing follow-ups to it even if the space's agent route
+            # changes later — mirrors Slack's thread-owner pinning. Only
+            # replies (never the root message) look up an existing owner;
+            # thread_parent_id is populated exclusively on true replies.
+            conv_metadata = conversation.get("metadata") or {}
+            thread_key = f"{space_id}:{parent_id}"
+            if thread_parent_id:
+                owner_id = self._thread_owner_cache.get(thread_key) or conv_metadata.get(
+                    "thread_owner_agent_id"
+                )
+                if owner_id and owner_id != agent_id:
+                    logger.info(
+                        "Webex thread space=%s parent=%s owned by agent=%s, "
+                        "overriding requested agent=%s",
+                        space_id,
+                        parent_id,
+                        owner_id,
+                        agent_id,
+                    )
+                    agent_id = owner_id
+                    self._webex_api.update_message(
+                        message_id=reply_id,
+                        room_id=room_id,
+                        markdown=_agent_reply_markdown(agent_id, "Working on it..."),
+                    )
+
+            self._thread_owner_cache.set(thread_key, agent_id)
+            if not conv_metadata.get("thread_owner_agent_id"):
+                try:
+                    self._sse_client.update_conversation_metadata(
+                        conversation_id,
+                        {"thread_owner_agent_id": agent_id},
+                        bearer_token=obo_token,
+                    )
+                except Exception:  # noqa: BLE001 - metadata persistence is best-effort
+                    logger.warning("Failed to persist Webex thread owner metadata")
+
             client_context = {
                 "source": "webex",
                 "surface": "webex",

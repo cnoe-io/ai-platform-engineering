@@ -13,6 +13,7 @@ import pytest
 
 from ai_platform_engineering.integrations.webex_bot.app import WebexMessageResult
 from ai_platform_engineering.integrations.webex_bot.a2a_client import SSEEvent, SSEEventType
+from ai_platform_engineering.integrations.webex_bot.utils.thread_ownership import ThreadOwnerCache
 from ai_platform_engineering.integrations.webex_bot.webex_responder import (
     WebexResponder,
     WebexThreadedStreamDispatcher,
@@ -84,14 +85,27 @@ class FakeSseClient:
     events: list[SSEEvent]
     calls: list[dict[str, Any]] = field(default_factory=list)
     conversations: list[dict[str, Any]] = field(default_factory=list)
+    conversation_metadata: dict[str, Any] = field(default_factory=dict)
+    metadata_updates: list[dict[str, Any]] = field(default_factory=list)
 
     def create_conversation(self, **kwargs: Any) -> dict[str, Any]:
         self.conversations.append(kwargs)
-        return {"conversation_id": "server-conversation-id", "created": True}
+        return {
+            "conversation_id": "server-conversation-id",
+            "created": True,
+            "metadata": self.conversation_metadata,
+        }
 
     def stream_chat(self, **kwargs: Any):
         self.calls.append(kwargs)
         yield from self.events
+
+    def update_conversation_metadata(
+        self, conversation_id: str, metadata: dict[str, Any], bearer_token: str | None = None
+    ) -> None:
+        self.metadata_updates.append(
+            {"conversation_id": conversation_id, "metadata": metadata, "bearer_token": bearer_token}
+        )
 
 
 class FailingThreadContextWebexApi(FakeWebexApi):
@@ -550,6 +564,159 @@ def test_threaded_stream_dispatcher_reuses_root_parent_for_thread_replies() -> N
         "surface_kind": "channel",
         "thread_ts": "root-message-public-id",
     }
+
+
+def test_threaded_stream_dispatcher_pins_new_thread_to_first_responding_agent() -> None:
+    """The first agent to respond in a thread claims ownership.
+
+    Ownership is persisted to conversation metadata so a later change to
+    the space's agent route does not redirect this thread — mirroring
+    Slack's thread-owner pinning.
+    """
+    api = FakeWebexApi()
+    sse = FakeSseClient(events=[SSEEvent(SSEEventType.RUN_FINISHED)])
+    dispatcher = WebexThreadedStreamDispatcher(
+        webex_api=api,
+        sse_client=sse,
+        thread_owner_cache=ThreadOwnerCache(),
+    )
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-public-id",
+                "message_id": "reply-message-id",
+                "thread_parent_id": "root-message-id",
+                "text": "neo-coder show my jira profile",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    assert sse.calls[0]["agent_id"] == "incident-agent"
+    assert sse.metadata_updates == [
+        {
+            "conversation_id": "server-conversation-id",
+            "metadata": {"thread_owner_agent_id": "incident-agent"},
+            "bearer_token": "obo-access-token",
+        }
+    ]
+
+
+def test_threaded_stream_dispatcher_pins_root_message_to_its_agent() -> None:
+    """A root (non-reply) message also claims ownership for its thread."""
+    api = FakeWebexApi()
+    sse = FakeSseClient(events=[SSEEvent(SSEEventType.RUN_FINISHED)])
+    dispatcher = WebexThreadedStreamDispatcher(
+        webex_api=api,
+        sse_client=sse,
+        thread_owner_cache=ThreadOwnerCache(),
+    )
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-public-id",
+                "message_id": "root-message-id",
+                "text": "neo-coder hello",
+                "agent_id": "incident-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    assert sse.metadata_updates == [
+        {
+            "conversation_id": "server-conversation-id",
+            "metadata": {"thread_owner_agent_id": "incident-agent"},
+            "bearer_token": "obo-access-token",
+        }
+    ]
+
+
+def test_threaded_stream_dispatcher_overrides_reconfigured_space_route_for_existing_thread() -> None:
+    """A follow-up in an already-owned thread stays with the original agent.
+
+    Simulates an admin changing the space's agent route between the first
+    and second message in the same Webex thread: the runtime gate resolves
+    the new route (``agent_id="new-agent"``), but the conversation already
+    carries a persisted ``thread_owner_agent_id`` from the first reply, so
+    the dispatcher must override back to the original owner.
+    """
+    api = FakeWebexApi()
+    sse = FakeSseClient(
+        events=[SSEEvent(SSEEventType.RUN_FINISHED)],
+        conversation_metadata={"thread_owner_agent_id": "original-agent"},
+    )
+    dispatcher = WebexThreadedStreamDispatcher(
+        webex_api=api,
+        sse_client=sse,
+        thread_owner_cache=ThreadOwnerCache(),
+    )
+
+    asyncio.run(
+        dispatcher(
+            {
+                "space_id": "space-id",
+                "webex_room_id": "room-public-id",
+                "message_id": "reply-message-id",
+                "thread_parent_id": "root-message-id",
+                "text": "neo-coder follow up",
+                "agent_id": "new-agent",
+                "obo_token": "obo-access-token",
+            }
+        )
+    )
+
+    assert sse.calls[0]["agent_id"] == "original-agent"
+    # Placeholder reply was corrected from the requested agent to the owner.
+    assert api.created[0]["markdown"].startswith(
+        "Working on it...\n\n_Agent: new-agent_"
+    )
+    assert api.updated[0]["markdown"].startswith(
+        "Working on it...\n\n_Agent: original-agent_"
+    )
+    assert api.updated[-1]["markdown"].startswith("Done.\n\n_Agent: original-agent_")
+    # Ownership was already persisted — no redundant metadata write.
+    assert sse.metadata_updates == []
+
+
+def test_threaded_stream_dispatcher_uses_in_memory_owner_cache_before_server_metadata() -> None:
+    """The in-memory cache resolves ownership on the hot path.
+
+    A second reply in the same thread is pinned to the agent recorded by
+    the first reply's in-memory claim, even though the fake SSE client's
+    conversation metadata never reflects a persisted owner (it is only
+    updated in a real deployment after a successful PATCH).
+    """
+    api = FakeWebexApi()
+    sse = FakeSseClient(events=[SSEEvent(SSEEventType.RUN_FINISHED)])
+    cache = ThreadOwnerCache()
+    dispatcher = WebexThreadedStreamDispatcher(
+        webex_api=api,
+        sse_client=sse,
+        thread_owner_cache=cache,
+    )
+
+    first_payload = {
+        "space_id": "space-id",
+        "webex_room_id": "room-public-id",
+        "message_id": "reply-1",
+        "thread_parent_id": "root-message-id",
+        "text": "neo-coder first",
+        "agent_id": "agent-a",
+        "obo_token": "obo-access-token",
+    }
+    second_payload = {**first_payload, "message_id": "reply-2", "agent_id": "agent-b"}
+
+    asyncio.run(dispatcher(first_payload))
+    asyncio.run(dispatcher(second_payload))
+
+    assert sse.calls[0]["agent_id"] == "agent-a"
+    assert sse.calls[1]["agent_id"] == "agent-a"
 
 
 def test_threaded_stream_dispatcher_includes_bounded_thread_context_in_agent_prompt() -> None:

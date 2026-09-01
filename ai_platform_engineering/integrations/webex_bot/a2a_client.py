@@ -5,12 +5,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from contextvars import ContextVar
 from typing import Any, Dict, Iterator, Optional
 
 import httpx
+
+logger = logging.getLogger("caipe.webex_bot.a2a_client")
 
 _SSE_ERROR_BODY_MAX_LEN = 200
 _SENSITIVE_SSE_ERROR_RE = re.compile(
@@ -272,6 +275,41 @@ class WebexSSEClient:
             }
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Failed to create Webex conversation: {exc}") from exc
+        finally:
+            if owns_client:
+                client.close()
+
+    def update_conversation_metadata(
+        self,
+        conversation_id: str,
+        metadata: Dict[str, Any],
+        bearer_token: Optional[str] = None,
+    ) -> None:
+        """Merge keys into an existing conversation's metadata.
+
+        Calls ``PATCH /api/chat/conversations/{id}/metadata``. Only the
+        ``metadata`` field is updated — no other conversation fields are
+        touched. Failures are logged, not raised, so a metadata-persist
+        error never breaks the Webex reply that triggered it.
+        """
+        url = f"{self.base_url}/api/chat/conversations/{conversation_id}/metadata"
+        headers = {
+            **self._get_headers(bearer_token=bearer_token),
+            "Accept": "application/json",
+        }
+        client = self._http_client
+        owns_client = client is None
+        if owns_client:
+            client = httpx.Client(timeout=30)
+        assert client is not None
+        try:
+            response = client.patch(url, json={"metadata": metadata}, headers=headers)
+            if response.status_code not in (200, 204):
+                logger.warning(
+                    "Failed to update Webex conversation metadata: status=%s body=%s",
+                    response.status_code,
+                    response.text[:500],
+                )
         finally:
             if owns_client:
                 client.close()
