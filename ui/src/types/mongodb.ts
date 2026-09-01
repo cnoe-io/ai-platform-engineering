@@ -123,7 +123,11 @@ export interface Conversation {
   // "what did the autonomous agent do today?" via the Autonomous filter
   // chip. Undefined = legacy human-typed conversation. Stats/insights
   // endpoints intentionally do not filter on `source`, so `api` conversations
-  // are hidden from chat history but still counted there.
+  // are hidden from chat history but still counted there. Webex threads are
+  // excluded from the default listing for the same "has its own dedicated
+  // UI" reason as Slack, but Webex is never tagged via `source` (no
+  // `'webex'` member here) — it is only ever tagged via `client_type`, so
+  // the default-listing query filters `client_type` too.
   source?: 'web' | 'slack' | 'autonomous' | 'api';
   // Set when `source === 'autonomous'`: the upstream autonomous task
   // and the specific run that produced this conversation. Lets the
