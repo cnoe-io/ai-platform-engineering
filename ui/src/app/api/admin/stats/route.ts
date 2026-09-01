@@ -12,7 +12,7 @@ simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
 import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
-import { getAgentsByIds, getAllAgents, getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames, type OwnedAgent } from '@/lib/rbac/user-insights-scope';
+import { getAgentsByIds, getAllAgents, getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames, getReadableWebexSpaceIds, type OwnedAgent } from '@/lib/rbac/user-insights-scope';
 import {
 createJsonResponseCacheStore,
 envTtlMs,
@@ -61,6 +61,25 @@ interface ChannelStatsDocument extends Document {
   alerts_enabled?: number;
   qanda_enabled?: number;
   total?: number;
+}
+
+interface WebexStats {
+  configured_spaces?: number;
+  configured_spaces_daily?: Array<{
+    date: string;
+    total: number;
+  }>;
+  daily: Array<{
+    date: string;
+    interactions: number;
+    unique_users: number;
+  }>;
+  top_spaces: Array<{
+    space_name: string;
+    interactions: number;
+  }>;
+  total_interactions: number;
+  unique_users: number;
 }
 
 type BucketUnit = 'minute' | 'hour' | 'day';
@@ -297,11 +316,12 @@ async function getAdminStats(request: NextRequest) {
     ? await simulationSubjectCanManageAdminSurface(simulationScope, 'stats')
     : await requireAdminSurfaceManage(session, 'stats').then(() => true, () => false);
 
-  // Non-admin: scope to their readable Slack channels, their own web
-  // conversations, AND the agents they own (directly or via a team). The
-  // owned-agent axis lets an agent owner see usage of their agent even in
-  // channels they can't read / web chats that aren't theirs.
-  let nonAdminScope: { channelNames: string[]; ownerEmail: string; ownedAgents: OwnedAgent[]; sub: string } | null = null;
+  // Non-admin: scope to their readable Slack channels, their readable Webex
+  // spaces, their own web conversations, AND the agents they own (directly or
+  // via a team). The owned-agent axis lets an agent owner see usage of their
+  // agent even in channels/spaces they can't read / web chats that aren't
+  // theirs.
+  let nonAdminScope: { channelNames: string[]; ownerEmail: string; ownedAgents: OwnedAgent[]; sub: string; webexSpaceIds: string[] } | null = null;
   if (!isFullAdmin) {
     const openfgaUser = simulationScope?.openfgaUser ?? (
       typeof session.sub === 'string' && session.sub.trim()
@@ -317,21 +337,22 @@ async function getAdminStats(request: NextRequest) {
         { status: 401 }
       );
     }
-    const [channelNames, ownedAgents] = await Promise.all([
+    const [channelNames, ownedAgents, webexSpaceIds] = await Promise.all([
       openfgaUser ? getReadableSlackChannelNames(openfgaUser) : Promise.resolve([]),
       openfgaUser ? getOwnedAgents(openfgaUser) : Promise.resolve([]),
+      openfgaUser ? getReadableWebexSpaceIds(openfgaUser) : Promise.resolve([]),
     ]);
     // workflow_runs are owner-keyed by JWT sub (owner_subject.id), not email —
     // openfgaUser is `user:<sub>`, so strip the prefix to recover the raw sub.
     const sub = openfgaUser.startsWith('user:') ? openfgaUser.slice('user:'.length) : '';
-    nonAdminScope = { channelNames, ownerEmail: email, ownedAgents, sub };
+    nonAdminScope = { channelNames, ownerEmail: email, ownedAgents, sub, webexSpaceIds };
   }
 
     const { rangeStart, rangeEnd, days, bucketUnit, bucketCount } = parseRange(searchParams);
     const rangeDateMatch = { $gte: rangeStart, $lte: rangeEnd };
 
     // Optional filters
-    const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
+    const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | 'webex' | null (all)
     const userFilter = searchParams.get('user'); // comma-separated emails | null (all)
     const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
     const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
@@ -360,6 +381,8 @@ async function getAdminStats(request: NextRequest) {
     // available for chat history/audit without inflating Insights metrics.
     // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
     const SLACK_CONV_MATCH = { $or: [{ source: 'slack' }, { client_type: 'slack' }] };
+    // Webex is new-only — no legacy `source`/`*_meta` schema predates it.
+    const WEBEX_CONV_MATCH = { client_type: 'webex' };
     const AI_MESSAGE_MATCH: Document = { role: 'assistant' };
 
     // A non-admin view is always "filtered" — DAU/MAU and daily-user activity
@@ -373,8 +396,11 @@ async function getAdminStats(request: NextRequest) {
     const convSourceFilter: Document = {};
     const msgOwnerFilter: Document = {};
     if (sourceFilter === 'web') {
-      convSourceFilter.source = { $ne: 'slack' };
-      convSourceFilter.client_type = { $ne: 'slack' };
+      // Neither legacy Slack rows nor Webex rows (client_type-only, no legacy
+      // `source`) are "web" — exclude both so a Webex conversation never
+      // inflates the Web-only view.
+      convSourceFilter.source = { $nin: ['slack', 'webex'] };
+      convSourceFilter.client_type = { $nin: ['slack', 'webex'] };
       msgOwnerFilter['metadata.source'] = 'web';
     } else if (sourceFilter === 'slack') {
       Object.assign(convSourceFilter, SLACK_CONV_MATCH);
@@ -393,6 +419,9 @@ async function getAdminStats(request: NextRequest) {
         // the hourly heatmap aligned with conversation-based cards.
         msgOwnerFilter['metadata.channel_name'] = names;
       }
+    } else if (sourceFilter === 'webex') {
+      Object.assign(convSourceFilter, WEBEX_CONV_MATCH);
+      msgOwnerFilter['metadata.source'] = 'webex';
     }
     if (hasUserFilter) {
       const owners = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
@@ -403,14 +432,17 @@ async function getAdminStats(request: NextRequest) {
     // Non-admin scope, reused by every query below so the whole payload stays
     // within the caller's visibility:
     //   - `convSourceFilter` / `msgOwnerFilter` get an $or of the caller's
-    //     readable Slack channels, their own conversations, AND their owned
-    //     agents (using each collection's canonical fields).
-    //   - `nonAdminChannelNames` bounds Slack-channel-keyed queries (feedback,
-    //     the Slack block, available_channels).
+    //     readable Slack channels, their readable Webex spaces, their own
+    //     conversations, AND their owned agents (using each collection's
+    //     canonical fields).
+    //   - `nonAdminChannelNames` / `nonAdminWebexSpaceIds` bound
+    //     channel/space-keyed queries (feedback, the Slack/Webex blocks,
+    //     available_channels).
     const nonAdminChannelNames = nonAdminScope?.channelNames ?? [];
     const nonAdminOwnedAgents = nonAdminScope?.ownedAgents ?? [];
+    const nonAdminWebexSpaceIds = nonAdminScope?.webexSpaceIds ?? [];
     if (nonAdminScope) {
-      const { channelNames: scopeChannelNames, ownerEmail, ownedAgents } = nonAdminScope;
+      const { channelNames: scopeChannelNames, ownerEmail, ownedAgents, webexSpaceIds: scopeWebexSpaceIds } = nonAdminScope;
       const convScopeClauses: Record<string, unknown>[] = [];
       const msgScopeClauses: Record<string, unknown>[] = [];
       if (scopeChannelNames.length > 0) {
@@ -427,6 +459,17 @@ async function getAdminStats(request: NextRequest) {
         msgScopeClauses.push({
           'metadata.source': 'slack',
           'metadata.channel_name': names,
+        });
+      }
+      if (scopeWebexSpaceIds.length > 0) {
+        const spaceIds = scopeWebexSpaceIds.length === 1 ? scopeWebexSpaceIds[0] : { $in: scopeWebexSpaceIds };
+        convScopeClauses.push({
+          client_type: 'webex',
+          'metadata.webex_space_id': spaceIds,
+        });
+        msgScopeClauses.push({
+          'metadata.source': 'webex',
+          'metadata.webex_space_id': spaceIds,
         });
       }
       if (ownerEmail) {
@@ -1467,6 +1510,187 @@ async function getAdminStats(request: NextRequest) {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // WEBEX STATS (from conversations with client_type:"webex") — mirrors
+    // the Slack block above, keyed by space id rather than channel name
+    // since Webex conversations/messages carry no space display name.
+    // ═══════════════════════════════════════════════════════════════
+    let webex: WebexStats | undefined;
+    const skipWebexBlock = !!nonAdminScope && nonAdminWebexSpaceIds.length === 0;
+
+    if (includesSection('webex') && sourceFilter !== 'web' && !skipWebexBlock) {
+      try {
+        // Start with the same conversation filter used by every other card, then
+        // constrain it to Webex. This carries source, user, agent, and
+        // non-admin scope into all Webex interaction cards without maintaining a
+        // second, subtly different filter implementation.
+        const webexFilter: Document = { ...WEBEX_CONV_MATCH, created_at: rangeDateMatch };
+        if (Object.keys(convSourceFilter).length > 0) {
+          andInto(webexFilter, convSourceFilter);
+        }
+        if (nonAdminScope) {
+          const readableSpaceIds = nonAdminWebexSpaceIds.length === 1
+            ? nonAdminWebexSpaceIds[0]
+            : { $in: nonAdminWebexSpaceIds };
+          andInto(webexFilter, { 'metadata.webex_space_id': readableSpaceIds });
+        }
+        const webexHasData = await conversations.countDocuments(WEBEX_CONV_MATCH, { limit: 1 });
+
+        if (webexHasData > 0) {
+          const spaceMappingColl = await getCollection<{
+            webex_space_id?: string;
+            space_name?: string;
+            space_title?: string;
+            created_at?: string | Date;
+            active?: boolean;
+          }>('webex_space_team_mappings');
+          const mappingFilter: Document = { webex_space_id: { $ne: null } };
+          if (nonAdminScope) {
+            // Configuration is space-scoped and cannot be attributed through
+            // the owned-agent/user axes without revealing unreadable spaces.
+            mappingFilter.webex_space_id = { $in: nonAdminWebexSpaceIds };
+          }
+
+          const selectedAgentIds = selectedAgents.map((agent) => agent.id);
+          const [
+            webexTotal,
+            webexUniqueUsers,
+            webexDailyAgg,
+            webexTopSpaces,
+            spaceMappings,
+            selectedAgentRoutes,
+          ] = await Promise.all([
+            conversations.countDocuments(webexFilter),
+            conversations.aggregate([
+              { $match: webexFilter },
+              { $group: { _id: '$owner_id' } },
+              { $match: { _id: { $nin: [null, ''] } } },
+              { $count: 'total' },
+            ]).toArray(),
+            conversations.aggregate([
+              { $match: webexFilter },
+              {
+                $group: {
+                  _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } },
+                  interactions: { $sum: 1 },
+                  unique_users: { $addToSet: '$owner_id' },
+                },
+              },
+              { $sort: { _id: 1 } },
+            ]).toArray(),
+            conversations.aggregate([
+              { $match: { ...webexFilter, 'metadata.webex_space_id': { $ne: null } } },
+              {
+                $group: {
+                  _id: '$metadata.webex_space_id',
+                  interactions: { $sum: 1 },
+                },
+              },
+              { $sort: { interactions: -1 } },
+              { $limit: 10 },
+            ]).toArray(),
+            spaceMappingColl.find(
+              mappingFilter,
+              { projection: { webex_space_id: 1, space_name: 1, space_title: 1, created_at: 1, active: 1 } },
+            ).toArray(),
+            agentIds.length > 0
+              ? getCollection<{ space_id?: string }>('webex_space_agent_routes')
+                  .then((routes) => routes.find(
+                    {
+                      agent_id: { $in: selectedAgentIds },
+                      enabled: { $ne: false },
+                      status: 'active',
+                    },
+                    { projection: { space_id: 1 } },
+                  ).toArray())
+              : Promise.resolve([]),
+          ]);
+
+          // Normalize a space name: fall back to null when the "name" is
+          // really just the raw id (unnamed/never-renamed mapping).
+          const normalizeSpaceName = (name: unknown, id: string): string | null => {
+            if (typeof name !== 'string' || !name.trim() || name === id) return null;
+            return name.trim();
+          };
+          const spaceNameById = new Map<string, string>();
+          for (const mapping of spaceMappings) {
+            const clean = normalizeSpaceName(mapping.space_name ?? mapping.space_title, mapping.webex_space_id ?? '');
+            if (mapping.webex_space_id && clean) {
+              spaceNameById.set(mapping.webex_space_id, clean);
+            }
+          }
+
+          // Configured Spaces is configuration data, not user activity. It is
+          // omitted for a user filter; agent and date filters do apply.
+          const selectedAgentSpaceIds = new Set(
+            selectedAgentRoutes.flatMap((route) => route.space_id ? [route.space_id] : []),
+          );
+          const activeMappings = spaceMappings.filter((mapping) => {
+            if (mapping.active === false || !mapping.webex_space_id) return false;
+            if (agentIds.length > 0 && !selectedAgentSpaceIds.has(mapping.webex_space_id)) return false;
+            const created = mapping.created_at ? new Date(mapping.created_at) : null;
+            return !created || Number.isNaN(created.getTime()) || created <= rangeEnd;
+          });
+          const configuredSpacesTotal = new Set(
+            activeMappings.map((mapping) => mapping.webex_space_id),
+          ).size;
+
+          const configuredBeforeRange = new Set<string>();
+          const configuredByBucket = new Map<string, Set<string>>();
+          for (const mapping of activeMappings) {
+            const created = mapping.created_at ? new Date(mapping.created_at) : null;
+            if (!created || Number.isNaN(created.getTime()) || created < rangeStart) {
+              configuredBeforeRange.add(mapping.webex_space_id as string);
+              continue;
+            }
+            const key = bucketDateKey(floorToBucket(created, bucketUnit), bucketUnit);
+            if (!configuredByBucket.has(key)) configuredByBucket.set(key, new Set());
+            configuredByBucket.get(key)!.add(mapping.webex_space_id as string);
+          }
+          let runningConfiguredSpaces = configuredBeforeRange.size;
+          const configuredSpacesDaily = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => {
+            runningConfiguredSpaces += configuredByBucket.get(dateKey)?.size ?? 0;
+            return { date: dateKey, total: runningConfiguredSpaces };
+          });
+
+          const webexDailyMap = new Map(
+            webexDailyAgg.map((day) => [day._id, {
+              interactions: day.interactions,
+              unique_users: day.unique_users?.length || 0,
+            }]),
+          );
+          const webexDaily = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => {
+            const entry = webexDailyMap.get(dateKey);
+            return {
+              date: dateKey,
+              interactions: entry?.interactions || 0,
+              unique_users: entry?.unique_users || 0,
+            };
+          });
+
+          webex = {
+            ...(!hasUserFilter ? {
+              configured_spaces: configuredSpacesTotal,
+              configured_spaces_daily: configuredSpacesDaily,
+            } : {}),
+            total_interactions: webexTotal,
+            unique_users: webexUniqueUsers[0]?.total || 0,
+            daily: webexDaily,
+            top_spaces: webexTopSpaces.map((space) => {
+              const id: string = space._id;
+              return {
+                space_name: spaceNameById.get(id) || id,
+                interactions: space.interactions,
+              };
+            }),
+          };
+        }
+      } catch (err) {
+        // Webex data may not exist yet — silently skip
+        console.warn('Webex stats query failed:', err);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // PLATFORM SUMMARY — respects source/user filters
     // ═══════════════════════════════════════════════════════════════
     const [oldChannels, newChannels] = availableChannelsResult;
@@ -1543,6 +1767,7 @@ async function getAdminStats(request: NextRequest) {
         },
       } : {}),
       ...(slack ? { slack } : {}),
+      ...(webex ? { webex } : {}),
       ...(includesSection('filters') ? {
         available_channels: availableChannels.sort(),
         available_agents: availableAgents,

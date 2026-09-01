@@ -9,6 +9,7 @@ export const ADMIN_STATS_SECTIONS = [
   'hourly_heatmap',
   'completed_workflows',
   'slack',
+  'webex',
 ] as const;
 
 export type AdminStatsSection = typeof ADMIN_STATS_SECTIONS[number];
@@ -44,6 +45,25 @@ export interface AdminSlackStats {
   }>;
   top_channels: Array<{
     channel_name: string;
+    interactions: number;
+  }>;
+}
+
+export interface AdminWebexStats {
+  total_interactions: number;
+  unique_users: number;
+  configured_spaces?: number;
+  configured_spaces_daily?: Array<{
+    date: string;
+    total: number;
+  }>;
+  daily: Array<{
+    date: string;
+    interactions: number;
+    unique_users: number;
+  }>;
+  top_spaces: Array<{
+    space_name: string;
     interactions: number;
   }>;
 }
@@ -113,6 +133,7 @@ export interface AdminStats {
     avg_steps_per_workflow: number;
   };
   slack: AdminSlackStats;
+  webex: AdminWebexStats;
   available_channels: string[];
   available_agents: Array<{ id: string; name: string }>;
 }

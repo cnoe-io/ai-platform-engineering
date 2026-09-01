@@ -31,6 +31,7 @@ import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
+import { WebexStatsSection } from "@/components/admin/platform/WebexStatsSection";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
@@ -2995,6 +2996,16 @@ function AdminPage() {
                       rangeLabel={rangeLabel}
                       slack={stats.slack}
                     />
+
+                    {/* ─── Webex Section ─── */}
+                    {webexEnabled && (
+                      <WebexStatsSection
+                        error={statsSectionStatuses.webex.error}
+                        loading={statsSectionStatuses.webex.loading}
+                        rangeLabel={rangeLabel}
+                        webex={stats.webex}
+                      />
+                    )}
                   </div>
 
                 {/* ─── Skills Section ─── */}

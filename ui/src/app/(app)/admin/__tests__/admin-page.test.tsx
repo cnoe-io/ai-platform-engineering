@@ -1631,8 +1631,8 @@ describe('Admin Dashboard Page', () => {
       const statsUrls = fetchMock.mock.calls
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(statsUrls).toHaveLength(10);
-      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(10);
+      expect(statsUrls).toHaveLength(11);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(11);
       expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
     });
 
@@ -1934,14 +1934,14 @@ describe('Admin Dashboard Page', () => {
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'))
         .filter(Boolean);
-      expect(refreshCalls).toHaveLength(9);
-      expect(new Set(refreshCalls).size).toBe(9);
+      expect(refreshCalls).toHaveLength(10);
+      expect(new Set(refreshCalls).size).toBe(10);
       expect(refreshCalls).not.toContain('filters');
       const refreshUrls = fetchMock.mock.calls
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls).toHaveLength(10);
       expect(refreshUrls.every((url) => url.searchParams.get('source') === 'web')).toBe(true);
       await waitFor(() => {
         expect(fetchMock.mock.calls.slice(callsBeforeFilter).some(([url]) => {
@@ -2015,7 +2015,7 @@ describe('Admin Dashboard Page', () => {
         .slice(callsBeforeFilter)
         .map(([url]) => new URL(url, 'http://localhost'))
         .filter((url) => url.pathname === '/api/admin/stats');
-      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls).toHaveLength(10);
       expect(refreshUrls.every((url) => url.searchParams.get('agent') === 'agent-primary')).toBe(true);
       expect(refreshUrls.find((url) => url.searchParams.get('section') === 'overview'))
         .toBeDefined();
@@ -2048,7 +2048,7 @@ describe('Admin Dashboard Page', () => {
           .slice(callsBeforeChannel)
           .map(([url]) => new URL(url, 'http://localhost'))
           .filter((url) => url.pathname === '/api/admin/stats');
-        expect(channelRefreshes).toHaveLength(9);
+        expect(channelRefreshes).toHaveLength(10);
         expect(channelRefreshes.every((url) => (
           url.searchParams.get('source') === 'slack'
           && url.searchParams.get('channel') === 'primary-channel'
@@ -2071,7 +2071,7 @@ describe('Admin Dashboard Page', () => {
           .slice(callsBeforeTeam)
           .map(([url]) => new URL(url, 'http://localhost'))
           .filter((url) => url.pathname === '/api/admin/stats');
-        expect(teamRefreshes).toHaveLength(9);
+        expect(teamRefreshes).toHaveLength(10);
         expect(teamRefreshes.every((url) => (
           url.searchParams.get('team') === 'platform-team'
           && url.searchParams.has('user') === false

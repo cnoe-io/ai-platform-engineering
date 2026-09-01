@@ -62,9 +62,10 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
   getRealmUserByIdOrNull: (...args: unknown[]) => mockGetRealmUserByIdOrNull(...args),
 }));
 
-// Non-admins are scoped via getReadableSlackChannelNames; mock so tests can
-// drive which Slack channels a non-admin can see.
+// Non-admins are scoped via getReadableSlackChannelNames / getReadableWebexSpaceIds;
+// mock so tests can drive which Slack channels / Webex spaces a non-admin can see.
 const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
+const mockGetReadableWebexSpaceIds = jest.fn<Promise<string[]>, [string]>();
 const mockGetOwnedAgents = jest.fn<Promise<Array<{ id: string; name: string }>>, [string]>();
 const mockGetOwnedAgentConversationIds = jest.fn<
   Promise<{ ids: string[]; capped: boolean }>,
@@ -75,6 +76,8 @@ const mockGetAgentsByIds = jest.fn<Promise<Array<{ id: string; name: string }>>,
 jest.mock('@/lib/rbac/user-insights-scope', () => ({
   getReadableSlackChannelNames: (...args: unknown[]) =>
     mockGetReadableSlackChannelNames(...(args as [string])),
+  getReadableWebexSpaceIds: (...args: unknown[]) =>
+    mockGetReadableWebexSpaceIds(...(args as [string])),
   getOwnedAgents: (...args: unknown[]) =>
     mockGetOwnedAgents(...(args as [string])),
   getOwnedAgentConversationIds: (...args: unknown[]) =>
@@ -198,6 +201,8 @@ function resetMocks() {
   }));
   mockGetReadableSlackChannelNames.mockReset();
   mockGetReadableSlackChannelNames.mockResolvedValue([]);
+  mockGetReadableWebexSpaceIds.mockReset();
+  mockGetReadableWebexSpaceIds.mockResolvedValue([]);
   mockGetRealmUserByIdOrNull.mockReset();
   mockGetRealmUserByIdOrNull.mockResolvedValue(null);
   mockGetOwnedAgents.mockReset();
@@ -1497,6 +1502,70 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     expect(body.data.slack).not.toHaveProperty('configured_channels');
     expect(body.data.slack).not.toHaveProperty('configured_channels_daily');
   });
+
+  it('applies source=webex filter to conversation and message queries', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?source=webex'));
+
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasWebexFilter = convCountCalls.some(
+      (call: unknown[]) => (call[0] as { client_type?: string })?.client_type === 'webex',
+    );
+    expect(hasWebexFilter).toBe(true);
+
+    const msgCountCalls = msgCol.countDocuments.mock.calls;
+    const hasWebexMsgFilter = msgCountCalls.some(
+      (call: unknown[]) => (call[0] as { 'metadata.source'?: string })?.['metadata.source'] === 'webex',
+    );
+    expect(hasWebexMsgFilter).toBe(true);
+  });
+
+  it('source=web excludes both Slack and Webex conversations', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?source=web'));
+
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasWebOnlyFilter = convCountCalls.some((call: unknown[]) => {
+      const filter = call[0] as { client_type?: { $nin?: string[] }; source?: { $nin?: string[] } };
+      return (
+        Array.isArray(filter?.client_type?.$nin)
+        && filter.client_type!.$nin!.includes('webex')
+        && filter.client_type!.$nin!.includes('slack')
+      );
+    });
+    expect(hasWebOnlyFilter).toBe(true);
+  });
+
+  it('omits the Webex-only section when source=web', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=webex&source=web'));
+    const body = await res.json();
+
+    expect(body.data).not.toHaveProperty('webex');
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: unknown[]) => call[1]?.limit === 1,
+    );
+    expect(probeCalls).toHaveLength(0);
+  });
+
+  it('applies a user filter to Webex interaction cards and omits userless configuration data', async () => {
+    const { convCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+
+    const res = await GET(makeRequest('/api/admin/stats?section=webex&user=person@example.com'));
+    const body = await res.json();
+
+    const webexPipelines = convCol.aggregate.mock.calls.map((call: unknown[]) => call[0]);
+    expect(webexPipelines.length).toBeGreaterThan(0);
+    expect(webexPipelines.every((pipeline: unknown) => (
+      JSON.stringify(pipeline).includes('person@example.com')
+    ))).toBe(true);
+    expect(body.data.webex).not.toHaveProperty('configured_spaces');
+    expect(body.data.webex).not.toHaveProperty('configured_spaces_daily');
+  });
 });
 
 // ============================================================================
@@ -1572,6 +1641,27 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     expect(hasOwnerScope).toBe(true);
   });
 
+  it('non-admin with readable Webex spaces: convSourceFilter ANDs in the space scope', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableWebexSpaceIds.mockResolvedValue(['space-1', 'space-2']);
+
+    const { convCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+
+    expect(mockGetReadableWebexSpaceIds).toHaveBeenCalledWith('user:regular-user-sub');
+
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    expect(convCountCalls.length).toBeGreaterThan(0);
+    const hasScope = convCountCalls.some((call: unknown[]) => {
+      const inspect = JSON.stringify(call[0] ?? {});
+      return inspect.includes('space-1') && inspect.includes('user@example.com');
+    });
+    expect(hasScope).toBe(true);
+  });
+
   it('non-admin with no sub and no email: returns 401', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { email: '', name: '' },
@@ -1594,8 +1684,9 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     const res = await GET(req);
     expect(res.status).toBe(200);
 
-    // Admin path must NOT call getReadableSlackChannelNames
+    // Admin path must NOT call getReadableSlackChannelNames / getReadableWebexSpaceIds
     expect(mockGetReadableSlackChannelNames).not.toHaveBeenCalled();
+    expect(mockGetReadableWebexSpaceIds).not.toHaveBeenCalled();
 
     // No conversation query should embed the user's email as a scope
     const convCountCalls = convCol.countDocuments.mock.calls;
@@ -2010,5 +2101,119 @@ describe('GET /api/admin/stats — Configured Channels', () => {
       expect.objectContaining({ agent_id: { $in: ['agent-primary'] } }),
       expect.any(Object),
     );
+  });
+});
+
+describe('GET /api/admin/stats — Configured Spaces (Webex)', () => {
+  beforeEach(resetMocks);
+
+  /** webex_space_team_mappings.find(query, opts).toArray() → docs. */
+  function stubSpaceMappings(docs: Record<string, unknown>[]) {
+    const col = createMockCollection();
+    col.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(docs) });
+    mockCollections['webex_space_team_mappings'] = col;
+    return col;
+  }
+
+  /** Some queries in the Webex block call .find(...).toArray() directly. */
+  function stubFindToArray(col: ReturnType<typeof createMockCollection>) {
+    col.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+  }
+
+  it('reports configured_spaces count (distinct active space ids)', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    // Webex block only builds when there is ≥1 Webex conversation.
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubSpaceMappings([
+      { webex_space_id: 'S1', space_name: 'alpha', active: true },
+      { webex_space_id: 'S2', space_name: 'beta', active: true },
+      { webex_space_id: 'S2', space_name: 'beta-renamed', active: true },
+      { webex_space_id: 'S3', space_name: 'gamma', active: false },
+    ]);
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    // S1 + S2 (deduped) active; S3 inactive excluded.
+    expect(body.data.webex.configured_spaces).toBe(2);
+    expect(Array.isArray(body.data.webex.configured_spaces_daily)).toBe(true);
+  });
+
+  it('configured_spaces_daily is a cumulative running total', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubSpaceMappings([
+      // No created_at → counted in the baseline before the range.
+      { webex_space_id: 'S0', space_name: 'legacy', active: true },
+    ]);
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    const daily = body.data.webex.configured_spaces_daily as Array<{ total: number }>;
+    expect(daily.length).toBeGreaterThan(0);
+    // Baseline space present from the first bucket; totals never decrease.
+    expect(daily[0].total).toBe(1);
+    for (let i = 1; i < daily.length; i++) {
+      expect(daily[i].total).toBeGreaterThanOrEqual(daily[i - 1].total);
+    }
+  });
+
+  it('filters configured spaces by selected agent routes', async () => {
+    mockGetAgentsByIds.mockResolvedValue([{ id: 'agent-primary', name: 'Primary Agent' }]);
+    const { convCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubSpaceMappings([
+      { webex_space_id: 'S1', space_name: 'primary', active: true },
+      { webex_space_id: 'S2', space_name: 'secondary', active: true },
+    ]);
+    const routeCol = createMockCollection();
+    routeCol.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ space_id: 'S2' }]),
+    });
+    mockCollections.webex_space_agent_routes = routeCol;
+
+    const res = await GET(makeRequest('/api/admin/stats?section=webex&agent=agent-primary'));
+    const body = await res.json();
+
+    expect(body.data.webex.configured_spaces).toBe(1);
+    expect(routeCol.find).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_id: { $in: ['agent-primary'] } }),
+      expect.any(Object),
+    );
+  });
+
+  it('resolves top space names from webex_space_team_mappings', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubSpaceMappings([
+      { webex_space_id: 'S1', space_name: 'design-crit', active: true },
+    ]);
+    convCol.aggregate.mockImplementation((pipeline: unknown[]) => ({
+      toArray: jest.fn().mockResolvedValue(
+        JSON.stringify(pipeline).includes('metadata.webex_space_id')
+          ? [{ _id: 'S1', interactions: 5 }]
+          : [],
+      ),
+    }));
+
+    const res = await GET(makeRequest('/api/admin/stats?section=webex'));
+    const body = await res.json();
+
+    expect(body.data.webex.top_spaces).toEqual([
+      { space_name: 'design-crit', interactions: 5 },
+    ]);
   });
 });
