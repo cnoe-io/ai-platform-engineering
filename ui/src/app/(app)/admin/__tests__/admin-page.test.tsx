@@ -356,8 +356,16 @@ function setupFetchMock(overrides: {
   tabGates?: Record<string, boolean>;
   integrationPanelModes?: { slack: string; webex: string };
   simulation?: unknown;
+  userPreferences?: unknown;
 } = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
+    if (url.includes('/api/user/preferences')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(overrides.userPreferences ?? { success: true, data: {} }),
+      });
+    }
     if (url.includes('/api/rbac/admin-tab-gates')) {
       return Promise.resolve({
         ok: true,
@@ -1529,6 +1537,57 @@ describe('Admin Dashboard Page', () => {
       expect(updatedFeedbackUrl.searchParams.has('rating')).toBe(false);
       expect(updatedFeedbackUrl.searchParams.get('source')).toBe('slack');
       expect(updatedFeedbackUrl.searchParams.get('channels')).toBe('primary-channel');
+    });
+  });
+
+  describe('Webex source option', () => {
+    it('shows a Webex option in the Statistics source picker when Webex is enabled', async () => {
+      currentPathname = '/admin/insights/statistics';
+      const fetchMock = setupFetchMock({
+        userPreferences: { success: true, data: { integrations: { webex: true } } },
+      });
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const sourceSelect = await screen.findByDisplayValue('All Sources');
+      expect(within(sourceSelect as HTMLElement).getByRole('option', { name: 'Webex' })).toBeInTheDocument();
+
+      fireEvent.change(sourceSelect, { target: { value: 'webex' } });
+
+      await waitFor(() => {
+        const sourceRefreshes = fetchMock.mock.calls.filter(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats' && parsed.searchParams.get('source') === 'webex';
+        });
+        expect(sourceRefreshes.length).toBeGreaterThan(0);
+      });
+      expect(sourceSelect).toHaveValue('webex');
+    });
+
+    it('omits the Webex option from the Statistics source picker when Webex is disabled', async () => {
+      currentPathname = '/admin/insights/statistics';
+      setupFetchMock({
+        userPreferences: { success: true, data: { integrations: { webex: false } } },
+      });
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const sourceSelect = await screen.findByDisplayValue('All Sources');
+      expect(within(sourceSelect as HTMLElement).queryByRole('option', { name: 'Webex' })).not.toBeInTheDocument();
+    });
+
+    it('never shows a Webex option in the Feedback source picker, regardless of the Webex flag', async () => {
+      currentPathname = '/admin/insights/feedback';
+      setupFetchMock({
+        userPreferences: { success: true, data: { integrations: { webex: true } } },
+      });
+
+      render(<AdminPage />);
+
+      const sourceSelect = await screen.findByDisplayValue('All Sources');
+      expect(within(sourceSelect as HTMLElement).queryByRole('option', { name: 'Webex' })).not.toBeInTheDocument();
     });
   });
 
