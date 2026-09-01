@@ -943,9 +943,9 @@ describe('Admin Dashboard Page', () => {
       expect(within(table).queryByText('Roles')).not.toBeInTheDocument();
     });
 
-    it('exposes Slack pending as a user table filter', async () => {
+    it('exposes Slack linked as a user table filter', async () => {
       currentPathname = '/admin/people/users';
-      currentSearchParams = new URLSearchParams('umSlack=pending');
+      currentSearchParams = new URLSearchParams('umSlack=linked');
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
@@ -954,22 +954,20 @@ describe('Admin Dashboard Page', () => {
         expect(screen.getByText('admin@example.com')).toBeInTheDocument();
       });
 
-      const slackSelect = screen
-        .getAllByRole('combobox')
-        .find((select) => within(select).queryByRole('option', { name: 'Pending' }));
-      expect(slackSelect).toBeDefined();
-      expect(slackSelect).toHaveValue('pending');
-      expect(within(slackSelect!).getByRole('option', { name: 'Pending' })).toBeInTheDocument();
+      const slackLabel = screen.getByText('Slack', { selector: 'span.text-xs' });
+      const slackFilter = slackLabel.parentElement?.querySelector('select');
+      expect(slackFilter).toBeDefined();
+      expect(slackFilter).toHaveValue('linked');
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
-          expect.stringContaining('/api/admin/users?page=1&pageSize=20&slackStatus=pending')
+          expect.stringContaining('/api/admin/users?page=1&pageSize=20&slackStatus=linked')
         );
       });
 
-      fireEvent.change(slackSelect!, { target: { value: 'linked' } });
+      fireEvent.change(slackFilter!, { target: { value: 'unlinked' } });
       expect(replaceMock).toHaveBeenCalledWith(
-        expect.stringContaining('umSlack=linked'),
+        expect.stringContaining('umSlack=unlinked'),
         { scroll: false }
       );
     });

@@ -440,9 +440,6 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   if (pathname === '/api/auth/my-roles' || pathname === '/api/auth/role') {
     return { resource: 'self_profile', scope: 'read' };
   }
-  if (pathname === '/api/auth/slack-link' || pathname === '/api/auth/webex-link') {
-    return { resource: 'self_profile', scope: 'write' };
-  }
   if (pathname.startsWith('/api/settings')) {
     return method === 'GET'
       ? { resource: 'user_settings', scope: 'read' }

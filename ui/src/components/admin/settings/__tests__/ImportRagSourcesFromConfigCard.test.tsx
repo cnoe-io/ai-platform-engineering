@@ -168,8 +168,8 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).toBeDisabled();
     expect(screen.getByText("Already imported")).toBeInTheDocument();
     expect(screen.queryByText("Has config row")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Destination collection")).toHaveValue(
-      "platform-rag",
+    expect(screen.getByLabelText("Destination collection")).toHaveTextContent(
+      "Platform RAG",
     );
     expect(screen.getByText("Owner:").closest("p")).toHaveTextContent(
       "Owner: Super Admins · Search: Everyone",
@@ -251,7 +251,10 @@ describe("ImportRagSourcesFromConfigCard", () => {
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     const destination = await screen.findByLabelText("Destination collection");
-    fireEvent.change(destination, { target: { value: "engineering-docs" } });
+    fireEvent.click(destination);
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Engineering Docs" }),
+    );
     expect(screen.getByText("Owner:").closest("p")).toHaveTextContent(
       "Owner: Engineering · Search: Engineering",
     );

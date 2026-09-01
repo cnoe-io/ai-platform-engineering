@@ -4,6 +4,7 @@ import {
   ApplicationNavigationMenuButton,
   MobileApplicationBrand,
 } from "@/components/layout/ApplicationNavigation";
+import { ApplicationNavigationSearchTrigger } from "@/components/layout/ApplicationNavigationSearch";
 import { isOnHeaderDialogEditor } from "@/components/layout/GuardedNavigationLink";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -419,6 +420,7 @@ export function AppHeader() {
               {config.envBadge}
             </span>
           ) : null}
+          <ApplicationNavigationSearchTrigger />
           {config.provideFeedbackEnabled ? (
             <>
               <Button

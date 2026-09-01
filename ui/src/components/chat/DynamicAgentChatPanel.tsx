@@ -1143,7 +1143,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     const pending = takePendingFirstMessage(conversationId);
     if (pending) {
       pendingFirstMessageSentRef.current = true;
-      void submitMessage(pending);
+      void submitMessage(pending.text, pending.files);
     }
   }, [conversationId, readOnly, submitMessage]);
 
@@ -1736,7 +1736,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               <div className="text-center py-20">
                 {isLoadingMessages ? (
                   <>
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl gradient-primary-br flex items-center justify-center">
                       <Loader2 className="h-8 w-8 text-white animate-spin" />
                     </div>
                     <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
@@ -1752,6 +1752,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                       size="w-16 h-16 mx-auto mb-6"
                       iconSize="h-8 w-8"
                       icon={Sparkles}
+                      useGlobalTheme
                     />
                     <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
                     <p className="text-muted-foreground mb-3">
@@ -1763,6 +1764,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                         rounded="rounded-lg"
                         size="w-8 h-8"
                         iconSize="h-4 w-4"
+                        useGlobalTheme
                       />
                       <span className="text-lg font-semibold">
                         {agentName || "your agent"}

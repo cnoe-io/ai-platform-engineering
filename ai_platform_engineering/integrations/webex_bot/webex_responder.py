@@ -28,9 +28,8 @@ logger = logging.getLogger("caipe.webex_bot.webex_responder")
 
 WEBEX_API_BASE_URL = "https://webexapis.com/v1"
 # Avoid spamming duplicate 1:1 linking cards when the user retries before completing SSO.
-# Webex link HMACs expire after 10 minutes in the UI BFF. Keep the resend
+# The OAuth state cookie set by the UI BFF expires after 10 minutes. Keep the resend
 # guard shorter so we never point users at an expired card.
-# assisted-by Codex Codex-sonnet-4-6
 _LINKING_CARD_COOLDOWN_SECONDS = 9 * 60
 _recent_linking_cards_sent: dict[str, float] = {}
 
@@ -173,8 +172,35 @@ class WebexResponder:
         if not room_id or not parent_id:
             logger.warning("Cannot send Webex reply without room_id and parent_id")
             return
-        if result.reason_code == "WEBEX_USER_NOT_LINKED" and result.linking_url:
-            await self._reply_with_private_linking_card(event, room_id=room_id, parent_id=parent_id, result=result)
+        if result.reason_code == "WEBEX_USER_NOT_LINKED":
+            if result.linking_url:
+                await self._reply_with_private_linking_card(
+                    event, room_id=room_id, parent_id=parent_id, result=result
+                )
+                return
+            # Linking URL minting failed (e.g. misconfigured base URL in
+            # production, which must be HTTPS) — no DM to send. Fall back to
+            # a threaded text reply so explicit invocations are never met
+            # with silence, mirroring Slack's unlinked_fallback admin-contact
+            # copy.
+            if not should_post_denial_notice(
+                silence_env=False,
+                explicit_invocation=result.explicit_invocation,
+            ):
+                logger.info(
+                    "Suppressing Webex denial reply reason=%s explicit_invocation=%s",
+                    result.reason_code,
+                    result.explicit_invocation,
+                )
+                return
+            await self._reply_to_thread(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=(
+                    "Your Webex account could not be linked because the bot is "
+                    "not configured to mint linking URLs. Please contact your admin."
+                ),
+            )
             return
 
         if not should_post_denial_notice(
@@ -552,13 +578,19 @@ def _app_name() -> str:
     return os.environ.get("APP_NAME", "CAIPE").strip() or "CAIPE"
 
 
+# Stable marker identifying bot-authored replies, independent of APP_NAME so
+# renaming the deployment does not orphan the recognition of older replies
+# already posted to a Webex thread.
+_BOT_REPLY_MARKER = "​<!-- caipe-agent-reply -->"
+
+
 def _agent_reply_markdown(agent_id: str, body: str) -> str:
     content = body.strip() or "Done."
+    app_name = _app_name()
     return (
-        f"**Agent:** `{agent_id}`\n\n"
         f"{content}\n\n"
-        "_Reply in this Webex thread to continue with this agent. If the route only "
-        "listens to mentions, mention the bot in your reply._"
+        f"_Agent: {agent_id}_ • **Mention @{app_name} to continue**"
+        f"{_BOT_REPLY_MARKER}"
     )
 
 
@@ -659,10 +691,12 @@ def _message_text(message: dict[str, Any]) -> str:
 
 def _is_webex_bot_reply(message: dict[str, Any]) -> bool:
     raw = str(message.get("markdown") or message.get("text") or "")
-    return (
-        "**Agent:**" in raw
-        or "Reply in this Webex thread to continue with this agent" in raw
-    )
+    if _BOT_REPLY_MARKER in raw:
+        return True
+    # Pre-upgrade replies lack the marker entirely — fall back to the old
+    # APP_NAME-dependent pattern so they're still recognized during the
+    # transition to marker-based detection.
+    return f"Mention @{_app_name()} to continue" in raw
 
 
 def _message_author(message: dict[str, Any]) -> str:

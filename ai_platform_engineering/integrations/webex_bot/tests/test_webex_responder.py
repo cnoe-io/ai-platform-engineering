@@ -16,6 +16,10 @@ from ai_platform_engineering.integrations.webex_bot.a2a_client import SSEEvent, 
 from ai_platform_engineering.integrations.webex_bot.webex_responder import (
     WebexResponder,
     WebexThreadedStreamDispatcher,
+    _BOT_REPLY_MARKER,
+    _agent_reply_markdown,
+    _format_thread_context,
+    _is_webex_bot_reply,
 )
 
 
@@ -334,6 +338,65 @@ def test_unlinked_user_dm_failure_does_not_post_signed_link_publicly(
     assert "webex-link" not in api.created[0]["markdown"]
 
 
+def test_unlinked_explicit_mention_gets_fallback_text_when_linking_url_mint_fails() -> None:
+    api = FakeWebexApi()
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+            "personId": "person-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_USER_NOT_LINKED",
+        deny_message="Your Webex account is not linked.",
+        linking_url=None,
+        explicit_invocation=True,
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+
+    assert api.created == [
+        {
+            "room_id": "room-public-id",
+            "parent_id": "message-public-id",
+            "markdown": (
+                "Your Webex account could not be linked because the bot is "
+                "not configured to mint linking URLs. Please contact your admin."
+            ),
+        }
+    ]
+
+
+def test_unlinked_passive_message_stays_silent_when_linking_url_mint_fails() -> None:
+    api = FakeWebexApi()
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+            "personId": "person-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_USER_NOT_LINKED",
+        deny_message="Your Webex account is not linked.",
+        linking_url=None,
+        explicit_invocation=False,
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+
+    assert api.created == []
+
+
 def test_reason_code_fallback_is_user_friendly() -> None:
     api = FakeWebexApi()
     responder = WebexResponder(webex_api=api)
@@ -399,10 +462,9 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
             "room_id": "room-public-id",
             "parent_id": "message-public-id",
             "markdown": (
-                "**Agent:** `incident-agent`\n\n"
                 "Working on it...\n\n"
-                "_Reply in this Webex thread to continue with this agent. If the route only "
-                "listens to mentions, mention the bot in your reply._"
+                "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+                f"{_BOT_REPLY_MARKER}"
             ),
         }
     ]
@@ -410,10 +472,9 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
         "message_id": "created-1",
         "room_id": "room-public-id",
         "markdown": (
-            "**Agent:** `incident-agent`\n\n"
             "hello world\n\n"
-            "_Reply in this Webex thread to continue with this agent. If the route only "
-            "listens to mentions, mention the bot in your reply._"
+            "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+            f"{_BOT_REPLY_MARKER}"
         ),
     }
     assert sse.conversations == [
@@ -470,10 +531,9 @@ def test_threaded_stream_dispatcher_reuses_root_parent_for_thread_replies() -> N
         "room_id": "room-public-id",
         "parent_id": "root-message-public-id",
         "markdown": (
-            "**Agent:** `incident-agent`\n\n"
             "Working on it...\n\n"
-            "_Reply in this Webex thread to continue with this agent. If the route only "
-            "listens to mentions, mention the bot in your reply._"
+            "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+            f"{_BOT_REPLY_MARKER}"
         ),
     }
     assert sse.conversations[0]["idempotency_key"] == (
@@ -518,9 +578,9 @@ def test_threaded_stream_dispatcher_includes_bounded_thread_context_in_agent_pro
                 "id": "bot-reply-public-id",
                 "parentId": "root-message-public-id",
                 "markdown": (
-                    "**Agent:** `incident-agent`\n\n"
                     "prior bot answer\n\n"
-                    "_Reply in this Webex thread to continue with this agent._"
+                    "_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+                    f"{_BOT_REPLY_MARKER}"
                 ),
                 "personEmail": "bot@example.com",
             },
@@ -624,3 +684,34 @@ def test_thread_context_fetch_failure_falls_back_to_current_message() -> None:
     )
 
     assert sse.calls[0]["message"] == "continue without history"
+
+
+def test_bot_reply_recognized_after_app_name_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_NAME", "OldName")
+    reply_markdown = _agent_reply_markdown("incident-agent", "prior bot answer")
+
+    monkeypatch.setenv("APP_NAME", "NewName")
+
+    message = {"markdown": reply_markdown, "personEmail": "bot@example.com"}
+    assert _is_webex_bot_reply(message) is True
+    assert _format_thread_context([message]) == ""
+
+
+def test_bot_reply_recognized_via_legacy_app_name_pattern_pre_upgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replies the bot posted before the marker was introduced only contain
+    the old ``Mention @{app_name} to continue`` pattern — those must still be
+    recognized as bot replies during the transition to marker-based
+    detection, or they'll be mistaken for user messages in thread context."""
+    monkeypatch.setenv("APP_NAME", "CAIPE")
+    legacy_markdown = (
+        "prior bot answer\n\n_Agent: incident-agent_ • **Mention @CAIPE to continue**"
+    )
+    assert _BOT_REPLY_MARKER not in legacy_markdown
+
+    message = {"markdown": legacy_markdown, "personEmail": "bot@example.com"}
+    assert _is_webex_bot_reply(message) is True
+    assert _format_thread_context([message]) == ""

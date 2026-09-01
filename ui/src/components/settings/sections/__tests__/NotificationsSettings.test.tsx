@@ -7,6 +7,10 @@ import { fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { NotificationsSettings } from "../NotificationsSettings";
 import { PlatformAnnouncementsSettings } from "../PlatformAnnouncementsSettings";
 
+jest.mock("@/hooks/use-admin-role",() => ({
+  useAdminRole: () => ({ isAdmin: true }),
+}));
+
 jest.mock("@/components/settings/ReleaseNotesPreview",() => ({
   ReleaseNotesPreview: () => <button type="button">Show current release notes</button>,
 }));
