@@ -19,6 +19,10 @@ interface AuthGuardProps {
  * Also checks for the deployment-configured group-based admission gate.
  */
 export function AuthGuard({ children }: AuthGuardProps) {
+  // Bypass all auth checks if authDisabled flag is enabled (development shortcut)
+  if (getConfig('authDisabled')) {
+    return <>{children}</>;
+  }
   const { data: session, status } = useSession();
   const router = useRouter();
   const pathname = usePathname();

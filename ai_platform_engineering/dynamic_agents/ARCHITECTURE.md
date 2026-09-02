@@ -64,7 +64,7 @@ Dynamic Agents is the FastAPI runtime service for CAIPE agents. It uses the `dee
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                        Dynamic Agents Service (FastAPI)                       │
-│                               Port 8001/8100                                  │
+│                               Port 8001/8200                                  │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │                            Routes                                       │  │
 │  │  /api/v1/agents/*    /api/v1/mcp-servers/*    /api/v1/chat/*           │  │

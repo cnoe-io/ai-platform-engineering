@@ -8,7 +8,7 @@ sidebar_position: 6
 
 ```bash
 curl http://localhost:3000/api/health
-curl http://localhost:8100/health
+curl http://localhost:8200/health
 docker ps | grep caipe
 ```
 

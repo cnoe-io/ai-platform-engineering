@@ -393,7 +393,7 @@ describe("POST /api/mcp-servers/probe", () => {
     );
     expect(global.fetch).toHaveBeenNthCalledWith(
       3,
-      "http://localhost:8100/api/v1/mcp-servers/mcp-netutils/probe",
+      "http://localhost:8200/api/v1/mcp-servers/mcp-netutils/probe",
       expect.objectContaining({ method: "POST" }),
     );
     expect(mockBuildBackendHeaders).toHaveBeenCalled();

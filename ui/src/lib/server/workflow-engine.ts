@@ -46,7 +46,7 @@ export function runOwnerSubject(authHeaders: Record<string, string>): string | n
 // Configuration
 // ═══════════════════════════════════════════════════════════════
 
-const DA_SERVER_BASE_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+const DA_SERVER_BASE_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
 const MAX_RUN_DURATION_SECONDS = parseInt(
   process.env.MAX_WORKFLOW_RUN_DURATION_SECONDS || "86400",
   10,

@@ -862,7 +862,7 @@ If MongoDB is not configured, `needsSeeding` is `false` and a message explains i
 
 ## Dynamic Agents Backend API (FastAPI direct endpoints)
 
-Base URL: service root (e.g. `http://localhost:8100`). JSON unless streaming.
+Base URL: service root (e.g. `http://localhost:8200`). JSON unless streaming.
 
 Auth: Bearer JWT from identity provider (same token the UI forwards); admin vs user enforced per route.
 

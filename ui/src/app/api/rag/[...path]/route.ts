@@ -470,7 +470,7 @@ async function getAuthorizedRagContext(
   body?: unknown,
 ): Promise<AuthorizedRagContext> {
   const session = await getServerSession(authOptions) ?? (
-    isDevAnonymousAuthEnabled() ? getDevAnonymousSession() : null
+    isDevAnonymousAuthEnabled() ? await getDevAnonymousSession() : null
   );
   if (!session?.user?.email) {
     throw new ApiError('Unauthorized', 401);

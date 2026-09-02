@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     OpenAPI specification for the Dynamic Agents FastAPI service (`dynamic_agents`).
-    Base path is the service root (e.g. `http://localhost:8100`). JSON responses unless noted.
+    Base path is the service root (e.g. `http://localhost:8200`). JSON responses unless noted.
     Admin-only routes require an admin claim in the JWT; others require a valid Bearer token
     (or dev auth bypass when `AUTH_ENABLED=false`).
 servers:

@@ -53,7 +53,7 @@ Environment notes:
 - `KEYCLOAK_URL=http://127.0.0.1:7080`
 - `RAG_SERVER_URL=http://127.0.0.1:9446`
 - `AGENTGATEWAY_ADMIN_CONFIG_URL=http://127.0.0.1:15000/config`
-- `DYNAMIC_AGENTS_URL=http://127.0.0.1:8100`
+- `DYNAMIC_AGENTS_URL=http://127.0.0.1:8200`
 
 ### Workload
 

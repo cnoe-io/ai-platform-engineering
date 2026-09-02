@@ -23,7 +23,7 @@ sidebar_position: 3
 cd ui
 npm install
 
-DYNAMIC_AGENTS_URL=http://localhost:8100 \
+DYNAMIC_AGENTS_URL=http://localhost:8200 \
 MONGODB_URI=mongodb://admin:changeme@localhost:27017/caipe?authSource=admin \
 NEXTAUTH_URL=http://localhost:3000 \
 NEXTAUTH_SECRET=development-secret-change-me \

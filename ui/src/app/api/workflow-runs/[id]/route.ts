@@ -136,7 +136,7 @@ export const DELETE = withErrorHandler(async (
   await requireWorkflowRunAccess(session, run, "delete");
 
   try {
-    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
     const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
     await fetch(
       `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,

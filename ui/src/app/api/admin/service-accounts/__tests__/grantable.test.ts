@@ -264,7 +264,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     const body = await res.json();
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:8100/api/v1/mcp-servers/jira/probe",
+      "http://localhost:8200/api/v1/mcp-servers/jira/probe",
       { method: "POST", headers: { Authorization: "Bearer token" } },
     );
     expect(body.data.tools).toEqual([

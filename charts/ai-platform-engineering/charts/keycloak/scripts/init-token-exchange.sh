@@ -671,8 +671,197 @@ if [ -n "${RM_CLIENT_ID:-}" ]; then
       _attach_bot_to_obo_target "caipe-slack-bot-token-exchange-policy" "${BOT_INTERNAL_ID:-}" "caipe-slack-bot"
       _attach_bot_to_obo_target "caipe-webex-bot-token-exchange-policy" "${WEBEX_INTERNAL_ID:-}" "caipe-webex-bot"
       _attach_bot_to_obo_target "caipe-scheduler-runner-token-exchange-policy" "${SCHEDULER_INTERNAL_ID:-}" "caipe-scheduler-runner"
+      _attach_bot_to_obo_target "caipe-dev-anon-runner-token-exchange-policy" "${DEV_ANON_INTERNAL_ID:-}" "caipe-dev-anon-runner"
     fi
   fi
+fi
+
+# ------------------------------------------------------------------
+# 8c. Dev-anonymous impersonation user + client (docker-compose local dev)
+#
+# In local docker-compose "No Auth" dev mode (SSO_ENABLED=false), the UI
+# synthesizes an anonymous dev session with no real Keycloak identity, so it
+# has no JWT to present to AgentGateway's strict jwtAuth listener — every
+# outbound MCP call 401s. The fix: mint a REAL Keycloak access token for that
+# dev session via RFC 8693 token-exchange impersonation, exactly like the
+# scheduler-runner owner-impersonation flow above (section 5 / 7 / 8 / 8b),
+# targeting a stable, well-known local-dev user instead of a real owner.
+#
+# Two idempotent pieces:
+#   1. a Keycloak user "anonymous-local-dev" (no password — never used for
+#      direct login, only as a requested_subject impersonation target). Its
+#      username is used as requested_subject rather than its Admin-API `id`
+#      UUID: Keycloak's token-exchange resolves requested_subject by
+#      username as well as by sub, and using the stable username lets
+#      docker-compose and the UI (DEV_AUTH_SUBJECT in dev-auth-provider.ts)
+#      reference it without any compose-time/runtime handoff of a
+#      dynamically generated UUID.
+#   2. a confidential "caipe-dev-anon-runner" client, wired for token
+#      exchange exactly like caipe-scheduler-runner: impersonation role,
+#      its own token-exchange scope-permission, users.impersonate, and (via
+#      _attach_bot_to_obo_target above) the caipe-platform audience's
+#      token-exchange permission.
+#
+# Gated on KC_DEV_ANON_CLIENT_ID so this reconciliation only runs where the
+# operator has actually wired the client (docker-compose.yaml sets it by
+# default for the local dev path; unset in other environments to skip).
+# ------------------------------------------------------------------
+DEV_ANON_USERNAME="anonymous-local-dev"
+DEV_ANON_CLIENT_ID="${KC_DEV_ANON_CLIENT_ID:-}"
+
+if [ -n "${DEV_ANON_CLIENT_ID}" ]; then
+  echo "${TAG} Ensuring dev-anonymous impersonation user '${DEV_ANON_USERNAME}' ..."
+  DEV_ANON_USER_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users?username=${DEV_ANON_USERNAME}&exact=true" 2>/dev/null || echo "[]")
+  DEV_ANON_USER_ID=$(json_field "${DEV_ANON_USER_RESP}" "id")
+
+  if [ -z "${DEV_ANON_USER_ID}" ]; then
+    echo "${TAG}   Creating user '${DEV_ANON_USERNAME}' ..."
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users" \
+      -d "{\"username\":\"${DEV_ANON_USERNAME}\",\"enabled\":true,\"emailVerified\":true,\"email\":\"${DEV_ANON_USERNAME}@local\",\"firstName\":\"Anonymous\",\"lastName\":\"Local Dev\"}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" != "201" ] && [ "${HTTP_CODE}" != "409" ]; then
+      echo "${TAG}   ERROR: failed to create user '${DEV_ANON_USERNAME}' (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+    DEV_ANON_USER_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/users?username=${DEV_ANON_USERNAME}&exact=true" 2>/dev/null || echo "[]")
+    DEV_ANON_USER_ID=$(json_field "${DEV_ANON_USER_RESP}" "id")
+    if [ -z "${DEV_ANON_USER_ID}" ]; then
+      echo "${TAG}   ERROR: user '${DEV_ANON_USERNAME}' has no internal ID after create." >&2
+      exit 1
+    fi
+  else
+    echo "${TAG}   User '${DEV_ANON_USERNAME}' already exists (id=${DEV_ANON_USER_ID})."
+  fi
+
+  DEV_ANON_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${DEV_ANON_CLIENT_ID}" 2>/dev/null || echo "[]")
+  DEV_ANON_INTERNAL_ID=$(json_field "${DEV_ANON_CLIENTS_RESP}" "id")
+
+  # Realm import only creates clients when the realm is first created;
+  # upgrades of an existing realm need this client created explicitly.
+  if [ -z "${DEV_ANON_INTERNAL_ID}" ]; then
+    if [ -z "${KC_DEV_ANON_CLIENT_SECRET:-}" ]; then
+      echo "${TAG}   ERROR: client '${DEV_ANON_CLIENT_ID}' is missing and KC_DEV_ANON_CLIENT_SECRET is unset." >&2
+      exit 1
+    fi
+    echo "${TAG} Creating missing dev-anon-runner client '${DEV_ANON_CLIENT_ID}' ..."
+    DEV_ANON_CLIENT_JSON=$(DEV_ANON_CLIENT_ID="${DEV_ANON_CLIENT_ID}" \
+      DEV_ANON_CLIENT_SECRET="${KC_DEV_ANON_CLIENT_SECRET}" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "clientId": os.environ["DEV_ANON_CLIENT_ID"],
+    "name": "CAIPE Dev Anonymous Runner",
+    "description": "Confidential client scoped to local-dev anonymous-session impersonation.",
+    "enabled": True,
+    "publicClient": False,
+    "bearerOnly": False,
+    "standardFlowEnabled": False,
+    "directAccessGrantsEnabled": False,
+    "serviceAccountsEnabled": True,
+    "authorizationServicesEnabled": False,
+    "protocol": "openid-connect",
+    "fullScopeAllowed": True,
+    "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+    "attributes": {"oidc.token.exchange.enabled": "true"},
+    "secret": os.environ["DEV_ANON_CLIENT_SECRET"],
+}))
+')
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients" \
+      -d "${DEV_ANON_CLIENT_JSON}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" != "201" ] && [ "${HTTP_CODE}" != "409" ]; then
+      echo "${TAG}   ERROR: failed to create dev-anon-runner client (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+    DEV_ANON_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients?clientId=${DEV_ANON_CLIENT_ID}" 2>/dev/null || echo "[]")
+    DEV_ANON_INTERNAL_ID=$(json_field "${DEV_ANON_CLIENTS_RESP}" "id")
+    if [ -z "${DEV_ANON_INTERNAL_ID}" ]; then
+      echo "${TAG}   ERROR: dev-anon-runner client has no internal ID after create." >&2
+      exit 1
+    fi
+  fi
+
+  if [ -n "${KC_DEV_ANON_CLIENT_SECRET:-}" ]; then
+    echo "${TAG} Reconciling client_secret on '${DEV_ANON_CLIENT_ID}' from KC_DEV_ANON_CLIENT_SECRET ..."
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${DEV_ANON_INTERNAL_ID}" \
+      -d "{\"clientId\":\"${DEV_ANON_CLIENT_ID}\",\"secret\":\"${KC_DEV_ANON_CLIENT_SECRET}\"}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+      echo "${TAG}   dev-anon-runner client_secret reconciled (HTTP ${HTTP_CODE})."
+    else
+      echo "${TAG}   ERROR: failed to set dev-anon-runner client_secret (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+  else
+    echo "${TAG} KC_DEV_ANON_CLIENT_SECRET not set; leaving dev-anon-runner client_secret unchanged."
+  fi
+
+  ensure_service_account_impersonation_role "${DEV_ANON_CLIENT_ID}" "${DEV_ANON_INTERNAL_ID}" "false"
+
+  if [ -n "${RM_CLIENT_ID:-}" ]; then
+    echo "${TAG} Enabling management permissions on '${DEV_ANON_CLIENT_ID}' ..."
+    DEV_ANON_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${DEV_ANON_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{"enabled":false}')
+    if [ "$(json_bool "${DEV_ANON_MGMT}" "enabled")" != "true" ]; then
+      curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${DEV_ANON_INTERNAL_ID}/management/permissions" \
+        -d '{"enabled":true}' >/dev/null 2>&1 || {
+          echo "${TAG}   ERROR: could not enable dev-anon-runner management permissions." >&2
+          exit 1
+        }
+    fi
+    DEV_ANON_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${DEV_ANON_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{}')
+    DEV_ANON_TOKEN_EXCHANGE_PERM_ID=$(echo "${DEV_ANON_MGMT}" | grep -o '"token-exchange" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -z "${DEV_ANON_TOKEN_EXCHANGE_PERM_ID}" ] || [ -z "${IMPERSONATE_PERM_ID:-}" ]; then
+      echo "${TAG}   ERROR: dev-anon-runner token-exchange or users.impersonate permission is unavailable." >&2
+      exit 1
+    fi
+
+    DEV_ANON_POLICY_NAME="caipe-dev-anon-runner-token-exchange-policy"
+    DEV_ANON_POLICIES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${DEV_ANON_POLICY_NAME}&max=1" 2>/dev/null || echo '[]')
+    DEV_ANON_POLICY_ID=$(json_field "${DEV_ANON_POLICIES}" "id")
+    if [ -z "${DEV_ANON_POLICY_ID}" ]; then
+      DEV_ANON_POLICY_RESP=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+        -d "{\"name\":\"${DEV_ANON_POLICY_NAME}\",\"description\":\"Allow ${DEV_ANON_CLIENT_ID} to perform dev-anonymous OBO token exchange\",\"logic\":\"POSITIVE\",\"clients\":[\"${DEV_ANON_INTERNAL_ID}\"]}" 2>/dev/null || echo '{}')
+      DEV_ANON_POLICY_ID=$(json_field "${DEV_ANON_POLICY_RESP}" "id")
+    fi
+    if [ -z "${DEV_ANON_POLICY_ID}" ]; then
+      echo "${TAG}   ERROR: could not resolve or create dev-anon-runner token-exchange policy." >&2
+      exit 1
+    fi
+
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${DEV_ANON_TOKEN_EXCHANGE_PERM_ID}" "${DEV_ANON_POLICY_ID}" "dev-anon-runner token-exchange permission" || {
+      echo "${TAG}   ERROR: could not authorize dev-anon-runner token exchange." >&2
+      exit 1
+    }
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${IMPERSONATE_PERM_ID}" "${DEV_ANON_POLICY_ID}" "dev-anon-runner users.impersonate permission" || {
+      echo "${TAG}   ERROR: could not authorize dev-anon-runner impersonation." >&2
+      exit 1
+    }
+
+    # Attach the same policy to the caipe-platform audience's token-exchange
+    # permission (mirrors section 8b, run again here because the dev-anon
+    # client/policy did not exist yet when 8b's loop ran above).
+    if [ -n "${OBO_TE_PERM_ID:-}" ]; then
+      attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${OBO_TE_PERM_ID}" "${DEV_ANON_POLICY_ID}" "${OBO_AUDIENCE_CLIENT_ID:-caipe-platform} token-exchange perm (caipe-dev-anon-runner)" || \
+        echo "${TAG}   WARNING: could not attach dev-anon-runner policy to OBO target perm."
+    fi
+  else
+    echo "${TAG}   WARNING: realm-management client not found — skipping dev-anon-runner scope-permission wiring."
+  fi
+else
+  echo "${TAG} KC_DEV_ANON_CLIENT_ID not set; skipping dev-anonymous impersonation setup."
 fi
 
 # ------------------------------------------------------------------
@@ -1002,7 +1191,7 @@ caipe-scheduler-runner|caipe-scheduler-runner-dev-secret"
 
   if [ "${violations}" -gt 0 ]; then
     echo "${TAG} Strict mode FAILED: ${violations} bot client(s) still accept dev placeholder secrets." >&2
-    echo "${TAG} See https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/docs/security/rbac/secrets-bootstrap.md#production-hardening" >&2
+    echo "${TAG} See https://github.com/caipe-io/ai-platform-engineering/blob/main/docs/docs/security/rbac/secrets-bootstrap.md#production-hardening" >&2
     return 1
   fi
 

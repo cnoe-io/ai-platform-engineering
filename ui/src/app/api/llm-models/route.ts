@@ -120,10 +120,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("model_id, name, and provider are required", 400);
     }
 
-    // Slug validation
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(model_id)) {
+    // Slug validation. Leading "@" is allowed for Cloudflare Workers AI slugs
+    // (e.g. "@cf/meta/llama-3.1-8b-instruct").
+    if (!/^[a-zA-Z0-9@][a-zA-Z0-9._/:@-]*$/.test(model_id)) {
       throw new ApiError(
-        "model_id must start with alphanumeric and contain only alphanumeric, dots, slashes, hyphens, underscores, colons",
+        "model_id must start with alphanumeric or '@' and contain only alphanumeric, dots, slashes, hyphens, underscores, colons, '@'",
         400,
       );
     }

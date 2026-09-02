@@ -98,7 +98,7 @@ async function cleanupExpiredRuns(): Promise<void> {
 
     if (expiredRuns.length === 0) return;
 
-    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
 
     for (const run of expiredRuns) {
       const runId = run._id as string;
@@ -382,7 +382,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
     // Clean up GridFS files via backend
     try {
-      const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+      const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
       const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
       await fetch(
         `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,

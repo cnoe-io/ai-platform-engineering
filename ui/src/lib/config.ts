@@ -32,6 +32,8 @@
  * NEVER add secrets, credentials, or internal infrastructure details here.
  */
 export interface Config {
+  /** Disable all auth checks (development shortcut) */
+  authDisabled: boolean;
   /** RAG Server URL for knowledge base operations */
   ragUrl: string;
   /** Whether we're in development mode */
@@ -241,6 +243,7 @@ const DEFAULT_CONFIG: Config = {
   gradientTo: DEFAULT_GRADIENT_TO,
   logoStyle: 'default',
   spinnerColor: null,
+  authDisabled: false,
   showPoweredBy: true,
   supportEmail: DEFAULT_SUPPORT_EMAIL,
   allowDevAdminWhenSsoDisabled: false,
@@ -262,7 +265,7 @@ const DEFAULT_CONFIG: Config = {
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
-  dynamicAgentsUrl: 'http://localhost:8100',
+  dynamicAgentsUrl: 'http://localhost:8200',
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
   schedulerAdminOnly: false,
@@ -351,6 +354,7 @@ export function getServerConfig(): Config {
     || (isProduction ? 'http://rag-server:9446' : 'http://localhost:9446');
 
   const ssoEnabled = env('SSO_ENABLED') === 'true';
+  const authDisabled = env('AUTH_DISABLED') !== 'false';
   const ragEnabled = env('RAG_ENABLED') !== 'false';
   const mongodbEnabled = !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE)
     || env('MONGODB_ENABLED') === 'true';
@@ -394,7 +398,7 @@ export function getServerConfig(): Config {
   );
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
-    || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
+    || (isProduction ? 'http://dynamic-agents:8001' : 'http://localhost:8200');
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
@@ -420,6 +424,7 @@ export function getServerConfig(): Config {
     isDev,
     isProd: isProduction,
     ssoEnabled,
+    authDisabled,
     ragEnabled,
     mongodbEnabled,
     credentialsEnabled,

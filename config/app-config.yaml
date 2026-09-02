@@ -64,6 +64,18 @@ models:
   #   name: "GPT-4o Mini (Azure)"
   #   provider: "azure-openai"
   #   description: "Fast, cost-effective GPT-4o Mini via Azure OpenAI"
+  # Cloudflare Workers AI — uncomment when CLOUDFLARE_ACCOUNT_ID +
+  # CLOUDFLARE_API_TOKEN are set on dynamic-agents. `model_id` must be the
+  # real Workers AI model slug (see developers.cloudflare.com/workers-ai/models
+  # for the full catalog) — each agent can pick a different one.
+  # - model_id: "@cf/meta/llama-3.1-8b-instruct-fast"
+  #   name: "Llama 3.1 8B Instruct (Cloudflare)"
+  #   provider: "cloudflare-workers-ai"
+  #   description: "Fast Llama 3.1 8B via Cloudflare Workers AI"
+  # - model_id: "@cf/mistral/mistral-7b-instruct-v0.1"
+  #   name: "Mistral 7B Instruct (Cloudflare)"
+  #   provider: "cloudflare-workers-ai"
+  #   description: "Mistral 7B via Cloudflare Workers AI"
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"

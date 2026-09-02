@@ -43,7 +43,7 @@ interface MCPServerLite {
   enabled?: boolean;
 }
 
-const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
 
 /** Strip the OpenFGA `<type>:` prefix, returning the bare object id. */
 function stripType(object: string, type: string): string {

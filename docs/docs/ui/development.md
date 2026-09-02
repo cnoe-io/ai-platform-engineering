@@ -29,7 +29,7 @@ COMPOSE_PROFILES=dynamic-agents,caipe-mongodb docker compose -f docker-compose.d
 Set local UI env vars:
 
 ```bash
-DYNAMIC_AGENTS_URL=http://localhost:8100
+DYNAMIC_AGENTS_URL=http://localhost:8200
 MONGODB_URI=mongodb://admin:changeme@localhost:27017/caipe?authSource=admin
 MONGODB_DATABASE=caipe
 NEXTAUTH_URL=http://localhost:3000

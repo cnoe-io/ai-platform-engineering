@@ -26,7 +26,7 @@ npm run dev
 Set:
 
 ```bash
-DYNAMIC_AGENTS_URL=http://localhost:8100
+DYNAMIC_AGENTS_URL=http://localhost:8200
 MONGODB_URI=mongodb://admin:changeme@localhost:27017/caipe?authSource=admin
 ```
 

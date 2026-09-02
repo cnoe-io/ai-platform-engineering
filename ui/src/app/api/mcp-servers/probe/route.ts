@@ -23,7 +23,7 @@ import { NextRequest,NextResponse } from "next/server";
 const COLLECTION_NAME = "mcp_servers";
 
 // Dynamic agents backend URL
-const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
 
 interface DirectMcpToolInfo extends MCPToolInfo {
   inputSchema?: unknown;

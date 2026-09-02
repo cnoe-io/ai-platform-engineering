@@ -19,7 +19,7 @@ import { gradientThemes } from "@/lib/gradient-themes";
 import { NextRequest,NextResponse } from "next/server";
 
 const DYNAMIC_AGENTS_URL =
-  process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+  process.env.DYNAMIC_AGENTS_URL || "http://localhost:8200";
 
 type SuggestField = "description" | "system_prompt" | "theme" | "slack_followup_prompt";
 

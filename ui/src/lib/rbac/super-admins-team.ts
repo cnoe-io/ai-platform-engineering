@@ -392,3 +392,99 @@ export async function ensureSuperAdminsTeam(
     warnings,
   };
 }
+
+export interface DevAuthSuperAdminInput {
+  /** Fixed subject used by the "No Auth" dev session (`DEV_AUTH_SUBJECT`). */
+  userSubject: string;
+  /** Fixed email used by the "No Auth" dev session (`DEV_AUTH_EMAIL`). */
+  userEmail: string;
+  actor: string;
+  now?: Date;
+}
+
+export type DevAuthSuperAdminStatus = "added" | "already_present" | "skipped";
+
+export interface DevAuthSuperAdminResult {
+  status: DevAuthSuperAdminStatus;
+  warnings: string[];
+}
+
+/**
+ * Grant the "No Auth" dev-mode session (`AUTH_DISABLED=true`) membership in
+ * the Super Admins team.
+ *
+ * `ensureSuperAdminsTeam` only seeds membership from
+ * `RBAC_BOOTSTRAP_ADMIN_EMAILS`, resolved against real Keycloak users. The
+ * dev-auth session uses a fixed synthetic subject/email
+ * (`DEV_AUTH_SUBJECT`/`DEV_AUTH_EMAIL`) that was never a Keycloak user, so it
+ * never got a team tuple — leaving every owner-team-gated action (e.g.
+ * "Create Agent") rejected with "You must belong to the owner team" even
+ * though the UI lets the dev user pick the team. This mirrors the
+ * bootstrap-admin top-up path for that one fixed identity.
+ *
+ * No-op unless the Super Admins team already exists (created by
+ * `ensureSuperAdminsTeam`, which requires at least one real bootstrap admin)
+ * and the dev subject isn't already a member.
+ */
+export async function ensureDevAuthSuperAdminMembership(
+  input: DevAuthSuperAdminInput,
+): Promise<DevAuthSuperAdminResult> {
+  if (!isMongoDBConfigured) {
+    return { status: "skipped", warnings: ["MongoDB not configured; dev-auth membership bootstrap skipped"] };
+  }
+
+  const now = input.now ?? new Date();
+  const actor = input.actor.trim() || "system";
+  const warnings: string[] = [];
+  const teams = await getCollection<TeamDoc>("teams");
+  const existing = await teams.findOne({ slug: SUPER_ADMINS_TEAM_SLUG });
+  if (!existing) {
+    return { status: "skipped", warnings: ["Super Admins team does not exist yet; dev-auth membership bootstrap skipped"] };
+  }
+
+  const existingMembers = await loadActiveTeamMembers(SUPER_ADMINS_TEAM_SLUG);
+  const alreadyMember = existingMembers.some(
+    (m) => typeof m.user_subject === "string" && m.user_subject === input.userSubject,
+  );
+  if (alreadyMember) {
+    return { status: "already_present", warnings };
+  }
+
+  const teamId = existing._id ? String(existing._id) : SUPER_ADMINS_TEAM_SLUG;
+  const createdAt = now.toISOString();
+
+  try {
+    await writeTeamMembershipTuples(
+      input.userSubject,
+      SUPER_ADMINS_TEAM_SLUG,
+      mongoRoleToOpenFgaRelations("admin"),
+      "assign",
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`${input.userEmail}: failed to write OpenFGA tuple: ${message}`);
+  }
+
+  try {
+    await upsertTeamMembershipSource({
+      team_id: teamId,
+      team_slug: SUPER_ADMINS_TEAM_SLUG,
+      user_email: input.userEmail,
+      user_subject: input.userSubject,
+      relationship: "admin",
+      source_type: "manual",
+      managed: true,
+      status: "active",
+      created_by: actor,
+      created_at: createdAt,
+      first_seen_at: createdAt,
+      last_seen_at: createdAt,
+      last_applied_at: createdAt,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`${input.userEmail}: failed to record membership source: ${message}`);
+  }
+
+  return { status: "added", warnings };
+}

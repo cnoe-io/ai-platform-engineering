@@ -55,6 +55,8 @@ const mockValidateBearerJWT =
 jest.mock('@/lib/config', () => ({
   getConfig: jest.fn().mockReturnValue(true),
 }));
+const mockGetConfig =
+  jest.requireMock<{ getConfig: jest.Mock }>('@/lib/config').getConfig;
 
 // Mock the skill-templates-loader used by aggregateLocally via dynamic import.
 // Jest's manual mock factory handles dynamic imports within the same module.
@@ -188,12 +190,15 @@ describe('GET /api/skills — Skills Gateway', () => {
     });
 
     it('returns 401 when no auth provided', async () => {
+      mockGetConfig.mockImplementation((key: string) => key !== 'authDisabled');
       mockGetServerSession.mockResolvedValue(null);
 
       const req = makeRequest('/api/skills');
       const res = await GET(req);
 
       expect(res.status).toBe(401);
+
+      mockGetConfig.mockReturnValue(true);
     });
   });
 

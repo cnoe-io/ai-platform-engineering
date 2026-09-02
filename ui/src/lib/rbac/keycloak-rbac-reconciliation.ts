@@ -7,10 +7,11 @@ ensureSlackBotOboPermissions,
 ensureWebexBotOboPermissions,
 isValidTeamSlug,
 } from "@/lib/rbac/keycloak-admin";
+import { DEV_AUTH_EMAIL,DEV_AUTH_SUBJECT } from "@/lib/auth/dev-auth-provider";
 import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
 import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { MigrationApplyResult,MigrationDefinition,MigrationPlanResult } from "@/lib/rbac/migrations/types";
-import { ensureSuperAdminsTeam } from "@/lib/rbac/super-admins-team";
+import { ensureDevAuthSuperAdminMembership,ensureSuperAdminsTeam } from "@/lib/rbac/super-admins-team";
 import { ensureUnlinkedServiceAccount } from "@/lib/rbac/unlinked-service-account";
 import { reconcileSaConversationWriterGrants } from "@/lib/rbac/sa-conversation-reconcile";
 
@@ -378,6 +379,26 @@ export async function runKeycloakRbacStartupMigration(input: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       warnings.push(`super-admins team bootstrap failed: ${message}`);
+    }
+
+    // "No Auth" dev mode (AUTH_DISABLED=true) sessions use a fixed synthetic
+    // identity (DEV_AUTH_SUBJECT/DEV_AUTH_EMAIL) that was never a Keycloak
+    // user, so it never gets a bootstrap-admin tuple above. Without this, the
+    // dev session can select "Super Admins" as an owner team in the UI but
+    // every owner-team-gated write (e.g. agent creation) 403s with "You must
+    // belong to the owner team".
+    if (process.env.AUTH_DISABLED !== "false") {
+      try {
+        const devAuthMembership = await ensureDevAuthSuperAdminMembership({
+          actor,
+          userSubject: DEV_AUTH_SUBJECT,
+          userEmail: DEV_AUTH_EMAIL,
+        });
+        warnings.push(...devAuthMembership.warnings);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`dev-auth super-admins membership bootstrap failed: ${message}`);
+      }
     }
 
     // Idempotently ensure the platform-wide unlinked service account owned by

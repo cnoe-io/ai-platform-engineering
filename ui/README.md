@@ -27,7 +27,7 @@ Open http://localhost:3000.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DYNAMIC_AGENTS_URL` | `http://localhost:8100` in local dev, `http://dynamic-agents:8100` in production | Server-side Dynamic Agents runtime URL |
+| `DYNAMIC_AGENTS_URL` | `http://localhost:8200` in local dev, `http://dynamic-agents:8001` in production | Server-side Dynamic Agents runtime URL |
 | `MONGODB_URI` | unset | Enables MongoDB-backed conversations and admin state |
 | `PROMETHEUS_URL` | unset | Server-side Prometheus-compatible query URL for Admin metrics and health. In HA deployments, use a deduplicating query frontend such as Thanos rather than a load-balanced service over independent Prometheus replicas. |
 | `RAG_SERVER_URL` | unset | Server-side RAG API URL |

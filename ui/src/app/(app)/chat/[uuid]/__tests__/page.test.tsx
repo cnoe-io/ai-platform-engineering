@@ -46,7 +46,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("@/lib/config", () => ({
   getConfig: jest.fn((key: string) => {
-    if (key === "dynamicAgentsUrl") return "http://localhost:8100";
+    if (key === "dynamicAgentsUrl") return "http://localhost:8200";
     if (key === "logoUrl") return "/logo.svg";
     if (key === "appName") return "Test App";
     if (key === "logoStyle") return "default";

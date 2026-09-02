@@ -155,6 +155,9 @@ class EmbeddingsFactory:
         model=model,
         api_key=api_key,  # type: ignore[arg-type]
         base_url=api_base,
+        # Non-OpenAI backends (e.g. NVIDIA NIM) expect raw string input, not
+        # OpenAI's pre-tokenized integer arrays.
+        check_embedding_ctx_length=False,
       )
 
     else:

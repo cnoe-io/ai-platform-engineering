@@ -334,11 +334,18 @@ export async function getAuthenticatedUser(
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
+    if (getConfig('authDisabled')) {
+      // Auth disabled: return a dev anonymous user/session
+      return {
+        user: getDevAnonymousUser(),
+        session: await getDevAnonymousSession(),
+      };
+    }
     const { allowAnonymous = false } = options;
     if (allowAnonymous && isDevAnonymousAuthEnabled()) {
       return {
         user: getDevAnonymousUser(),
-        session: getDevAnonymousSession(),
+        session: await getDevAnonymousSession(),
       };
     }
     throw new ApiError(

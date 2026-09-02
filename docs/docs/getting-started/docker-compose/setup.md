@@ -53,7 +53,7 @@ docker compose up
 ```
 
 Open the UI at **http://localhost:3000**. The Dynamic Agents API is exposed at
-**http://localhost:8100** and is also proxied through the UI API routes.
+**http://localhost:8200** and is also proxied through the UI API routes.
 
 To update `.env` to the latest published CAIPE release before starting Compose:
 

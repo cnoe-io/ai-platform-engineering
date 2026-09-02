@@ -946,14 +946,14 @@ services:
   #   - Supports OIDC authentication (same config as CAIPE UI)
   #
   # Ports:
-  #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
+  #   - 8200: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
     build:
       context: ./ai_platform_engineering/dynamic_agents
       dockerfile: build/Dockerfile
     image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     container_name: dynamic-agents
-    ports: ["8100:8001"]
+    ports: ["8200:8001"]
     volumes:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
@@ -1848,9 +1848,9 @@ services:
       # IdP can return non-corporate emails.
       - SLACK_JIT_ALLOWED_EMAIL_DOMAINS=${SLACK_JIT_ALLOWED_EMAIL_DOMAINS:-}
     depends_on:
-      caipe-ui:
-        condition: service_started
-        required: false
+      # caipe-ui:
+      #   condition: service_started
+      #   required: false
       caipe-mongodb:
         condition: service_started
     profiles:
@@ -1914,9 +1914,9 @@ services:
       - WEBEX_LINKING_BASE_URL=${WEBEX_LINKING_BASE_URL:-http://localhost:3000}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-}
     depends_on:
-      caipe-ui:
-        condition: service_started
-        required: false
+      # caipe-ui:
+      #   condition: service_started
+      #   required: false
       caipe-mongodb:
         condition: service_started
     profiles:
@@ -2327,10 +2327,6 @@ services:
       timeout: 3s
       retries: 12
       start_period: 5s
-    depends_on:
-      caipe-ui:
-        condition: service_started
-        required: false
 
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:v1.1.0

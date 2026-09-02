@@ -51,7 +51,7 @@ sequenceDiagram
     participant SB as Slack Bot
     participant UI as CAIPE UI<br/>(NextAuth)
     participant KC as Keycloak<br/>(OIDC server + JWKS + IdP broker)
-    participant DA as Dynamic Agents :8100
+    participant DA as Dynamic Agents :8200
     participant AG as AgentGateway :4000
     participant FGA as OpenFGA PDP<br/>(via ext_authz bridge)
     participant MDB as MongoDB<br/>(team memberships + ReBAC tuples)

@@ -50,7 +50,7 @@ In `0.5.0`, the umbrella Helm chart can deploy the RBAC runtime components (`tag
 │  ┌────────────┐    ┌──────────────┐    ┌──────────────┐                      │
 │  │  Keycloak  │    │   CAIPE UI   │    │   Dynamic    │                      │
 │  │  (OIDC IdP)│    │  (Next.js)   │    │   Agents     │                      │
-│  │  port 7080 │    │  port 3000   │    │  port 8100   │                      │
+│  │  port 7080 │    │  port 3000   │    │  port 8200   │                      │
 │  └────────────┘    └──────────────┘    └──────────────┘                      │
 │    Token issuer     NextAuth + RBAC     get_current_user                      │
 │    JWKS endpoint    middleware          FastAPI Depends                       │
