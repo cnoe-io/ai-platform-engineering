@@ -26,7 +26,7 @@ describe("WebexMeetingSeriesSettings", () => {
               },
               createdAt: "2026-08-01T09:00:00Z",
               lastStatus: "waiting_transcript",
-              lastError: "Waiting for meeting transcript.",
+              lastError: "Webex has not exposed an official meeting occurrence yet.",
             },
           ],
           occurrences: [
@@ -58,6 +58,9 @@ describe("WebexMeetingSeriesSettings", () => {
     });
     expect(screen.queryByText("2 transcripts found")).not.toBeInTheDocument();
     expect(screen.getByText("Waiting for meeting transcript.")).toHaveClass("text-amber-600");
+    expect(
+      screen.queryByText("Webex has not exposed an official meeting occurrence yet."),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(expand);
 

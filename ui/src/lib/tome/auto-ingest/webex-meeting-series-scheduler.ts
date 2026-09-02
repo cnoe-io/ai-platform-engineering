@@ -33,14 +33,15 @@ const OWNER_CHECK_CLAIM_MS = 10 * 60_000;
 const DISCOVERY_FAILURE_RETRY_MS = 15 * 60_000;
 const LOOKBACK_MS = 48 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
-const configuredTranscriptMaxRetryPeriodMs = Number(
-  process.env.TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS,
-);
-const TRANSCRIPT_MAX_RETRY_PERIOD_MS =
-  Number.isFinite(configuredTranscriptMaxRetryPeriodMs) &&
-  configuredTranscriptMaxRetryPeriodMs > 0
-    ? configuredTranscriptMaxRetryPeriodMs
+export function webexTranscriptMaxRetryPeriodMs(
+  configured = process.env.TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS,
+): number {
+  const milliseconds = Number(configured);
+  return Number.isFinite(milliseconds) && milliseconds > 0
+    ? milliseconds
     : 2 * 60 * 60 * 1000;
+}
+const TRANSCRIPT_MAX_RETRY_PERIOD_MS = webexTranscriptMaxRetryPeriodMs();
 const configuredTranscriptSettleMs = Number(process.env.TOME_WEBEX_TRANSCRIPT_SETTLE_MS);
 const TRANSCRIPT_SETTLE_MS =
   Number.isFinite(configuredTranscriptSettleMs) && configuredTranscriptSettleMs >= 0

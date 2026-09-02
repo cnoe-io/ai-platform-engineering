@@ -52,6 +52,16 @@ interface ApiEnvelope<T> {
 }
 
 const WEBEX_CONNECTION_REQUIRED = "WEBEX_MEETINGS_CONNECTION_REQUIRED";
+const LEGACY_TRANSCRIPT_WAIT_MESSAGES = new Set([
+  "Webex has not exposed an official meeting occurrence yet.",
+  "The meeting ended, but its transcript is not available yet.",
+]);
+
+function meetingStatusMessage(message: string): string {
+  return LEGACY_TRANSCRIPT_WAIT_MESSAGES.has(message)
+    ? "Waiting for meeting transcript."
+    : message;
+}
 
 function occurrenceStatus(occurrence: WebexMeetingOccurrenceSummary): {
   label: string;
@@ -337,7 +347,7 @@ export function WebexMeetingSeriesSettings({
                             : "text-amber-600 dark:text-amber-400",
                         )}
                       >
-                        {subscription.lastError}
+                        {meetingStatusMessage(subscription.lastError)}
                       </p>
                     )}
                   </div>
@@ -389,7 +399,7 @@ export function WebexMeetingSeriesSettings({
                                       : "text-amber-600 dark:text-amber-400",
                                   )}
                                 >
-                                  {occurrence.lastError}
+                                  {meetingStatusMessage(occurrence.lastError)}
                                 </p>
                               )}
                             </div>

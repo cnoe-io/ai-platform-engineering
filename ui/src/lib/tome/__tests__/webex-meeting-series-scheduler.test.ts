@@ -110,7 +110,10 @@ jest.mock("../webex-meeting-series", () => ({
   resolveOccurrenceMeetingId: (...args: unknown[]) => resolveOccurrenceMeetingId(...args),
 }));
 
-import { tickWebexMeetingSeriesScheduler } from "../auto-ingest/webex-meeting-series-scheduler";
+import {
+  tickWebexMeetingSeriesScheduler,
+  webexTranscriptMaxRetryPeriodMs,
+} from "../auto-ingest/webex-meeting-series-scheduler";
 import type { ProjectDocument } from "@/types/projects";
 
 describe("Webex meeting-series scheduler", () => {
@@ -182,6 +185,12 @@ describe("Webex meeting-series scheduler", () => {
     isIngestRunning.mockResolvedValue(false);
     runFindOne.mockResolvedValue(null);
     enqueueRun.mockResolvedValue("run-1");
+  });
+
+  it("uses a two-hour max retry period by default and accepts an override", () => {
+    expect(webexTranscriptMaxRetryPeriodMs(undefined)).toBe(2 * 60 * 60 * 1000);
+    expect(webexTranscriptMaxRetryPeriodMs("3600000")).toBe(60 * 60 * 1000);
+    expect(webexTranscriptMaxRetryPeriodMs("invalid")).toBe(2 * 60 * 60 * 1000);
   });
 
   it("queues one transcript-backed ingest with stable series identity", async () => {
