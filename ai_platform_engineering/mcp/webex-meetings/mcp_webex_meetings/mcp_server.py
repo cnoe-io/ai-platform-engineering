@@ -451,15 +451,19 @@ def _userhub_time_to_iso(value: Any) -> tuple[str | None, str | None, str | None
                 continue
 
     if parsed is None:
-        return raw_text, timezone_name, raw_text
+        logger.error("User Hub returned an invalid datetime: %s", raw_text)
+        return None, timezone_name, raw_text
     if parsed.tzinfo is not None:
-        return parsed.isoformat(), timezone_name, raw_text
+        return parsed.astimezone(timezone.utc).isoformat(), timezone_name, raw_text
     if timezone_name:
         try:
-            return parsed.replace(tzinfo=ZoneInfo(timezone_name)).isoformat(), timezone_name, raw_text
-        except ZoneInfoNotFoundError:
-            return raw_text, timezone_name, raw_text
-    return raw_text, timezone_name, raw_text
+            zoned = parsed.replace(tzinfo=ZoneInfo(timezone_name))
+            return zoned.astimezone(timezone.utc).isoformat(), timezone_name, raw_text
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            logger.error("User Hub returned an unavailable timezone: %s", timezone_name)
+            return None, timezone_name, raw_text
+    logger.error("User Hub returned a timezone-less datetime: %s", raw_text)
+    return None, timezone_name, raw_text
 
 
 def _organizer_email(organizer: Any) -> str | None:

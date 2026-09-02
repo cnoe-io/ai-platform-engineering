@@ -15,6 +15,7 @@ const mockCanAssignProjectToTeam = jest.fn();
 const mockInvalidateTomeReadAccessCatalogCache = jest.fn();
 const mockDiscoverMeetingSeries = jest.fn();
 const mockInteractiveWebexMeetingInvoker = jest.fn();
+const mockRequestWebexMeetingOwnerCheck = jest.fn();
 const reservationInsertOne = jest.fn();
 const reservationDeleteOne = jest.fn();
 
@@ -70,6 +71,11 @@ jest.mock("@/lib/tome/audit", () => ({
     id: "creator-subject",
     email: "creator@example.test",
   })),
+}));
+
+jest.mock("@/lib/tome/auto-ingest/cursor", () => ({
+  requestWebexMeetingOwnerCheck: (...args: unknown[]) =>
+    mockRequestWebexMeetingOwnerCheck(...args),
 }));
 
 jest.mock("@/lib/tome/webex-meeting-series", () => {
@@ -131,6 +137,7 @@ describe("POST /api/projects access setup failures", () => {
     mockReconcileDataSteward.mockResolvedValue(undefined);
     mockRemoveTomeReadAccess.mockResolvedValue(undefined);
     mockCanAssignProjectToTeam.mockResolvedValue(true);
+    mockRequestWebexMeetingOwnerCheck.mockResolvedValue(undefined);
   });
 
   function createRequest(
@@ -232,6 +239,11 @@ describe("POST /api/projects access setup failures", () => {
         },
       ],
     });
+    expect(mockRequestWebexMeetingOwnerCheck).toHaveBeenCalledWith(
+      "creator-subject",
+      "https://example.webex.test",
+      expect.any(Date),
+    );
   });
 
   it("rolls back and returns a sanitized recovery response for OpenFGA failures", async () => {

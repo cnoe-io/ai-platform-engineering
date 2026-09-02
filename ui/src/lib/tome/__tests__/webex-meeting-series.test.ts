@@ -227,6 +227,54 @@ describe("Webex recurring meeting discovery", () => {
     });
   });
 
+  it("rejects timezone-less User Hub times instead of treating local wall time as UTC", () => {
+    const result = normalizeMeetingSeries({
+      meetingSeries: {
+        items: [
+          {
+            id: "series-1",
+            meetingType: "meetingSeries",
+            title: "Example weekly",
+            hostEmail: "host@example.test",
+          },
+        ],
+      },
+      scheduledMeetings: {
+        items: [
+          {
+            id: "scheduled-1",
+            meetingSeriesId: "series-1",
+            meetingType: "scheduledMeeting",
+            title: "Example weekly",
+            start: "2026-09-03T12:30:00Z",
+            end: "2026-09-03T13:00:00Z",
+          },
+        ],
+      },
+      meetingInstances: { items: [] },
+      userHubCalendar: {
+        items: [
+          {
+            id: "calendar-occurrence",
+            subject: "Example weekly",
+            organizerEmail: "host@example.test",
+            start: "2026-09-03 05:30:00",
+            end: "2026-09-03 06:00:00",
+          },
+        ],
+      },
+      now,
+    });
+
+    expect(result[0].occurrences).toHaveLength(1);
+    expect(result[0].nextOccurrence).toMatchObject({
+      occurrenceKey: "scheduled-1",
+      start: "2026-09-03T12:30:00Z",
+      end: "2026-09-03T13:00:00Z",
+      source: "meetings_api",
+    });
+  });
+
   it("unwraps structured and text MCP tool responses", () => {
     expect(
       readMcpToolJson({

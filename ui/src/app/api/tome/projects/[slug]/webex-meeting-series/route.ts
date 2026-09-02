@@ -20,6 +20,7 @@ import { isSynthesizedType } from "@/types/projects";
 import type {
   AutoIngestConfig,
   ProjectDocument,
+  WebexMeetingSeriesSubscription,
 } from "@/types/projects";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,17 @@ function sessionName(session: unknown, fallback: string): string {
     if (typeof user?.name === "string" && user.name.trim()) return user.name.trim();
   }
   return fallback;
+}
+
+function requestSubscriptionCalendarRefresh(
+  subscription: WebexMeetingSeriesSubscription,
+  requestedAt: Date,
+): Promise<void> {
+  return requestWebexMeetingOwnerCheck(
+    subscription.credentialOwner.subject,
+    subscription.siteUrl?.trim().replace(/\/+$/, "") ?? "",
+    requestedAt,
+  );
 }
 
 export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) => {
@@ -137,7 +149,10 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
 
   const existing = tctx.project.autoIngest?.webexMeetingSeries ?? [];
   const duplicate = existing.find((item) => meetingSeriesMatches(candidate, item));
-  if (duplicate) return successResponse({ subscription: duplicate, created: false });
+  if (duplicate) {
+    await requestSubscriptionCalendarRefresh(duplicate, new Date());
+    return successResponse({ subscription: duplicate, created: false });
+  }
 
   const subject = sessionSub(tctx.session);
   const email = tctx.user.email?.trim().toLowerCase() ?? "";
@@ -169,6 +184,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
     { _id: mongoProjectId(tctx.projectId) },
     { $set: { autoIngest, updated_at: now } },
   );
+  await requestSubscriptionCalendarRefresh(subscription, now);
   auditTome({
     action: "tome.webex_meeting_series.create",
     actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
@@ -202,10 +218,15 @@ export const PATCH = withErrorHandler(async (request: NextRequest, context: Ctx)
     itemIndex === index ? { ...item, enabled: body.enabled as boolean } : item,
   );
   const projects = await getCollection<ProjectDocument>("projects");
+  const now = new Date();
   await projects.updateOne(
     { _id: mongoProjectId(tctx.projectId) },
-    { $set: { "autoIngest.webexMeetingSeries": updated, updated_at: new Date() } },
+    { $set: { "autoIngest.webexMeetingSeries": updated, updated_at: now } },
   );
+  const updatedSubscription = updated[index];
+  if (body.enabled && updatedSubscription) {
+    await requestSubscriptionCalendarRefresh(updatedSubscription, now);
+  }
   auditTome({
     action: "tome.webex_meeting_series.update",
     actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),

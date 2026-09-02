@@ -51,6 +51,11 @@ best-effort fallback when public `/v1/meetings` rows look stale or expired: it c
 surface Office365/Google-backed future occurrences that the public Webex schedule
 API does not expose as `scheduledMeeting` rows.
 
+User Hub timestamps include an IANA timezone such as
+`America/Los_Angeles`. The MCP image includes the timezone database and
+normalizes those local wall-clock values to UTC. If timezone metadata cannot be
+resolved, the timestamp is omitted rather than returned as an ambiguous value.
+
 ## Run locally
 
 ```bash

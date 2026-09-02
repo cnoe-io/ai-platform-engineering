@@ -61,3 +61,43 @@ def test_normalize_userhub_calendar_accepts_live_shape_aliases() -> None:
         "isAllDay": None,
         "originalStartTime": None,
     }
+
+
+def test_normalize_userhub_calendar_converts_live_iana_timezone_to_utc() -> None:
+    result = _normalize_userhub_calendar_item(
+        {
+            "meetingId": "meeting-1",
+            "seriesId": "series-1",
+            "subject": "Example weekly",
+            "startTime": {
+                "dateTime": "2026-09-03 05:30:00",
+                "timeZone": "America/Los_Angeles",
+            },
+            "endTime": {
+                "dateTime": "2026-09-03 06:00:00",
+                "timeZone": "America/Los_Angeles",
+            },
+            "occurrenceType": "Repeat",
+        }
+    )
+
+    assert result["start"] == "2026-09-03T12:30:00+00:00"
+    assert result["end"] == "2026-09-03T13:00:00+00:00"
+    assert result["timezone"] == "America/Los_Angeles"
+
+
+def test_normalize_userhub_calendar_rejects_timezone_less_local_time() -> None:
+    result = _normalize_userhub_calendar_item(
+        {
+            "meetingId": "meeting-1",
+            "seriesId": "series-1",
+            "subject": "Example weekly",
+            "startTime": "2026-09-03 05:30:00",
+            "endTime": "2026-09-03 06:00:00",
+        }
+    )
+
+    assert result["start"] is None
+    assert result["end"] is None
+    assert result["startRaw"] == "2026-09-03 05:30:00"
+    assert result["endRaw"] == "2026-09-03 06:00:00"

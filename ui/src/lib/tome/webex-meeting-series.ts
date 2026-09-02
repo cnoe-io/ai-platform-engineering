@@ -415,12 +415,21 @@ function occurrenceFromMeeting(
   };
 }
 
+function isTimezoneAwareDate(value: string): boolean {
+  return (
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
 function occurrenceFromUserHub(
   item: Record<string, unknown>,
 ): WebexMeetingOccurrenceCandidate | null {
   const start = stringValue(item.start);
   const end = stringValue(item.end);
-  if (!start || !end) return null;
+  // User Hub calendar values are frequently local wall-clock timestamps.
+  // Never let Node interpret an ambiguous value in the pod's UTC timezone.
+  if (!start || !end || !isTimezoneAwareDate(start) || !isTimezoneAwareDate(end)) return null;
   const id = stringValue(item.id);
   const webLink = stringValue(item.webLink) || undefined;
   return {

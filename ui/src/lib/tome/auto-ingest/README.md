@@ -51,7 +51,7 @@ series owned by the same user normally share one discovery sweep.
 
 | Event | Behavior |
 |---|---|
-| Series added | A new owner/site group is normally claimed on the next scheduler tick. |
+| Series added or re-enabled | Request an immediate owner/site calendar refresh; the shared group is normally reconciled on the next scheduler tick. |
 | Calendar refresh | Once daily by default, shared by all series for one user/site. |
 | Upcoming occurrence | The next check is moved earlier to occurrence end plus 10 minutes. |
 | First transcript attempt | Occurrence end plus 10 minutes, on the next scheduler tick. |
@@ -79,6 +79,10 @@ Tome invokes the configured `webex_meetings` MCP server directly. It combines:
 The discovery window covers the previous 48 hours and next 90 days. User Hub
 calendar discovery is required because some active recurring meetings do not
 appear reliably through `webex_list_meetings` alone.
+
+User Hub local wall-clock timestamps are converted to UTC using the IANA
+timezone supplied by Webex. Ambiguous timezone-less calendar rows are ignored
+rather than interpreted in the UI worker's timezone.
 
 Series identity prefers durable Meetings and User Hub series IDs. Meeting
 numbers and personal-room links are weak references: multiple unrelated series
@@ -167,10 +171,6 @@ kubectl -n <namespace> logs -f deploy/<release>-caipe-ui -c caipe-ui \
   "all transcripts complete" signal. The configurable unchanged-set window is
   therefore a stabilization heuristic; a segment published after that window
   cannot be added to an already queued run automatically.
-- Adding a subscription does not independently force an existing owner/site
-  cursor due. A new cursor is claimed on a scheduler tick, while a previously
-  scheduled cursor can wait for its next check unless discovery requested a
-  refresh.
 
 ## Relevant Code
 

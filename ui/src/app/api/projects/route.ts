@@ -32,6 +32,7 @@ import { isValidCron } from "@/lib/rbac/cron";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { sessionSub } from "@/lib/tome/agent-proxy";
+import { requestWebexMeetingOwnerCheck } from "@/lib/tome/auto-ingest/cursor";
 import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import {
   createWebexMeetingSeriesSubscription,
@@ -502,6 +503,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       dataSteward,
     );
     await reconcileTomeReadAccess(doc);
+    const webexOwnerSites = new Map<string, { ownerSubject: string; siteUrl: string }>();
+    for (const subscription of autoIngest?.webexMeetingSeries ?? []) {
+      const ownerSubject = subscription.credentialOwner.subject;
+      const siteUrl = subscription.siteUrl?.trim().replace(/\/+$/, "") ?? "";
+      webexOwnerSites.set(`${ownerSubject}\0${siteUrl.toLowerCase()}`, {
+        ownerSubject,
+        siteUrl,
+      });
+    }
+    await Promise.all(
+      [...webexOwnerSites.values()].map(({ ownerSubject, siteUrl }) =>
+        requestWebexMeetingOwnerCheck(ownerSubject, siteUrl, now),
+      ),
+    );
     invalidateTomeReadAccessCatalogCache();
   } catch (error) {
     if (inserted) {
