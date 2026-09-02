@@ -33,7 +33,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/openfga-authz-bridge
+  IMAGE_NAME: ${{ github.repository_owner }}/openfga-authz-bridge
 
 permissions:
   contents: write

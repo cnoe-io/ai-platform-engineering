@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-// Copyright CNOE Contributors (https://cnoe.io)
+// Copyright CAIPE Contributors (https://caipe.io)
 // SPDX-License-Identifier: Apache-2.0
 
 /**

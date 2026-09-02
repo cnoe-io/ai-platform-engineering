@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMultiPicker, TeamPicker } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
@@ -2385,7 +2386,7 @@ export default function IngestView() {
                                   <label className="block text-sm font-medium text-muted-foreground mb-1">
                                     Auto-Reload Interval
                                   </label>
-                                  <select
+                                  <Select
                                     value={
                                       isCustomReloadInterval
                                         ? "custom"
@@ -2411,7 +2412,7 @@ export default function IngestView() {
                                     <option value="259200">Every 3 days</option>
                                     <option value="604800">Every 7 days</option>
                                     <option value="custom">Custom...</option>
-                                  </select>
+                                  </Select>
                                   {isCustomReloadInterval && (
                                     <div className="mt-2">
                                       <Input

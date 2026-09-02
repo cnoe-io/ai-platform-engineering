@@ -4,7 +4,7 @@ description: "Build and push Skill Scanner Docker image for prebuild branches"
 # Mirrors prebuild-caipe-ui.yml. The skill-scanner image is referenced by the
 # `skill-scanner` Helm subchart (charts/ai-platform-engineering/charts/skill-scanner)
 # but, until this workflow landed, it had no per-PR build pipeline at all —
-# `ghcr.io/<owner>/prebuild/skill-scanner:<branch>-<count>` simply didn't exist
+# `ghcr.io/<owner>/skill-scanner:<branch>-<count>` simply didn't exist
 # for prebuild branches, so reviewers had to build locally to test scanner
 # changes against the chart. This workflow closes that gap.
 
@@ -46,7 +46,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/skill-scanner
+  IMAGE_NAME: ${{ github.repository_owner }}/skill-scanner
 
 permissions:
   contents: write

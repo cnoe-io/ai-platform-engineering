@@ -7,7 +7,7 @@ fullnameOverride: ""
 
 # Container image configuration
 image:
-  repository: "ghcr.io/cnoe-io/caipe-dynamic-agents"
+  repository: "ghcr.io/caipe-io/caipe-dynamic-agents"
   pullPolicy: "Always"
   # tag defaults to .Chart.AppVersion when not specified
   tag: ""

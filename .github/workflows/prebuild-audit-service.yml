@@ -34,7 +34,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-audit-service
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-audit-service
 
 permissions:
   contents: write

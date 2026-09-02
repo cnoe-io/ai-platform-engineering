@@ -34,6 +34,7 @@ Users,
 import { useRouter } from "next/navigation";
 import React from "react";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { AgentAvatar } from "./AgentAvatar";
 import { AgentEditorSkeleton,AgentsListSkeleton } from "./AgentsLoadingSkeleton";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
@@ -720,7 +721,7 @@ export function DynamicAgentsTab({
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
-                  <select
+                  <Select
                     value={pageSize}
                     onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
                     className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -728,7 +729,7 @@ export function DynamicAgentsTab({
                     {[10, 20, 50, 100].map((size) => (
                       <option key={size} value={size}>{size}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
             )}

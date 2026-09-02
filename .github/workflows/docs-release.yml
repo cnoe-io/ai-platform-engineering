@@ -129,7 +129,7 @@ jobs:
             echo ""
             echo '```bash'
             echo "helm upgrade ai-platform-engineering \\"
-            echo "  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\"
+            echo "  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \\"
             echo "  --version ${NEW_VERSION} \\"
             echo "  -f your-values.yaml"
             echo '```'

@@ -35,7 +35,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-webex-bot
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-webex-bot
 
 permissions:
   contents: write

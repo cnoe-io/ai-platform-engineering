@@ -4,7 +4,7 @@
 
 # Global image configuration
 image:
-  repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
+  repository: "ghcr.io/caipe-io/caipe-rag-ingestors"
   # tag defaults to .Chart.AppVersion when not specified
   tag: ""
   pullPolicy: IfNotPresent

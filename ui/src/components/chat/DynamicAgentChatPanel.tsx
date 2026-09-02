@@ -13,6 +13,7 @@ import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
+import { takePendingFirstMessage } from "@/lib/pending-first-message";
 import { createSubagentResumeSeedEvents } from "@/lib/resume-subagent-context";
 import { createStreamAdapter,StreamError,type StreamCallbacks } from "@/lib/streaming";
 import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } from "@/lib/streaming/types";
@@ -1132,6 +1133,20 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
 
+  // The Home page hero composer creates a conversation and navigates here
+  // before a message can be sent (this panel only mounts once a conversation
+  // id is in the URL) — pick up its stashed first message and send it once
+  // through the normal pipeline rather than duplicating it there.
+  const pendingFirstMessageSentRef = useRef(false);
+  useEffect(() => {
+    if (pendingFirstMessageSentRef.current || readOnly) return;
+    const pending = takePendingFirstMessage(conversationId);
+    if (pending) {
+      pendingFirstMessageSentRef.current = true;
+      void submitMessage(pending.text, pending.files);
+    }
+  }, [conversationId, readOnly, submitMessage]);
+
   // Handle queued messages after streaming completes
   useEffect(() => {
     if (!isThisConversationStreaming && queuedMessages.length > 0) {
@@ -1721,7 +1736,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               <div className="text-center py-20">
                 {isLoadingMessages ? (
                   <>
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl gradient-primary-br flex items-center justify-center">
                       <Loader2 className="h-8 w-8 text-white animate-spin" />
                     </div>
                     <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
@@ -1737,6 +1752,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                       size="w-16 h-16 mx-auto mb-6"
                       iconSize="h-8 w-8"
                       icon={Sparkles}
+                      useGlobalTheme
                     />
                     <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
                     <p className="text-muted-foreground mb-3">
@@ -1748,6 +1764,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                         rounded="rounded-lg"
                         size="w-8 h-8"
                         iconSize="h-4 w-4"
+                        useGlobalTheme
                       />
                       <span className="text-lg font-semibold">
                         {agentName || "your agent"}

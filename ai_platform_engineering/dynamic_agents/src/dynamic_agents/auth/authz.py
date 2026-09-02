@@ -55,8 +55,8 @@ def _subject_from_token(token: str) -> tuple[str, str] | None:
     claims.
 
     A token is a service account iff its `preferred_username` starts with
-    `service-account-`. This MUST match the BFF (`jwt-validation.ts`), the bridge,
-    and `openfga_authz.py` so the subject is namespaced consistently — CAS's
+    `service-account-`. This MUST match the BFF (`jwt-validation.ts`) and the
+    bridge so the subject is namespaced consistently — CAS's
     subject-binding compares this against its own caller resolution, so sending
     `user` for a service-account token fails the bind and 403s."""
     parts = token.split(".")

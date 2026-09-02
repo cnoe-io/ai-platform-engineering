@@ -34,7 +34,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-dynamic-agents
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-dynamic-agents
 
 permissions:
   contents: read
