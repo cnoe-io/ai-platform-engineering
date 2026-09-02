@@ -301,7 +301,10 @@ jobs:
       contents: read
       packages: read
     container:
-      image: mcr.microsoft.com/playwright:v1.61.0-noble
+      image: ghcr.io/caipe-io/playwright:v1.62.1-noble
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: 🔒 Harden runner
