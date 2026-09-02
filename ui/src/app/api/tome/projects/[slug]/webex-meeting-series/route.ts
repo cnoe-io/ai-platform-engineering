@@ -8,6 +8,7 @@ import { sessionSub } from "@/lib/tome/agent-proxy";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { requestWebexMeetingOwnerCheck } from "@/lib/tome/auto-ingest/cursor";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { loadWebexMeetingOccurrenceHistory } from "@/lib/tome/webex-meeting-history";
 import {
   discoverMeetingSeries,
   interactiveWebexMeetingInvoker,
@@ -61,9 +62,13 @@ export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) =
   const tctx = await loadTomeProject(request, slug);
   requireRegularProject(tctx.project);
   const subscriptions = tctx.project.autoIngest?.webexMeetingSeries ?? [];
+  const occurrences = await loadWebexMeetingOccurrenceHistory(
+    tctx.projectId,
+    subscriptions.map((subscription) => subscription.id),
+  );
 
   if (request.nextUrl.searchParams.get("discover") !== "1") {
-    return successResponse({ subscriptions, canEdit: tctx.canEdit });
+    return successResponse({ subscriptions, occurrences, canEdit: tctx.canEdit });
   }
 
   requireTomeEditor(tctx);
@@ -99,7 +104,12 @@ export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) =
     );
   }
 
-  return successResponse({ subscriptions: refreshedSubscriptions, candidates, canEdit: true });
+  return successResponse({
+    subscriptions: refreshedSubscriptions,
+    occurrences,
+    candidates,
+    canEdit: true,
+  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) => {

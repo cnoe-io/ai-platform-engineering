@@ -3,6 +3,10 @@ import { ObjectId } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
 import type { ProjectDocument, WebexMeetingSeriesSubscription } from "@/types/projects";
+import {
+  TOME_COLLECTIONS,
+  type WebexMeetingOccurrenceDocument,
+} from "@/types/tome";
 
 import { getTomeIngestRunsCollection } from "../mongo-collections";
 import { enqueueRun, isIngestRunning } from "../ingest-runner";
@@ -19,7 +23,7 @@ import {
   scheduleWebexMeetingOwnerCheck,
 } from "./cursor";
 
-const COLLECTION = "tome_webex_meeting_occurrences";
+const COLLECTION = TOME_COLLECTIONS.WEBEX_MEETING_OCCURRENCES;
 const REFRESH_INTERVAL_MS = Math.max(
   5 * 60_000,
   Number(process.env.TOME_WEBEX_SERIES_REFRESH_MS) || 24 * 60 * 60_000,
@@ -41,45 +45,8 @@ const MAX_TRANSCRIPT_CHARS = Math.max(
 );
 const PROCESS_LIMIT = 10;
 
-type OccurrenceStatus =
-  | "pending"
-  | "processing"
-  | "waiting_transcript"
-  | "ready"
-  | "queued"
-  | "ingested"
-  | "skipped"
-  | "failed";
-
 type BackgroundInvoke = Awaited<ReturnType<typeof backgroundWebexMeetingInvoker>>;
 type SeriesDiscovery = Awaited<ReturnType<typeof discoverMeetingSeries>>;
-
-interface MeetingOccurrenceDocument {
-  _id: string;
-  project_id: string;
-  project_slug: string;
-  subscription_id: string;
-  series_key: string;
-  series_title: string;
-  occurrence_key: string;
-  meeting_id?: string;
-  title: string;
-  start: Date;
-  end: Date;
-  web_link?: string;
-  source: "meetings_api" | "userhub_calendar";
-  status: OccurrenceStatus;
-  attempts: number;
-  next_attempt_at: Date;
-  run_id?: string;
-  transcript_id?: string;
-  transcript_ids?: string[];
-  transcript_fingerprint?: string;
-  transcript_observed_at?: Date;
-  last_error?: string;
-  created_at: Date;
-  updated_at: Date;
-}
 
 function mongoProjectId(projectId: string): string {
   return (ObjectId.isValid(projectId) ? new ObjectId(projectId) : projectId) as unknown as string;
@@ -168,7 +135,7 @@ async function reconcileSubscriptionCalendar(
     lastError: "",
   });
 
-  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
   const subscribedAt = new Date(subscription.createdAt);
   for (const occurrence of series.occurrences) {
     const end = new Date(occurrence.end);
@@ -224,7 +191,7 @@ async function reconcileRuns(
   project: ProjectDocument & { _id: string },
   subscriptions: WebexMeetingSeriesSubscription[],
 ): Promise<void> {
-  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
   const queued = await occurrences.find({ project_id: project._id, status: "queued" }).toArray();
   if (!queued.length) return;
   const runs = await getTomeIngestRunsCollection();
@@ -257,12 +224,12 @@ async function reconcileRuns(
 }
 
 async function markRetry(
-  occurrence: MeetingOccurrenceDocument,
+  occurrence: WebexMeetingOccurrenceDocument,
   now: Date,
   error: string,
   terminalStatus: "failed" | "skipped" = "failed",
 ): Promise<void> {
-  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
   const expired = now.getTime() - occurrence.end.getTime() >= TRANSCRIPT_DEADLINE_MS;
   await occurrences.updateOne(
     { _id: occurrence._id, status: "processing" },
@@ -285,11 +252,11 @@ async function markRetry(
 async function processOccurrence(
   project: ProjectDocument & { _id: string },
   subscription: WebexMeetingSeriesSubscription,
-  occurrence: MeetingOccurrenceDocument,
+  occurrence: WebexMeetingOccurrenceDocument,
   now: Date,
   loadInvoke: () => Promise<BackgroundInvoke>,
 ): Promise<boolean> {
-  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
   const claimed = await occurrences.findOneAndUpdate(
     {
       _id: occurrence._id,
@@ -525,7 +492,7 @@ export async function tickWebexMeetingSeriesScheduler(
   now: Date,
   projects: Array<ProjectDocument & { _id: string }>,
 ): Promise<void> {
-  const occurrences = await getCollection<MeetingOccurrenceDocument>(COLLECTION);
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
   await occurrences.updateMany(
     {
       status: "processing",

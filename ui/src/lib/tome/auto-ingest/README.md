@@ -131,6 +131,9 @@ The project settings page shows:
 - next meeting **start** time
 - last ingested occurrence
 - latest scheduler or transcript error
+- an expandable history for every subscribed series, including each tracked
+  past occurrence, transcript count, ingest state, and links to review changes
+  or open the run logs
 
 The ingest page shows the run only after a transcript has been found and the
 run has been queued. There is currently no dedicated attempt-history screen.

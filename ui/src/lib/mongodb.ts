@@ -345,6 +345,7 @@ async function createIndexes(db: Db) {
     // Calendar-driven Webex occurrence jobs. `_id` is a deterministic
     // project/subscription/occurrence hash, so rediscovery is idempotent.
     safeCreateIndex(db, 'tome_webex_meeting_occurrences', { project_id: 1, subscription_id: 1, status: 1, next_attempt_at: 1 }),
+    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { project_id: 1, subscription_id: 1, start: -1 }),
     safeCreateIndex(db, 'tome_webex_meeting_occurrences', { run_id: 1 }),
 
     // TOME chat run replay buffers. Completed buffers are disposable; the
