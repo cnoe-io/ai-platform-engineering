@@ -25,6 +25,8 @@ describe("WebexMeetingSeriesSettings", () => {
                 confirmedAt: "2026-08-01T09:00:00Z",
               },
               createdAt: "2026-08-01T09:00:00Z",
+              lastStatus: "waiting_transcript",
+              lastError: "Waiting for meeting transcript.",
             },
           ],
           occurrences: [
@@ -54,11 +56,12 @@ describe("WebexMeetingSeriesSettings", () => {
     const expand = await screen.findByRole("button", {
       name: "Expand occurrence history for Weekly sync",
     });
-    expect(screen.queryByText("2 transcripts")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 transcripts found")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for meeting transcript.")).toHaveClass("text-amber-600");
 
     fireEvent.click(expand);
 
-    expect(screen.getByText("2 transcripts")).toBeInTheDocument();
+    expect(screen.getByText("2 transcripts found")).toBeInTheDocument();
     expect(screen.getByText("Awaiting review")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review/ })).toHaveAttribute(
       "href",

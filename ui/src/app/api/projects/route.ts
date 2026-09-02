@@ -28,9 +28,18 @@ import {
 } from "@/lib/projects/project-admin";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { isValidCron } from "@/lib/rbac/cron";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
+import { sessionSub } from "@/lib/tome/agent-proxy";
 import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
+import {
+  createWebexMeetingSeriesSubscription,
+  discoverMeetingSeries,
+  interactiveWebexMeetingInvoker,
+  meetingSeriesHostEligibility,
+  webexMeetingSeriesDiscoveryWindow,
+} from "@/lib/tome/webex-meeting-series";
 import {
   invalidateTomeReadAccessCatalogCache,
   listReadableTomeProjects,
@@ -42,7 +51,14 @@ import {
   resolveDataSteward,
   tomeSessionSubject,
 } from "@/lib/tome/data-steward";
-import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
+import type {
+  AutoIngestConfig,
+  AutoIngestCredentialOwner,
+  CreateProjectRequest,
+  ProjectDocument,
+  ProjectType,
+  WebexMeetingSeriesSubscription,
+} from "@/types/projects";
 import type { Team } from "@/types/teams";
 import type { ActiveIngestRun } from "@/types/tome";
 
@@ -54,6 +70,14 @@ interface ProjectSlugReservation {
 
 function isMongoDuplicateKey(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === 11000;
+}
+
+function sessionDisplayName(session: unknown, fallback: string): string {
+  if (session && typeof session === "object" && "user" in session) {
+    const user = (session as { user?: { name?: unknown } }).user;
+    if (typeof user?.name === "string" && user.name.trim()) return user.name.trim();
+  }
+  return fallback;
 }
 
 async function resolveTeam(teamId: string): Promise<Team & { _id: string }> {
@@ -253,6 +277,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Team is required", 400, "VALIDATION_ERROR");
   }
 
+  const requestedAutoIngest = projectType === "project" ? body.auto_ingest : undefined;
+  const requestedMeetingSeriesKeys = [
+    ...new Set(
+      (requestedAutoIngest?.webex_meeting_series_keys ?? [])
+        .filter((key): key is string => typeof key === "string")
+        .map((key) => key.trim())
+        .filter(Boolean),
+    ),
+  ];
+  const autoIngestCron = requestedAutoIngest?.cron?.trim() || "0 9 * * *";
+  if (requestedAutoIngest && !isValidCron(autoIngestCron)) {
+    throw new ApiError("Invalid auto-ingest schedule", 400, "INVALID_AUTO_INGEST_CRON");
+  }
+
   const team = await resolveTeam(body.team_id);
   const canAssignTeam = await canAssignProjectToTeam(
     team,
@@ -286,6 +324,69 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         ? `${newKind} "${slug}" already exists`
         : `A ${existingKind} named "${slug}" already exists — BHAGs, Areas, and projects share the same namespace`;
     throw new ApiError(msg, 409, "PROJECT_EXISTS");
+  }
+
+  let autoIngest: AutoIngestConfig | undefined;
+  if (requestedAutoIngest) {
+    const subject = sessionSub(session);
+    const email = user.email?.trim().toLowerCase() ?? "";
+    if ((requestedAutoIngest.enabled || requestedMeetingSeriesKeys.length > 0) && (!subject || !email)) {
+      throw new ApiError(
+        "Sign in again before configuring auto-ingest.",
+        401,
+        "NOT_SIGNED_IN",
+      );
+    }
+    const now = new Date();
+    const credentialOwner: AutoIngestCredentialOwner | null =
+      subject && email
+        ? {
+            subject,
+            email,
+            name: sessionDisplayName(session, email),
+            confirmedAt: now.toISOString(),
+          }
+        : null;
+    let webexMeetingSeries: WebexMeetingSeriesSubscription[] = [];
+    if (requestedMeetingSeriesKeys.length > 0 && credentialOwner) {
+      const invoke = await interactiveWebexMeetingInvoker(request, { user, session });
+      const candidates = await discoverMeetingSeries(
+        invoke,
+        webexMeetingSeriesDiscoveryWindow(now),
+      );
+      const candidatesByKey = new Map(candidates.map((candidate) => [candidate.seriesKey, candidate]));
+      for (const seriesKey of requestedMeetingSeriesKeys) {
+        const candidate = candidatesByKey.get(seriesKey);
+        if (!candidate) {
+          throw new ApiError(
+            "A selected recurring meeting is no longer available from Webex. Refresh the meeting list and try again.",
+            400,
+            "MEETING_SERIES_NOT_FOUND",
+          );
+        }
+        const eligibility = meetingSeriesHostEligibility(candidate, email);
+        if (!eligibility.canAutoIngest) {
+          throw new ApiError(
+            eligibility.unavailableReason || "Only meetings hosted by you can be auto-ingested.",
+            403,
+            "WEBEX_MEETING_HOST_REQUIRED",
+          );
+        }
+        const subscription = createWebexMeetingSeriesSubscription({
+          candidate,
+          credentialOwner,
+          existing: webexMeetingSeries,
+          now,
+        });
+        webexMeetingSeries = [...webexMeetingSeries, subscription];
+      }
+    }
+    autoIngest = {
+      enabled: requestedAutoIngest.enabled === true,
+      cron: autoIngestCron,
+      credentialOwner: requestedAutoIngest.enabled === true ? credentialOwner : null,
+      ...(webexMeetingSeries.length > 0 ? { webexMeetingSeries } : {}),
+    };
   }
 
   const description =
@@ -377,6 +478,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     integrations: sourceIntegrations,
     sources,
     source: "manual",
+    ...(autoIngest ? { autoIngest } : {}),
     created_at: now,
     updated_at: now,
   };

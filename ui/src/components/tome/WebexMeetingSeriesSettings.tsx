@@ -329,7 +329,16 @@ export function WebexMeetingSeriesSettings({
                       {(occurrencesBySubscription.get(subscription.id)?.length ?? 0) === 1 ? "" : "s"}
                     </p>
                     {subscription.lastError && (
-                      <p className="mt-1 text-xs text-destructive">{subscription.lastError}</p>
+                      <p
+                        className={cn(
+                          "mt-1 text-xs",
+                          subscription.lastStatus === "failed" || subscription.lastStatus === "skipped"
+                            ? "text-destructive"
+                            : "text-amber-600 dark:text-amber-400",
+                        )}
+                      >
+                        {subscription.lastError}
+                      </p>
                     )}
                   </div>
                 </button>
@@ -372,7 +381,14 @@ export function WebexMeetingSeriesSettings({
                                 {new Date(occurrence.start).toLocaleString()}
                               </p>
                               {occurrence.lastError && (
-                                <p className="mt-1 text-[11px] text-destructive">
+                                <p
+                                  className={cn(
+                                    "mt-1 text-[11px]",
+                                    occurrence.status === "failed" || occurrence.status === "skipped"
+                                      ? "text-destructive"
+                                      : "text-amber-600 dark:text-amber-400",
+                                  )}
+                                >
                                   {occurrence.lastError}
                                 </p>
                               )}
@@ -387,7 +403,7 @@ export function WebexMeetingSeriesSettings({
                                 )}
                               >
                                 {occurrence.transcriptFound
-                                  ? `${occurrence.transcriptCount} transcript${occurrence.transcriptCount === 1 ? "" : "s"}`
+                                  ? `${occurrence.transcriptCount} transcript${occurrence.transcriptCount === 1 ? "" : "s"} found`
                                   : terminalWithoutTranscript
                                     ? "No transcript found"
                                     : "Transcript pending"}

@@ -226,6 +226,24 @@ describe("Webex meeting-series scheduler", () => {
     );
   });
 
+  it("shows a pending transcript state and stops after the default two-hour retry period", async () => {
+    resolveOccurrenceMeetingId.mockResolvedValue(null);
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(occurrences[0]).toMatchObject({
+      status: "waiting_transcript",
+      last_error: "Waiting for meeting transcript.",
+    });
+
+    await tickWebexMeetingSeriesScheduler(new Date("2026-09-01T13:31:00Z"), [project]);
+
+    expect(occurrences[0]).toMatchObject({
+      status: "skipped",
+      last_error: "No meeting transcript became available before the retry period ended.",
+    });
+  });
+
   it("resets settling when another transcript segment appears", async () => {
     downloadMeetingTranscript
       .mockResolvedValueOnce({

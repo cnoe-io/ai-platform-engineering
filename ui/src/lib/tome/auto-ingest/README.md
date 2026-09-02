@@ -14,6 +14,12 @@ independent of the project's CRON-based auto-ingest schedule.
 6. Open `/projects/<slug>/tome/ingest` after a transcript is found to see the
    resulting ingest run.
 
+During **Project Onboarding**, enable auto-ingest and select one or more series
+in the **Auto-ingest** step. The picker refreshes Webex when it opens and stores
+the chosen subscriptions with the new project. Meeting occurrences still
+follow their Webex calendar rather than the daily/weekly project-source
+schedule.
+
 Only the meeting host can add a series. Webex exposes the recordings and
 transcripts required by this workflow only through the host's normal user
 connection. Non-host rows remain visible but their **Add** button is disabled.
@@ -49,10 +55,10 @@ series owned by the same user normally share one discovery sweep.
 | Calendar refresh | Once daily by default, shared by all series for one user/site. |
 | Upcoming occurrence | The next check is moved earlier to occurrence end plus 10 minutes. |
 | First transcript attempt | Occurrence end plus 10 minutes, on the next scheduler tick. |
-| Transcript unavailable | Retry after 15 minutes, 30 minutes, 1 hour, then every 2 hours. |
+| Transcript unavailable | Retry with backoff (15 minutes, 30 minutes, then 1 hour) within the configured maximum retry period. |
 | Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
 | Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |
-| Transcript deadline | Stop retrying 24 hours after the occurrence ended. |
+| Transcript deadline | Stop retrying 2 hours after the occurrence ended by default. |
 | Another project ingest is running | Keep the occurrence ready and retry after 5 minutes. |
 | Discovery failure | Retry the owner/site calendar after 15 minutes. |
 
@@ -98,6 +104,7 @@ differently named MCP server or provider requires a code change.
 | `TOME_AUTO_INGEST_TICK_MS` | `60000` | Local scheduler loop interval. |
 | `TOME_WEBEX_SERIES_REFRESH_MS` | `86400000` | Owner/site calendar refresh interval; minimum five minutes. |
 | `TOME_WEBEX_TRANSCRIPT_SETTLE_MS` | `900000` | Required unchanged time before all transcript segments are merged and queued. Set `0` to disable settling. |
+| `TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS` | `7200000` | Maximum time after a meeting ends to retry resolving its official occurrence and transcript. |
 | `TOME_WEBEX_TRANSCRIPT_MAX_CHARS` | `400000` | Maximum transcript characters passed to one ingest; minimum 50,000. |
 | `TOME_WEBEX_MEETINGS_MCP_URL` | unset | Optional direct endpoint override for the configured MCP server. |
 
@@ -149,10 +156,8 @@ kubectl -n <namespace> logs -f deploy/<release>-caipe-ui -c caipe-ui \
 
 ## Current Limitations
 
-- Meeting-series selection is not part of project **Review & Create**.
 - The settings page displays the next meeting start, not the calculated first
   transcript-attempt time.
-- Attempt history is available only in MongoDB and logs.
 - Existing meetings are not backfilled when a series is added.
 - Discovery looks ahead 90 days.
 - Host eligibility depends on the Webex host email matching the signed-in
@@ -175,8 +180,12 @@ kubectl -n <namespace> logs -f deploy/<release>-caipe-ui -c caipe-ui \
 - `cursor.ts`: replica-safe scheduler claims
 - `../../../app/api/tome/projects/[slug]/webex-meeting-series/route.ts`: list,
   discover, add, enable/disable, and remove API
+- `../../../app/api/tome/webex-meeting-series/route.ts`: authenticated pre-create
+  discovery for Project Onboarding
 - `../../../components/tome/WebexMeetingSeriesSettings.tsx`: settings and
   selection UI
+- `../../../components/projects/OnboardingWebexMeetingSeriesPicker.tsx`:
+  onboarding search and multi-select UI
 
 ## Tests
 

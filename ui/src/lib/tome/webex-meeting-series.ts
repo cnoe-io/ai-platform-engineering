@@ -3,6 +3,7 @@
  * `webex_meetings` MCP server. No Webex REST calls live in Tome's BFF.
  */
 
+import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ApiError } from "@/lib/api-error";
@@ -15,9 +16,11 @@ import { getCollection } from "@/lib/mongodb";
 import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers";
 import type { ResourceAuthzSession } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
-import type { WebexMeetingSeriesSourceRefs } from "@/types/projects";
-
-import type { TomeProjectContext } from "./tome-api";
+import type {
+  AutoIngestCredentialOwner,
+  WebexMeetingSeriesSourceRefs,
+  WebexMeetingSeriesSubscription,
+} from "@/types/projects";
 
 const SERVER_ID = "webex_meetings";
 const PROVIDER = "webex_meetings";
@@ -69,6 +72,55 @@ export interface WebexMeetingSeriesCandidate {
 export interface WebexMeetingSeriesHostEligibility {
   canAutoIngest: boolean;
   unavailableReason?: string;
+}
+
+export function webexMeetingSeriesDiscoveryWindow(now = new Date()): {
+  from: Date;
+  to: Date;
+  now: Date;
+} {
+  return {
+    from: new Date(now.getTime() - 48 * 60 * 60 * 1000),
+    to: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+    now,
+  };
+}
+
+export function createWebexMeetingSeriesSubscription({
+  candidate,
+  credentialOwner,
+  existing = [],
+  now = new Date(),
+  id = randomUUID(),
+}: {
+  candidate: WebexMeetingSeriesCandidate;
+  credentialOwner: AutoIngestCredentialOwner;
+  existing?: WebexMeetingSeriesSubscription[];
+  now?: Date;
+  id?: string;
+}): WebexMeetingSeriesSubscription {
+  const baseSlug = meetingSeriesSlug(candidate.title, candidate.seriesKey);
+  const stableSuffix = meetingSeriesSlug("", candidate.seriesKey).replace(/^meeting-/, "");
+  let seriesSlug = baseSlug;
+  let collision = 1;
+  while (existing.some((item) => item.seriesSlug === seriesSlug)) {
+    seriesSlug = `${baseSlug}-${stableSuffix}${collision > 1 ? `-${collision}` : ""}`;
+    collision += 1;
+  }
+  return {
+    id,
+    enabled: true,
+    seriesKey: candidate.seriesKey,
+    seriesSlug,
+    title: candidate.title,
+    siteUrl: candidate.siteUrl,
+    sourceRefs: candidate.sourceRefs,
+    credentialOwner,
+    createdAt: now.toISOString(),
+    nextOccurrenceStartAt: candidate.nextOccurrence?.start,
+    nextOccurrenceEndAt: candidate.nextOccurrence?.end,
+    lastStatus: "pending",
+  };
 }
 
 const HOST_REQUIRED_REASON =
@@ -203,7 +255,7 @@ async function configuredServer(): Promise<MCPServerConfig & { endpoint: string 
 
 export async function interactiveWebexMeetingInvoker(
   request: NextRequest,
-  ctx: TomeProjectContext,
+  ctx: { session: unknown; user: { email?: string } },
 ): Promise<Invoke> {
   const server = await configuredServer();
   const session = ctx.session as ResourceAuthzSession & {

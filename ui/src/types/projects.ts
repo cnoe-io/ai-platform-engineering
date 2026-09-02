@@ -357,6 +357,12 @@ export interface CreateProjectRequest {
   data_steward?: DataStewardInput;
   decision_blast_radius?: "small" | "large";
   optionality?: string[];
+  /** Optional onboarding configuration; recurring meetings follow their own calendar. */
+  auto_ingest?: {
+    enabled?: boolean;
+    cron?: string;
+    webex_meeting_series_keys?: string[];
+  };
 }
 
 export interface OnboardProjectRequest {

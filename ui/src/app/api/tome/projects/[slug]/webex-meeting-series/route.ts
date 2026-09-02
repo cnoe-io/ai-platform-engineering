@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 
@@ -11,16 +10,16 @@ import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import { loadWebexMeetingOccurrenceHistory } from "@/lib/tome/webex-meeting-history";
 import {
   discoverMeetingSeries,
+  createWebexMeetingSeriesSubscription,
   interactiveWebexMeetingInvoker,
   meetingSeriesHostEligibility,
-  meetingSeriesSlug,
   meetingSeriesMatches,
+  webexMeetingSeriesDiscoveryWindow,
 } from "@/lib/tome/webex-meeting-series";
 import { isSynthesizedType } from "@/types/projects";
 import type {
   AutoIngestConfig,
   ProjectDocument,
-  WebexMeetingSeriesSubscription,
 } from "@/types/projects";
 
 export const dynamic = "force-dynamic";
@@ -29,14 +28,6 @@ type Ctx = { params: Promise<{ slug: string }> };
 
 function mongoProjectId(projectId: string): string {
   return (ObjectId.isValid(projectId) ? new ObjectId(projectId) : projectId) as unknown as string;
-}
-
-function discoveryWindow(now = new Date()): { from: Date; to: Date; now: Date } {
-  return {
-    from: new Date(now.getTime() - 48 * 60 * 60 * 1000),
-    to: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
-    now,
-  };
 }
 
 function requireRegularProject(project: ProjectDocument): void {
@@ -74,7 +65,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) =
   requireTomeEditor(tctx);
   const invoke = await interactiveWebexMeetingInvoker(request, tctx);
   const now = new Date();
-  const candidates = (await discoverMeetingSeries(invoke, discoveryWindow(now))).map((candidate) => ({
+  const candidates = (await discoverMeetingSeries(invoke, webexMeetingSeriesDiscoveryWindow(now))).map((candidate) => ({
     ...candidate,
     ...meetingSeriesHostEligibility(candidate, tctx.user.email),
   }));
@@ -125,7 +116,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
   }
 
   const invoke = await interactiveWebexMeetingInvoker(request, tctx);
-  const candidate = (await discoverMeetingSeries(invoke, discoveryWindow())).find(
+  const candidate = (await discoverMeetingSeries(invoke, webexMeetingSeriesDiscoveryWindow())).find(
     (item) => item.seriesKey === seriesKey,
   );
   if (!candidate) {
@@ -154,29 +145,17 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
     throw new ApiError("Sign in again before adding a meeting series.", 401, "NOT_SIGNED_IN");
   }
   const now = new Date();
-  const baseSeriesSlug = meetingSeriesSlug(candidate.title, candidate.seriesKey);
-  const seriesSlug = existing.some((item) => item.seriesSlug === baseSeriesSlug)
-    ? `${baseSeriesSlug}-${meetingSeriesSlug("", candidate.seriesKey).replace(/^meeting-/, "")}`
-    : baseSeriesSlug;
-  const subscription: WebexMeetingSeriesSubscription = {
-    id: randomUUID(),
-    enabled: true,
-    seriesKey: candidate.seriesKey,
-    seriesSlug,
-    title: candidate.title,
-    siteUrl: candidate.siteUrl,
-    sourceRefs: candidate.sourceRefs,
+  const subscription = createWebexMeetingSeriesSubscription({
+    candidate,
+    existing,
+    now,
     credentialOwner: {
       subject,
       email,
       name: sessionName(tctx.session, email),
       confirmedAt: now.toISOString(),
     },
-    createdAt: now.toISOString(),
-    nextOccurrenceStartAt: candidate.nextOccurrence?.start,
-    nextOccurrenceEndAt: candidate.nextOccurrence?.end,
-    lastStatus: "pending",
-  };
+  });
 
   const autoIngest: AutoIngestConfig = tctx.project.autoIngest ?? {
     enabled: false,

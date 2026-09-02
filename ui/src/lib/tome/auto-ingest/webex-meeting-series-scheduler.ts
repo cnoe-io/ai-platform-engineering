@@ -33,7 +33,14 @@ const OWNER_CHECK_CLAIM_MS = 10 * 60_000;
 const DISCOVERY_FAILURE_RETRY_MS = 15 * 60_000;
 const LOOKBACK_MS = 48 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
-const TRANSCRIPT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const configuredTranscriptMaxRetryPeriodMs = Number(
+  process.env.TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS,
+);
+const TRANSCRIPT_MAX_RETRY_PERIOD_MS =
+  Number.isFinite(configuredTranscriptMaxRetryPeriodMs) &&
+  configuredTranscriptMaxRetryPeriodMs > 0
+    ? configuredTranscriptMaxRetryPeriodMs
+    : 2 * 60 * 60 * 1000;
 const configuredTranscriptSettleMs = Number(process.env.TOME_WEBEX_TRANSCRIPT_SETTLE_MS);
 const TRANSCRIPT_SETTLE_MS =
   Number.isFinite(configuredTranscriptSettleMs) && configuredTranscriptSettleMs >= 0
@@ -228,16 +235,19 @@ async function markRetry(
   now: Date,
   error: string,
   terminalStatus: "failed" | "skipped" = "failed",
+  terminalError = "No meeting transcript became available before the retry period ended.",
 ): Promise<void> {
   const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
-  const expired = now.getTime() - occurrence.end.getTime() >= TRANSCRIPT_DEADLINE_MS;
+  const expired =
+    now.getTime() - occurrence.end.getTime() >= TRANSCRIPT_MAX_RETRY_PERIOD_MS;
+  const displayedError = expired ? terminalError : error;
   await occurrences.updateOne(
     { _id: occurrence._id, status: "processing" },
     {
       $set: {
         status: expired ? terminalStatus : "waiting_transcript",
         next_attempt_at: retryAt(now, occurrence.attempts + 1),
-        last_error: error,
+        last_error: displayedError,
         updated_at: now,
       },
       $inc: { attempts: 1 },
@@ -245,7 +255,7 @@ async function markRetry(
   );
   await updateSubscription(occurrence.project_id, occurrence.subscription_id, {
     lastStatus: expired ? terminalStatus : "waiting_transcript",
-    lastError: error,
+    lastError: displayedError,
   });
 }
 
@@ -312,14 +322,14 @@ async function processOccurrence(
       await markRetry(
         claimed,
         now,
-        "Webex has not exposed an official meeting occurrence yet.",
+        "Waiting for meeting transcript.",
         "skipped",
       );
       return false;
     }
     const downloaded = await downloadMeetingTranscript(invoke, meetingId);
     if (!downloaded?.transcript) {
-      await markRetry(claimed, now, "The meeting ended, but its transcript is not available yet.");
+      await markRetry(claimed, now, "Waiting for meeting transcript.");
       return false;
     }
     if (downloaded.downloadedCount < downloaded.listedCount) {
@@ -327,6 +337,8 @@ async function processOccurrence(
         claimed,
         now,
         `Webex listed ${downloaded.listedCount} transcript segment(s), but only ${downloaded.downloadedCount} can be downloaded yet.`,
+        "failed",
+        "Some meeting transcript segments were still unavailable when the retry period ended.",
       );
       return false;
     }
@@ -341,7 +353,8 @@ async function processOccurrence(
         ? previousObservedAt
         : now;
     const stableForMs = now.getTime() - observedAt.getTime();
-    const transcriptDeadline = claimed.end.getTime() + TRANSCRIPT_DEADLINE_MS;
+    const transcriptDeadline =
+      claimed.end.getTime() + TRANSCRIPT_MAX_RETRY_PERIOD_MS;
     if (
       TRANSCRIPT_SETTLE_MS > 0 &&
       stableForMs < TRANSCRIPT_SETTLE_MS &&
