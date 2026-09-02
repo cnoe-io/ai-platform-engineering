@@ -600,17 +600,60 @@ export async function resolveOccurrenceMeetingId(
 export async function downloadMeetingTranscript(
   invoke: Invoke,
   meetingId: string,
-): Promise<{ transcript: string; transcriptId?: string } | null> {
+): Promise<{
+  transcript: string;
+  transcriptId?: string;
+  transcriptIds: string[];
+  listedTranscriptIds: string[];
+  listedCount: number;
+  downloadedCount: number;
+} | null> {
   const payload = await invoke("webex_list_transcripts", {
     meeting_id: meetingId,
-    max_results: 20,
+    max_results: 100,
     download: true,
     download_format: "txt",
   });
-  const item = arrayItems(payload).find((candidate) => stringValue(candidate.body));
-  if (!item) return null;
+  const items = arrayItems(payload);
+  if (!items.length) return null;
+
+  const segments = items
+    .map((item, originalIndex) => ({
+      body: stringValue(item.body),
+      id: stringValue(item.id),
+      originalIndex,
+      startTime: stringValue(item.startTime),
+    }))
+    .filter((item) => item.body)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.startTime);
+      const rightTime = Date.parse(right.startTime);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
+        return Number.isFinite(leftTime) ? -1 : 1;
+      }
+      return left.id.localeCompare(right.id) || left.originalIndex - right.originalIndex;
+    });
+  const transcript =
+    segments.length === 1
+      ? segments[0].body
+      : segments
+          .map((segment, index) => {
+            const timing = segment.startTime ? ` · ${segment.startTime}` : "";
+            return `--- Webex transcript segment ${index + 1} of ${segments.length}${timing} ---\n${segment.body}`;
+          })
+          .join("\n\n");
+  const transcriptIds = segments.map((item) => item.id).filter(Boolean);
+  const listedTranscriptIds = items.map((item) => stringValue(item.id)).filter(Boolean).sort();
+
   return {
-    transcript: stringValue(item.body),
-    transcriptId: stringValue(item.id) || undefined,
+    transcript,
+    transcriptId: transcriptIds[0],
+    transcriptIds,
+    listedTranscriptIds,
+    listedCount: items.length,
+    downloadedCount: segments.length,
   };
 }

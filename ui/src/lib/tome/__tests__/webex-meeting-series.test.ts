@@ -1,4 +1,5 @@
 import {
+  downloadMeetingTranscript,
   meetingSeriesMatches,
   meetingSeriesHostEligibility,
   meetingSeriesSlug,
@@ -272,6 +273,49 @@ describe("Webex recurring meeting discovery", () => {
         source: "meetings_api",
       }),
     ).resolves.toBe("actual-1");
+  });
+
+  it("downloads and merges every transcript segment in start-time order", async () => {
+    const invoke = jest.fn().mockResolvedValue({
+      items: [
+        {
+          id: "transcript-late",
+          startTime: "2026-09-02T10:05:00Z",
+          body: "Second segment",
+        },
+        {
+          id: "transcript-early",
+          startTime: "2026-09-02T10:00:00Z",
+          body: "First segment",
+        },
+        {
+          id: "transcript-processing",
+          startTime: "2026-09-02T10:30:00Z",
+          body: null,
+        },
+      ],
+    });
+
+    await expect(downloadMeetingTranscript(invoke, "meeting-1")).resolves.toEqual({
+      transcript:
+        "--- Webex transcript segment 1 of 2 · 2026-09-02T10:00:00Z ---\nFirst segment\n\n" +
+        "--- Webex transcript segment 2 of 2 · 2026-09-02T10:05:00Z ---\nSecond segment",
+      transcriptId: "transcript-early",
+      transcriptIds: ["transcript-early", "transcript-late"],
+      listedTranscriptIds: [
+        "transcript-early",
+        "transcript-late",
+        "transcript-processing",
+      ],
+      listedCount: 3,
+      downloadedCount: 2,
+    });
+    expect(invoke).toHaveBeenCalledWith("webex_list_transcripts", {
+      meeting_id: "meeting-1",
+      max_results: 100,
+      download: true,
+      download_format: "txt",
+    });
   });
 
   it("allows only the meeting host to configure transcript auto-ingest", () => {

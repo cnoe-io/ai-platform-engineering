@@ -30,6 +30,11 @@ const DISCOVERY_FAILURE_RETRY_MS = 15 * 60_000;
 const LOOKBACK_MS = 48 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
 const TRANSCRIPT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const configuredTranscriptSettleMs = Number(process.env.TOME_WEBEX_TRANSCRIPT_SETTLE_MS);
+const TRANSCRIPT_SETTLE_MS =
+  Number.isFinite(configuredTranscriptSettleMs) && configuredTranscriptSettleMs >= 0
+    ? configuredTranscriptSettleMs
+    : 15 * 60_000;
 const MAX_TRANSCRIPT_CHARS = Math.max(
   50_000,
   Number(process.env.TOME_WEBEX_TRANSCRIPT_MAX_CHARS) || 400_000,
@@ -68,6 +73,9 @@ interface MeetingOccurrenceDocument {
   next_attempt_at: Date;
   run_id?: string;
   transcript_id?: string;
+  transcript_ids?: string[];
+  transcript_fingerprint?: string;
+  transcript_observed_at?: Date;
   last_error?: string;
   created_at: Date;
   updated_at: Date;
@@ -86,6 +94,20 @@ function occurrenceId(projectId: string, subscriptionId: string, occurrenceKey: 
 function retryAt(now: Date, attempts: number): Date {
   const delay = Math.min(2 * 60 * 60_000, 15 * 60_000 * 2 ** Math.max(0, attempts - 1));
   return new Date(now.getTime() + delay);
+}
+
+function transcriptFingerprint(downloaded: {
+  transcript: string;
+  listedTranscriptIds: string[];
+  listedCount: number;
+}): string {
+  return createHash("sha256")
+    .update(String(downloaded.listedCount))
+    .update("\0")
+    .update(downloaded.listedTranscriptIds.join("\0"))
+    .update("\0")
+    .update(downloaded.transcript)
+    .digest("hex");
 }
 
 async function updateSubscription(
@@ -333,6 +355,57 @@ async function processOccurrence(
       await markRetry(claimed, now, "The meeting ended, but its transcript is not available yet.");
       return false;
     }
+    if (downloaded.downloadedCount < downloaded.listedCount) {
+      await markRetry(
+        claimed,
+        now,
+        `Webex listed ${downloaded.listedCount} transcript segment(s), but only ${downloaded.downloadedCount} can be downloaded yet.`,
+      );
+      return false;
+    }
+
+    const fingerprint = transcriptFingerprint(downloaded);
+    const unchanged = claimed.transcript_fingerprint === fingerprint;
+    const previousObservedAt = claimed.transcript_observed_at
+      ? new Date(claimed.transcript_observed_at)
+      : null;
+    const observedAt =
+      unchanged && previousObservedAt && Number.isFinite(previousObservedAt.getTime())
+        ? previousObservedAt
+        : now;
+    const stableForMs = now.getTime() - observedAt.getTime();
+    const transcriptDeadline = claimed.end.getTime() + TRANSCRIPT_DEADLINE_MS;
+    if (
+      TRANSCRIPT_SETTLE_MS > 0 &&
+      stableForMs < TRANSCRIPT_SETTLE_MS &&
+      now.getTime() < transcriptDeadline
+    ) {
+      const nextAttemptAt = new Date(
+        Math.min(observedAt.getTime() + TRANSCRIPT_SETTLE_MS, transcriptDeadline),
+      );
+      const message = `Found ${downloaded.downloadedCount} transcript segment(s); waiting for the transcript set to settle.`;
+      await occurrences.updateOne(
+        { _id: claimed._id, status: "processing" },
+        {
+          $set: {
+            status: "waiting_transcript",
+            meeting_id: meetingId,
+            transcript_id: downloaded.transcriptId,
+            transcript_ids: downloaded.transcriptIds,
+            transcript_fingerprint: fingerprint,
+            transcript_observed_at: observedAt,
+            next_attempt_at: nextAttemptAt,
+            last_error: message,
+            updated_at: now,
+          },
+        },
+      );
+      await updateSubscription(project._id, subscription.id, {
+        lastStatus: "waiting_transcript",
+        lastError: message,
+      });
+      return false;
+    }
     if (await isIngestRunning(project._id)) {
       await occurrences.updateOne(
         { _id: claimed._id, status: "processing" },
@@ -341,6 +414,9 @@ async function processOccurrence(
             status: "ready",
             meeting_id: meetingId,
             transcript_id: downloaded.transcriptId,
+            transcript_ids: downloaded.transcriptIds,
+            transcript_fingerprint: fingerprint,
+            transcript_observed_at: observedAt,
             next_attempt_at: new Date(now.getTime() + 5 * 60_000),
             updated_at: now,
           },
@@ -381,6 +457,9 @@ async function processOccurrence(
           status: "queued",
           meeting_id: meetingId,
           transcript_id: downloaded.transcriptId,
+          transcript_ids: downloaded.transcriptIds,
+          transcript_fingerprint: fingerprint,
+          transcript_observed_at: observedAt,
           run_id: runId,
           last_error:
             downloaded.transcript.length > transcript.length

@@ -26,11 +26,14 @@ flowchart LR
   B --> C[Reconcile Webex calendar per user and site]
   C --> D[Wait until occurrence end plus 10 minutes]
   D --> E[Resolve official meeting occurrence]
-  E --> F{Transcript available?}
+  E --> F{All listed transcripts downloadable?}
   F -- No --> G[Retry with backoff]
   G --> F
-  F -- Yes --> H[Queue Tome ingest run]
-  H --> I[Ingest transcript into the series wiki path]
+  F -- Yes --> H{Transcript set unchanged for settle window?}
+  H -- No --> F
+  H -- Yes --> I[Merge every segment in start-time order]
+  I --> J[Queue Tome ingest run]
+  J --> K[Ingest transcript into the series wiki path]
 ```
 
 The scheduler loop runs once per minute by default, but this does **not** call
@@ -47,6 +50,8 @@ series owned by the same user normally share one discovery sweep.
 | Upcoming occurrence | The next check is moved earlier to occurrence end plus 10 minutes. |
 | First transcript attempt | Occurrence end plus 10 minutes, on the next scheduler tick. |
 | Transcript unavailable | Retry after 15 minutes, 30 minutes, 1 hour, then every 2 hours. |
+| Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
+| Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |
 | Transcript deadline | Stop retrying 24 hours after the occurrence ended. |
 | Another project ingest is running | Keep the occurrence ready and retry after 5 minutes. |
 | Discovery failure | Retry the owner/site calendar after 15 minutes. |
@@ -92,6 +97,7 @@ differently named MCP server or provider requires a code change.
 | `TOME_AUTO_INGEST_ENABLED` | `false` | Must be `true` to start the scheduler, including meeting-series work. |
 | `TOME_AUTO_INGEST_TICK_MS` | `60000` | Local scheduler loop interval. |
 | `TOME_WEBEX_SERIES_REFRESH_MS` | `86400000` | Owner/site calendar refresh interval; minimum five minutes. |
+| `TOME_WEBEX_TRANSCRIPT_SETTLE_MS` | `900000` | Required unchanged time before all transcript segments are merged and queued. Set `0` to disable settling. |
 | `TOME_WEBEX_TRANSCRIPT_MAX_CHARS` | `400000` | Maximum transcript characters passed to one ingest; minimum 50,000. |
 | `TOME_WEBEX_MEETINGS_MCP_URL` | unset | Optional direct endpoint override for the configured MCP server. |
 
@@ -107,7 +113,7 @@ MongoDB stores the feature state in three places:
 |---|---|
 | `projects.autoIngest.webexMeetingSeries` | Subscriptions, credential owner, next occurrence, and latest status/error. |
 | `tome_auto_ingest_cursors` | Replica-safe per-user/site calendar claims and next-check times. |
-| `tome_webex_meeting_occurrences` | Per-occurrence status, attempts, retry time, transcript ID, and ingest run ID. |
+| `tome_webex_meeting_occurrences` | Per-occurrence status, attempts, retry time, transcript IDs/fingerprint, first stable observation, and ingest run ID. |
 
 Occurrence IDs are deterministic hashes of the project, subscription, and
 Webex occurrence key. Before creating a run, the worker also searches for an
@@ -148,6 +154,10 @@ kubectl -n <namespace> logs -f deploy/<release>-caipe-ui -c caipe-ui \
 - Discovery looks ahead 90 days.
 - Host eligibility depends on the Webex host email matching the signed-in
   user's email.
+- Webex does not publish an expected transcript count or an explicit
+  "all transcripts complete" signal. The configurable unchanged-set window is
+  therefore a stabilization heuristic; a segment published after that window
+  cannot be added to an already queued run automatically.
 - Adding a subscription does not independently force an existing owner/site
   cursor due. A new cursor is claimed on a scheduler tick, while a previously
   scheduled cursor can wait for its next check unless discovery requested a

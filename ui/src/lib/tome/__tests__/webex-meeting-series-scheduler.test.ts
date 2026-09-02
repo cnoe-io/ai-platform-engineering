@@ -174,6 +174,10 @@ describe("Webex meeting-series scheduler", () => {
     downloadMeetingTranscript.mockResolvedValue({
       transcript: "A decision was made.",
       transcriptId: "transcript-1",
+      transcriptIds: ["transcript-1"],
+      listedTranscriptIds: ["transcript-1"],
+      listedCount: 1,
+      downloadedCount: 1,
     });
     isIngestRunning.mockResolvedValue(false);
     runFindOne.mockResolvedValue(null);
@@ -182,6 +186,15 @@ describe("Webex meeting-series scheduler", () => {
 
   it("queues one transcript-backed ingest with stable series identity", async () => {
     await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(enqueueRun).not.toHaveBeenCalled();
+    expect(occurrences[0]).toMatchObject({
+      status: "waiting_transcript",
+      transcript_ids: ["transcript-1"],
+      transcript_observed_at: now,
+    });
+
+    await tickWebexMeetingSeriesScheduler(new Date(now.getTime() + 15 * 60_000), [project]);
 
     expect(backgroundInvoker).toHaveBeenCalledWith("owner-sub");
     expect(enqueueRun).toHaveBeenCalledWith(
@@ -210,6 +223,49 @@ describe("Webex meeting-series scheduler", () => {
       "",
       now,
       new Date("2026-09-02T12:00:00Z"),
+    );
+  });
+
+  it("resets settling when another transcript segment appears", async () => {
+    downloadMeetingTranscript
+      .mockResolvedValueOnce({
+        transcript: "First segment",
+        transcriptId: "transcript-1",
+        transcriptIds: ["transcript-1"],
+        listedTranscriptIds: ["transcript-1"],
+        listedCount: 1,
+        downloadedCount: 1,
+      })
+      .mockResolvedValue({
+        transcript: "First segment\n\nSecond segment",
+        transcriptId: "transcript-1",
+        transcriptIds: ["transcript-1", "transcript-2"],
+        listedTranscriptIds: ["transcript-1", "transcript-2"],
+        listedCount: 2,
+        downloadedCount: 2,
+      });
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+    await tickWebexMeetingSeriesScheduler(new Date(now.getTime() + 15 * 60_000), [project]);
+
+    expect(enqueueRun).not.toHaveBeenCalled();
+    expect(occurrences[0]).toMatchObject({
+      status: "waiting_transcript",
+      transcript_ids: ["transcript-1", "transcript-2"],
+      transcript_observed_at: new Date(now.getTime() + 15 * 60_000),
+    });
+
+    await tickWebexMeetingSeriesScheduler(new Date(now.getTime() + 30 * 60_000), [project]);
+
+    expect(enqueueRun).toHaveBeenCalledWith(
+      project,
+      expect.objectContaining({
+        dispatch: expect.objectContaining({
+          webexMeetings: [
+            expect.objectContaining({ transcript: "First segment\n\nSecond segment" }),
+          ],
+        }),
+      }),
     );
   });
 
