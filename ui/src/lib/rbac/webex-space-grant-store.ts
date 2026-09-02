@@ -31,7 +31,7 @@ export function webexWorkspaceRef(workspaceId?: string | null): string {
   if (alias) return alias;
   const candidate = workspaceId?.trim();
   if (candidate) return candidate;
-  return process.env.WEBEX_WORKSPACE_ID?.trim() || "unknown";
+  return process.env.WEBEX_WORKSPACE_ID?.trim() || "CAIPE-WEBEX";
 }
 
 export function webexSpaceSubjectId(workspaceId: string, spaceId: string): string {
