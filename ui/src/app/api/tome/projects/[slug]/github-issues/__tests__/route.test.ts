@@ -12,6 +12,7 @@ const mockUpdateIssueStatus = jest.fn();
 const mockUpdateIssueLabel = jest.fn();
 const mockUpsertCachedIssue = jest.fn();
 const mockRequireTomeEditor = jest.fn();
+const mockListTrackedIssueLabels = jest.fn();
 
 jest.mock("@/lib/tome/tome-api", () => ({
   loadTomeProject: (...args: unknown[]) => mockLoadTomeProject(...args),
@@ -42,6 +43,9 @@ jest.mock("@/lib/github-issue-link", () => ({
 jest.mock("@/lib/tome/github-issue-cache", () => ({
   loadTomeIssueCache: (...args: unknown[]) => mockLoadIssueCache(...args),
   upsertCachedTomeIssue: (...args: unknown[]) => mockUpsertCachedIssue(...args),
+}));
+jest.mock("@/lib/tome/issue-tracker-store", () => ({
+  listTomeTrackedIssueLabels: (...args: unknown[]) => mockListTrackedIssueLabels(...args),
 }));
 
 import { GET, PATCH } from "../route";
@@ -89,7 +93,7 @@ describe("GET Tome GitHub issues", () => {
         stateReason: null,
         displayStatus: "open",
         priority: null,
-        labels: ["feature"],
+        labels: ["feature", "tome:critical"],
         assignees: [],
         author: null,
         milestone: null,
@@ -104,6 +108,11 @@ describe("GET Tome GitHub issues", () => {
       }],
       syncErrors: [],
     });
+    mockListTrackedIssueLabels.mockResolvedValue([
+      { id: "critical", label: "tome:critical", title: "Critical" },
+      { id: "in-progress", label: "tome:in-progress", title: "In Progress" },
+      { id: "completed", label: "tome:completed", title: "Completed" },
+    ]);
     mockUpsertCachedIssue.mockResolvedValue(undefined);
     mockUpdateIssueStatus.mockResolvedValue({
       issue: {
@@ -127,7 +136,7 @@ describe("GET Tome GitHub issues", () => {
       title: "Upstream issue",
       state: "open",
       displayStatus: "open",
-      labels: ["feature", "tome-tracker"],
+       labels: ["feature", "tome:critical"],
     });
   });
 
@@ -139,7 +148,7 @@ describe("GET Tome GitHub issues", () => {
         body: JSON.stringify({
           repo: "example/service",
           number: 42,
-          label: "tome-tracker",
+          label: "tome:critical",
           operation: "add",
         }),
       }),
@@ -151,16 +160,35 @@ describe("GET Tome GitHub issues", () => {
       "steward-token",
       "example/service",
       42,
-      "tome-tracker",
+      "tome:critical",
       "add",
     );
     expect(mockUpsertCachedIssue).toHaveBeenCalledWith(
-      expect.objectContaining({ labels: ["feature", "tome-tracker"] }),
+      expect.objectContaining({ labels: ["feature", "tome:critical"] }),
       { eventType: "tome.issue-label", deliveryId: null },
     );
     await expect(response.json()).resolves.toMatchObject({
-      data: { issue: { labels: ["feature", "tome-tracker"] } },
+      data: { issue: { labels: ["feature", "tome:critical"] } },
     });
+  });
+
+  it("rejects labels outside the fixed TOME tracking set", async () => {
+    const response = await PATCH(
+      request("", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: "example/service",
+          number: 42,
+          label: "bug",
+          operation: "add",
+        }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockUpdateIssueLabel).not.toHaveBeenCalled();
   });
 
   it("updates the authoritative GitHub issue and writes through to MongoDB", async () => {
@@ -299,7 +327,7 @@ describe("GET Tome GitHub issues", () => {
     });
   });
 
-  it("returns all upstream issues from the readable repository hierarchy", async () => {
+  it("returns only TOME-tracked issues from the readable repository hierarchy", async () => {
     const response = await GET(request(), context);
 
     expect(response.status).toBe(200);
@@ -328,7 +356,7 @@ describe("GET Tome GitHub issues", () => {
     });
   });
 
-  it("filters cached issues for agent and MCP consumers", async () => {
+  it("enforces the tracked label scope before applying request filters", async () => {
     mockLoadIssueCache.mockResolvedValue({
       issues: [
         {
@@ -341,7 +369,7 @@ describe("GET Tome GitHub issues", () => {
           stateReason: null,
           displayStatus: "open",
           priority: null,
-          labels: ["decision"],
+          labels: ["tome:critical"],
           assignees: [],
           author: null,
           milestone: null,
@@ -379,7 +407,7 @@ describe("GET Tome GitHub issues", () => {
           stateReason: null,
           displayStatus: "open",
           priority: "critical",
-          labels: ["decision", "critical"],
+          labels: ["tome:critical", "tome:completed"],
           assignees: [],
           author: null,
           milestone: null,
@@ -392,17 +420,37 @@ describe("GET Tome GitHub issues", () => {
       syncErrors: [],
     });
 
+    const labelResponse = await GET(request("?label=tome:critical"), context);
+    const labelPayload = await labelResponse.json();
+
+    expect(labelResponse.status).toBe(200);
+    expect(labelPayload.data.issues).toEqual([
+      expect.objectContaining({
+        number: 42,
+        title: "Decision",
+         labels: ["tome:critical"],
+      }),
+      expect.objectContaining({
+        number: 40,
+        title: "Architecture decision",
+         labels: ["tome:critical", "tome:completed"],
+      }),
+    ]);
+    expect(labelPayload.data.issues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ number: 41 })]),
+    );
+
     const response = await GET(
-      request("?label=decision&state=open&q=decision&limit=1"),
+       request("?label=tome:critical&state=open&q=decision&limit=1"),
       context,
     );
 
     await expect(response.json()).resolves.toMatchObject({
-      data: { issues: [{ number: 42, labels: ["decision"] }] },
+       data: { issues: [{ number: 42, labels: ["tome:critical"] }] },
     });
 
     const discussionResponse = await GET(
-      request("?content_type=discussion&label=critical"),
+       request("?content_type=discussion&label=tome:completed"),
       context,
     );
     await expect(discussionResponse.json()).resolves.toMatchObject({
@@ -410,17 +458,14 @@ describe("GET Tome GitHub issues", () => {
         issues: [{
           contentType: "discussion",
           number: 40,
-          labels: ["decision", "critical"],
+           labels: ["tome:critical", "tome:completed"],
         }],
       },
     });
 
-    const issueNumberResponse = await GET(
-      request("?content_type=issue&q=%2341"),
-      context,
-    );
+    const issueNumberResponse = await GET(request("?content_type=issue&q=%2341"), context);
     await expect(issueNumberResponse.json()).resolves.toMatchObject({
-      data: { issues: [{ number: 41, title: "Unrelated" }] },
+      data: { issues: [] },
     });
   });
 

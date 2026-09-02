@@ -29,6 +29,8 @@ import {
   loadTomeIssueCache,
   upsertCachedTomeIssue,
 } from "@/lib/tome/github-issue-cache";
+import type { TomeTrackedIssueLabel } from "@/lib/tome/issue-filter-views";
+import { listTomeTrackedIssueLabels } from "@/lib/tome/issue-tracker-store";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,7 @@ type Ctx = { params: Promise<{ slug: string }> };
 function filteredIssues(
   issues: LinkedIssueStatus[],
   searchParams: URLSearchParams,
+  trackedLabels: readonly TomeTrackedIssueLabel[],
 ): LinkedIssueStatus[] {
   const labels = searchParams
     .getAll("label")
@@ -78,6 +81,7 @@ function filteredIssues(
       .join(" ")
       .toLowerCase();
     return (
+      trackedLabels.some(({ label }) => normalized.has(label)) &&
       (!labels.length || labels.every((label) => normalized.has(label))) &&
       (!labelsAny.length || labelsAny.some((label) => normalized.has(label))) &&
       (!contentType ||
@@ -97,6 +101,9 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   const rollup = await readableTomeRollupProjects(tctx);
   const repos = rollupGitHubRepos(rollup);
+  const trackedLabels = await listTomeTrackedIssueLabels(
+    rollup.map((project) => String(project._id)),
+  );
   const writeCredential = await resolveTomeGitHubWriteCredential(tctx);
 
   const credential = await resolveTomeGitHubCredential(tctx);
@@ -107,7 +114,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       token: credential.token,
       refresh,
     });
-    const issues = filteredIssues(cached.issues, request.nextUrl.searchParams);
+    const issues = filteredIssues(cached.issues, request.nextUrl.searchParams, trackedLabels);
     const lastSynchronizedAt = cached.sync
       .map((state) => state.last_full_sync_at)
       .filter((value): value is Date => value instanceof Date)
@@ -119,6 +126,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       writeCredentialConfigured: Boolean(writeCredential.token),
       writeCredentialOwner: writeCredential.ownerEmail ?? null,
       repos,
+      trackedLabels,
       rollupProjectSlugs: rollup.map((project) => project.slug),
       cache: {
         source: "mongodb",
@@ -212,6 +220,16 @@ export const PATCH = withErrorHandler(async (request: NextRequest, ctx: Ctx) => 
   }
   const rollup = await readableTomeRollupProjects(tctx);
   const repos = rollupGitHubRepos(rollup);
+  const trackedLabels = await listTomeTrackedIssueLabels(
+    rollup.map((project) => String(project._id)),
+  );
+  if (labelUpdate && !trackedLabels.some((tracked) => tracked.label === label.toLowerCase())) {
+    throw new ApiError(
+      "This label is not configured as a TOME issue tracker",
+      400,
+      "UNTRACKED_TOME_ISSUE_LABEL",
+    );
+  }
   const scopedRepo = repos.find(
     (candidate) => candidate.toLowerCase() === repo.toLowerCase(),
   );

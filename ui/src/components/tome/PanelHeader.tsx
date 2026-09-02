@@ -9,7 +9,7 @@ interface PanelHeaderProps {
   /** Omit to skip the standard title/description row entirely (e.g. when a
    * panel renders its own bespoke header, like the Standup). */
   title?: string;
-  description?: string;
+  description?: ReactNode;
   titleAccessory?: ReactNode;
   action?: ReactNode;
 }

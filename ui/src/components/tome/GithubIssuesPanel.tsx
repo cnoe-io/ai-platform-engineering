@@ -16,19 +16,25 @@ import {
   ExternalLink,
   GripVertical,
   HelpCircle,
-  ListFilter,
   Loader2,
   MessagesSquare,
-  Minus,
   Plus,
   RefreshCw,
   Search,
-  X,
 } from "lucide-react";
 
 import { BetaBadge } from "@/components/tome/BetaBadge";
 import { PanelShell } from "@/components/tome/PanelHeader";
+import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -36,12 +42,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  emptyIssueFilters,
-  hasIssueFilters,
-  ISSUE_FILTER_NONE,
-  issueFiltersForLabel,
-  normalizeIssueFilters,
-  type IssueFilters,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  TOME_TRACKED_ISSUE_LABELS,
+  type TomeTrackedIssueLabel,
 } from "@/lib/tome/issue-filter-views";
 import {
   useAgenticSdlcStream,
@@ -53,7 +60,6 @@ type IssueStatus = "open" | "in_progress" | "resolved";
 type IssuePriority = "critical" | "high" | "medium" | "low";
 const ISSUE_LIVE_REFRESH_MS = 10_000;
 const ISSUE_LIVE_EVENT_DEBOUNCE_MS = 400;
-const TRACKED_ISSUE_LABELS = ["tome-tracker", "decision", "critical"] as const;
 
 interface GitHubIssue {
   contentType?: "issue" | "discussion";
@@ -122,8 +128,7 @@ function issueSummary(markdown: string | null): string {
     .replace(/[#>*_`[\]]/g, "")
     .replace(/\([^)]*\)/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 220);
+    .trim();
 }
 
 const STATUS_COLUMNS: Array<{
@@ -152,18 +157,6 @@ const STEWARD_CREDENTIAL_ERROR_CODES = new Set([
   "TOME_STEWARD_GITHUB_PROJECT_WRITE_DENIED",
 ]);
 
-function sortedUnique(values: Array<string | null | undefined>): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort(
-    (left, right) => left.localeCompare(right),
-  );
-}
-
-function isMissingOption(current: string, options: string[]): boolean {
-  return current !== "all" &&
-    current !== ISSUE_FILTER_NONE &&
-    !options.includes(current);
-}
-
 function issueKey(
   issue: Pick<GitHubIssue, "repo" | "number" | "contentType">,
 ): string {
@@ -173,38 +166,20 @@ function issueKey(
   return `${issue.repo.toLowerCase()}:${type}#${issue.number}`;
 }
 
-function secondaryFilterCount(filters: IssueFilters): number {
-  return [
-    filters.state,
-    filters.contentType,
-    filters.repository,
-    filters.label,
-    filters.assignee,
-    filters.author,
-    filters.milestone,
-    filters.priority,
-  ].filter((value) => value !== "all").length;
-}
-
 export function GithubIssuesPanel({
   slug,
   canEdit,
   initialLabel,
-  initialFilters,
   title,
-  onLabelsLoaded,
+  trackedLabels = TOME_TRACKED_ISSUE_LABELS,
 }: {
   slug: string;
   canEdit: boolean;
   initialLabel?: string;
-  initialFilters?: IssueFilters;
   title?: string;
-  onLabelsLoaded?: (labels: string[]) => void;
+  trackedLabels?: readonly TomeTrackedIssueLabel[];
 }) {
-  const startingFilters = normalizeIssueFilters(
-    initialFilters ?? (initialLabel ? issueFiltersForLabel(initialLabel) : undefined),
-  );
-  const pinnedLabel = initialLabel && !initialFilters ? initialLabel : undefined;
+  const trackedLabel = initialLabel?.trim().toLowerCase();
   const [payload, setPayload] = useState<IssuesPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -212,18 +187,13 @@ export function GithubIssuesPanel({
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [warningCode, setWarningCode] = useState<string | null>(null);
-  const [query, setQuery] = useState(startingFilters.query);
-  const [repoFilter, setRepoFilter] = useState(startingFilters.repository);
-  const [contentTypeFilter, setContentTypeFilter] = useState(
-    startingFilters.contentType,
-  );
-  const [stateFilter, setStateFilter] = useState(startingFilters.state);
-  const [labelFilter, setLabelFilter] = useState(startingFilters.label);
-  const [assigneeFilter, setAssigneeFilter] = useState(startingFilters.assignee);
-  const [authorFilter, setAuthorFilter] = useState(startingFilters.author);
-  const [milestoneFilter, setMilestoneFilter] = useState(startingFilters.milestone);
-  const [priorityFilter, setPriorityFilter] = useState(startingFilters.priority);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
+  const [issueRepository, setIssueRepository] = useState("");
+  const [issueNumber, setIssueNumber] = useState("");
+  const [trackingLabels, setTrackingLabels] = useState<string[]>([]);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [trackingIssue, setTrackingIssue] = useState(false);
   const [movingIssueKeys, setMovingIssueKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -245,7 +215,7 @@ export function GithubIssuesPanel({
     async (options?: { refresh?: boolean; silent?: boolean }) => {
       const silent = Boolean(options?.silent);
       if (!silent) {
-        if (!payload) setLoading(true);
+        setLoading(true);
         setRefreshing(Boolean(options?.refresh));
         setError(null);
         setErrorCode(null);
@@ -253,7 +223,10 @@ export function GithubIssuesPanel({
         setWarningCode(null);
       }
       try {
-        const suffix = options?.refresh ? "?refresh=1" : "";
+        const params = new URLSearchParams();
+        if (trackedLabel) params.set("label", trackedLabel);
+        if (options?.refresh) params.set("refresh", "1");
+        const suffix = params.size ? `?${params}` : "";
         setPayload(
           await fetchJson<IssuesPayload>(
             `/api/tome/projects/${encodeURIComponent(slug)}/github-issues${suffix}`,
@@ -273,15 +246,12 @@ export function GithubIssuesPanel({
         }
       }
     },
-    [payload, slug],
+    [slug, trackedLabel],
   );
 
   useEffect(() => {
     void load();
-    // The initial load is intentionally keyed only by project slug. Including
-    // payload would refetch after every response.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, [load]);
 
   useEffect(() => {
     const syncFromCache = () => {
@@ -344,76 +314,13 @@ export function GithubIssuesPanel({
   });
 
   useEffect(() => {
-    const next = normalizeIssueFilters(
-      initialFilters ?? (initialLabel ? issueFiltersForLabel(initialLabel) : undefined),
-    );
-    setQuery(next.query);
-    setRepoFilter(next.repository);
-    setContentTypeFilter(next.contentType);
-    setStateFilter(next.state);
-    setLabelFilter(next.label);
-    setAssigneeFilter(next.assignee);
-    setAuthorFilter(next.author);
-    setMilestoneFilter(next.milestone);
-    setPriorityFilter(next.priority);
-    setFiltersOpen(false);
-  }, [initialFilters, initialLabel]);
+    setQuery("");
+  }, [trackedLabel]);
 
   const issues = useMemo(() => payload?.issues ?? [], [payload?.issues]);
-  const labels = useMemo(
-    () => sortedUnique(issues.flatMap((issue) => issue.labels)),
-    [issues],
-  );
-  useEffect(() => {
-    onLabelsLoaded?.(labels);
-  }, [labels, onLabelsLoaded]);
-  const assignees = useMemo(
-    () => sortedUnique(issues.flatMap((issue) => issue.assignees)),
-    [issues],
-  );
-  const authors = useMemo(
-    () => sortedUnique(issues.map((issue) => issue.author)),
-    [issues],
-  );
-  const milestones = useMemo(
-    () => sortedUnique(issues.map((issue) => issue.milestone)),
-    [issues],
-  );
-
   const filteredIssues = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return issues
-      .filter(
-        (issue) =>
-          contentTypeFilter === "all" ||
-          (issue.contentType ?? "issue") === contentTypeFilter,
-      )
-      .filter((issue) => repoFilter === "all" || issue.repo === repoFilter)
-      .filter((issue) => stateFilter === "all" || issue.state === stateFilter)
-      .filter((issue) => {
-        if (labelFilter === "all") return true;
-        if (labelFilter === ISSUE_FILTER_NONE) return issue.labels.length === 0;
-        return issue.labels.some(
-          (label) => label.toLowerCase() === labelFilter.toLowerCase(),
-        );
-      })
-      .filter((issue) => {
-        if (assigneeFilter === "all") return true;
-        if (assigneeFilter === ISSUE_FILTER_NONE) return issue.assignees.length === 0;
-        return issue.assignees.includes(assigneeFilter);
-      })
-      .filter((issue) => authorFilter === "all" || issue.author === authorFilter)
-      .filter((issue) => {
-        if (milestoneFilter === "all") return true;
-        if (milestoneFilter === ISSUE_FILTER_NONE) return !issue.milestone;
-        return issue.milestone === milestoneFilter;
-      })
-      .filter((issue) => {
-        if (priorityFilter === "all") return true;
-        if (priorityFilter === ISSUE_FILTER_NONE) return !issue.priority;
-        return issue.priority === priorityFilter;
-      })
-      .filter((issue) => {
+    return issues.filter((issue) => {
         if (!normalizedQuery) return true;
         return [
           issue.title,
@@ -427,58 +334,97 @@ export function GithubIssuesPanel({
           ...issue.assignees,
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       });
-  }, [
-    assigneeFilter,
-    authorFilter,
-    contentTypeFilter,
-    issues,
-    labelFilter,
-    milestoneFilter,
-    priorityFilter,
-    query,
-    repoFilter,
-    stateFilter,
-  ]);
+  }, [issues, query]);
 
-  const currentFilters = useMemo<IssueFilters>(() => ({
-    query,
-    contentType: contentTypeFilter,
-    state: stateFilter,
-    repository: repoFilter,
-    label: labelFilter,
-    assignee: assigneeFilter,
-    author: authorFilter,
-    milestone: milestoneFilter,
-    priority: priorityFilter,
-  }), [
-    assigneeFilter,
-    authorFilter,
-    contentTypeFilter,
-    labelFilter,
-    milestoneFilter,
-    priorityFilter,
-    query,
-    repoFilter,
-    stateFilter,
-  ]);
-
-  const filtersApplied = hasIssueFilters(currentFilters);
-  const activeSecondaryFilters = secondaryFilterCount(currentFilters);
   const canMoveIssues =
     canEdit && payload?.writeCredentialConfigured !== false;
-  const clearFilters = () => {
-    const cleared = pinnedLabel ? issueFiltersForLabel(pinnedLabel) : emptyIssueFilters();
-    setQuery(cleared.query);
-    setRepoFilter(cleared.repository);
-    setContentTypeFilter(cleared.contentType);
-    setStateFilter(cleared.state);
-    setLabelFilter(cleared.label);
-    setAssigneeFilter(cleared.assignee);
-    setAuthorFilter(cleared.author);
-    setMilestoneFilter(cleared.milestone);
-    setPriorityFilter(cleared.priority);
-    setFiltersOpen(false);
-  };
+
+  const openTrackingDialog = useCallback(() => {
+    setIssueRepository(payload?.repos.length === 1 ? payload.repos[0] : "");
+    setIssueNumber("");
+    setTrackingLabels(
+      trackedLabel && trackedLabels.some(({ label }) => label === trackedLabel)
+        ? [trackedLabel]
+        : [trackedLabels[0]?.label ?? TOME_TRACKED_ISSUE_LABELS[0].label],
+    );
+    setTrackingError(null);
+    setTrackingDialogOpen(true);
+  }, [payload?.repos, trackedLabel, trackedLabels]);
+
+  const toggleTrackingLabel = useCallback((label: string) => {
+    setTrackingLabels((current) => current.includes(label)
+      ? current.filter((candidate) => candidate !== label)
+      : [...current, label]);
+  }, []);
+
+  const upsertTrackedIssue = useCallback((issue: GitHubIssue) => {
+    const key = issueKey(issue);
+    setPayload((current) => {
+      if (!current) return current;
+      const exists = current.issues.some((candidate) => issueKey(candidate) === key);
+      if (trackedLabel && !issue.labels.some((label) => label.toLowerCase() === trackedLabel)) {
+        return exists
+          ? {
+              ...current,
+              issues: current.issues.filter((candidate) => issueKey(candidate) !== key),
+            }
+          : current;
+      }
+      return {
+        ...current,
+        issues: exists
+          ? current.issues.map((candidate) => issueKey(candidate) === key ? issue : candidate)
+          : [issue, ...current.issues],
+      };
+    });
+  }, [trackedLabel]);
+
+  const trackIssue = useCallback(async () => {
+    const repository = payload?.repos.find(
+      (candidate) => candidate.toLowerCase() === issueRepository.trim().toLowerCase(),
+    );
+    const number = Number(issueNumber);
+    if (!repository) {
+      setTrackingError("Choose a repository attached to this TOME project.");
+      return;
+    }
+    if (!Number.isSafeInteger(number) || number <= 0) {
+      setTrackingError("Enter a positive GitHub issue number.");
+      return;
+    }
+    if (!trackingLabels.length) {
+      setTrackingError("Choose at least one TOME label.");
+      return;
+    }
+
+    setTrackingIssue(true);
+    setTrackingError(null);
+    try {
+      for (const label of trackingLabels) {
+        const result = await fetchJson<IssueMutationPayload>(
+          `/api/tome/projects/${encodeURIComponent(slug)}/github-issues`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              repo: repository,
+              number,
+              label,
+              operation: "add",
+            }),
+          },
+        );
+        upsertTrackedIssue(result.issue);
+      }
+      setTrackingDialogOpen(false);
+    } catch (err) {
+      setTrackingError(
+        err instanceof Error ? err.message : "Could not add this issue to TOME.",
+      );
+    } finally {
+      setTrackingIssue(false);
+    }
+  }, [issueNumber, issueRepository, payload?.repos, slug, trackingLabels, upsertTrackedIssue]);
 
   const finishIssueDrag = useCallback(() => {
     dragSourceRef.current = null;
@@ -725,35 +671,46 @@ export function GithubIssuesPanel({
     <PanelShell
       maxWidthClassName=""
       contentClassName="space-y-3 p-4 sm:p-5"
-      title={title ?? "Issues"}
+      title={title ? `${title} issues` : "Tracked issues"}
       titleAccessory={<BetaBadge />}
-      description="GitHub is authoritative; TOME keeps a disposable cache."
+      description={trackedLabel ? (
+        <>
+          Tracked by the GitHub label <code>{trackedLabel}</code>.
+        </>
+      ) : (
+        "Issues with a TOME tracking label from your connected GitHub repositories."
+      )}
       action={
         <div className="flex items-center gap-1">
           <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-muted-foreground"
-                aria-label="About GitHub issues"
-                title="About GitHub issues"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 space-y-2 text-xs">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground"
+                    aria-label="About GitHub issues"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>About GitHub issues</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="end" className="w-80 space-y-2 p-3 text-xs">
               <p className="text-sm font-medium">GitHub issues and discussions</p>
               <p className="text-muted-foreground">
-                {filteredIssues.length} of {issues.length} items from{" "}
+                {issues.length} tracked items from{" "}
                 {payload?.repos.length === 1
                   ? payload.repos[0]
                   : `${payload?.repos.length ?? 0} repositories`}.
               </p>
-              <p className="text-muted-foreground">
-                Open and closed items are shown by default. Filters apply to
-                issues and discussions.
-              </p>
+              {query.trim() && (
+                <p className="text-muted-foreground">
+                  {filteredIssues.length} items match your search.
+                </p>
+              )}
               {canMoveIssues && (
                 <p className="text-muted-foreground">
                   Drag an issue handle or focus it and press left or right arrow
@@ -768,21 +725,133 @@ export function GithubIssuesPanel({
               )}
             </PopoverContent>
           </Popover>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load({ refresh: true })}
-            disabled={refreshing}
-            aria-label="Refresh from GitHub"
-            title="Refresh from GitHub"
-          >
-            {refreshing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">Refresh</span>
-          </Button>
+          {canEdit && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openTrackingDialog}
+                disabled={!canMoveIssues}
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Add issue</span>
+              </Button>
+              <Dialog
+                open={trackingDialogOpen}
+                onOpenChange={(open) => {
+                  if (!trackingIssue) setTrackingDialogOpen(open);
+                }}
+              >
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Track GitHub issue</DialogTitle>
+                    <DialogDescription>
+                      Choose an attached repository and issue number. TOME adds the
+                      selected labels in GitHub and immediately includes the issue here.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Repository</label>
+                      <LabelComboBox
+                        value={issueRepository}
+                        onChange={setIssueRepository}
+                        options={(payload?.repos ?? []).map((repo) => ({
+                          value: repo,
+                          label: repo,
+                        }))}
+                        placeholder="Type to find a repository"
+                        ariaLabel="Repository"
+                        inputClassName="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="tome-github-issue-number" className="text-sm font-medium">
+                        Issue number
+                      </label>
+                      <Input
+                        id="tome-github-issue-number"
+                        value={issueNumber}
+                        onChange={(event) => setIssueNumber(event.target.value)}
+                        placeholder="123"
+                        inputMode="numeric"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">TOME labels</legend>
+                    <p className="text-xs text-muted-foreground">
+                      The selected labels determine where this issue appears in TOME.
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {trackedLabels.map((tracked) => (
+                        <label
+                          key={tracked.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={trackingLabels.includes(tracked.label)}
+                            onChange={() => toggleTrackingLabel(tracked.label)}
+                            disabled={trackingIssue}
+                          />
+                          {tracked.title}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  {trackingError && (
+                    <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                      {trackingError}
+                    </p>
+                  )}
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setTrackingDialogOpen(false)}
+                      disabled={trackingIssue}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void trackIssue()}
+                      disabled={
+                        trackingIssue ||
+                        !issueRepository.trim() ||
+                        !issueNumber.trim() ||
+                        !trackingLabels.length
+                      }
+                    >
+                      {trackingIssue && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Add to TOME
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void load({ refresh: true })}
+                disabled={refreshing}
+                aria-label="Refresh from GitHub"
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh from GitHub</TooltipContent>
+          </Tooltip>
         </div>
       }
     >
@@ -834,186 +903,16 @@ export function GithubIssuesPanel({
         )}
 
       {payload && (payload.credentialConfigured || payload.issues.length > 0) && (
-        <>
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search issues…"
-                className="h-9 pl-8"
-                aria-label="Filter GitHub issues"
-              />
-            </div>
-            <Button
-              type="button"
-              variant={filtersOpen || activeSecondaryFilters > 0 ? "secondary" : "outline"}
-              size="sm"
-              aria-expanded={filtersOpen}
-              aria-controls="github-issue-filters"
-              onClick={() => setFiltersOpen((open) => !open)}
-            >
-              <ListFilter className="h-4 w-4" />
-              Filters
-              {activeSecondaryFilters > 0 && (
-                <span className="rounded-full bg-background px-1.5 text-xs tabular-nums">
-                  {activeSecondaryFilters}
-                </span>
-              )}
-            </Button>
-            {filtersApplied && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearFilters}
-                className="hidden sm:inline-flex"
-              >
-                <X className="h-4 w-4" /> Clear
-              </Button>
-            )}
-          </div>
-
-          {filtersOpen && (
-            <div
-              id="github-issue-filters"
-              className="grid grid-cols-2 gap-2 rounded-md border bg-muted/20 p-2 sm:grid-cols-4 xl:grid-cols-8"
-            >
-            <select
-              value={contentTypeFilter}
-              onChange={(event) => setContentTypeFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by GitHub content type"
-            >
-              <option value="all">Issues &amp; discussions</option>
-              <option value="issue">Issues only</option>
-              <option value="discussion">Discussions only</option>
-            </select>
-            <select
-              value={stateFilter}
-              onChange={(event) => setStateFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by GitHub state"
-            >
-              <option value="all">All states</option>
-              <option value="open">Open</option>
-              <option value="closed">Closed</option>
-            </select>
-            <select
-              value={repoFilter}
-              onChange={(event) => setRepoFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by repository"
-            >
-              <option value="all">All repositories</option>
-              {isMissingOption(repoFilter, payload?.repos ?? []) && (
-                <option value={repoFilter}>{repoFilter}</option>
-              )}
-              {(payload?.repos ?? []).map((repo) => (
-                <option key={repo} value={repo}>
-                  {repo}
-                </option>
-              ))}
-            </select>
-            {pinnedLabel ? (
-              <span className="min-w-0 truncate rounded-md border bg-muted/40 px-2 py-1.5 text-sm">
-                Label: {pinnedLabel}
-              </span>
-            ) : (
-              <select
-                value={labelFilter}
-                onChange={(event) => setLabelFilter(event.target.value)}
-                className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-                aria-label="Filter by GitHub label"
-              >
-                <option value="all">All labels</option>
-                <option value={ISSUE_FILTER_NONE}>No label</option>
-                {isMissingOption(labelFilter, labels) && (
-                  <option value={labelFilter}>{labelFilter}</option>
-                )}
-                {labels.map((label) => (
-                  <option key={label} value={label}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            )}
-            <select
-              value={assigneeFilter}
-              onChange={(event) => setAssigneeFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by assignee"
-            >
-              <option value="all">All assignees</option>
-              <option value={ISSUE_FILTER_NONE}>Unassigned</option>
-              {isMissingOption(assigneeFilter, assignees) && (
-                <option value={assigneeFilter}>@{assigneeFilter}</option>
-              )}
-              {assignees.map((assignee) => (
-                <option key={assignee} value={assignee}>
-                  @{assignee}
-                </option>
-              ))}
-            </select>
-            <select
-              value={authorFilter}
-              onChange={(event) => setAuthorFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by author"
-            >
-              <option value="all">All authors</option>
-              {isMissingOption(authorFilter, authors) && (
-                <option value={authorFilter}>@{authorFilter}</option>
-              )}
-              {authors.map((author) => (
-                <option key={author} value={author}>
-                  @{author}
-                </option>
-              ))}
-            </select>
-            <select
-              value={milestoneFilter}
-              onChange={(event) => setMilestoneFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by milestone"
-            >
-              <option value="all">All milestones</option>
-              <option value={ISSUE_FILTER_NONE}>No milestone</option>
-              {isMissingOption(milestoneFilter, milestones) && (
-                <option value={milestoneFilter}>{milestoneFilter}</option>
-              )}
-              {milestones.map((milestone) => (
-                <option key={milestone} value={milestone}>
-                  {milestone}
-                </option>
-              ))}
-            </select>
-            <select
-              value={priorityFilter}
-              onChange={(event) => setPriorityFilter(event.target.value)}
-              className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm"
-              aria-label="Filter by priority"
-            >
-              <option value="all">All priorities</option>
-              <option value={ISSUE_FILTER_NONE}>No priority</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            {filtersApplied && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearFilters}
-                className="sm:hidden"
-              >
-                <X className="h-4 w-4" /> Clear
-              </Button>
-            )}
-            </div>
-          )}
-        </>
+        <div className="relative min-w-0">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search tracked issues…"
+            className="h-9 pl-8"
+            aria-label="Search tracked issues"
+          />
+        </div>
       )}
 
       {error && (
@@ -1050,14 +949,9 @@ export function GithubIssuesPanel({
             {(payload?.repos.length ?? 0) === 0
               ? "No attached GitHub repositories"
               : issues.length === 0
-                ? "No GitHub issues or discussions found"
-                : "No GitHub content matches these filters"}
+                ? "No tracked issues yet"
+                : "No tracked issues match your search"}
           </p>
-          {filtersApplied && (
-            <Button variant="link" onClick={clearFilters}>
-              Clear filters
-            </Button>
-          )}
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
@@ -1091,14 +985,14 @@ export function GithubIssuesPanel({
                   {columnIssues.map((issue) => {
                     const summary = issueSummary(issue.body);
                     const labelUpdatePending = updatingLabelKeys.has(issueKey(issue));
-                    const availableTrackedLabels = TRACKED_ISSUE_LABELS.filter(
-                      (label) => !issue.labels.some(
-                        (candidate) => candidate.toLowerCase() === label,
+                    const availableTrackedLabels = trackedLabels.filter(
+                      (tracked) => !issue.labels.some(
+                        (candidate) => candidate.toLowerCase() === tracked.label,
                       ),
                     );
                     const removableTrackedLabels = issue.labels.filter((label) =>
-                      TRACKED_ISSUE_LABELS.some(
-                        (tracked) => tracked === label.toLowerCase(),
+                      trackedLabels.some(
+                        (tracked) => tracked.label === label.toLowerCase(),
                       ),
                     );
                     return (
@@ -1112,29 +1006,35 @@ export function GithubIssuesPanel({
                         )}
                       >
                         {canMoveIssues && issue.contentType !== "discussion" && (
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            title={`Drag ${issue.repo} #${issue.number} to move; use left and right arrow keys for keyboard`}
-                            aria-label={`Move ${issue.title}`}
-                            onMouseDown={(event) => beginIssueDrag(event, issue)}
-                            onKeyDown={(event) =>
-                              moveIssueWithKeyboard(event, issue)
-                            }
-                            className="absolute right-2 top-2 select-none cursor-grab rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary active:cursor-grabbing"
-                          >
-                            {movingIssueKeys.has(issueKey(issue)) ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <GripVertical className="h-4 w-4" />
-                            )}
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Move ${issue.title}`}
+                                onMouseDown={(event) => beginIssueDrag(event, issue)}
+                                onKeyDown={(event) =>
+                                  moveIssueWithKeyboard(event, issue)
+                                }
+                                className="absolute right-2 top-2 select-none cursor-grab rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary active:cursor-grabbing"
+                              >
+                                {movingIssueKeys.has(issueKey(issue)) ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <GripVertical className="h-4 w-4" />
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Drag to move, or use left and right arrow keys.
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                         <Link
                           href={issue.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-sm font-semibold hover:underline"
+                          className="block line-clamp-2 text-sm font-semibold hover:underline"
                         >
                           {issue.title}{" "}
                           <ExternalLink className="inline h-3 w-3" />
@@ -1150,9 +1050,8 @@ export function GithubIssuesPanel({
                           </p>
                         )}
                         {summary && (
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
                             {summary}
-                            {(issue.body?.length ?? 0) > summary.length ? "…" : ""}
                           </p>
                         )}
                         <div className="mt-2 flex flex-wrap gap-1">
@@ -1176,69 +1075,57 @@ export function GithubIssuesPanel({
                           ))}
                           {canMoveIssues &&
                             issue.contentType !== "discussion" &&
-                            removableTrackedLabels.length > 0 && (
+                              (removableTrackedLabels.length > 0 ||
+                                availableTrackedLabels.length > 0) && (
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <button
+                                  <Button
                                     type="button"
+                                    variant="outline"
+                                    size="sm"
                                     disabled={labelUpdatePending}
-                                    aria-label={`Remove label from ${issue.title}`}
-                                    title="Remove tracked label"
-                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                                    aria-label={`Manage tracking labels for ${issue.title}`}
+                                    className="h-6 px-2 text-[10px]"
                                   >
-                                    {labelUpdatePending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Minus className="h-3 w-3" />
-                                    )}
-                                  </button>
+                                    {labelUpdatePending && <Loader2 className="h-3 w-3 animate-spin" />}
+                                    Manage tracking
+                                  </Button>
                                 </PopoverTrigger>
-                                <PopoverContent align="start" className="w-48 p-1">
-                                  {removableTrackedLabels.map((label) => (
-                                    <button
-                                      key={label}
-                                      type="button"
-                                      onClick={() => void updateIssueLabel(issue, label, "remove")}
-                                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                                    >
-                                      <Minus className="h-3 w-3" />
-                                      {label}
-                                    </button>
-                                  ))}
-                                </PopoverContent>
-                              </Popover>
-                            )}
-                          {canMoveIssues &&
-                            issue.contentType !== "discussion" &&
-                            availableTrackedLabels.length > 0 && (
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    type="button"
-                                    disabled={labelUpdatePending}
-                                    aria-label={`Add label to ${issue.title}`}
-                                    title="Add tracked label"
-                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                                  >
-                                    {labelUpdatePending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Plus className="h-3 w-3" />
-                                    )}
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent align="start" className="w-48 p-1">
-                                  {availableTrackedLabels.map((label) => (
-                                    <button
-                                      key={label}
-                                      type="button"
-                                      onClick={() => void updateIssueLabel(issue, label, "add")}
-                                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                                    >
-                                      <Plus className="h-3 w-3" />
-                                      {label}
-                                    </button>
-                                  ))}
+                                <PopoverContent align="start" className="w-56 space-y-3 p-2">
+                                  {removableTrackedLabels.length > 0 && (
+                                    <div className="space-y-1">
+                                      <p className="px-2 text-[11px] font-medium text-muted-foreground">
+                                        Remove tracker
+                                      </p>
+                                      {removableTrackedLabels.map((label) => (
+                                        <button
+                                          key={label}
+                                          type="button"
+                                          onClick={() => void updateIssueLabel(issue, label, "remove")}
+                                          className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                                        >
+                                          Remove <code className="ml-1">{label}</code>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {availableTrackedLabels.length > 0 && (
+                                    <div className="space-y-1">
+                                      <p className="px-2 text-[11px] font-medium text-muted-foreground">
+                                        Add tracker
+                                      </p>
+                                      {availableTrackedLabels.map((tracked) => (
+                                        <button
+                                          key={tracked.id}
+                                          type="button"
+                                          onClick={() => void updateIssueLabel(issue, tracked.label, "add")}
+                                          className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                                        >
+                                          Add <code className="ml-1">{tracked.label}</code>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
                                 </PopoverContent>
                               </Popover>
                             )}

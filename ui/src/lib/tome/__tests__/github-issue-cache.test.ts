@@ -58,7 +58,7 @@ const linkedIssue = {
   stateReason: null,
   displayStatus: "open" as const,
   priority: "critical" as const,
-  labels: ["critical", "decision"],
+  labels: ["needs attention", "decision"],
   assignees: ["test-user"],
   author: "issue-author",
   milestone: null,
@@ -80,8 +80,8 @@ const cachedRow = {
   state_reason: null,
   display_status: "open" as const,
   priority: "critical" as const,
-  labels: ["critical", "decision"],
-  labels_normalized: ["critical", "decision"],
+  labels: ["needs attention", "decision"],
+  labels_normalized: ["needs attention", "decision"],
   assignees: ["test-user"],
   author: "issue-author",
   milestone: null,
@@ -147,7 +147,7 @@ describe("TOME MongoDB GitHub issue cache", () => {
           replaceOne: expect.objectContaining({
             replacement: expect.objectContaining({
               _id: "example/service#42",
-              labels_normalized: ["critical", "decision"],
+              labels_normalized: ["needs attention", "decision"],
             }),
           }),
         }),

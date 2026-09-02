@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import {
   useCallback,
@@ -40,6 +41,15 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -67,7 +77,6 @@ import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 import { BetaBadge } from "@/components/tome/BetaBadge";
 import { StandupView } from "@/components/tome/StandupView";
-import { GithubIssueLabelManager } from "@/components/tome/GithubIssueLabelManager";
 import { GithubIssuesPanel } from "@/components/tome/GithubIssuesPanel";
 import { IssueLabelDisclosure } from "@/components/tome/IssueLabelDisclosure";
 import { IssueLabelViewList } from "@/components/tome/IssueLabelViewList";
@@ -80,7 +89,6 @@ import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
-import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import {
@@ -88,13 +96,8 @@ import {
   TOME_IMPORT_ACCEPT,
 } from "@/lib/tome/document-import-formats";
 import {
-  DEFAULT_ISSUE_FILTER_VIEWS,
-  issueFiltersForLabel,
-  migrateLegacyIssueLabelViews,
-  normalizeStoredIssueFilterViews,
-  reorderIssueFilterViews,
-  type IssueFilterView,
-  type StoredIssueFilterViews,
+  TOME_TRACKED_ISSUE_LABELS,
+  type TomeTrackedIssueLabel,
 } from "@/lib/tome/issue-filter-views";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
@@ -105,6 +108,11 @@ import {
   type ProjectDocument,
   type ProjectType,
 } from "@/types/projects";
+
+const EdgeGraphDialog = dynamic(
+  () => import("@/components/tome/EdgeGraphDialog").then((module) => module.EdgeGraphDialog),
+  { ssr: false },
+);
 
 interface PagesResponse {
   slug: string;
@@ -128,22 +136,10 @@ interface IncomingEdge {
 /** Browser-local flag so the first-run walkthrough only auto-opens once. */
 const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
-function issueLabelViewsStorageKey(slug: string): string {
-  return `tome.issue-label-views.${slug}`;
-}
-
-function issueFilterViewsStorageKey(slug: string): string {
-  return `tome.issue-filter-views.${slug}`;
-}
-
-function defaultIssueFilterOrder(): string[] {
-  return DEFAULT_ISSUE_FILTER_VIEWS.map(({ id }) => id);
-}
-
 type MainView =
   | { kind: "agent" }
   | { kind: "standup" }
-  | { kind: "issues"; label?: string; savedViewId?: string }
+  | { kind: "issues"; label?: string }
   | { kind: "feed" }
   | { kind: "gists" }
   | { kind: "gist"; id: string }
@@ -171,9 +167,7 @@ function viewToPath(slug: string, view: MainView): string {
     case "standup":
       return `${base}/standup`;
     case "issues":
-      return view.savedViewId
-        ? `${base}/issues/view/${encodeURIComponent(view.savedViewId)}`
-        : view.label
+      return view.label
         ? `${base}/issues/label/${encodeURIComponent(view.label)}`
         : `${base}/issues`;
     case "feed":
@@ -210,9 +204,7 @@ function pathToView(segments: string[]): MainView {
     case "standup":
       return { kind: "standup" };
     case "issues":
-      return rest[0] === "view" && rest.length > 1
-        ? { kind: "issues", savedViewId: rest.slice(1).join("/") }
-        : rest[0] === "label" && rest.length > 1
+      return rest[0] === "label" && rest.length > 1
         ? { kind: "issues", label: rest.slice(1).join("/") }
         : { kind: "issues" };
     // Keep links from the earlier issue-panel routes working.
@@ -294,170 +286,6 @@ export function TomeWiki({ slug }: { slug: string }) {
     return true;
   }, [hasUnsavedChanges, requestNavigation, view.kind]);
 
-  const [customIssueFilterViews, setCustomIssueFilterViews] = useState<
-    IssueFilterView[]
-  >([]);
-  const [, setIssueFilterOrder] = useState<string[]>(
-    defaultIssueFilterOrder,
-  );
-  const [issueFilterViewsError, setIssueFilterViewsError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let localPreferences = normalizeStoredIssueFilterViews(undefined);
-    try {
-      const saved = window.localStorage.getItem(issueFilterViewsStorageKey(slug));
-      const legacy = window.localStorage.getItem(issueLabelViewsStorageKey(slug));
-      localPreferences = saved
-        ? normalizeStoredIssueFilterViews(JSON.parse(saved))
-        : legacy
-          ? migrateLegacyIssueLabelViews(JSON.parse(legacy))
-          : normalizeStoredIssueFilterViews(undefined);
-    } catch {
-      localPreferences = normalizeStoredIssueFilterViews(undefined);
-    }
-    setCustomIssueFilterViews(localPreferences.custom);
-    setIssueFilterOrder(localPreferences.order);
-    setIssueFilterViewsError(null);
-
-    const endpoint = `/api/tome/projects/${encodeURIComponent(slug)}/issue-filter-views`;
-    void (async () => {
-      try {
-        const response = await fetch(endpoint);
-        const body = await response.json().catch(() => null);
-        if (!response.ok || !body?.data) {
-          throw new Error(body?.error ?? "Could not load saved issue views");
-        }
-        const serverPreferences = normalizeStoredIssueFilterViews(body.data);
-        const defaultOrder = defaultIssueFilterOrder();
-        const localIsCustomized = localPreferences.custom.length > 0 ||
-          localPreferences.order.some((id, index) => id !== defaultOrder[index]);
-        const serverIsCustomized = serverPreferences.custom.length > 0 ||
-          serverPreferences.order.some((id, index) => id !== defaultOrder[index]);
-        const selected = !serverIsCustomized && localIsCustomized
-          ? localPreferences
-          : serverPreferences;
-        if (cancelled) return;
-        setCustomIssueFilterViews(selected.custom);
-        setIssueFilterOrder(selected.order);
-        window.localStorage.setItem(
-          issueFilterViewsStorageKey(slug),
-          JSON.stringify(selected),
-        );
-        if (!serverIsCustomized && localIsCustomized) {
-          await fetch(endpoint, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(selected),
-          });
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setIssueFilterViewsError(
-            loadError instanceof Error
-              ? `${loadError.message}; using this browser's saved views.`
-              : "Could not load saved issue views; using this browser's saved views.",
-          );
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
-
-  const issueFilterViews = DEFAULT_ISSUE_FILTER_VIEWS;
-
-  const activeIssueFilterView = useMemo(() => {
-    if (view.kind !== "issues") return undefined;
-    if (view.savedViewId) {
-      return issueFilterViews.find(
-        ({ id }) => id.toLowerCase() === view.savedViewId?.toLowerCase(),
-      );
-    }
-    if (view.label) {
-      return DEFAULT_ISSUE_FILTER_VIEWS.find(
-        ({ filters }) => filters.label.toLowerCase() === view.label?.toLowerCase(),
-      ) ?? {
-        id: `label-${view.label.toLowerCase()}`,
-        title: view.label,
-        filters: issueFiltersForLabel(view.label),
-      };
-    }
-    return undefined;
-  }, [issueFilterViews, view]);
-
-  const saveIssueFilterViews = useCallback(
-    (custom: IssueFilterView[], order: string[]) => {
-      const preferences = normalizeStoredIssueFilterViews({ custom, order });
-      setCustomIssueFilterViews(preferences.custom);
-      setIssueFilterOrder(preferences.order);
-      setIssueFilterViewsError(null);
-      try {
-        window.localStorage.setItem(
-          issueFilterViewsStorageKey(slug),
-          JSON.stringify(preferences satisfies StoredIssueFilterViews),
-        );
-      } catch {
-        // The view still works for this session when browser storage is blocked.
-      }
-      void fetch(
-        `/api/tome/projects/${encodeURIComponent(slug)}/issue-filter-views`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(preferences),
-        },
-      ).then(async (response) => {
-        if (response.ok) return;
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Could not save issue views");
-      }).catch((saveError) => {
-        setIssueFilterViewsError(
-          saveError instanceof Error ? saveError.message : "Could not save issue views",
-        );
-      });
-    },
-    [slug],
-  );
-
-  const removeIssueFilterView = useCallback(
-    (id: string) => {
-      saveIssueFilterViews(
-        customIssueFilterViews.filter(
-          (candidate) => candidate.id.toLowerCase() !== id.toLowerCase(),
-        ),
-        issueFilterViews
-          .filter(
-            (candidate) => candidate.id.toLowerCase() !== id.toLowerCase(),
-          )
-          .map((candidate) => candidate.id),
-      );
-      if (
-        view.kind === "issues" &&
-        view.savedViewId?.toLowerCase() === id.toLowerCase()
-      ) {
-        navigate({ kind: "issues" });
-      }
-    },
-    [customIssueFilterViews, issueFilterViews, navigate, saveIssueFilterViews, view],
-  );
-
-  const reorderIssueFilterView = useCallback(
-    (sourceId: string, targetId: string) => {
-      const reordered = reorderIssueFilterViews(
-        issueFilterViews,
-        sourceId,
-        targetId,
-      );
-      if (reordered === issueFilterViews) return;
-      saveIssueFilterViews(
-        customIssueFilterViews,
-        reordered.map(({ id }) => id),
-      );
-    },
-    [customIssueFilterViews, issueFilterViews, saveIssueFilterViews],
-  );
-
   const [data, setData] = useState<PagesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
@@ -489,6 +317,68 @@ export function TomeWiki({ slug }: { slug: string }) {
   const isArea = projectType === "area";
   const isSynthesized = isSynthesizedType(projectType);
   const canEdit = data?.canEdit ?? false;
+  const [customIssueTrackers, setCustomIssueTrackers] = useState<
+    TomeTrackedIssueLabel[]
+  >([]);
+  const [trackerDialogOpen, setTrackerDialogOpen] = useState(false);
+  const [trackerSuffix, setTrackerSuffix] = useState("");
+  const [trackerError, setTrackerError] = useState<string | null>(null);
+  const [creatingTracker, setCreatingTracker] = useState(false);
+  const issueTrackers = useMemo(
+    () => [...TOME_TRACKED_ISSUE_LABELS, ...customIssueTrackers],
+    [customIssueTrackers],
+  );
+  const activeTrackedIssueLabel = useMemo(() => {
+    if (view.kind !== "issues" || !view.label) return undefined;
+    return issueTrackers.find(
+      (tracked) => tracked.label === view.label.toLowerCase(),
+    );
+  }, [issueTrackers, view]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/tome/projects/${encodeURIComponent(slug)}/issue-trackers`)
+      .then(async (response) => {
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(body?.data?.trackers)) return;
+        if (!cancelled) setCustomIssueTrackers(body.data.trackers);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  const createIssueTracker = useCallback(async () => {
+    const suffix = trackerSuffix.trim();
+    if (!suffix) return;
+    setCreatingTracker(true);
+    setTrackerError(null);
+    try {
+      const response = await fetch(
+        `/api/tome/projects/${encodeURIComponent(slug)}/issue-trackers`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ suffix }),
+        },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(body?.data?.trackers)) {
+        throw new Error(body?.error ?? "Could not create tracked label");
+      }
+      setCustomIssueTrackers(body.data.trackers);
+      setTrackerSuffix("");
+      setTrackerDialogOpen(false);
+    } catch (createError) {
+      setTrackerError(
+        createError instanceof Error
+          ? createError.message
+          : "Could not create tracked label",
+      );
+    } finally {
+      setCreatingTracker(false);
+    }
+  }, [slug, trackerSuffix]);
   // For a BHAG/Area: its own name (the label children are tagged with) and
   // the child projects that resolve from it — surfaced as down-links in the nav.
   const [projectName, setProjectName] = useState("");
@@ -1027,10 +917,10 @@ export function TomeWiki({ slug }: { slug: string }) {
       case "standup":
         return [{ label: "Standup" }];
       case "issues": {
-        if (!view.label && !view.savedViewId) return [{ label: "Issues" }];
+        if (!view.label) return [{ label: "Issues" }];
         return [
           { label: "Issues", onClick: () => navigate({ kind: "issues" }) },
-          { label: activeIssueFilterView?.title ?? view.label ?? "Saved view" },
+          { label: activeTrackedIssueLabel?.title ?? "Issues" },
         ];
       }
       case "feed":
@@ -1111,7 +1001,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         return exhaustive;
       }
     }
-  }, [view, data, navigate, isSynthesized, activeIssueFilterView]);
+  }, [view, data, navigate, isSynthesized, activeTrackedIssueLabel]);
 
   // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
   const bhagByInitiative = useMemo(
@@ -1413,6 +1303,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Reports
                   </span>
+                  <BetaBadge showTooltip={false} />
                 </div>
                 <div className="flex flex-col gap-1">
                   <NavItem
@@ -1420,7 +1311,6 @@ export function TomeWiki({ slug }: { slug: string }) {
                     label="Standup"
                     active={navActive.standup}
                     onClick={() => navigate({ kind: "standup" })}
-                    beta
                     tipTitle="Standup"
                     tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest. (This feature is still in testing.)"
                   />
@@ -1435,27 +1325,97 @@ export function TomeWiki({ slug }: { slug: string }) {
                         label="Issues"
                         active={navActive.issues}
                         onClick={() => navigate({ kind: "issues" })}
-                        beta
                         tipTitle="GitHub issues"
                         tipDescription="Issues linked from attached GitHub repositories. GitHub remains authoritative while TOME serves a webhook-backed read cache; Areas and BHAGs roll up readable child projects."
                       />
                     }
-                    actions={null}
+                    actions={
+                      canEdit ? (
+                        <Dialog
+                          open={trackerDialogOpen}
+                          onOpenChange={(open) => {
+                            if (!creatingTracker) setTrackerDialogOpen(open);
+                            if (!open) {
+                              setTrackerSuffix("");
+                              setTrackerError(null);
+                            }
+                          }}
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <DialogTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="Add tracked label"
+                                  className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              </DialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">Add tracked label</TooltipContent>
+                          </Tooltip>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Add tracked label</DialogTitle>
+                              <DialogDescription>
+                                This project will track GitHub issues carrying this label.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-2">
+                              <label htmlFor={`tome-tracker-suffix-${slug}`} className="text-sm font-medium">
+                                GitHub label
+                              </label>
+                              <div className="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+                                <code className="flex items-center border-r bg-muted px-3 text-sm text-muted-foreground">
+                                  tome:
+                                </code>
+                                <Input
+                                  id={`tome-tracker-suffix-${slug}`}
+                                  value={trackerSuffix}
+                                  onChange={(event) => setTrackerSuffix(event.target.value)}
+                                  placeholder="security-review"
+                                  className="border-0 focus-visible:ring-0"
+                                  autoFocus
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Use lowercase letters, numbers, and hyphens. The prefix is reserved for TOME trackers.
+                              </p>
+                            </div>
+                            {trackerError && (
+                              <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                                {trackerError}
+                              </p>
+                            )}
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setTrackerDialogOpen(false)}
+                                disabled={creatingTracker}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => void createIssueTracker()}
+                                disabled={creatingTracker || !trackerSuffix.trim()}
+                              >
+                                {creatingTracker && <Loader2 className="h-4 w-4 animate-spin" />}
+                                Create tracker
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                      ) : null
+                    }
                   >
                     <IssueLabelViewList
-                      views={issueFilterViews}
-                      customViews={[]}
-                      reorderable={false}
-                      activeViewId={activeIssueFilterView?.id}
-                      onSelect={(savedViewId) => navigate({ kind: "issues", savedViewId })}
-                      onRemove={removeIssueFilterView}
-                      onReorder={reorderIssueFilterView}
+                      labels={issueTrackers}
+                      activeLabel={activeTrackedIssueLabel?.label}
+                      onSelect={(label) => navigate({ kind: "issues", label })}
                     />
-                    {issueFilterViewsError && (
-                      <p className="px-8 py-1 text-[10px] leading-4 text-amber-600">
-                        {issueFilterViewsError}
-                      </p>
-                    )}
                   </IssueLabelDisclosure>
                 </div>
 
@@ -1773,18 +1733,14 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "issues" ? (
               <div className="min-w-0 flex-1">
-                {activeIssueFilterView || view.label ? (
-                  <GithubIssuesPanel
-                    key={activeIssueFilterView?.id ?? view.label}
-                    slug={slug}
-                    canEdit={canEdit}
-                    initialFilters={activeIssueFilterView?.filters}
-                    initialLabel={activeIssueFilterView ? undefined : view.label}
-                    title={activeIssueFilterView?.title ?? view.label}
-                  />
-                ) : (
-                  <GithubIssueLabelManager slug={slug} canEdit={canEdit} />
-                )}
+                <GithubIssuesPanel
+                  key={activeTrackedIssueLabel?.id ?? "all"}
+                  slug={slug}
+                  canEdit={canEdit}
+                  initialLabel={activeTrackedIssueLabel?.label}
+                  title={activeTrackedIssueLabel?.title}
+                  trackedLabels={issueTrackers}
+                />
               </div>
             ) : view.kind === "feed" ? (
               <div className="min-w-0 flex-1">
@@ -1963,7 +1919,7 @@ function NavItem({
   if (!tipTitle) return button;
 
   return (
-    <Tooltip>
+    <Tooltip triggerClassName="w-full">
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent
         side="right"

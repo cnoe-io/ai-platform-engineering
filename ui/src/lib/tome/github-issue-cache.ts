@@ -422,7 +422,7 @@ export async function buildTomeIssueContext(
     normalizedLabels(issue.labels).includes(label);
   const decisions = issues.filter((issue) => hasLabel(issue, "decision"));
   const critical = issues.filter(
-    (issue) => issue.state === "open" && hasLabel(issue, "critical"),
+    (issue) => issue.state === "open" && hasLabel(issue, "needs attention"),
   );
   return {
     decisions: decisions.slice(0, limit).map(toContextItem),

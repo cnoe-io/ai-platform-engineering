@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -47,6 +47,7 @@ export function LabelComboBox({
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const listboxId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -124,6 +125,8 @@ export function LabelComboBox({
     open && filtered.length > 0
       ? createPortal(
           <div
+            id={listboxId}
+            role="listbox"
             style={dropdownStyle}
             className="max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl"
           >
@@ -131,6 +134,9 @@ export function LabelComboBox({
               <button
                 type="button"
                 key={o.value}
+                id={`${listboxId}-${i}`}
+                role="option"
+                aria-selected={i === activeIndex}
                 ref={(el) => { itemRefs.current[i] = el; }}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -155,6 +161,8 @@ export function LabelComboBox({
       <input
         aria-label={ariaLabel}
         aria-expanded={open && filtered.length > 0}
+        aria-controls={open && filtered.length > 0 ? listboxId : undefined}
+        aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
         aria-autocomplete="list"
         role="combobox"
         value={value}

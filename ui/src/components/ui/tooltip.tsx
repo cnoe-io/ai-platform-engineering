@@ -29,6 +29,7 @@ interface TooltipProps {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  triggerClassName?: string;
 }
 
 const TooltipStateContext = React.createContext<{
@@ -62,6 +63,7 @@ export function Tooltip({
   open: controlledOpen,
   defaultOpen = false,
   onOpenChange,
+  triggerClassName,
 }: TooltipProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
   const isControlled = controlledOpen !== undefined;
@@ -119,7 +121,7 @@ export function Tooltip({
           const firstChild = node?.firstElementChild;
           triggerRef.current = firstChild instanceof HTMLElement ? firstChild : node;
         }}
-        className="relative inline-flex items-center align-middle"
+        className={cn("relative inline-flex items-center align-middle", triggerClassName)}
       >
         {children}
       </span>
