@@ -656,8 +656,6 @@ services:
       # chart values file — see the comment in
       # charts/.../caipe-ui/values.yaml.
       - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
-      # 098 Slack identity linking HMAC secret (shared with slack-bot)
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
@@ -669,7 +667,13 @@ services:
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      # Self-service Webex identity linking (Settings > Account & access). All
+      # four vars must be set (including the org allowlist) or the link
+      # button stays hidden; WEBEX_LINK_CLIENT_SECRET is sensitive.
+      - WEBEX_LINK_CLIENT_ID=${WEBEX_LINK_CLIENT_ID:-}
+      - WEBEX_LINK_CLIENT_SECRET=${WEBEX_LINK_CLIENT_SECRET:-}
+      - WEBEX_LINK_REDIRECT_URI=${WEBEX_LINK_REDIRECT_URI:-http://localhost:3000/api/auth/webex-link/callback}
+      - WEBEX_LINK_ALLOWED_ORG_ID=${WEBEX_LINK_ALLOWED_ORG_ID:-}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
       - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
       - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
@@ -863,7 +867,6 @@ services:
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
@@ -872,7 +875,13 @@ services:
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      # Self-service Webex identity linking (Settings > Account & access). All
+      # four vars must be set (including the org allowlist) or the link
+      # button stays hidden; WEBEX_LINK_CLIENT_SECRET is sensitive.
+      - WEBEX_LINK_CLIENT_ID=${WEBEX_LINK_CLIENT_ID:-}
+      - WEBEX_LINK_CLIENT_SECRET=${WEBEX_LINK_CLIENT_SECRET:-}
+      - WEBEX_LINK_REDIRECT_URI=${WEBEX_LINK_REDIRECT_URI:-http://localhost:3000/api/auth/webex-link/callback}
+      - WEBEX_LINK_ALLOWED_ORG_ID=${WEBEX_LINK_ALLOWED_ORG_ID:-}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
       - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
       - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
@@ -1971,14 +1980,13 @@ services:
       # Slack bot's OBO (token-exchange) credentials — separate flow, separate client.
       - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
       - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
-      - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:3000}
-      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       # Spec 103: Just-In-Time Keycloak user creation. Default ON in dev so
       # first-time Slack DMs work without an admin handshake. Set to "false"
       # in production to require explicit web-UI onboarding before Slack use,
-      # in which case the bot falls back to sending an HMAC-signed linking
-      # URL. Provisioning flows through the CAIPE UI BFF using the bot's own
-      # service account — no Keycloak Admin credential needed on the bot.
+      # in which case an unmatched user is treated as unlinked and told to
+      # contact an admin. Provisioning flows through the CAIPE UI BFF using
+      # the bot's own service account — no Keycloak Admin credential needed
+      # on the bot.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
       # Optional comma-separated allowlist of email domains eligible for JIT.
       # Empty/unset => any domain. Recommended for prod when the federated
@@ -2049,7 +2057,6 @@ services:
       - KEYCLOAK_WEBEX_BOT_CLIENT_ID=${KEYCLOAK_WEBEX_BOT_CLIENT_ID:-caipe-webex-bot}
       - KEYCLOAK_WEBEX_BOT_CLIENT_SECRET=${KEYCLOAK_WEBEX_BOT_CLIENT_SECRET:-caipe-webex-bot-dev-secret}
       - WEBEX_LINKING_BASE_URL=${WEBEX_LINKING_BASE_URL:-http://localhost:3000}
-      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-}
     depends_on:
       caipe-ui:
         condition: service_started

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 import type { AutonomousTask, TaskFormState, TaskSaveResult, TriggerType } from "./types";
@@ -326,7 +327,7 @@ export function TaskFormDialog({
               <div className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="task-webhook-provider">Provider</Label>
-                  <select
+                  <Select
                     id="task-webhook-provider"
                     value={form.webhookProvider}
                     onChange={(e) => update("webhookProvider", e.target.value)}
@@ -344,7 +345,7 @@ export function TaskFormDialog({
                         {opt.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 {isEdit && ["slack", "pagerduty"].includes(form.webhookProvider) ? (
                   <div className="space-y-1">

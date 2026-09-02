@@ -194,7 +194,7 @@ export function NotificationBell({ enabled }: { enabled: boolean }) {
             <p className="text-xs text-muted-foreground">
               {data.unread_count > 0
                 ? `${data.unread_count} unread`
-                : "You’re all caught up"}
+                : "You’re all caught up ✅"}
             </p>
           </div>
           {data.unread_count > 0 && (
@@ -212,7 +212,7 @@ export function NotificationBell({ enabled }: { enabled: boolean }) {
             </div>
           ) : data.notifications.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-              No notifications yet.
+              No notifications yet... but why not try to change that?
             </div>
           ) : (
             <ul role="list">

@@ -98,7 +98,7 @@ jobs:
 
           # persist-credentials: false means the checkout step does not configure
           # git credentials. Wire the App token into the remote URL so git push works.
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/cnoe-io/ai-platform-engineering.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/caipe-io/ai-platform-engineering.git"
 
           # Only the published-versions list (and any current-version helm docs that
           # legitimately changed) are committed — versioned_docs is never committed.

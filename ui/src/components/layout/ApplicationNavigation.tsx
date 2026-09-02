@@ -1,10 +1,17 @@
 "use client";
 
+import { filterAdminCategories } from "@/components/admin/workspace/admin-routes";
+import { CREDENTIALS_GROUPS } from "@/components/credentials/navigation";
+import { buildDynamicAgentNavigationGroups } from "@/components/dynamic-agents/navigation";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
 import {
   APPLICATION_SECTION_AREA_KEYS,
   ApplicationSectionNavigation,
 } from "@/components/layout/ApplicationSectionNavigation";
+import {
+  ApplicationNavigationSearch,
+  type ApplicationNavigationSearchEntry,
+} from "@/components/layout/ApplicationNavigationSearch";
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import {
   CollapsedNavigationFlyout,
@@ -34,6 +41,9 @@ import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
+import { useAdminTabGates } from "@/hooks/useAdminTabGates";
+import { KNOWLEDGE_NAV_ITEMS } from "@/components/rag/KnowledgeSidebar";
+import { PERSONAL_SETTINGS_ROUTES } from "@/components/settings/settings-routes";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
@@ -150,6 +160,7 @@ function ApplicationNavigationContents({
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
+  const { gates: adminGates,loading: adminGatesLoading } = useAdminTabGates();
   const {
     gates: knowledgeGates,
     loading: knowledgeGatesLoading,
@@ -190,13 +201,21 @@ function ApplicationNavigationContents({
   const [expansionPreference,setExpansionPreference] = React.useState<{
     activeArea: string | null;
     expandedArea: string | null;
-  }>({ activeArea: null,expandedArea: null });
+    userInitiated: boolean;
+  }>({ activeArea: null,expandedArea: null,userInitiated: false });
   const routeExpandedArea = activeHasSectionNavigation ? activeArea : null;
   const hasUserExpansionPreference =
-    expansionPreference.activeArea === activeArea;
+    expansionPreference.userInitiated
+      && expansionPreference.activeArea === activeArea;
   const expandedArea = hasUserExpansionPreference
     ? expansionPreference.expandedArea
     : routeExpandedArea;
+
+  React.useEffect(() => {
+    setExpansionPreference((current) => current.activeArea === activeArea
+      ? current
+      : { activeArea,expandedArea: routeExpandedArea,userInitiated: false });
+  }, [activeArea,routeExpandedArea]);
 
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
@@ -268,12 +287,97 @@ function ApplicationNavigationContents({
   const closeMobileNavigation = () =>
     applicationNavigation?.closeMobileNavigation();
 
+  const searchEntries: ApplicationNavigationSearchEntry[] = [
+    ...items
+      .filter((item) => !item.disabled)
+      .map((item) => ({
+        id: `page-${item.key}`,
+        label: item.label,
+        description: item.key === "chat" ? "Open your conversations" : undefined,
+        group: item.utility ? "Utilities" : "Pages",
+        href: item.href,
+        icon: item.icon,
+      })),
+    ...(config.ragEnabled && !knowledgeUnavailable
+      ? KNOWLEDGE_NAV_ITEMS
+        .filter((item) => !item.requiresGraphRag)
+        .map((item) => ({
+          id: `knowledge-${item.id}`,
+          label: item.label,
+          description: item.description,
+          group: "Knowledge Bases",
+          href: item.href,
+          icon: item.icon,
+        }))
+      : []),
+    ...(storageMode === "mongodb" && config.dynamicAgentsEnabled
+      ? buildDynamicAgentNavigationGroups({
+        destinationForTab: (tab) => ({ href: `/dynamic-agents?tab=${tab}` }),
+        showConversations: Boolean(adminGates.dynamic_agent_conversations),
+      }).flatMap((group) => group.items).flatMap((item) => {
+        const candidates = item.children ?? [item];
+        return candidates.flatMap((candidate) => candidate.href ? [{
+          id: `agents-${candidate.id}`,
+          label: candidate.label,
+          description: candidate.description,
+          group: "Agents",
+          href: candidate.href,
+          icon: candidate.icon,
+        }] : []);
+      })
+      : []),
+    ...(storageMode === "mongodb" && config.userConnectionsEnabled
+      ? CREDENTIALS_GROUPS.flatMap((group) => group.items).flatMap((item) =>
+        item.href ? [{
+          id: `credentials-${item.id}`,
+          label: item.label,
+          description: item.description,
+          group: "Credentials",
+          href: item.href,
+          icon: item.icon,
+        }] : [],
+      )
+      : []),
+    ...PERSONAL_SETTINGS_ROUTES.map((route) => ({
+      id: `settings-${route.id}`,
+      label: route.label,
+      description: route.description,
+      group: "Settings",
+      href: route.href,
+      icon: route.icon,
+    })),
+    ...(!adminGatesLoading && storageMode === "mongodb"
+      ? filterAdminCategories({
+        ...adminGates,
+        platform_settings: isAdmin,
+        feedback: Boolean(adminGates.feedback && config.feedbackEnabled),
+        audit_logs: Boolean(adminGates.audit_logs && config.auditLogsEnabled),
+        credentials: Boolean(adminGates.credentials && config.credentialsEnabled),
+        agents: isAdmin,
+        mcp: isAdmin,
+        identity_sync: Boolean(adminGates.identity_group_sync && config.oktaSyncEnabled),
+      }).flatMap((category) => category.destinations.map((destination) => ({
+        id: `admin-${destination.id}`,
+        label: destination.label,
+        description: destination.description,
+        group: `Admin · ${category.label}`,
+        href: destination.href,
+        icon: destination.icon,
+      })))
+      : []),
+  ];
+
   return (
     <TooltipProvider delayDuration={200}>
       <nav
         aria-label="Application navigation"
         className="flex min-h-full flex-col gap-1"
       >
+        <ApplicationNavigationSearch
+          enableShortcut={layoutScope === "rail"}
+          entries={searchEntries}
+          onNavigate={closeMobileNavigation}
+        />
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
@@ -384,6 +488,7 @@ function ApplicationNavigationContents({
             setExpansionPreference({
               activeArea,
               expandedArea: contextExpanded ? null : item.key,
+              userInitiated: true,
             });
           };
           const control = item.disabled ? (
@@ -543,11 +648,6 @@ function ApplicationBrand({
               </span>
             ))}
           </span>
-          <Sparkles
-            aria-hidden="true"
-            className="brand-sparkle pointer-events-none absolute -right-3 -top-2 h-4 w-4"
-            strokeWidth={1.75}
-          />
         </span>
       ) : null}
     </GuardedNavigationLink>
@@ -576,10 +676,10 @@ export function ApplicationNavigationRail(): React.ReactElement {
       )}
     >
       <ApplicationBrand collapsed={collapsed} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2">
         <ApplicationNavigationContents collapsed={collapsed} layoutScope="rail" />
       </div>
-      <div className="flex shrink-0 items-center justify-center border-t border-border/50 px-2 pb-3 pt-2">
+      <div className="flex shrink-0 items-center justify-start px-2 pb-3">
         <WorkspaceRailToggle />
       </div>
     </aside>
@@ -645,11 +745,6 @@ export function MobileApplicationBrand(): React.ReactElement {
         <span className="gradient-text truncate text-lg font-bold">
           {config.appName}
         </span>
-        <Sparkles
-          aria-hidden="true"
-          className="brand-sparkle pointer-events-none absolute -right-2.5 -top-1.5 h-3.5 w-3.5"
-          strokeWidth={1.75}
-        />
       </span>
     </GuardedNavigationLink>
   );

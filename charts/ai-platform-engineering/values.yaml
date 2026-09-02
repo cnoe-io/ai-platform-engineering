@@ -1372,10 +1372,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: slack_client_secret
-      # - secretKey: SLACK_LINK_HMAC_SECRET
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: slack_link_hmac_secret
       # - secretKey: OAUTH2_CLIENT_SECRET
       #   remoteRef:
       #     key: prod/slack-bot

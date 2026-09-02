@@ -2,7 +2,7 @@
 
 This page provides an overview of the CAIPE RAG system architecture, including core components, data flows, and technology decisions.
 
-For implementation details and configuration, see the [Architecture.md](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/Architecture.md) in the RAG codebase.
+For implementation details and configuration, see the [Architecture.md](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/Architecture.md) in the RAG codebase.
 
 ## System Overview
 
@@ -173,6 +173,6 @@ The system supports multiple embedding providers:
 
 ## Further Reading
 
-- [Server Architecture](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/ARCHITECTURE.md) - Detailed server internals
-- [Ontology Agent README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/agent_ontology/README.md) - Relationship discovery details
-- [Server README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md) - Configuration reference
+- [Server Architecture](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/ARCHITECTURE.md) - Detailed server internals
+- [Ontology Agent README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/agent_ontology/README.md) - Relationship discovery details
+- [Server README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md) - Configuration reference
