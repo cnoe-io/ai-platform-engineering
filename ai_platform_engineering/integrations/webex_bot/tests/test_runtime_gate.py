@@ -195,6 +195,7 @@ def test_linked_allowed_dispatches() -> None:
     assert dispatcher.calls[0]["obo_token"] == "obo-access"
     assert dispatcher.calls[0]["agent_id"] == "incident-agent"
     assert dispatcher.calls[0]["team_slug"] == "platform-eng"
+    assert dispatcher.calls[0]["is_direct"] is False
 
 
 def test_thread_reply_is_forwarded_to_route_resolver() -> None:

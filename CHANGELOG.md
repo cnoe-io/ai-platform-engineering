@@ -1,3 +1,37 @@
+## 1.0.0-dev.17 (2026-09-01)
+
+### Feat
+
+- **ui**: add an API section to Insights Statistics
+- **ui**: add a Webex section to Insights Statistics, mirroring Slack
+
+### Fix
+
+- **ui**: force client_type to 'api' for non-first-party Bearer callers
+- **audit**: attach real identity to bridge authz-decision audit events
+- **webex**: stop agent-flash on pinned threads; exclude DMs from Top Spaces
+- **ui**: exclude Webex conversations from the default sidebar listing
+- **ui**: stop the picker chevron from shifting when a value is cleared
+- **ui**: stop wide line charts from stretching data points and text
+- **audit**: capture openfga_rebac events at standard verbosity
+- **audit**: return a clean error instead of a bare 500 on retention failures
+- **webex**: redirect to sign-in instead of a bare 401 on webex-link/start
+- **ui**: fix chart hover misalignment on wide line charts
+- **ui**: make DAU/MAU "Today"/"This Month" cards rolling windows
+- **ui**: show a Webex source option in the Insights stats picker
+- **webex**: tag Webex message turns with source "webex" for Insights
+- **ui**: clear the ?request= param after approving/rejecting it
+- **ui**: paginate the Default agents picker's accessible-agents fetch
+- **webex**: pin threads to their first-responding agent
+
+### Perf
+
+- **audit**: parallelize S3 list/fetch calls in the audit-service read path
+
+## 1.0.0-dev.16 (2026-09-01)
+
+## 1.0.0-rc.5 (2026-09-01)
+
 ## 1.0.0-dev.15 (2026-09-01)
 
 ## 1.0.0-dev.14 (2026-08-31)
