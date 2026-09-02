@@ -55,6 +55,7 @@ import {
   Database,
   Home,
   KeyRound,
+  LayoutGrid,
   Mail,
   Menu,
   MessageCircle,
@@ -91,6 +92,7 @@ function activeAreaForPath(pathname: string | null): string | null {
   }
   if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
   if (pathname?.startsWith("/autonomous")) return "autonomous";
+  if (pathname?.startsWith("/apps")) return "apps";
   if (pathname?.startsWith("/schedules")) return "schedules";
   if (pathname?.startsWith("/admin")) return "admin";
   if (pathname?.startsWith("/settings")) return "settings";
@@ -247,6 +249,12 @@ function ApplicationNavigationContents({
       href: "/autonomous",
       label: "Autonomous",
       icon: Sparkles,
+    },
+    config.agenticAppsEnabled && {
+      key: "apps",
+      href: "/apps",
+      label: "Apps",
+      icon: LayoutGrid,
     },
     storageMode === "mongodb"
       && config.dynamicAgentsEnabled
