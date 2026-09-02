@@ -1263,6 +1263,9 @@ scheduler:
     existingSecret: ""
     existingSecretKey: "token"
     value: ""
+  limits:
+    # -- Minimum permitted gap, in seconds, between recurring cron fires.
+    minimumScheduleIntervalSeconds: 1800
 # Scheduler MCP. Rendered whenever the scheduler feature is enabled unless this
 # narrower switch is disabled. It shares the scheduler service token Secret.
 schedulerMcp:
