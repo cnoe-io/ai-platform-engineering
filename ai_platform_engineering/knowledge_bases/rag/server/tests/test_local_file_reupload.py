@@ -137,7 +137,7 @@ def test_reupload_happy_path_purges_old_content_and_ingests_new_file(client: Tes
     assert body["datasource_id"] == "primary-ds"
     assert "job_id" in body
 
-    _wire["jobmanager"].delete_job.assert_awaited_once_with("job-1")
+    _wire["jobmanager"].delete_job.assert_not_awaited()
     _wire["vector_db"].adelete.assert_awaited_once()
     _wire["ingestor"].ingest_documents.assert_awaited_once()
     _, ingest_kwargs = _wire["ingestor"].ingest_documents.call_args
@@ -150,3 +150,25 @@ def test_reupload_happy_path_purges_old_content_and_ingests_new_file(client: Tes
     stored = _wire["metadata_storage"].store_datasource_info.call_args[0][0]
     assert stored.datasource_id == "primary-ds"
     assert stored.name == "new.md"
+
+
+def test_reupload_preserves_job_history_across_multiple_reuploads(client: TestClient, _wire):
+    """Each re-upload should add a new job rather than deleting prior ones (matches the
+    reload pattern in queue_datasource_reload/create_reload_job for other source types)."""
+    _wire["jobmanager"].get_jobs_by_datasource.return_value = [_job(job_id="job-1")]
+
+    first = _reupload(client, filename="second.md", content=b"# second")
+    assert first.status_code == 202
+
+    _wire["jobmanager"].get_jobs_by_datasource.return_value = [
+        _job(job_id="job-1"),
+        _job(job_id=first.json()["job_id"]),
+    ]
+
+    second = _reupload(client, filename="third.md", content=b"# third")
+    assert second.status_code == 202
+
+    _wire["jobmanager"].delete_job.assert_not_awaited()
+    new_job_ids = {call.args[0] for call in _wire["jobmanager"].upsert_job.call_args_list}
+    assert new_job_ids == {first.json()["job_id"], second.json()["job_id"]}
+    assert first.json()["job_id"] != second.json()["job_id"]

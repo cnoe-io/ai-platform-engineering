@@ -2522,8 +2522,6 @@ async def reupload_local_file(
   if jobs and any(job.status == JobStatus.IN_PROGRESS for job in jobs):
     raise HTTPException(status_code=400, detail="Cannot re-upload while an ingestion job is in progress.")
 
-  for job in jobs or []:
-    await jobmanager.delete_job(job.job_id)
   await vector_db.adelete(expr=f"datasource_id == {VectorDBQueryService._quote_string(datasource_id)}")
   if graph_rag_enabled and data_graph_db:
     await data_graph_db.remove_entity(None, {DATASOURCE_ID_KEY: datasource_id})
