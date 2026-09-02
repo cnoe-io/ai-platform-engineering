@@ -15,7 +15,7 @@ import {
   discoverMeetingSeries,
   downloadMeetingTranscript,
   meetingSeriesMatches,
-  resolveOccurrenceMeetingId,
+  resolveOccurrenceMeeting,
   type WebexMeetingOccurrenceCandidate,
 } from "../webex-meeting-series";
 import {
@@ -148,8 +148,6 @@ async function reconcileSubscriptionCalendar(
   for (const occurrence of series.occurrences) {
     const end = new Date(occurrence.end);
     if (
-      occurrence.cancelled ||
-      occurrence.state?.toLowerCase() === "missed" ||
       !Number.isFinite(end.getTime()) ||
       end > now
     ) {
@@ -187,6 +185,33 @@ async function reconcileSubscriptionCalendar(
       },
       { upsert: true },
     );
+    const terminalMessage = occurrence.cancelled
+      ? "Meeting was cancelled."
+      : occurrence.state?.toLowerCase() === "missed"
+        ? "Meeting did not happen."
+        : "";
+    if (terminalMessage) {
+      const result = await occurrences.updateOne(
+        {
+          _id: id,
+          status: { $in: ["pending", "processing", "waiting_transcript", "ready"] },
+        },
+        {
+          $set: {
+            status: "skipped",
+            last_error: terminalMessage,
+            updated_at: now,
+          },
+        },
+      );
+      if (result.modifiedCount > 0) {
+        await updateSubscription(project._id, subscription.id, {
+          lastOccurrenceAt: start.toISOString(),
+          lastStatus: "skipped",
+          lastError: terminalMessage,
+        });
+      }
+    }
   }
 
   if (!next) return null;
@@ -260,6 +285,29 @@ async function markRetry(
   });
 }
 
+async function markMissed(
+  occurrence: WebexMeetingOccurrenceDocument,
+  now: Date,
+): Promise<void> {
+  const message = "Meeting did not happen.";
+  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
+  await occurrences.updateOne(
+    { _id: occurrence._id, status: "processing" },
+    {
+      $set: {
+        status: "skipped",
+        last_error: message,
+        updated_at: now,
+      },
+    },
+  );
+  await updateSubscription(occurrence.project_id, occurrence.subscription_id, {
+    lastOccurrenceAt: occurrence.start.toISOString(),
+    lastStatus: "skipped",
+    lastError: message,
+  });
+}
+
 async function processOccurrence(
   project: ProjectDocument & { _id: string },
   subscription: WebexMeetingSeriesSubscription,
@@ -318,7 +366,12 @@ async function processOccurrence(
       cancelled: false,
       source: claimed.source,
     };
-    const meetingId = await resolveOccurrenceMeetingId(invoke, candidate);
+    const resolvedMeeting = await resolveOccurrenceMeeting(invoke, candidate);
+    if (resolvedMeeting.missed) {
+      await markMissed(claimed, now);
+      return false;
+    }
+    const meetingId = resolvedMeeting.meetingId;
     if (!meetingId) {
       await markRetry(
         claimed,

@@ -342,9 +342,11 @@ export function WebexMeetingSeriesSettings({
                       <p
                         className={cn(
                           "mt-1 text-xs",
-                          subscription.lastStatus === "failed" || subscription.lastStatus === "skipped"
+                          subscription.lastStatus === "failed"
                             ? "text-destructive"
-                            : "text-amber-600 dark:text-amber-400",
+                            : subscription.lastStatus === "skipped"
+                              ? "text-muted-foreground"
+                              : "text-amber-600 dark:text-amber-400",
                         )}
                       >
                         {meetingStatusMessage(subscription.lastError)}
@@ -394,9 +396,11 @@ export function WebexMeetingSeriesSettings({
                                 <p
                                   className={cn(
                                     "mt-1 text-[11px]",
-                                    occurrence.status === "failed" || occurrence.status === "skipped"
+                                    occurrence.status === "failed"
                                       ? "text-destructive"
-                                      : "text-amber-600 dark:text-amber-400",
+                                      : occurrence.status === "skipped"
+                                        ? "text-muted-foreground"
+                                        : "text-amber-600 dark:text-amber-400",
                                   )}
                                 >
                                   {meetingStatusMessage(occurrence.lastError)}

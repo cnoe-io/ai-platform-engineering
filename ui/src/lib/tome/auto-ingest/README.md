@@ -55,6 +55,7 @@ series owned by the same user normally share one discovery sweep.
 | Calendar refresh | Once daily by default, shared by all series for one user/site. |
 | Upcoming occurrence | The next check is moved earlier to occurrence end plus 10 minutes. |
 | First transcript attempt | Occurrence end plus 10 minutes, on the next scheduler tick. |
+| Scheduled meeting never started | Webex reports the occurrence as `missed`; mark it skipped as “Meeting did not happen” without transcript retries. |
 | Transcript unavailable | Retry with backoff (15 minutes, 30 minutes, then 1 hour) within the configured maximum retry period. |
 | Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
 | Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |

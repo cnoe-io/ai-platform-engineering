@@ -635,8 +635,19 @@ export async function resolveOccurrenceMeetingId(
   invoke: Invoke,
   occurrence: WebexMeetingOccurrenceCandidate,
 ): Promise<string | null> {
-  if (occurrence.meetingId) return occurrence.meetingId;
-  if (!occurrence.webLink) return null;
+  const resolved = await resolveOccurrenceMeeting(invoke, occurrence);
+  return resolved.meetingId;
+}
+
+export async function resolveOccurrenceMeeting(
+  invoke: Invoke,
+  occurrence: WebexMeetingOccurrenceCandidate,
+): Promise<{ meetingId: string | null; missed: boolean }> {
+  if (occurrence.state?.toLowerCase() === "missed") {
+    return { meetingId: null, missed: true };
+  }
+  if (occurrence.meetingId) return { meetingId: occurrence.meetingId, missed: false };
+  if (!occurrence.webLink) return { meetingId: null, missed: false };
   const resolved = await invoke("webex_resolve_meeting_link", {
     web_link: occurrence.webLink,
     max_results: 20,
@@ -646,7 +657,17 @@ export async function resolveOccurrenceMeetingId(
   const exact =
     actualMeetings.find((item) => stringValue(item.start) === occurrence.start) ??
     actualMeetings[0];
-  return exact ? stringValue(exact.id) || null : null;
+  if (exact) return { meetingId: stringValue(exact.id) || null, missed: false };
+  const scheduledMeetings = items.filter(
+    (item) => stringValue(item.meetingType) === "scheduledMeeting",
+  );
+  const scheduled =
+    scheduledMeetings.find((item) => stringValue(item.start) === occurrence.start) ??
+    scheduledMeetings[0];
+  return {
+    meetingId: null,
+    missed: stringValue(scheduled?.state).toLowerCase() === "missed",
+  };
 }
 
 export async function downloadMeetingTranscript(

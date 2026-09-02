@@ -6,6 +6,7 @@ import {
   normalizeMeetingSeries,
   readMcpToolJson,
   resolveOccurrenceMeetingId,
+  resolveOccurrenceMeeting,
   webexMcpToolArguments,
 } from "../webex-meeting-series";
 
@@ -273,6 +274,31 @@ describe("Webex recurring meeting discovery", () => {
         source: "meetings_api",
       }),
     ).resolves.toBe("actual-1");
+  });
+
+  it("recognizes an official missed scheduled meeting without expecting a transcript", async () => {
+    const invoke = jest.fn(async () => ({
+      items: [
+        {
+          id: "scheduled-1",
+          meetingType: "scheduledMeeting",
+          state: "missed",
+          start: "2026-09-01T10:00:00Z",
+        },
+      ],
+    }));
+
+    await expect(
+      resolveOccurrenceMeeting(invoke, {
+        occurrenceKey: "calendar-1",
+        title: "Platform sync",
+        start: "2026-09-01T10:00:00Z",
+        end: "2026-09-01T11:00:00Z",
+        webLink: "https://example.webex.com/meet/example",
+        cancelled: false,
+        source: "userhub_calendar",
+      }),
+    ).resolves.toEqual({ meetingId: null, missed: true });
   });
 
   it("downloads and merges every transcript segment in start-time order", async () => {

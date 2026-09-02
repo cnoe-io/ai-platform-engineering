@@ -6,7 +6,7 @@ const scheduleOwnerCheck = jest.fn();
 const backgroundInvoker = jest.fn();
 const discoverMeetingSeries = jest.fn();
 const downloadMeetingTranscript = jest.fn();
-const resolveOccurrenceMeetingId = jest.fn();
+const resolveOccurrenceMeeting = jest.fn();
 const runFindOne = jest.fn();
 
 interface TestOccurrence {
@@ -107,7 +107,7 @@ jest.mock("../webex-meeting-series", () => ({
   discoverMeetingSeries: (...args: unknown[]) => discoverMeetingSeries(...args),
   downloadMeetingTranscript: (...args: unknown[]) => downloadMeetingTranscript(...args),
   meetingSeriesMatches: () => true,
-  resolveOccurrenceMeetingId: (...args: unknown[]) => resolveOccurrenceMeetingId(...args),
+  resolveOccurrenceMeeting: (...args: unknown[]) => resolveOccurrenceMeeting(...args),
 }));
 
 import {
@@ -173,7 +173,7 @@ describe("Webex meeting-series scheduler", () => {
         ],
       },
     ]);
-    resolveOccurrenceMeetingId.mockResolvedValue("actual-1");
+    resolveOccurrenceMeeting.mockResolvedValue({ meetingId: "actual-1", missed: false });
     downloadMeetingTranscript.mockResolvedValue({
       transcript: "A decision was made.",
       transcriptId: "transcript-1",
@@ -236,7 +236,7 @@ describe("Webex meeting-series scheduler", () => {
   });
 
   it("shows a pending transcript state and stops after the default two-hour retry period", async () => {
-    resolveOccurrenceMeetingId.mockResolvedValue(null);
+    resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: false });
 
     await tickWebexMeetingSeriesScheduler(now, [project]);
 
@@ -251,6 +251,18 @@ describe("Webex meeting-series scheduler", () => {
       status: "skipped",
       last_error: "No meeting transcript became available before the retry period ended.",
     });
+  });
+
+  it("skips an occurrence immediately when Webex says the meeting was missed", async () => {
+    resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: true });
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(occurrences[0]).toMatchObject({
+      status: "skipped",
+      last_error: "Meeting did not happen.",
+    });
+    expect(downloadMeetingTranscript).not.toHaveBeenCalled();
   });
 
   it("resets settling when another transcript segment appears", async () => {
