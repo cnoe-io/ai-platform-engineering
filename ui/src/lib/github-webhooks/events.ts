@@ -7,6 +7,7 @@ export const TOME_GITHUB_WEBHOOK_EVENTS = [
   "discussion_comment",
   "label",
   "milestone",
+  "pull_request",
 ] as const;
 
 export const ACCEPTED_GITHUB_WEBHOOK_EVENTS = new Set<string>([

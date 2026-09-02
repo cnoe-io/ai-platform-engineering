@@ -18,6 +18,10 @@ import { verifyGitHubWebhook } from "@/lib/github-webhooks/verify";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** The only `pull_request` actions TOME currently consumes — see the
+ * label-change bridge in `@/lib/events/subscribers.ts`. */
+const PULL_REQUEST_ACTIONS = new Set(["labeled", "unlabeled"]);
+
 interface GitHubRepositoryPayload {
   id?: number;
   full_name?: string;
@@ -73,6 +77,13 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const action = typeof payload.action === "string" ? payload.action : "received";
+  // `pull_request` is only accepted for the actions the Feed's label-change
+  // bridge cares about (see events/subscribers.ts) — every other action
+  // (synchronize, opened, review_requested, ...) fires far more often than
+  // TOME has a use for and would otherwise bloat the durable event bus.
+  if (eventType === "pull_request" && !PULL_REQUEST_ACTIONS.has(action)) {
+    return new Response(null, { status: 204 });
+  }
   const issue = payload.issue as
     | (GitHubIssueShape & { pull_request?: unknown })
     | undefined;
@@ -83,6 +94,11 @@ export async function POST(request: Request): Promise<Response> {
     !("pull_request" in issue)
       ? linkedIssueFromGitHub(repository.full_name, issue)
       : null;
+  const pullRequest = payload.pull_request as GitHubIssueShape | undefined;
+  const pullRequestSnapshot =
+    pullRequest?.number && pullRequest.title && pullRequest.html_url
+      ? linkedIssueFromGitHub(repository.full_name, pullRequest)
+      : null;
   const discussion = payload.discussion as
     | GitHubDiscussionWebhookShape
     | undefined;
@@ -90,6 +106,8 @@ export async function POST(request: Request): Promise<Response> {
     discussion?.number && discussion.title && discussion.html_url
       ? linkedDiscussionFromWebhook(repository.full_name, discussion)
       : null;
+  const label = payload.label as { name?: unknown } | undefined;
+  const labelName = typeof label?.name === "string" ? label.name : null;
   const receivedAt = new Date();
   const result = await publishCaipeEvent({
     _id: `github:${deliveryId}`,
@@ -98,9 +116,11 @@ export async function POST(request: Request): Promise<Response> {
     type: `github.${eventType}.${action}`,
     subject: issue?.number
       ? `${repository.full_name}#${issue.number}`
-      : discussion?.number
-        ? `${repository.full_name}:discussion#${discussion.number}`
-        : repository.full_name,
+      : pullRequest?.number
+        ? `${repository.full_name}#${pullRequest.number}`
+        : discussion?.number
+          ? `${repository.full_name}:discussion#${discussion.number}`
+          : repository.full_name,
     time: githubEventTime(payload) ?? receivedAt,
     received_at: receivedAt,
     data: {
@@ -111,8 +131,11 @@ export async function POST(request: Request): Promise<Response> {
       repository_full_name: repository.full_name,
       issue_number: issue?.number ?? null,
       issue: issueSnapshot,
+      pull_request_number: pullRequest?.number ?? null,
+      pull_request: pullRequestSnapshot,
       discussion_number: discussion?.number ?? null,
       discussion: discussionSnapshot,
+      label_name: labelName,
       sender_login: githubSender(payload),
     },
   });
@@ -134,6 +157,7 @@ function githubSender(payload: Record<string, unknown>): string | null {
 function githubEventTime(payload: Record<string, unknown>): Date | null {
   const candidates = [
     (payload.issue as { updated_at?: unknown } | undefined)?.updated_at,
+    (payload.pull_request as { updated_at?: unknown } | undefined)?.updated_at,
     (payload.discussion as { updated_at?: unknown } | undefined)?.updated_at,
     (payload.comment as { updated_at?: unknown } | undefined)?.updated_at,
     (payload.milestone as { updated_at?: unknown } | undefined)?.updated_at,

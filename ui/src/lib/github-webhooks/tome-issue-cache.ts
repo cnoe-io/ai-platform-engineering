@@ -58,6 +58,32 @@ export async function isRepositoryAttachedToTome(
   );
 }
 
+/** Slugs of TOME projects with this repo attached and the source feed not
+ * opted out — used to fan a webhook-sourced event out to the right room(s). */
+export async function projectSlugsForRepository(
+  repoId: number,
+  fullName: string,
+): Promise<string[]> {
+  const projects = await getCollection<ProjectDocument>("projects");
+  const candidates = attachedRepoCandidates(normalizeRepo(fullName));
+  const docs = await projects
+    .find(
+      {
+        $or: [
+          { "sources.github_repos.id": repoId },
+          { "sources.github_repos.full_name": candidates[0] },
+          { "sources.repos": { $in: candidates } },
+        ],
+        sources_feed_enabled: { $ne: false },
+      },
+      { projection: { slug: 1 } },
+    )
+    .toArray();
+  return docs
+    .map((doc) => doc.slug)
+    .filter((slug): slug is string => Boolean(slug));
+}
+
 function isLinkedIssue(value: unknown): value is LinkedIssueStatus {
   if (typeof value !== "object" || value === null) return false;
   const issue = value as Partial<LinkedIssueStatus>;

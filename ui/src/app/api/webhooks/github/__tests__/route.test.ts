@@ -59,6 +59,33 @@ function request(eventType = "issues"): Request {
   });
 }
 
+function pullRequestRequest(action: string): Request {
+  return new Request("http://example.test/api/webhooks/github", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-GitHub-Event": "pull_request",
+      "X-GitHub-Delivery": "delivery-pr-1",
+      "X-Hub-Signature-256": "sha256=signature",
+    },
+    body: JSON.stringify({
+      action,
+      repository: { id: 123, full_name: "example/service" },
+      pull_request: {
+        number: 7,
+        title: "Add retry to the sync job",
+        html_url: "https://github.com/example/service/pull/7",
+        state: "open",
+        labels: [{ name: "status:in-progress" }],
+        user: { login: "pr-author" },
+        updated_at: "2026-08-27T02:00:00Z",
+      },
+      label: { name: "status:in-progress" },
+      sender: { login: "test-user" },
+    }),
+  });
+}
+
 describe("shared GitHub webhook ingress", () => {
   const originalEnabled = process.env.TOME_GITHUB_WEBHOOK_ENABLED;
   const originalSecret = process.env.GITHUB_WEBHOOK_SECRET;
@@ -118,8 +145,11 @@ describe("shared GitHub webhook ingress", () => {
           updatedAt: "2026-08-27T00:00:00Z",
           closedAt: null,
         },
+        pull_request_number: null,
+        pull_request: null,
         discussion_number: null,
         discussion: null,
+        label_name: null,
         sender_login: "test-user",
       },
     });
@@ -151,6 +181,39 @@ describe("shared GitHub webhook ingress", () => {
         }),
       }),
     );
+  });
+
+  it("normalizes a labeled pull_request delivery, including the label name", async () => {
+    const response = await POST(pullRequestRequest("labeled"));
+
+    expect(response.status).toBe(202);
+    expect(mockPublishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "github.pull_request.labeled",
+        subject: "example/service#7",
+        time: new Date("2026-08-27T02:00:00Z"),
+        data: expect.objectContaining({
+          issue_number: null,
+          issue: null,
+          pull_request_number: 7,
+          pull_request: expect.objectContaining({
+            number: 7,
+            title: "Add retry to the sync job",
+            url: "https://github.com/example/service/pull/7",
+            labels: ["status:in-progress"],
+          }),
+          label_name: "status:in-progress",
+        }),
+      }),
+    );
+  });
+
+  it("drops pull_request actions the Feed bridge doesn't consume", async () => {
+    const response = await POST(pullRequestRequest("synchronize"));
+
+    expect(response.status).toBe(204);
+    expect(mockVerifyWebhook).toHaveBeenCalled();
+    expect(mockPublishEvent).not.toHaveBeenCalled();
   });
 
   it("rejects a repository that is not attached to TOME", async () => {

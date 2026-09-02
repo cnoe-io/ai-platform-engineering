@@ -1,12 +1,14 @@
 /** @jest-environment node */
 
 const mockProjectFindOne = jest.fn();
+const mockProjectFind = jest.fn();
 const mockUpsertIssue = jest.fn();
 const mockMarkStale = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async () => ({
     findOne: (...args: unknown[]) => mockProjectFindOne(...args),
+    find: (...args: unknown[]) => mockProjectFind(...args),
   })),
 }));
 jest.mock("@/lib/tome/github-issue-cache", () => ({
@@ -17,6 +19,7 @@ jest.mock("@/lib/tome/github-issue-cache", () => ({
 import {
   isRepositoryAttachedToTome,
   isTomeIssueCacheEvent,
+  projectSlugsForRepository,
   recordTomeIssueCacheEvent,
 } from "@/lib/github-webhooks/tome-issue-cache";
 
@@ -93,6 +96,35 @@ describe("TOME GitHub webhook cache consumer", () => {
         ],
       },
       { projection: { _id: 1 } },
+    );
+  });
+
+  it("resolves the slugs of attached projects that haven't opted out of the feed", async () => {
+    mockProjectFind.mockReturnValue({
+      toArray: async () => [{ slug: "caipe" }, { slug: "" }],
+    });
+
+    await expect(
+      projectSlugsForRepository(123, "example/service"),
+    ).resolves.toEqual(["caipe"]);
+    expect(mockProjectFind).toHaveBeenCalledWith(
+      {
+        $or: [
+          { "sources.github_repos.id": 123 },
+          { "sources.github_repos.full_name": "example/service" },
+          {
+            "sources.repos": {
+              $in: [
+                "example/service",
+                "https://github.com/example/service",
+                "https://github.com/example/service.git",
+              ],
+            },
+          },
+        ],
+        sources_feed_enabled: { $ne: false },
+      },
+      { projection: { slug: 1 } },
     );
   });
 

@@ -99,6 +99,7 @@ describe("POST TOME GitHub webhook subscription", () => {
         "discussion_comment",
         "label",
         "milestone",
+        "pull_request",
       ],
     });
     await expect(response.json()).resolves.toMatchObject({
@@ -161,6 +162,7 @@ describe("POST TOME GitHub webhook subscription", () => {
         "discussion_comment",
         "label",
         "milestone",
+        "pull_request",
       ],
     });
   });
