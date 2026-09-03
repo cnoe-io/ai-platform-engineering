@@ -40,15 +40,28 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     seed?: string;
     mode?: "full" | "quick";
     webexMeetings?: { id: string; title: string; start: string }[];
+    sourceScope?: "project" | "webex_meetings";
     seedStablePages?: boolean;
     skipReview?: boolean;
   };
+
+  if (body.sourceScope && !["project", "webex_meetings"].includes(body.sourceScope)) {
+    throw new ApiError("Invalid ingest source scope", 400, "BAD_REQUEST");
+  }
+  if (body.sourceScope === "webex_meetings" && !body.webexMeetings?.length) {
+    throw new ApiError(
+      "Select at least one Webex meeting for a meeting-only ingest.",
+      400,
+      "WEBEX_MEETING_REQUIRED",
+    );
+  }
 
   try {
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
       mode: body.mode,
       webexMeetings: body.webexMeetings,
+      sourceScope: body.sourceScope,
       seedStablePages: body.seedStablePages,
       skipReview: body.skipReview,
     });

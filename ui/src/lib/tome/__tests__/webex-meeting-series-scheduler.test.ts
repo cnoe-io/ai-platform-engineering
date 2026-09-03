@@ -228,6 +228,7 @@ describe("Webex meeting-series scheduler", () => {
         triggeredBy: "auto",
         dispatch: expect.objectContaining({
           endpoint: "/ingest",
+          sourceScope: "webex_meetings",
           triggeredBy: "auto",
           meetingOccurrenceId: expect.any(String),
           webexMeetings: [
@@ -545,4 +546,5 @@ describe("Webex meeting-series scheduler", () => {
     expect(enqueueRun).not.toHaveBeenCalled();
     expect(occurrences).toHaveLength(0);
   });
+
 });

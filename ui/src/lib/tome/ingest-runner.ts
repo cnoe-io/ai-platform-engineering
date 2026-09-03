@@ -274,6 +274,11 @@ async function prepareRun(
 
   const dispatch: IngestDispatch = run.dispatch ?? { endpoint: "/ingest" };
   const isGreenfield = run.greenfield;
+  const meetings = dispatch.webexMeetings ?? [];
+  const meetingOnly = dispatch.sourceScope === "webex_meetings";
+  if (meetingOnly && meetings.length === 0) {
+    throw new Error("A Webex meeting-only ingest requires at least one meeting.");
+  }
 
   if (isGreenfield) {
     await seedGreenfieldStablePages(project, reportId, runId);
@@ -282,29 +287,36 @@ async function prepareRun(
 
   // The original request session is gone by now; re-resolve from the stored sub.
   const credentials = await resolveCredentialsForSub(run.triggered_by_sub ?? "");
-  const githubReconciliation = await reconcileGitHubSourcesForIngest(
-    project,
-    credentials,
-  );
-  project = githubReconciliation.project;
-  for (const rename of githubReconciliation.canonicalized) {
-    await appendLog(
-      runId,
-      infoLine(`GitHub source renamed: ${rename.from} → ${rename.to}`),
+  if (!meetingOnly) {
+    const githubReconciliation = await reconcileGitHubSourcesForIngest(
+      project,
+      credentials,
     );
-  }
-  if (githubReconciliation.tombstonedPaths.length > 0) {
+    project = githubReconciliation.project;
+    for (const rename of githubReconciliation.canonicalized) {
+      await appendLog(
+        runId,
+        infoLine(`GitHub source renamed: ${rename.from} → ${rename.to}`),
+      );
+    }
+    if (githubReconciliation.tombstonedPaths.length > 0) {
+      await appendLog(
+        runId,
+        infoLine(
+          `tombstoned ${githubReconciliation.tombstonedPaths.length} obsolete GitHub source page(s); revision history preserved`,
+        ),
+      );
+    }
+  } else {
     await appendLog(
       runId,
-      infoLine(
-        `tombstoned ${githubReconciliation.tombstonedPaths.length} obsolete GitHub source page(s); revision history preserved`,
-      ),
+      infoLine("meeting-only ingest: attached project sources are excluded"),
     );
   }
 
-  const meetings = dispatch.webexMeetings ?? [];
   const connectorData: Record<string, unknown> =
     meetings.length > 0 ? { webex: { meetings } } : {};
+  const scopedProject = meetingOnly ? { ...project, sources: {} } : project;
 
   // BHAGs and Areas carry their child projects so the agent can read their wikis:
   // synthesis builds from them, compaction uses them as ground truth.
@@ -318,7 +330,7 @@ async function prepareRun(
       : [];
   if (run.quality_policy_mode !== "off") {
     const bundle = await captureEvidenceBundle({
-      project,
+      project: scopedProject,
       childProjects: childProjects.map((child) => ({
         _id: child.project_id,
         slug: child.slug,
@@ -332,27 +344,29 @@ async function prepareRun(
     );
   }
   const actorSub = run.triggered_by_sub ?? "";
-  const actorIsAdmin = actorSub ? await isTomeAdminSubject(actorSub) : false;
-  const readableProjects = await listReadableTomeProjects(actorSub || null, {
-    isAdmin: actorIsAdmin,
-  });
+  const actorIsAdmin = !meetingOnly && actorSub ? await isTomeAdminSubject(actorSub) : false;
+  const readableProjects = meetingOnly
+    ? []
+    : await listReadableTomeProjects(actorSub || null, { isAdmin: actorIsAdmin });
   let issueContext: AgentIssueContext | undefined;
-  try {
-    const issueRollup = selectTomeRollupProjects(
-      project,
-      readableProjects as Array<ProjectDocument & { _id: unknown }>,
-    );
-    const issueRepos = rollupGitHubRepos(issueRollup);
-    await loadTomeIssueCache({
-      repos: issueRepos,
-      token: credentials.github?.access_token,
-    });
-    issueContext = await buildTomeIssueContext(issueRepos);
-  } catch (error) {
-    await appendLog(
-      runId,
-      infoLine(`GitHub issue context unavailable: ${String((error as Error)?.message ?? error)}`),
-    );
+  if (!meetingOnly) {
+    try {
+      const issueRollup = selectTomeRollupProjects(
+        project,
+        readableProjects as Array<ProjectDocument & { _id: unknown }>,
+      );
+      const issueRepos = rollupGitHubRepos(issueRollup);
+      await loadTomeIssueCache({
+        repos: issueRepos,
+        token: credentials.github?.access_token,
+      });
+      issueContext = await buildTomeIssueContext(issueRepos);
+    } catch (error) {
+      await appendLog(
+        runId,
+        infoLine(`GitHub issue context unavailable: ${String((error as Error)?.message ?? error)}`),
+      );
+    }
   }
   const readableSlugs = new Set(readableProjects.map((candidate) => candidate.slug));
   const blockedChildren = childProjects.filter(
@@ -378,7 +392,7 @@ async function prepareRun(
     );
   }
 
-  const req = buildIngestRequest(project, {
+  const req = buildIngestRequest(scopedProject, {
     runId,
     reportId,
     seed: dispatch.seed?.trim() || null,
@@ -396,6 +410,7 @@ async function prepareRun(
     })),
     triggeredBy: run.triggered_by,
     issueContext,
+    sourceScope: dispatch.sourceScope,
   });
 
   return { projectId, reportId, req, endpoint };
@@ -425,6 +440,7 @@ export async function startIngestRun(
     seed?: string | null;
     mode?: "full" | "quick";
     webexMeetings?: WebexMeetingIngestItem[];
+    sourceScope?: IngestDispatch["sourceScope"];
     seedStablePages?: boolean;
     agentEndpoint?: string;
     /** Bypass draft review: pages this run writes go straight to "live". */
@@ -449,6 +465,7 @@ export async function startIngestRun(
       mode: opts.mode,
       seedStablePages: opts.seedStablePages,
       webexMeetings: opts.webexMeetings,
+      sourceScope: opts.sourceScope,
       skipReview: opts.skipReview,
       triggeredBy: opts.triggeredBy,
     },

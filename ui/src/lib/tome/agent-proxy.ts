@@ -23,6 +23,7 @@ import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
 import type { AgentIssueContext } from "./github-issue-cache";
 import type { ProjectDocument } from "@/types/projects";
+import type { IngestDispatch } from "@/types/tome";
 import { isSynthesizedType } from "@/types/projects";
 
 /**
@@ -475,9 +476,12 @@ export function buildIngestRequest(
     /** "auto" = unattended CRON run; no fresh human intent behind `seed`. */
     triggeredBy?: "manual" | "auto";
     issueContext?: AgentIssueContext;
+    sourceScope?: IngestDispatch["sourceScope"];
   },
 ): AgentIngestRequest {
-  const snapshot = buildSnapshotFromProject(project);
+  const snapshot = buildSnapshotFromProject(
+    opts.sourceScope === "webex_meetings" ? { ...project, sources: {} } : project,
+  );
   if (opts.childProjects?.length) {
     snapshot.child_projects = opts.childProjects;
   }

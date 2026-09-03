@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  CheckCircle2,
   ChevronRight,
   FileClock,
   FileText,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   TriangleAlert,
@@ -43,6 +45,20 @@ interface ApiEnvelope<T> {
   error?: { message?: string } | string;
   code?: string;
   message?: string;
+}
+
+interface BackfillItem {
+  occurrenceKey: string;
+  title: string;
+  start: string;
+  end: string;
+}
+
+interface BackfillPreview {
+  lookbackDays: number;
+  foundCount: number;
+  trackedCount: number;
+  missing: BackfillItem[];
 }
 
 const WEBEX_CONNECTION_REQUIRED = "WEBEX_MEETINGS_CONNECTION_REQUIRED";
@@ -121,6 +137,14 @@ export function WebexMeetingSeriesSettings({
   const [searchQuery, setSearchQuery] = useState("");
   const [accessWarningCandidate, setAccessWarningCandidate] = useState<Candidate | null>(null);
   const [allowNonHostSeries, setAllowNonHostSeries] = useState(true);
+  const [syncSubscription, setSyncSubscription] =
+    useState<WebexMeetingSeriesSubscription | null>(null);
+  const [syncPreview, setSyncPreview] = useState<BackfillPreview | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const [selectedBackfill, setSelectedBackfill] = useState<Set<string>>(new Set());
+  const [syncResult, setSyncResult] = useState("");
+  const [retryingOccurrence, setRetryingOccurrence] = useState<string | null>(null);
 
   const loadSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -242,6 +266,116 @@ export function WebexMeetingSeriesSettings({
     }
   };
 
+  const syncNow = async (subscription: WebexMeetingSeriesSubscription) => {
+    setSyncSubscription(subscription);
+    setSyncPreview(null);
+    setSelectedBackfill(new Set());
+    setSyncResult("");
+    setSyncError("");
+    setSyncLoading(true);
+    try {
+      const response = await fetch(
+        `${endpoint}/sync?subscriptionId=${encodeURIComponent(subscription.id)}`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json().catch(() => ({}))) as ApiEnvelope<BackfillPreview>;
+      if (!response.ok || !body.data) {
+        throw new Error(apiError(body, "Could not check past meeting occurrences."));
+      }
+      setSyncPreview(body.data);
+    } catch (cause) {
+      setSyncError(
+        cause instanceof Error ? cause.message : "Could not check past meeting occurrences.",
+      );
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const toggleBackfill = (occurrenceKey: string, checked: boolean) => {
+    setSelectedBackfill((current) => {
+      const next = new Set(current);
+      if (checked) next.add(occurrenceKey);
+      else next.delete(occurrenceKey);
+      return next;
+    });
+  };
+
+  const queueBackfill = async () => {
+    if (!syncSubscription || selectedBackfill.size === 0) return;
+    setSyncLoading(true);
+    setSyncError("");
+    setSyncResult("");
+    try {
+      const response = await fetch(`${endpoint}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscriptionId: syncSubscription.id,
+          occurrenceKeys: [...selectedBackfill],
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as ApiEnvelope<{
+        queuedCount: number;
+        skippedCount: number;
+      }>;
+      if (!response.ok || !body.data) {
+        throw new Error(apiError(body, "Could not queue past meeting occurrences."));
+      }
+      const queued = body.data.queuedCount;
+      setSyncResult(
+        queued > 0
+          ? `${queued} meeting${queued === 1 ? "" : "s"} queued for transcript ingestion.`
+          : "Those meetings were already caught up.",
+      );
+      setSyncPreview((current) =>
+        current
+          ? {
+              ...current,
+              trackedCount: current.trackedCount + queued,
+              missing: current.missing.filter(
+                (item) => !selectedBackfill.has(item.occurrenceKey),
+              ),
+            }
+          : current,
+      );
+      setSelectedBackfill(new Set());
+      await loadSubscriptions();
+    } catch (cause) {
+      setSyncError(
+        cause instanceof Error ? cause.message : "Could not queue past meeting occurrences.",
+      );
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const retryOccurrence = async (occurrence: WebexMeetingOccurrenceSummary) => {
+    setRetryingOccurrence(occurrence.id);
+    setError("");
+    try {
+      const response = await fetch(`${endpoint}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ occurrenceId: occurrence.id }),
+      });
+      const body = (await response.json().catch(() => ({}))) as ApiEnvelope<{
+        runId: string;
+        status: "queued";
+      }>;
+      if (!response.ok || !body.data?.runId) {
+        throw new Error(apiError(body, "Could not retry the failed meeting ingest."));
+      }
+      await loadSubscriptions();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not retry the failed meeting ingest.",
+      );
+    } finally {
+      setRetryingOccurrence(null);
+    }
+  };
+
   const available = useMemo(
     () => candidates.filter((candidate) => !subscriptions.some((item) => item.seriesKey === candidate.seriesKey)),
     [candidates, subscriptions],
@@ -355,16 +489,28 @@ export function WebexMeetingSeriesSettings({
                 {mutating === subscription.id ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Remove ${subscription.title}`}
-                    disabled={!canEdit}
-                    onClick={() => void remove(subscription)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 px-2 text-xs"
+                      disabled={!canEdit}
+                      onClick={() => void syncNow(subscription)}
+                    >
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sync now
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Remove ${subscription.title}`}
+                      disabled={!canEdit}
+                      onClick={() => void remove(subscription)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
               </div>
               {expandedSeries.has(subscription.id) && (
@@ -431,6 +577,24 @@ export function WebexMeetingSeriesSettings({
                             </div>
                             {occurrence.runId && (
                               <div className="flex shrink-0 items-center gap-1.5">
+                                {occurrence.runStatus === "failed" && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={!canEdit || retryingOccurrence === occurrence.id}
+                                    onClick={() => void retryOccurrence(occurrence)}
+                                  >
+                                    <RefreshCw
+                                      className={cn(
+                                        "h-3.5 w-3.5",
+                                        retryingOccurrence === occurrence.id && "animate-spin",
+                                      )}
+                                    />
+                                    Retry
+                                  </Button>
+                                )}
                                 {(occurrence.runStatus === "awaiting_review" ||
                                   (occurrence.runStatus === "succeeded" && occurrence.reportId)) && (
                                   <Button asChild type="button" size="sm" variant="outline" className="h-7 px-2 text-xs">
@@ -571,6 +735,121 @@ export function WebexMeetingSeriesSettings({
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(syncSubscription)}
+        onOpenChange={(open) => {
+          if (!open && !syncLoading) setSyncSubscription(null);
+        }}
+      >
+        <DialogContent className="max-h-[75vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Sync past Webex meetings</DialogTitle>
+            <DialogDescription>
+              Check “{syncSubscription?.title}” for ended occurrences that Tome has not tracked.
+              This is a fresh lookup using {syncSubscription?.credentialOwner.name || syncSubscription?.credentialOwner.email}&apos;s
+              Webex (Meetings) connection.
+            </DialogDescription>
+          </DialogHeader>
+
+          {syncLoading && !syncPreview ? (
+            <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Checking past meetings…
+            </p>
+          ) : syncError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {syncError}
+            </div>
+          ) : syncPreview ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Checked the past {syncPreview.lookbackDays} days. Webex returned {syncPreview.foundCount} ended
+                meeting{syncPreview.foundCount === 1 ? "" : "s"}; {syncPreview.trackedCount} {syncPreview.trackedCount === 1 ? "is" : "are"} already tracked.
+              </p>
+
+              {syncResult && (
+                <div className="flex items-start gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {syncResult}
+                </div>
+              )}
+
+              {syncPreview.missing.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-4 text-sm font-medium">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" /> All caught up
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium">
+                      Found {syncPreview.missing.length} missing meeting{syncPreview.missing.length === 1 ? "" : "s"}
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all missing meetings"
+                        checked={selectedBackfill.size === syncPreview.missing.length}
+                        onChange={(event) =>
+                          setSelectedBackfill(
+                            event.target.checked
+                              ? new Set(syncPreview.missing.map((item) => item.occurrenceKey))
+                              : new Set(),
+                          )
+                        }
+                      />
+                      Select all
+                    </label>
+                  </div>
+                  <ul className="divide-y rounded-lg border">
+                    {syncPreview.missing.map((meeting) => (
+                      <li key={meeting.occurrenceKey} className="flex items-center gap-3 px-3 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${meeting.title} on ${new Date(meeting.start).toLocaleString()}`}
+                          checked={selectedBackfill.has(meeting.occurrenceKey)}
+                          onChange={(event) =>
+                            toggleBackfill(meeting.occurrenceKey, event.target.checked)
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{meeting.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(meeting.start).toLocaleString()} – {new Date(meeting.end).toLocaleTimeString()}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {!syncSubscription?.enabled && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Enable this series before queuing historical meetings.
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={syncLoading}
+                      onClick={() => setSyncSubscription(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={
+                        syncLoading || selectedBackfill.size === 0 || !syncSubscription?.enabled
+                      }
+                      onClick={() => void queueBackfill()}
+                    >
+                      {syncLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                      Ingest selected ({selectedBackfill.size})
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
 

@@ -280,6 +280,12 @@ export interface ModelProvenance {
 export interface IngestDispatch {
   /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
   endpoint: string;
+  /**
+   * Limit this run to an explicit connector payload. Meeting-series and the
+   * dedicated "Ingest meeting" action must not pull attached project sources.
+   * Absent/"project" preserves normal full-ingest behavior.
+   */
+  sourceScope?: "project" | "webex_meetings";
   seed?: string | null;
   /** "quick" skips the breadth-first source sweep. Default "full". */
   mode?: "full" | "quick";

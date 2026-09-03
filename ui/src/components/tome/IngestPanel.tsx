@@ -572,6 +572,7 @@ export function IngestPanel({
           seed: seed.trim() || undefined,
           mode,
           webexMeetings: selectedList.length > 0 ? selectedList : undefined,
+          sourceScope: action === "meeting" ? "webex_meetings" : undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
         };
     try {

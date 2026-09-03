@@ -544,6 +544,7 @@ async function processOccurrence(
       triggeredBy: "auto",
       dispatch: {
         endpoint: "/ingest",
+        sourceScope: "webex_meetings",
         seed: null,
         mode: "quick",
         triggeredBy: "auto",

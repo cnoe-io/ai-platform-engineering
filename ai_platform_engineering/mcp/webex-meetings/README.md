@@ -52,6 +52,12 @@ best-effort fallback when public `/v1/meetings` rows look stale or expired: it c
 surface Office365/Google-backed future occurrences that the public Webex schedule
 API does not expose as `scheduledMeeting` rows.
 
+The calendar request mirrors the User Hub web client: `meetingListType=All`,
+`hidePastMeeting=false`, and `showMeetings=1`. `showMeetings` asks the feed to
+include meeting entries rather than returning only calendar-shell metadata.
+Calendar reads currently start at `offset=0` and request at most 500 rows; the
+tool then applies the requested ISO time window and title filter locally.
+
 User Hub timestamps include an IANA timezone such as
 `America/Los_Angeles`. The MCP image includes the timezone database and
 normalizes those local wall-clock values to UTC. If timezone metadata cannot be
@@ -77,6 +83,22 @@ derivation is unavailable, or set `userhub_fallback=false` to disable this path.
 
 User Hub endpoints are not part of Webex's public REST API. Keep this behavior as
 a guarded fallback and expect Webex may change its response shape or paths.
+
+Recording-list pagination uses pages of 100 and stops at the reported total,
+an empty/short page, or 1,000 rows. Matching first filters by normalized title
+(including removal of User Hub's timestamp suffix), then chooses recordings
+within two days of the requested occurrence start. At most 100 candidate detail
+records are inspected.
+
+For safety, supplied and derived site URLs must be HTTPS Webex hosts, transcript
+download URLs must also be hosted by Webex, and returned meeting objects have
+password/host-key fields removed recursively.
+
+## Tests
+
+```bash
+uv run pytest tests/test_userhub_transcripts.py
+```
 
 ## Run locally
 
