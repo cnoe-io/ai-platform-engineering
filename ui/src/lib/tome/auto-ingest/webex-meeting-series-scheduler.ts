@@ -519,6 +519,18 @@ async function processOccurrence(
       return false;
     }
     if (await isIngestRunning(project._id)) {
+      const blockingRun = await runs.findOne(
+        {
+          project_id: project._id,
+          status: { $in: ["queued", "running", "awaiting_review"] },
+        },
+        { sort: { started_at: -1 } },
+      );
+      const needsReview = blockingRun?.status === "awaiting_review";
+      const message = needsReview
+        ? "Transcript ready; another ingest draft needs review before this meeting can continue."
+        : "Transcript ready; waiting for another project ingest to finish.";
+      const nextAttemptAt = new Date(now.getTime() + 5 * 60_000);
       await occurrences.updateOne(
         { _id: claimed._id, status: "processing" },
         {
@@ -529,11 +541,21 @@ async function processOccurrence(
             transcript_ids: downloaded.transcriptIds,
             transcript_fingerprint: fingerprint,
             transcript_observed_at: observedAt,
-            next_attempt_at: new Date(now.getTime() + 5 * 60_000),
+            next_attempt_at: nextAttemptAt,
+            ...(blockingRun?._id ? { blocked_by_run_id: String(blockingRun._id) } : {}),
+            ...(blockingRun?.status ? { blocked_by_run_status: blockingRun.status } : {}),
+            last_error: message,
             updated_at: now,
           },
+          ...(!blockingRun
+            ? { $unset: { blocked_by_run_id: "", blocked_by_run_status: "" } }
+            : {}),
         },
       );
+      await updateSubscription(project._id, subscription.id, {
+        lastStatus: "ready",
+        lastError: message,
+      });
       return false;
     }
 
@@ -580,6 +602,7 @@ async function processOccurrence(
               : "",
           updated_at: now,
         },
+        $unset: { blocked_by_run_id: "", blocked_by_run_status: "" },
       },
     );
     await updateSubscription(project._id, subscription.id, {

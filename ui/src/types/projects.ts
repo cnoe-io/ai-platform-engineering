@@ -251,7 +251,14 @@ export interface WebexMeetingSeriesSubscription {
   nextOccurrenceEndAt?: string;
   lastOccurrenceAt?: string;
   lastRunId?: string;
-  lastStatus?: "pending" | "waiting_transcript" | "queued" | "ingested" | "skipped" | "failed";
+  lastStatus?:
+    | "pending"
+    | "waiting_transcript"
+    | "ready"
+    | "queued"
+    | "ingested"
+    | "skipped"
+    | "failed";
   lastError?: string;
 }
 

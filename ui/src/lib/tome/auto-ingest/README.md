@@ -133,7 +133,7 @@ series owned by the same user normally share one discovery sweep.
 | Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
 | Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |
 | Transcript deadline | Stop retrying 2 hours after the occurrence ended by default. |
-| Another project ingest is running | Keep the occurrence ready and retry after 5 minutes. |
+| Another project ingest is running | Keep the occurrence ready and retry after 5 minutes. If that run is awaiting review, show a collapsed **Warning: needs attention** message with a link to the blocking review. |
 | Discovery failure | Retry the owner/site calendar after 15 minutes. |
 
 An occurrence that ended before the subscription was created is not silently

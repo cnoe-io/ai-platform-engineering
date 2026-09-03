@@ -251,6 +251,45 @@ describe("Webex meeting-series scheduler", () => {
     );
   });
 
+  it("marks a settled transcript as needing attention when another draft awaits review", async () => {
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    isIngestRunning.mockResolvedValue(true);
+    runFindOne.mockImplementation(async (query: Record<string, unknown>) =>
+      query.project_id
+        ? {
+            _id: "blocking-run",
+            project_id: "project-1",
+            status: "awaiting_review",
+            started_at: new Date("2026-09-01T11:45:00Z"),
+          }
+        : null,
+    );
+    const retryAt = new Date(now.getTime() + 15 * 60_000);
+    await tickWebexMeetingSeriesScheduler(retryAt, [project]);
+
+    expect(enqueueRun).not.toHaveBeenCalled();
+    expect(occurrences[0]).toMatchObject({
+      status: "ready",
+      next_attempt_at: new Date(retryAt.getTime() + 5 * 60_000),
+      blocked_by_run_id: "blocking-run",
+      blocked_by_run_status: "awaiting_review",
+      last_error:
+        "Transcript ready; another ingest draft needs review before this meeting can continue.",
+    });
+    expect(projectUpdate).toHaveBeenCalledWith(
+      { _id: "project-1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "autoIngest.webexMeetingSeries.$[series].lastStatus": "ready",
+          "autoIngest.webexMeetingSeries.$[series].lastError":
+            "Transcript ready; another ingest draft needs review before this meeting can continue.",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("shows a pending transcript state and stops after the default two-hour retry period", async () => {
     resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: false });
     downloadMeetingTranscript.mockResolvedValue(null);

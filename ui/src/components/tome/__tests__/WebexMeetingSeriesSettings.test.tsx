@@ -132,6 +132,64 @@ describe("WebexMeetingSeriesSettings", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a collapsed needs-attention warning linked to the blocking review", async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          subscriptions: [
+            {
+              id: "subscription-1",
+              enabled: true,
+              seriesKey: "series-1",
+              seriesSlug: "weekly-sync",
+              title: "Weekly sync",
+              sourceRefs: {},
+              credentialOwner: {
+                subject: "user-1",
+                email: "owner@example.test",
+                name: "Example Owner",
+                confirmedAt: "2026-08-01T09:00:00Z",
+              },
+              createdAt: "2026-08-01T09:00:00Z",
+              lastStatus: "ready",
+              lastError:
+                "Transcript ready; another ingest draft needs review before this meeting can continue.",
+            },
+          ],
+          occurrences: [
+            {
+              id: "occurrence-ready",
+              subscriptionId: "subscription-1",
+              title: "Weekly sync",
+              start: "2026-09-01T10:00:00Z",
+              end: "2026-09-01T11:00:00Z",
+              nextAttemptAt: "2026-09-01T11:35:00Z",
+              status: "ready",
+              transcriptFound: true,
+              transcriptCount: 1,
+              blockedByRunId: "blocking-run",
+              blockedByRunStatus: "awaiting_review",
+              logLines: 0,
+              lastError:
+                "Transcript ready; another ingest draft needs review before this meeting can continue.",
+            },
+          ],
+        },
+      }),
+    });
+
+    render(<WebexMeetingSeriesSettings slug="example-project" canEdit />);
+
+    expect(await screen.findByText("Warning: needs attention")).toBeInTheDocument();
+    expect(screen.queryByText("1 transcript found")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review blocking ingest" })).toHaveAttribute(
+      "href",
+      "/projects/example-project/tome/ingest/blocking-run/review",
+    );
+  });
+
   it("retries a failed meeting ingest through the dedicated retry endpoint", async () => {
     let retried = false;
     (global.fetch as jest.Mock).mockImplementation(
