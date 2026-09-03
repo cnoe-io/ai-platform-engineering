@@ -1,3 +1,31 @@
+## 1.0.0-dev.21 (2026-09-02)
+
+### Fix
+
+- **rbac**: allow self-service read access to Webex bot picker
+
+## 1.0.0-dev.20 (2026-09-02)
+
+### Feat
+
+- **ui**: add re-upload modal for file datasources
+- **rag**: add file datasource re-upload endpoint
+
+### Fix
+
+- **rag**: preserve job history across file datasource re-uploads
+
+## 1.0.0-dev.19 (2026-09-02)
+
+### Fix
+
+- **ci**: use built-in token for Dependabot Grype scans (#2628)
+- Update README.md (#2542)
+
+## 1.0.0-dev.18 (2026-09-01)
+
+## 1.0.0-rc.6 (2026-09-01)
+
 ## 1.0.0-dev.17 (2026-09-01)
 
 ### Feat
