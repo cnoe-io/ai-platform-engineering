@@ -91,7 +91,7 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.tag || github.ref }}
 
       - name: Run Grype scan
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: scan
         with:
           path: "."
@@ -183,7 +183,7 @@ jobs:
           fi
 
       - name: Run Grype scan on container image
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: scan
         with:
           image: "ghcr.io/cnoe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
