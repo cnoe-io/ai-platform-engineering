@@ -6,6 +6,7 @@ import {
   MAX_IMPORT_FILES,
   MAX_IMPORT_TOTAL_BYTES,
 } from "@/lib/tome/document-import-formats";
+import { AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getPageStore } from "@/lib/tome/page-store";
 import {
@@ -85,7 +86,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   const store = await getPageStore();
   await store.writePages(tctx.projectId, pages, {
-    author: tctx.user.email ?? "tome",
+    author: tctx.user.email ?? AGENT_IDENTITIES.default,
     message: `import ${converted.length} document${converted.length === 1 ? "" : "s"}`,
   });
 

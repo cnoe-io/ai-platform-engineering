@@ -33,6 +33,7 @@ import {
   loadTomeProject,
   requireTomeEditor,
 } from "@/lib/tome/tome-api";
+import { AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 
 export const dynamic = "force-dynamic";
@@ -156,7 +157,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     typeof body?.description === "string" ? body.description.trim() : "",
   );
   await store.writePage(tctx.projectId, path, markdown, {
-    author: tctx.user.email ?? "tome",
+    author: tctx.user.email ?? AGENT_IDENTITIES.default,
     message: `create ${type}: ${title}`,
   });
   auditTome({

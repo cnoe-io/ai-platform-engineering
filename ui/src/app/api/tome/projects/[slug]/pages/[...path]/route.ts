@@ -18,6 +18,7 @@ import { loadTomeProject, requireTomeEditor, guardNotLocked } from "@/lib/tome/t
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getPageStore } from "@/lib/tome/page-store";
 import { PageNotFoundError } from "@/lib/tome/mongo-page-store";
+import { AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { parseFrontmatter } from "@/lib/tome/schema";
 import { SPEC_BY_PATH } from "@/lib/tome/schema";
 import type { PageKind, PageResponse } from "@/types/tome";
@@ -74,7 +75,7 @@ export const PUT = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const store = await getPageStore();
   await store.writePage(tctx.projectId, pagePath, body.markdown, {
     message: body.message || `edit ${pagePath}`,
-    author: tctx.user.email ?? "tome",
+    author: tctx.user.email ?? AGENT_IDENTITIES.default,
   });
 
   auditTome({
@@ -96,7 +97,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
 
   const store = await getPageStore();
   await store.deletePage(tctx.projectId, pagePath, {
-    author: tctx.user.email ?? "tome",
+    author: tctx.user.email ?? AGENT_IDENTITIES.default,
   });
 
   auditTome({

@@ -30,6 +30,7 @@ import {
   loadTomeProject,
   requireTomeEditor,
 } from "@/lib/tome/tome-api";
+import { AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 
 export const dynamic = "force-dynamic";
@@ -121,7 +122,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest, ctx: Ctx) => 
   }
   const updatedMarkdown = serializeFrontmatter(next, prose);
   await store.writePage(tctx.projectId, path, updatedMarkdown, {
-    author: tctx.user.email ?? "tome",
+    author: tctx.user.email ?? AGENT_IDENTITIES.default,
     message: `update ${entityType} lifecycle`,
   });
   auditTome({

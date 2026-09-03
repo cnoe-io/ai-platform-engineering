@@ -29,6 +29,7 @@ import {
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
+import { SYSTEM_AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import {
@@ -151,6 +152,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const projectIds = results.map((p) => String(p._id));
   const pageCountMap = new Map<string, number>();
   const lastIngestMap = new Map<string, Date | null>();
+  const lastEditMap = new Map<string, Date | null>();
   const activeRunsMap = new Map<string, ActiveIngestRun[]>();
 
   if (projectIds.length > 0) {
@@ -159,12 +161,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         getCollection("tome_page_revisions"),
         getCollection("tome_ingest_runs"),
       ]);
-      const [pageCounts, lastIngests, activeRuns] = await Promise.all([
+      const [pageCounts, lastEdits, lastIngests, activeRuns] = await Promise.all([
         pageRevisions.aggregate([
           { $match: { project_id: { $in: projectIds }, deleted: { $ne: true } } },
           { $sort: { project_id: 1, path: 1, created_at: -1 } },
           { $group: { _id: { project_id: "$project_id", path: "$path" } } },
           { $group: { _id: "$_id.project_id", count: { $sum: 1 } } },
+        ]).toArray(),
+        pageRevisions.aggregate([
+          {
+            $match: {
+              project_id: { $in: projectIds },
+              author: { $nin: SYSTEM_AGENT_IDENTITIES },
+            },
+          },
+          { $group: { _id: "$project_id", last_edited_at: { $max: "$created_at" } } },
         ]).toArray(),
         ingestRuns.aggregate([
           { $match: { project_id: { $in: projectIds }, status: "succeeded" } },
@@ -180,6 +191,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ]);
       for (const row of pageCounts) {
         pageCountMap.set(String(row._id), row.count as number);
+      }
+      for (const row of lastEdits) {
+        lastEditMap.set(String(row._id), row.last_edited_at as Date);
       }
       for (const row of lastIngests) {
         lastIngestMap.set(String(row._id), row.last_ingested_at as Date);
@@ -212,6 +226,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         _id: id,
         page_count: pageCountMap.get(id) ?? null,
         last_ingested_at: lastIngestMap.get(id) ?? null,
+        last_edited_at: lastEditMap.get(id) ?? null,
         active_ingests: activeRunsMap.get(id) ?? [],
       };
     }),

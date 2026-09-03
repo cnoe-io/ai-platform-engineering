@@ -8,6 +8,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor, guardNotLocked } from "@/lib/tome/tome-api";
+import { AGENT_IDENTITIES } from "@/lib/tome/agent-identities";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getPageStore } from "@/lib/tome/page-store";
 import { PageNotFoundError } from "@/lib/tome/mongo-page-store";
@@ -31,7 +32,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const store = await getPageStore();
   try {
     await store.revertPage(tctx.projectId, pagePath, body.revisionId, {
-      author: tctx.user.email ?? "tome",
+      author: tctx.user.email ?? AGENT_IDENTITIES.default,
     });
   } catch (err) {
     if (err instanceof PageNotFoundError) {
