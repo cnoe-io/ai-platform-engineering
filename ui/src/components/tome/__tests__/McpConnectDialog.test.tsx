@@ -77,6 +77,27 @@ describe("McpConnectDialog", () => {
     expect(screen.getByText(/opencode mcp debug tome/)).toBeInTheDocument();
   });
 
+  it("provides GitHub Copilot remote MCP setup through VS Code", () => {
+    render(<McpConnectDialog initialOpen />);
+
+    fireEvent.mouseDown(
+      screen.getByRole("tab", { name: "GitHub Copilot" }),
+      {
+        button: 0,
+        ctrlKey: false,
+      },
+    );
+
+    expect(screen.getByText(/^\.vscode\/mcp\.json$/)).toBeInTheDocument();
+    expect(screen.getByText(/"type": "http"/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/"url": "http:\/\/localhost\/api\/tome\/mcp"/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/MCP servers in Copilot/)).toBeInTheDocument();
+    expect(screen.getByText("MCP: List Servers")).toBeInTheDocument();
+    expect(screen.queryByText(/personal access token|PAT/)).not.toBeInTheDocument();
+  });
+
   it("shows a shared read-only verification prompt and failure signals", () => {
     render(<McpConnectDialog initialOpen />);
 

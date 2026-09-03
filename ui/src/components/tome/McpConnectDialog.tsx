@@ -20,6 +20,7 @@ import { buildMcpRemoteOAuthArgs } from "@/lib/tome/mcpb/manifest";
  * "Connect via MCP" - surfaced from the Tome header. Native remote-MCP
  * clients only need the Streamable HTTP URL: they discover OAuth from the
  * protected-resource metadata and dynamically register a public PKCE client.
+ * GitHub Copilot and Cursor use their native remote-server configuration.
  * Claude Desktop uses a local bridge configured through its Developer settings
  * because enterprise accounts can restrict custom Web connectors. Every option
  * uses the same OAuth discovery and public-PKCE flow; none requires a static
@@ -35,6 +36,21 @@ const VERIFICATION_PROMPT = [
 function codexCommand(endpoint: string): string {
   return [`codex mcp add tome --url ${endpoint}`, "codex mcp login tome"].join(
     "\n",
+  );
+}
+
+function githubCopilotConfig(endpoint: string): string {
+  return JSON.stringify(
+    {
+      servers: {
+        tome: {
+          type: "http",
+          url: endpoint,
+        },
+      },
+    },
+    null,
+    2,
   );
 }
 
@@ -118,9 +134,9 @@ export function McpConnectDialog({
             Connect via MCP
           </DialogTitle>
           <DialogDescription>
-            Use these TOME projects from Codex, Claude, Cursor, or OpenCode.
-            Native clients connect over Streamable HTTP; Claude Desktop uses a
-            local bridge. Every option signs in via OAuth.
+            Use these TOME projects from Codex, GitHub Copilot, Claude, Cursor,
+            or OpenCode. Native clients connect over Streamable HTTP; Claude
+            Desktop uses a local bridge. Every option signs in via OAuth.
           </DialogDescription>
         </DialogHeader>
 
@@ -132,6 +148,9 @@ export function McpConnectDialog({
               <TabsList className="h-auto max-w-full justify-start overflow-x-auto">
                 <TabsTrigger value="codex" className="shrink-0">
                   Codex
+                </TabsTrigger>
+                <TabsTrigger value="github-copilot" className="shrink-0">
+                  GitHub Copilot
                 </TabsTrigger>
                 <TabsTrigger value="claude-code" className="shrink-0">
                   Claude Code
@@ -166,6 +185,40 @@ export function McpConnectDialog({
                   }
                   text={["codex mcp get tome", "codex mcp list"].join("\n")}
                 />
+              </TabsContent>
+              <TabsContent
+                value="github-copilot"
+                className="min-w-0 space-y-3"
+              >
+                <p className="text-xs text-muted-foreground">
+                  For GitHub Copilot Chat in VS Code. If your organization uses
+                  Copilot Business or Enterprise, an administrator must enable
+                  the <strong>MCP servers in Copilot</strong> policy.
+                </p>
+                <InstructionBlock
+                  title="Add .vscode/mcp.json"
+                  description="Use this workspace configuration, or add the same server to your VS Code user MCP configuration."
+                  text={githubCopilotConfig(endpoint)}
+                  copyLabel="Copy JSON"
+                />
+                <div className="rounded-md border p-3 text-xs">
+                  <p className="font-medium">Sign in and verify</p>
+                  <ol className="mt-1 list-decimal space-y-1 pl-4 text-muted-foreground">
+                    <li>
+                      Open <code>.vscode/mcp.json</code>, then select the{" "}
+                      <strong>Start</strong> or <strong>Auth</strong> CodeLens
+                      above <code>tome</code> and complete OAuth.
+                    </li>
+                    <li>
+                      Run <code>MCP: List Servers</code> from the VS Code command
+                      palette and confirm <code>tome</code> is running.
+                    </li>
+                    <li>
+                      Open Copilot Chat in Agent mode, select the tools icon,
+                      and confirm the Tome tools are available.
+                    </li>
+                  </ol>
+                </div>
               </TabsContent>
               <TabsContent
                 value="claude-code"
