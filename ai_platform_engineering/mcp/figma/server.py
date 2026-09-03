@@ -13,7 +13,13 @@ from fastmcp import FastMCP
 from mcp_agent_auth.middleware import MCPAuthMiddleware
 from starlette.middleware import Middleware
 
-from api import FigmaClient, FigmaConfigurationError, client_from_environment, validate_identifier
+from api import (
+  FigmaClient,
+  FigmaConfigurationError,
+  client_from_environment,
+  parse_figma_url as _parse_figma_url,
+  validate_identifier,
+)
 
 
 LOGGER = logging.getLogger("mcp-figma")
@@ -60,6 +66,27 @@ def _params(**values: Any) -> Mapping[str, Any]:
   return {key: value for key, value in values.items() if value is not None}
 
 
+def parse_figma_url(url: str) -> dict[str, str | None]:
+  """Classify a Figma URL and extract its file/team/folder ID -- call this FIRST on any pasted link.
+
+  Figma's REST API has no endpoint to list a caller's teams or files, so
+  list_team_folders/list_folder_files/get_file etc. only work when handed
+  the right kind of ID up front. Figma's web app produces several
+  similar-looking URLs that are NOT interchangeable: a file link
+  (/file, /design, /proto, /board, /slides), a team link
+  (/files/team/<id>/...), a folder link (/files/project/<id>/...), and
+  personal views like "recently viewed" or "drafts"
+  (/files/<id>/recents-and-sharing/...) whose URL segments look like IDs
+  but are NOT valid file/team/folder identifiers -- passing one to a team
+  or folder tool reliably fails with 403/404.
+
+  Returns {"kind": "file"|"team"|"folder"|"unrecognized", "id": str|None,
+  "reason": str|None}. When kind is "unrecognized", do not guess an ID from
+  the URL -- ask the user for a specific file, team, or folder link instead.
+  """
+  return _parse_figma_url(url)
+
+
 async def get_file(
   file_key: str,
   *,
@@ -70,7 +97,11 @@ async def get_file(
   plugin_data: str | None = None,
   branch_data: bool = False,
 ) -> dict[str, Any]:
-  """Get a Figma file tree and metadata; use depth/node_ids for large files."""
+  """Get a Figma file tree and metadata; use depth/node_ids for large files.
+
+  file_key must come from a file URL (figma.com/file|design|proto|board|slides/<key>/...)
+  -- run parse_figma_url on a pasted link first if unsure.
+  """
   key = validate_identifier(file_key, "file_key")
   if depth is not None and depth < 1:
     raise ValueError("depth must be positive")
@@ -180,19 +211,34 @@ async def get_current_user() -> dict[str, Any]:
 
 
 async def list_team_folders(team_id: str) -> dict[str, Any]:
-  """List top-level folders visible in a Figma team."""
+  """List top-level folders visible in a Figma team.
+
+  team_id must come from a team URL (figma.com/files/team/<id>/...). There is
+  no endpoint to list a caller's teams -- if you don't have one, run
+  parse_figma_url on a link the user provides rather than guessing an ID.
+  """
   team = validate_identifier(team_id, "team_id")
   return await get_client().request("GET", f"/v2/teams/{team}/folders")
 
 
 async def list_folder_subfolders(folder_id: str) -> dict[str, Any]:
-  """List direct subfolders within a Figma folder."""
+  """List direct subfolders within a Figma folder.
+
+  folder_id must come from a folder URL (figma.com/files/project/<id>/...) or
+  a prior list_team_folders/list_folder_subfolders result -- run
+  parse_figma_url on a pasted link first if unsure.
+  """
   folder = validate_identifier(folder_id, "folder_id")
   return await get_client().request("GET", f"/v2/folders/{folder}/folders")
 
 
 async def list_folder_files(folder_id: str, *, branch_data: bool = False) -> dict[str, Any]:
-  """List files directly inside a Figma folder."""
+  """List files directly inside a Figma folder.
+
+  folder_id must come from a folder URL (figma.com/files/project/<id>/...) or
+  a prior list_team_folders/list_folder_subfolders result -- run
+  parse_figma_url on a pasted link first if unsure.
+  """
   folder = validate_identifier(folder_id, "folder_id")
   return await get_client().request(
     "GET", f"/v2/folders/{folder}/files", params={"branch_data": str(branch_data).lower()}
@@ -200,7 +246,12 @@ async def list_folder_files(folder_id: str, *, branch_data: bool = False) -> dic
 
 
 async def get_folder_metadata(folder_id: str) -> dict[str, Any]:
-  """Get lightweight metadata for a Figma folder."""
+  """Get lightweight metadata for a Figma folder.
+
+  folder_id must come from a folder URL (figma.com/files/project/<id>/...) or
+  a prior list_team_folders/list_folder_subfolders result -- run
+  parse_figma_url on a pasted link first if unsure.
+  """
   folder = validate_identifier(folder_id, "folder_id")
   return await get_client().request("GET", f"/v2/folders/{folder}/meta")
 
@@ -212,7 +263,11 @@ async def list_team_components(
   after: int | None = None,
   before: int | None = None,
 ) -> dict[str, Any]:
-  """List published components in a Figma team library."""
+  """List published components in a Figma team library.
+
+  team_id must come from a team URL (figma.com/files/team/<id>/...) -- run
+  parse_figma_url on a pasted link first if unsure.
+  """
   team = validate_identifier(team_id, "team_id")
   return await get_client().request(
     "GET", f"/v1/teams/{team}/components", params=_params(page_size=page_size, after=after, before=before)
@@ -226,7 +281,11 @@ async def list_team_styles(
   after: int | None = None,
   before: int | None = None,
 ) -> dict[str, Any]:
-  """List published styles in a Figma team library."""
+  """List published styles in a Figma team library.
+
+  team_id must come from a team URL (figma.com/files/team/<id>/...) -- run
+  parse_figma_url on a pasted link first if unsure.
+  """
   team = validate_identifier(team_id, "team_id")
   return await get_client().request(
     "GET", f"/v1/teams/{team}/styles", params=_params(page_size=page_size, after=after, before=before)
@@ -276,6 +335,7 @@ async def create_dev_resources(dev_resources: list[dict[str, Any]]) -> dict[str,
 
 def _register_tools(mcp: FastMCP) -> None:
   for tool in (
+    parse_figma_url,
     get_file,
     get_file_nodes,
     render_file_nodes,

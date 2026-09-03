@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from api import FigmaAPIError, FigmaClient, FigmaConfigurationError, validate_identifier
+from api import FigmaAPIError, FigmaClient, FigmaConfigurationError, parse_figma_url, validate_identifier
 
 
 @pytest.mark.asyncio
@@ -95,3 +95,49 @@ def test_identifier_validation_rejects_path_injection() -> None:
   assert validate_identifier("0:1", "node_id") == "0:1"
   with pytest.raises(ValueError):
     validate_identifier("../other-file", "file_key")
+
+
+@pytest.mark.parametrize(
+  "url,expected_id",
+  [
+    ("https://www.figma.com/file/mCSJhBUzt49P0iCbAG1SWR/My-File", "mCSJhBUzt49P0iCbAG1SWR"),
+    ("https://figma.com/design/mCSJhBUzt49P0iCbAG1SWR/My-File?node-id=1-2", "mCSJhBUzt49P0iCbAG1SWR"),
+    ("https://www.figma.com/proto/mCSJhBUzt49P0iCbAG1SWR/My-File", "mCSJhBUzt49P0iCbAG1SWR"),
+    ("https://www.figma.com/board/mCSJhBUzt49P0iCbAG1SWR/My-Board", "mCSJhBUzt49P0iCbAG1SWR"),
+    ("https://www.figma.com/slides/mCSJhBUzt49P0iCbAG1SWR/My-Slides", "mCSJhBUzt49P0iCbAG1SWR"),
+  ],
+)
+def test_parse_figma_url_recognizes_file_links(url: str, expected_id: str) -> None:
+  result = parse_figma_url(url)
+  assert result == {"kind": "file", "id": expected_id, "reason": None}
+
+
+def test_parse_figma_url_recognizes_team_link() -> None:
+  result = parse_figma_url("https://www.figma.com/files/team/787107147284489960/My-Team")
+  assert result == {"kind": "team", "id": "787107147284489960", "reason": None}
+
+
+def test_parse_figma_url_recognizes_folder_link() -> None:
+  result = parse_figma_url("https://www.figma.com/files/project/12345/My-Folder")
+  assert result == {"kind": "folder", "id": "12345", "reason": None}
+
+
+def test_parse_figma_url_flags_recently_viewed_as_unrecognized() -> None:
+  result = parse_figma_url("https://www.figma.com/files/787107147284489960/recents-and-sharing/recently-viewed?fuid=1")
+  assert result["kind"] == "unrecognized"
+  assert result["id"] is None
+  assert "recently viewed" in result["reason"]
+
+
+@pytest.mark.parametrize(
+  "url",
+  [
+    "https://www.figma.com/files/recent",
+    "https://www.figma.com/files/drafts/822834698282408386",
+    "https://example.com/not-figma-at-all",
+  ],
+)
+def test_parse_figma_url_flags_other_non_resource_links(url: str) -> None:
+  result = parse_figma_url(url)
+  assert result["kind"] == "unrecognized"
+  assert result["id"] is None
