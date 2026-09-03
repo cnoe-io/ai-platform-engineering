@@ -223,11 +223,43 @@ export interface AutoIngestLastRun {
   reason?: string;
 }
 
+export interface WebexMeetingSeriesSourceRefs {
+  meetingSeriesId?: string;
+  scheduledMeetingId?: string;
+  userHubSeriesId?: string;
+  meetingNumber?: string;
+  webLink?: string;
+}
+
+export interface WebexMeetingSeriesSubscription {
+  /** Stable CAIPE identity; provider identifiers may be aliased/renamed. */
+  id: string;
+  enabled: boolean;
+  seriesKey: string;
+  /** Stable wiki path segment chosen when the subscription is created. */
+  seriesSlug: string;
+  title: string;
+  siteUrl?: string;
+  sourceRefs: WebexMeetingSeriesSourceRefs;
+  /** The caller who selected the series and whose connection executes it. */
+  credentialOwner: AutoIngestCredentialOwner;
+  createdAt: string;
+  /** Most recent user-level Webex calendar reconciliation. */
+  lastCalendarCheckAt?: string;
+  /** Latest upcoming occurrence discovered from Webex. */
+  nextOccurrenceStartAt?: string;
+  nextOccurrenceEndAt?: string;
+  lastOccurrenceAt?: string;
+  lastRunId?: string;
+  lastStatus?: "pending" | "waiting_transcript" | "queued" | "ingested" | "skipped" | "failed";
+  lastError?: string;
+}
+
 /**
- * CRON-scheduled auto-ingest configuration (onboarding-time opt-in,
- * editable later in Settings). `credentialOwner: null` is a valid,
- * common state (e.g. no one has confirmed an owner yet) — treat it as
- * "configured but not runnable," not an error.
+ * Auto-ingest configuration. The top-level CRON controls project-source
+ * ingest; meeting-series subscriptions follow their Webex calendar instead.
+ * `credentialOwner: null` is valid for a disabled/unowned CRON schedule —
+ * each meeting series carries its own explicit credential owner.
  */
 export interface AutoIngestConfig {
   enabled: boolean;
@@ -235,6 +267,8 @@ export interface AutoIngestConfig {
   cron: string;
   credentialOwner: AutoIngestCredentialOwner | null;
   lastRun?: AutoIngestLastRun;
+  /** Calendar-driven subscriptions; these do not use the project CRON. */
+  webexMeetingSeries?: WebexMeetingSeriesSubscription[];
 }
 
 export interface ProjectDocument {
@@ -323,6 +357,12 @@ export interface CreateProjectRequest {
   data_steward?: DataStewardInput;
   decision_blast_radius?: "small" | "large";
   optionality?: string[];
+  /** Optional onboarding configuration; recurring meetings follow their own calendar. */
+  auto_ingest?: {
+    enabled?: boolean;
+    cron?: string;
+    webex_meeting_series_keys?: string[];
+  };
 }
 
 export interface OnboardProjectRequest {

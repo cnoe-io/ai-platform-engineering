@@ -13,6 +13,9 @@ const mockRemoveTomeReadAccess = jest.fn();
 const mockAuditTome = jest.fn();
 const mockCanAssignProjectToTeam = jest.fn();
 const mockInvalidateTomeReadAccessCatalogCache = jest.fn();
+const mockDiscoverMeetingSeries = jest.fn();
+const mockInteractiveWebexMeetingInvoker = jest.fn();
+const mockRequestWebexMeetingOwnerCheck = jest.fn();
 const reservationInsertOne = jest.fn();
 const reservationDeleteOne = jest.fn();
 
@@ -70,6 +73,21 @@ jest.mock("@/lib/tome/audit", () => ({
   })),
 }));
 
+jest.mock("@/lib/tome/auto-ingest/cursor", () => ({
+  requestWebexMeetingOwnerCheck: (...args: unknown[]) =>
+    mockRequestWebexMeetingOwnerCheck(...args),
+}));
+
+jest.mock("@/lib/tome/webex-meeting-series", () => {
+  const actual = jest.requireActual("@/lib/tome/webex-meeting-series");
+  return {
+    ...actual,
+    discoverMeetingSeries: (...args: unknown[]) => mockDiscoverMeetingSeries(...args),
+    interactiveWebexMeetingInvoker: (...args: unknown[]) =>
+      mockInteractiveWebexMeetingInvoker(...args),
+  };
+});
+
 import { POST } from "../route";
 
 describe("POST /api/projects access setup failures", () => {
@@ -85,6 +103,7 @@ describe("POST /api/projects access setup failures", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES;
     mockGetAuthFromBearerOrSession.mockResolvedValue({
       user: { email: "creator@example.test" },
       session: {
@@ -119,6 +138,7 @@ describe("POST /api/projects access setup failures", () => {
     mockReconcileDataSteward.mockResolvedValue(undefined);
     mockRemoveTomeReadAccess.mockResolvedValue(undefined);
     mockCanAssignProjectToTeam.mockResolvedValue(true);
+    mockRequestWebexMeetingOwnerCheck.mockResolvedValue(undefined);
   });
 
   function createRequest(
@@ -166,6 +186,96 @@ describe("POST /api/projects access setup failures", () => {
     expect(deleteOne).not.toHaveBeenCalled();
     expect(reservationDeleteOne).not.toHaveBeenCalled();
     expect(mockAuditTome).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores the onboarding schedule and a selected non-hosted Webex meeting series atomically", async () => {
+    mockInteractiveWebexMeetingInvoker.mockResolvedValue(jest.fn());
+    mockDiscoverMeetingSeries.mockResolvedValue([
+      {
+        seriesKey: "hosted-series",
+        title: "Platform weekly",
+        hostEmail: "host@example.test",
+        siteUrl: "https://example.webex.test",
+        sourceRefs: { meetingSeriesId: "series-id" },
+        sources: ["meetings_api"],
+        occurrences: [],
+        nextOccurrence: {
+          occurrenceKey: "occurrence-1",
+          title: "Platform weekly",
+          start: "2026-09-10T10:00:00Z",
+          end: "2026-09-10T11:00:00Z",
+          cancelled: false,
+          source: "meetings_api",
+        },
+      },
+    ]);
+
+    const response = await POST(
+      createRequest({
+        auto_ingest: {
+          enabled: true,
+          cron: "0 10 * * 1",
+          webex_meeting_series_keys: ["hosted-series"],
+        },
+      }),
+    );
+    const inserted = projects.insertOne.mock.calls[0][0];
+
+    expect(response.status).toBe(201);
+    expect(inserted.autoIngest).toMatchObject({
+      enabled: true,
+      cron: "0 10 * * 1",
+      credentialOwner: {
+        subject: "creator-subject",
+        email: "creator@example.test",
+      },
+      webexMeetingSeries: [
+        {
+          enabled: true,
+          seriesKey: "hosted-series",
+          title: "Platform weekly",
+          sourceRefs: { meetingSeriesId: "series-id" },
+          nextOccurrenceStartAt: "2026-09-10T10:00:00Z",
+          lastStatus: "pending",
+        },
+      ],
+    });
+    expect(mockRequestWebexMeetingOwnerCheck).toHaveBeenCalledWith(
+      "creator-subject",
+      "https://example.webex.test",
+      expect.any(Date),
+    );
+  });
+
+  it("rejects a selected non-hosted Webex series when the policy is disabled", async () => {
+    process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES = "false";
+    mockInteractiveWebexMeetingInvoker.mockResolvedValue(jest.fn());
+    mockDiscoverMeetingSeries.mockResolvedValue([
+      {
+        seriesKey: "guest-series",
+        title: "Customer update",
+        hostEmail: "host@example.test",
+        siteUrl: "https://example.webex.test",
+        sourceRefs: { meetingSeriesId: "guest-series-id" },
+        sources: ["userhub_calendar"],
+        occurrences: [],
+      },
+    ]);
+
+    const response = await POST(
+      createRequest({
+        auto_ingest: {
+          enabled: true,
+          cron: "0 10 * * 1",
+          webex_meeting_series_keys: ["guest-series"],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.code).toBe("WEBEX_NON_HOST_MEETING_SERIES_DISABLED");
+    expect(projects.insertOne).not.toHaveBeenCalled();
   });
 
   it("rolls back and returns a sanitized recovery response for OpenFGA failures", async () => {

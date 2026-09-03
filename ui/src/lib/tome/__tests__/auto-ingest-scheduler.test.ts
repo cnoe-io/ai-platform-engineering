@@ -18,6 +18,7 @@ const resolveCredentialsForSub = jest.fn();
 const isIngestRunning = jest.fn();
 const startIngestRun = jest.fn();
 const auditTome = jest.fn();
+const tickWebexMeetingSeriesScheduler = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...a: unknown[]) => getCollection(...a),
@@ -39,6 +40,9 @@ jest.mock("../ingest-runner", () => ({
 }));
 jest.mock("../audit", () => ({
   auditTome: (...a: unknown[]) => auditTome(...a),
+}));
+jest.mock("../auto-ingest/webex-meeting-series-scheduler", () => ({
+  tickWebexMeetingSeriesScheduler: (...a: unknown[]) => tickWebexMeetingSeriesScheduler(...a),
 }));
 
 import { tickAutoIngestScheduler } from "../auto-ingest/scheduler";
@@ -78,6 +82,7 @@ beforeEach(() => {
   isIngestRunning.mockResolvedValue(false);
   resolveCredentialsForSub.mockResolvedValue({ github: { access_token: "tok" } });
   startIngestRun.mockResolvedValue({ runId: "run-1" });
+  tickWebexMeetingSeriesScheduler.mockResolvedValue(undefined);
 });
 
 describe("tickAutoIngestScheduler", () => {

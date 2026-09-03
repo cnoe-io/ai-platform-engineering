@@ -135,6 +135,20 @@ describe("Tome MCP authentication challenge", () => {
                   status: "success",
                   runId: "run-1",
                 },
+                webexMeetingSeries: [
+                  {
+                    id: "subscription-1",
+                    title: "Platform sync",
+                    enabled: true,
+                    credentialOwner: {
+                      subject: "meeting-owner-subject",
+                      name: "Meeting Owner",
+                      email: "meeting-owner@example.test",
+                    },
+                    lastStatus: "queued",
+                    lastRunId: "meeting-run-1",
+                  },
+                ],
               },
             },
             { slug: "manual-project", title: "Manual project", status: "active" },
@@ -177,6 +191,24 @@ describe("Tome MCP authentication challenge", () => {
               run_id: "run-1",
               reason: null,
             },
+            webex_meeting_series: [
+              {
+                id: "subscription-1",
+                title: "Platform sync",
+                enabled: true,
+                credential_owner: {
+                  name: "Meeting Owner",
+                  email: "meeting-owner@example.test",
+                },
+                last_occurrence_at: null,
+                last_calendar_check_at: null,
+                next_occurrence_start_at: null,
+                next_occurrence_end_at: null,
+                last_run_id: "meeting-run-1",
+                last_status: "queued",
+                last_error: null,
+              },
+            ],
           },
         }),
         expect.objectContaining({
@@ -188,10 +220,12 @@ describe("Tome MCP authentication challenge", () => {
             cron: null,
             credential_owner: null,
             last_run: null,
+            webex_meeting_series: [],
           },
         }),
       ]);
       expect(body.result.content[0].text).not.toContain("owner-subject");
+      expect(body.result.content[0].text).not.toContain("meeting-owner-subject");
     } finally {
       global.fetch = originalFetch;
     }
@@ -241,6 +275,7 @@ describe("Tome MCP authentication challenge", () => {
         cron: "30 4 * * 1",
         credential_owner: null,
         last_run: null,
+        webex_meeting_series: [],
       });
       expect(project.url).toBe(
         "https://grid.example.test/projects/example-project/tome",

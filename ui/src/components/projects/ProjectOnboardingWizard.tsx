@@ -30,6 +30,7 @@ import {
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
+import { OnboardingWebexMeetingSeriesPicker } from "@/components/projects/OnboardingWebexMeetingSeriesPicker";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { getConfig } from "@/lib/config";
 import {
@@ -229,6 +230,7 @@ export function ProjectOnboardingWizard({
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [autoIngestOnboardEnabled, setAutoIngestOnboardEnabled] = useState(false);
   const [autoIngestSchedule, setAutoIngestSchedule] = useState(DEFAULT_SCHEDULE);
+  const [onboardingWebexMeetingSeriesKeys, setOnboardingWebexMeetingSeriesKeys] = useState<string[]>([]);
   const [phaseIndex, setPhaseIndex] = useState(0);
   const [entityType, setEntityType] = useState<EntityType>("project");
   // Hierarchy tagging (replaces free-text initiatives/areas): the parent BHAG
@@ -391,6 +393,9 @@ export function ProjectOnboardingWizard({
     setConfluenceUrl("");
     setConfluencePageScopes([]);
     setWebexRooms([]);
+    setAutoIngestOnboardEnabled(false);
+    setAutoIngestSchedule(DEFAULT_SCHEDULE);
+    setOnboardingWebexMeetingSeriesKeys([]);
     setProvisioning(false);
     setError(null);
   }, []);
@@ -473,6 +478,13 @@ export function ProjectOnboardingWizard({
       } else if (selectedBhagSlug && !selectedAreaSlug) {
         payload.initiatives = [selectedBhagSlug];
       }
+      if (autoIngestOnboardEnabled) {
+        payload.auto_ingest = {
+          enabled: true,
+          cron: scheduleToCron(autoIngestSchedule),
+          webex_meeting_series_keys: onboardingWebexMeetingSeriesKeys,
+        };
+      }
     }
 
     try {
@@ -502,24 +514,6 @@ export function ProjectOnboardingWizard({
           });
         } catch {
           /* best-effort — the project still exists */
-        }
-      }
-
-      if (autoIngestOnboardEnabled && currentUserEmail) {
-        try {
-          await fetch(`/api/projects/${created.slug}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              autoIngest: {
-                enabled: true,
-                cron: scheduleToCron(autoIngestSchedule),
-                credentialOwnerEmail: currentUserEmail,
-              },
-            }),
-          });
-        } catch {
-          /* best-effort — configurable later in Settings */
         }
       }
 
@@ -1141,6 +1135,10 @@ export function ProjectOnboardingWizard({
                           GitHub/Atlassian/Webex accounts. Change who this runs as anytime in
                           Settings.
                         </p>
+                        <OnboardingWebexMeetingSeriesPicker
+                          selectedSeriesKeys={onboardingWebexMeetingSeriesKeys}
+                          onSelectedSeriesKeysChange={setOnboardingWebexMeetingSeriesKeys}
+                        />
                       </div>
                     ) : null}
                   </div>
@@ -1255,6 +1253,17 @@ export function ProjectOnboardingWizard({
                           ) : null}
                           {entityType === "project" && enabledIntegrations.length > 0 ? (
                             <Row label="Integrations">{enabledIntegrations.join(", ")}</Row>
+                          ) : null}
+                          {entityType === "project" && autoIngestOnboardEnabled ? (
+                            <Row label="Auto-ingest">
+                              <span className="space-y-1">
+                                <span className="block">{describeSchedule(autoIngestSchedule)}</span>
+                                <span className="block text-xs text-muted-foreground">
+                                  {onboardingWebexMeetingSeriesKeys.length} recurring Webex meeting
+                                  {onboardingWebexMeetingSeriesKeys.length === 1 ? "" : "s"} selected
+                                </span>
+                              </span>
+                            </Row>
                           ) : null}
                           {entityType === "project" && showGithub ? (
                             <Row label={<SourceLabel provider="github" name="GitHub" />}>

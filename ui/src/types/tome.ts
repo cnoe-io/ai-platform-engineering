@@ -40,6 +40,8 @@ export const TOME_COLLECTIONS = {
   GITHUB_REPO_SYNCS: "tome_github_repo_sync",
   /** Gists — lightweight, non-wiki context chunks. */
   GISTS: "tome_gists",
+  /** Recurring Webex meeting occurrences and their transcript/run lifecycle. */
+  WEBEX_MEETING_OCCURRENCES: "tome_webex_meeting_occurrences",
 } as const;
 
 export type TomeCollectionName =
@@ -208,6 +210,64 @@ export type IngestRunStatus =
   | "succeeded"
   | "failed";
 
+export type WebexMeetingOccurrenceStatus =
+  | "pending"
+  | "processing"
+  | "waiting_transcript"
+  | "ready"
+  | "queued"
+  | "ingested"
+  | "skipped"
+  | "failed";
+
+/** Durable scheduler state for one ended occurrence of a subscribed series. */
+export interface WebexMeetingOccurrenceDocument {
+  _id: string;
+  project_id: string;
+  project_slug: string;
+  subscription_id: string;
+  series_key: string;
+  series_title: string;
+  occurrence_key: string;
+  meeting_id?: string;
+  title: string;
+  start: Date;
+  end: Date;
+  web_link?: string;
+  source: "meetings_api" | "userhub_calendar";
+  status: WebexMeetingOccurrenceStatus;
+  attempts: number;
+  next_attempt_at: Date;
+  run_id?: string;
+  transcript_id?: string;
+  transcript_ids?: string[];
+  transcript_fingerprint?: string;
+  transcript_observed_at?: Date;
+  last_error?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/** Read-only occurrence history returned to the recurring-series settings UI. */
+export interface WebexMeetingOccurrenceSummary {
+  id: string;
+  subscriptionId: string;
+  title: string;
+  start: string;
+  end: string;
+  nextAttemptAt: string;
+  status: WebexMeetingOccurrenceStatus;
+  transcriptFound: boolean;
+  transcriptCount: number;
+  runId?: string;
+  runStatus?: IngestRunStatus;
+  reportId?: string;
+  logLines: number;
+  reviewOutcome?: "approved" | "rejected" | "auto_promoted";
+  reviewedBy?: string;
+  lastError?: string;
+}
+
 /** Immutable record of how an effective model was selected for a run/turn. */
 export interface ModelProvenance {
   model: string;
@@ -221,11 +281,19 @@ export interface ModelProvenance {
 export interface IngestDispatch {
   /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
   endpoint: string;
+  /**
+   * Limit this run to an explicit connector payload. Meeting-series and the
+   * dedicated "Ingest meeting" action must not pull attached project sources.
+   * Absent/"project" preserves normal full-ingest behavior.
+   */
+  sourceScope?: "project" | "webex_meetings";
   seed?: string | null;
   /** "quick" skips the breadth-first source sweep. Default "full". */
   mode?: "full" | "quick";
   seedStablePages?: boolean;
-  webexMeetings?: { id: string; title: string; start: string }[];
+  webexMeetings?: WebexMeetingIngestItem[];
+  /** Durable idempotency marker for one calendar-driven meeting occurrence. */
+  meetingOccurrenceId?: string;
   /**
    * Bypass draft review: promote this run's pages straight to "live" on
    * completion, same as before the draft-review feature existed.
@@ -237,6 +305,19 @@ export interface IngestDispatch {
    * rather than expecting fresh human intent. Default "manual".
    */
   triggeredBy?: "manual" | "auto";
+}
+
+/** A meeting selected manually or emitted by the recurring-series scheduler. */
+export interface WebexMeetingIngestItem {
+  id: string;
+  title: string;
+  start: string;
+  seriesKey?: string;
+  seriesSlug?: string;
+  seriesTitle?: string;
+  occurrenceKey?: string;
+  /** Pre-fetched by the scheduler through the normal webex_meetings MCP. */
+  transcript?: string;
 }
 
 /** Lifecycle + streamed log for one ingest run. */

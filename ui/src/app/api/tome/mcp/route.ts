@@ -244,6 +244,7 @@ function autoIngestView(project: any): Record<string, unknown> {
       cron: null,
       credential_owner: null,
       last_run: null,
+      webex_meeting_series: [],
     };
   }
 
@@ -266,6 +267,27 @@ function autoIngestView(project: any): Record<string, unknown> {
             reason: lastRun.reason ?? null,
           }
         : null,
+    webex_meeting_series: Array.isArray(config.webexMeetingSeries)
+      ? config.webexMeetingSeries.map((series: any) => ({
+          id: series.id ?? null,
+          title: series.title ?? null,
+          enabled: series.enabled === true,
+          credential_owner:
+            series.credentialOwner && typeof series.credentialOwner === "object"
+              ? {
+                  name: series.credentialOwner.name ?? null,
+                  email: series.credentialOwner.email ?? null,
+                }
+              : null,
+          last_occurrence_at: series.lastOccurrenceAt ?? null,
+          last_calendar_check_at: series.lastCalendarCheckAt ?? null,
+          next_occurrence_start_at: series.nextOccurrenceStartAt ?? null,
+          next_occurrence_end_at: series.nextOccurrenceEndAt ?? null,
+          last_run_id: series.lastRunId ?? null,
+          last_status: series.lastStatus ?? null,
+          last_error: series.lastError || null,
+        }))
+      : [],
   };
 }
 

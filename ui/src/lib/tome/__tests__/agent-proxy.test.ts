@@ -15,7 +15,7 @@ jest.mock("../page-store", () => ({
   getPageStore: jest.fn(),
 }));
 
-import { buildSnapshotFromProject } from "../agent-proxy";
+import { buildIngestRequest, buildSnapshotFromProject } from "../agent-proxy";
 import type { ProjectDocument, ProjectType } from "@/types/projects";
 
 function synthesizedProject(type: ProjectType): ProjectDocument & { _id: string } {
@@ -185,4 +185,28 @@ it("forwards stable GitHub identity and canonical branch metadata", () => {
       default_branch: "trunk",
     },
   ]);
+});
+
+it("excludes every attached project source from a Webex meeting-only ingest", () => {
+  const request = buildIngestRequest(synthesizedProject("project"), {
+    runId: "run-1",
+    reportId: "report-1",
+    seed: null,
+    isGreenfield: false,
+    sourceScope: "webex_meetings",
+    connectorData: {
+      webex: {
+        meetings: [{ id: "meeting-1", title: "Weekly sync", start: "2026-09-03T10:00:00Z" }],
+      },
+    },
+  });
+
+  expect(request.snapshot.repos).toEqual([]);
+  expect(request.snapshot.confluence_spaces).toEqual([]);
+  expect(request.snapshot.webex_rooms).toEqual([]);
+  expect(request.connector_data).toEqual({
+    webex: {
+      meetings: [{ id: "meeting-1", title: "Weekly sync", start: "2026-09-03T10:00:00Z" }],
+    },
+  });
 });
