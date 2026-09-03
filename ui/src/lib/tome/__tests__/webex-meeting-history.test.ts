@@ -72,6 +72,7 @@ describe("Webex meeting occurrence history", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       id: "occurrence-2",
+      nextAttemptAt: "2026-08-31T11:10:00.000Z",
       transcriptFound: true,
       transcriptCount: 2,
       runId: "run-newer",

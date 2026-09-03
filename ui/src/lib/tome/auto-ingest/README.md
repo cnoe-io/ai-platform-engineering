@@ -291,6 +291,8 @@ The project settings page shows:
 - an expandable history for every subscribed series, including each tracked
   past occurrence, transcript count, ingest state, and links to review changes
   or open the run logs
+- waiting-state messages include the exact next scheduled check, formatted in
+  the viewer's local timezone
 - a **Retry** action on failed meeting ingest runs
 
 The ingest page shows the run only after a transcript has been found and the

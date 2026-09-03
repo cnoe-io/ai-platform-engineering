@@ -495,7 +495,7 @@ async function processOccurrence(
       const nextAttemptAt = new Date(
         Math.min(observedAt.getTime() + TRANSCRIPT_SETTLE_MS, transcriptDeadline),
       );
-      const message = `Found ${downloaded.downloadedCount} transcript segment(s); waiting for the transcript set to settle.`;
+      const message = `Found ${downloaded.downloadedCount} transcript segment${downloaded.downloadedCount === 1 ? "" : "s"}; waiting for the transcript set to settle.`;
       await occurrences.updateOne(
         { _id: claimed._id, status: "processing" },
         {

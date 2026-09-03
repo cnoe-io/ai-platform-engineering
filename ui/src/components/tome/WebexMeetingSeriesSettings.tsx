@@ -73,6 +73,29 @@ function meetingStatusMessage(message: string): string {
     : message;
 }
 
+const SCHEDULED_CHECK_STATUSES = new Set(["pending", "processing", "waiting_transcript", "ready"]);
+
+function nextCheckSuffix(status: string | undefined, nextAttemptAt: string | undefined): string {
+  if (!status || !SCHEDULED_CHECK_STATUSES.has(status) || !nextAttemptAt) return "";
+  const timestamp = new Date(nextAttemptAt);
+  if (!Number.isFinite(timestamp.getTime())) return "";
+  return ` (Next check: ${timestamp.toLocaleString()})`;
+}
+
+function subscriptionNextAttempt(
+  subscription: WebexMeetingSeriesSubscription,
+  occurrences: WebexMeetingOccurrenceSummary[],
+): string | undefined {
+  if (!subscription.lastStatus || !SCHEDULED_CHECK_STATUSES.has(subscription.lastStatus)) {
+    return undefined;
+  }
+  return occurrences.find(
+    (occurrence) =>
+      occurrence.status === subscription.lastStatus &&
+      occurrence.lastError === subscription.lastError,
+  )?.nextAttemptAt;
+}
+
 function occurrenceStatus(occurrence: WebexMeetingOccurrenceSummary): {
   label: string;
   className: string;
@@ -482,6 +505,13 @@ export function WebexMeetingSeriesSettings({
                         )}
                       >
                         {meetingStatusMessage(subscription.lastError)}
+                        {nextCheckSuffix(
+                          subscription.lastStatus,
+                          subscriptionNextAttempt(
+                            subscription,
+                            occurrencesBySubscription.get(subscription.id) ?? [],
+                          ),
+                        )}
                       </p>
                     )}
                   </div>
@@ -548,6 +578,7 @@ export function WebexMeetingSeriesSettings({
                                   )}
                                 >
                                   {meetingStatusMessage(occurrence.lastError)}
+                                  {nextCheckSuffix(occurrence.status, occurrence.nextAttemptAt)}
                                 </p>
                               )}
                             </div>

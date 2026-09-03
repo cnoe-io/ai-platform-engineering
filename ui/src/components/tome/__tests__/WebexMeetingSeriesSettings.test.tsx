@@ -77,6 +77,61 @@ describe("WebexMeetingSeriesSettings", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
   });
 
+  it("shows the next scheduled check beside a transcript settle message", async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          subscriptions: [
+            {
+              id: "subscription-1",
+              enabled: true,
+              seriesKey: "series-1",
+              seriesSlug: "weekly-sync",
+              title: "Weekly sync",
+              sourceRefs: {},
+              credentialOwner: {
+                subject: "user-1",
+                email: "owner@example.test",
+                name: "Example Owner",
+                confirmedAt: "2026-08-01T09:00:00Z",
+              },
+              createdAt: "2026-08-01T09:00:00Z",
+              lastStatus: "waiting_transcript",
+              lastError:
+                "Found 1 transcript segment; waiting for the transcript set to settle.",
+            },
+          ],
+          occurrences: [
+            {
+              id: "occurrence-waiting",
+              subscriptionId: "subscription-1",
+              title: "Weekly sync",
+              start: "2026-09-01T10:00:00Z",
+              end: "2026-09-01T11:00:00Z",
+              nextAttemptAt: "2026-09-01T11:25:00Z",
+              status: "waiting_transcript",
+              transcriptFound: true,
+              transcriptCount: 1,
+              logLines: 0,
+              lastError:
+                "Found 1 transcript segment; waiting for the transcript set to settle.",
+            },
+          ],
+        },
+      }),
+    });
+
+    render(<WebexMeetingSeriesSettings slug="example-project" canEdit />);
+
+    expect(
+      await screen.findByText(
+        /Found 1 transcript segment; waiting for the transcript set to settle\. \(Next check:/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("retries a failed meeting ingest through the dedicated retry endpoint", async () => {
     let retried = false;
     (global.fetch as jest.Mock).mockImplementation(

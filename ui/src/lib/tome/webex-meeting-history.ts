@@ -35,6 +35,7 @@ export function summarizeWebexMeetingOccurrences(
         title: occurrence.title,
         start: occurrence.start.toISOString(),
         end: occurrence.end.toISOString(),
+        nextAttemptAt: occurrence.next_attempt_at.toISOString(),
         status: occurrence.status,
         transcriptFound: ids.length > 0,
         transcriptCount: ids.length,

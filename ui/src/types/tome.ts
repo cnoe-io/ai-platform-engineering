@@ -255,6 +255,7 @@ export interface WebexMeetingOccurrenceSummary {
   title: string;
   start: string;
   end: string;
+  nextAttemptAt: string;
   status: WebexMeetingOccurrenceStatus;
   transcriptFound: boolean;
   transcriptCount: number;
