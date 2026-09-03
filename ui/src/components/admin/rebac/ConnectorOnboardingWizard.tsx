@@ -57,6 +57,11 @@ export interface ConnectorOnboardingRow {
   isExisting: boolean;
   configuredBy?: string;
   configuredAgentName?: string;
+  /** Saved values are retained so an existing configured item is only
+   * submitted when an administrator actually changes its routing. */
+  configuredTeamSlug?: string;
+  configuredAgentId?: string;
+  configuredBotId?: string;
   teamRequired?: boolean;
   selectable?: boolean;
   importLabel: string;
@@ -180,7 +185,12 @@ function readinessFor(row: ConnectorOnboardingRow): {
   state: ReadinessState;
   label: string;
 } {
-  if (row.isExisting) {
+  const existingChanged =
+    row.isExisting &&
+    (row.teamSlug !== (row.configuredTeamSlug ?? "") ||
+      row.agentId !== (row.configuredAgentId ?? "") ||
+      (row.botId ?? "") !== (row.configuredBotId ?? ""));
+  if (row.isExisting && (!row.selected || !existingChanged)) {
     return {
       state: "ready",
       label: row.configuredBy
