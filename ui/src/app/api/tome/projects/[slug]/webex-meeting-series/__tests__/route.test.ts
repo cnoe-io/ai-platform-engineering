@@ -9,6 +9,8 @@ const mockDiscoverMeetingSeries = jest.fn();
 const mockInteractiveWebexMeetingInvoker = jest.fn();
 const mockRequestWebexMeetingOwnerCheck = jest.fn();
 const mockAuditTome = jest.fn();
+const mockMeetingSeriesHostEligibility = jest.fn();
+const mockNonHostMeetingSeriesAllowed = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -59,11 +61,13 @@ jest.mock("@/lib/tome/webex-meeting-series", () => ({
   discoverMeetingSeries: (...args: unknown[]) => mockDiscoverMeetingSeries(...args),
   interactiveWebexMeetingInvoker: (...args: unknown[]) =>
     mockInteractiveWebexMeetingInvoker(...args),
-  meetingSeriesHostEligibility: jest.fn(() => ({ canAutoIngest: true })),
+  meetingSeriesHostEligibility: (...args: unknown[]) =>
+    mockMeetingSeriesHostEligibility(...args),
   meetingSeriesMatches: jest.fn(
     (candidate: { seriesKey: string }, subscription: { seriesKey: string }) =>
       candidate.seriesKey === subscription.seriesKey,
   ),
+  nonHostMeetingSeriesAllowed: () => mockNonHostMeetingSeriesAllowed(),
   webexMeetingSeriesDiscoveryWindow: jest.fn(() => ({
     from: new Date("2026-09-01T00:00:00Z"),
     to: new Date("2026-12-01T00:00:00Z"),
@@ -82,6 +86,8 @@ describe("POST /api/tome/projects/[slug]/webex-meeting-series", () => {
     updateOne.mockResolvedValue({ modifiedCount: 1 });
     mockGetCollection.mockResolvedValue({ updateOne });
     mockRequestWebexMeetingOwnerCheck.mockResolvedValue(undefined);
+    mockMeetingSeriesHostEligibility.mockReturnValue({ canAutoIngest: true });
+    mockNonHostMeetingSeriesAllowed.mockReturnValue(true);
     mockInteractiveWebexMeetingInvoker.mockResolvedValue(jest.fn());
     mockDiscoverMeetingSeries.mockResolvedValue([
       {
@@ -135,5 +141,27 @@ describe("POST /api/tome/projects/[slug]/webex-meeting-series", () => {
     expect(updateOne.mock.invocationCallOrder[0]).toBeLessThan(
       mockRequestWebexMeetingOwnerCheck.mock.invocationCallOrder[0],
     );
+  });
+
+  it("rejects adding a non-hosted series when the policy is disabled", async () => {
+    mockMeetingSeriesHostEligibility.mockReturnValue({ canAutoIngest: false });
+    mockNonHostMeetingSeriesAllowed.mockReturnValue(false);
+
+    const response = await POST(
+      new NextRequest(
+        "http://example.test/api/tome/projects/example-project/webex-meeting-series",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seriesKey: "example-series" }),
+        },
+      ),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.code).toBe("WEBEX_NON_HOST_MEETING_SERIES_DISABLED");
+    expect(updateOne).not.toHaveBeenCalled();
   });
 });

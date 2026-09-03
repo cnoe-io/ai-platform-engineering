@@ -26,6 +26,8 @@ jest.mock("@/lib/tome/webex-meeting-series", () => ({
   meetingSeriesHostEligibility: (candidate: { hostEmail?: string }, callerEmail: string) => ({
     canAutoIngest: candidate.hostEmail?.toLowerCase() === callerEmail.toLowerCase(),
   }),
+  nonHostMeetingSeriesAllowed: () =>
+    process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES !== "false",
   webexMeetingSeriesDiscoveryWindow: () => ({
     from: new Date("2026-09-01T00:00:00Z"),
     to: new Date("2026-12-01T00:00:00Z"),
@@ -67,5 +69,6 @@ describe("GET /api/tome/webex-meeting-series", () => {
       expect.objectContaining({ seriesKey: "hosted-series", canAutoIngest: true }),
       expect.objectContaining({ seriesKey: "guest-series", canAutoIngest: false }),
     ]);
+    expect(body.data.allowNonHostSeries).toBe(true);
   });
 });

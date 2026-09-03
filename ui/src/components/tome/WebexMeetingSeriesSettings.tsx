@@ -26,12 +26,6 @@ import {
 import type { WebexMeetingSeriesSubscription } from "@/types/projects";
 import type { WebexMeetingOccurrenceSummary } from "@/types/tome";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface Candidate {
   seriesKey: string;
@@ -125,6 +119,8 @@ export function WebexMeetingSeriesSettings({
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [accessWarningCandidate, setAccessWarningCandidate] = useState<Candidate | null>(null);
+  const [allowNonHostSeries, setAllowNonHostSeries] = useState(true);
 
   const loadSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -159,6 +155,7 @@ export function WebexMeetingSeriesSettings({
       const body = (await response.json().catch(() => ({}))) as ApiEnvelope<{
         subscriptions?: WebexMeetingSeriesSubscription[];
         candidates?: Candidate[];
+        allowNonHostSeries?: boolean;
       }>;
       if (!response.ok) {
         setErrorCode(body.code ?? "");
@@ -166,6 +163,7 @@ export function WebexMeetingSeriesSettings({
       }
       setSubscriptions(body.data?.subscriptions ?? []);
       setCandidates(body.data?.candidates ?? []);
+      setAllowNonHostSeries(body.data?.allowNonHostSeries !== false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not find recurring meetings.");
     } finally {
@@ -518,13 +516,21 @@ export function WebexMeetingSeriesSettings({
                   {visibleAvailable.map((candidate) => (
                     <div
                       key={candidate.seriesKey}
-                      className={`flex items-center gap-3 px-3 py-3 ${
-                        candidate.canAutoIngest ? "" : "cursor-not-allowed opacity-50"
-                      }`}
-                      title={candidate.canAutoIngest ? undefined : candidate.unavailableReason}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-3",
+                        !candidate.canAutoIngest &&
+                          "bg-amber-50/70 dark:bg-amber-950/20",
+                      )}
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{candidate.title}</p>
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                          {candidate.title}
+                          {!candidate.canAutoIngest && (
+                            <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                              {allowNonHostSeries ? "Not host" : "Disabled"}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {candidate.nextOccurrence
                             ? `Next: ${new Date(candidate.nextOccurrence.start).toLocaleString()}`
@@ -532,35 +538,32 @@ export function WebexMeetingSeriesSettings({
                           {candidate.hostEmail ? ` · Host: ${candidate.hostEmail}` : ""}
                         </p>
                       </div>
-                      {candidate.canAutoIngest ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={mutating === candidate.seriesKey}
-                          onClick={() => void add(candidate)}
-                        >
-                          {mutating === candidate.seriesKey && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                          Add
-                        </Button>
-                      ) : (
-                        <TooltipProvider delayDuration={150}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                className="inline-flex cursor-not-allowed"
-                                tabIndex={0}
-                                aria-label="Only the meeting host can add this series"
-                              >
-                                <Button type="button" size="sm" disabled>
-                                  Add
-                                </Button>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              Only the meeting host can add this series.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={candidate.canAutoIngest ? "default" : "outline"}
+                        className={cn(
+                          !candidate.canAutoIngest &&
+                            "border-amber-500 text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-950/50",
+                        )}
+                        disabled={
+                          mutating === candidate.seriesKey ||
+                          (!candidate.canAutoIngest && !allowNonHostSeries)
+                        }
+                        onClick={() => {
+                          if (candidate.canAutoIngest) void add(candidate);
+                          else if (allowNonHostSeries) setAccessWarningCandidate(candidate);
+                        }}
+                      >
+                        {mutating === candidate.seriesKey && (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        )}
+                        Add
+                      </Button>
+                      {!candidate.canAutoIngest && !allowNonHostSeries && (
+                        <span className="sr-only">
+                          Non-hosted meeting series are disabled by your administrator.
+                        </span>
                       )}
                     </div>
                   ))}
@@ -568,6 +571,51 @@ export function WebexMeetingSeriesSettings({
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(accessWarningCandidate)}
+        onOpenChange={(open) => {
+          if (!open) setAccessWarningCandidate(null);
+        }}
+      >
+        <DialogContent className="border-amber-400 sm:max-w-lg dark:border-amber-700">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
+              <TriangleAlert className="h-5 w-5 text-amber-600" /> Recording access required
+            </DialogTitle>
+            <DialogDescription>
+              You are not the host of “{accessWarningCandidate?.title}”.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            Auto-ingest will work only for occurrences whose recording and transcript Webex makes
+            available to your account—for example, because you are a cohost or the recording was
+            shared with you. A calendar invitation or attendance alone does not guarantee access.
+            Unavailable occurrences will retry and then be skipped.
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAccessWarningCandidate(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-amber-600 text-white hover:bg-amber-700"
+              disabled={!accessWarningCandidate || mutating === accessWarningCandidate.seriesKey}
+              onClick={() => {
+                const candidate = accessWarningCandidate;
+                setAccessWarningCandidate(null);
+                if (candidate) void add(candidate);
+              }}
+            >
+              Add with warning
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

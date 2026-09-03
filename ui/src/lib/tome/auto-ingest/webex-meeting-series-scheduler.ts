@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Collection } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
 import type { ProjectDocument, WebexMeetingSeriesSubscription } from "@/types/projects";
@@ -22,6 +22,7 @@ import {
   claimWebexMeetingOwnerCheck,
   scheduleWebexMeetingOwnerCheck,
 } from "./cursor";
+import { webexMeetingOccurrenceId } from "./webex-meeting-series-backfill";
 
 const COLLECTION = TOME_COLLECTIONS.WEBEX_MEETING_OCCURRENCES;
 const REFRESH_INTERVAL_MS = Math.max(
@@ -60,12 +61,6 @@ function mongoProjectId(projectId: string): string {
   return (ObjectId.isValid(projectId) ? new ObjectId(projectId) : projectId) as unknown as string;
 }
 
-function occurrenceId(projectId: string, subscriptionId: string, occurrenceKey: string): string {
-  return createHash("sha256")
-    .update(`${projectId}\0${subscriptionId}\0${occurrenceKey}`)
-    .digest("hex");
-}
-
 function retryAt(now: Date, attempts: number): Date {
   const delay = Math.min(2 * 60 * 60_000, 15 * 60_000 * 2 ** Math.max(0, attempts - 1));
   return new Date(now.getTime() + delay);
@@ -83,6 +78,97 @@ function transcriptFingerprint(downloaded: {
     .update("\0")
     .update(downloaded.transcript)
     .digest("hex");
+}
+
+async function consolidateResolvedOccurrence(
+  occurrences: Collection<WebexMeetingOccurrenceDocument>,
+  claimed: WebexMeetingOccurrenceDocument,
+  meetingId: string,
+  now: Date,
+): Promise<WebexMeetingOccurrenceDocument | null> {
+  await occurrences.updateOne(
+    { _id: claimed._id, status: "processing" },
+    { $set: { meeting_id: meetingId, updated_at: now } },
+  );
+  const sameMeeting = (
+    await occurrences.find({ project_id: claimed.project_id }).toArray()
+  ).filter(
+    (item) =>
+      item.subscription_id === claimed.subscription_id && item.meeting_id === meetingId,
+  );
+  if (sameMeeting.length <= 1) return { ...claimed, meeting_id: meetingId };
+
+  const protectedDuplicate = sameMeeting.find(
+    (item) =>
+      item._id !== claimed._id &&
+      (Boolean(item.run_id) || item.status === "queued" || item.status === "ingested"),
+  );
+  if (protectedDuplicate) {
+    await occurrences.deleteOne({
+      _id: claimed._id,
+      status: "processing",
+      run_id: { $exists: false },
+    });
+    const protectedStatus: NonNullable<WebexMeetingSeriesSubscription["lastStatus"]> =
+      protectedDuplicate.status === "ingested" ||
+      protectedDuplicate.status === "failed" ||
+      protectedDuplicate.status === "skipped" ||
+      protectedDuplicate.status === "queued"
+        ? protectedDuplicate.status
+        : "queued";
+    await updateSubscription(claimed.project_id, claimed.subscription_id, {
+      lastOccurrenceAt: protectedDuplicate.start.toISOString(),
+      lastRunId: protectedDuplicate.run_id,
+      lastStatus: protectedStatus,
+      lastError: protectedDuplicate.last_error ?? "",
+    });
+    console.info(
+      `[WebexSeries] Removed duplicate occurrence ${claimed._id}; meeting ${meetingId} is already tracked by ${protectedDuplicate._id}.`,
+    );
+    return null;
+  }
+
+  const preferred =
+    sameMeeting.find((item) => item.source === "meetings_api") ?? sameMeeting[0] ?? claimed;
+  const merged: WebexMeetingOccurrenceDocument = {
+    ...claimed,
+    meeting_id: meetingId,
+    occurrence_key: preferred.occurrence_key,
+    title: preferred.title,
+    start: preferred.start,
+    end: preferred.end,
+    web_link: preferred.web_link,
+    source: preferred.source,
+    updated_at: now,
+  };
+  await occurrences.updateOne(
+    { _id: claimed._id, status: "processing" },
+    {
+      $set: {
+        meeting_id: merged.meeting_id,
+        occurrence_key: merged.occurrence_key,
+        title: merged.title,
+        start: merged.start,
+        end: merged.end,
+        web_link: merged.web_link,
+        source: merged.source,
+        updated_at: now,
+      },
+    },
+  );
+  const duplicateIds = sameMeeting
+    .filter((item) => item._id !== claimed._id)
+    .map((item) => item._id);
+  if (duplicateIds.length > 0) {
+    await occurrences.deleteMany({
+      _id: { $in: duplicateIds },
+      run_id: { $exists: false },
+    });
+    console.info(
+      `[WebexSeries] Consolidated ${sameMeeting.length} occurrence rows for meeting ${meetingId}.`,
+    );
+  }
+  return merged;
 }
 
 async function updateSubscription(
@@ -158,7 +244,11 @@ async function reconcileSubscriptionCalendar(
     if (Number.isFinite(subscribedAt.getTime()) && end < subscribedAt) continue;
     const start = new Date(occurrence.start);
     if (!Number.isFinite(start.getTime())) continue;
-    const id = occurrenceId(project._id, subscription.id, occurrence.occurrenceKey);
+    const id = webexMeetingOccurrenceId(
+      project._id,
+      subscription.id,
+      occurrence.occurrenceKey,
+    );
     await occurrences.updateOne(
       { _id: id },
       {
@@ -285,29 +375,6 @@ async function markRetry(
   });
 }
 
-async function markMissed(
-  occurrence: WebexMeetingOccurrenceDocument,
-  now: Date,
-): Promise<void> {
-  const message = "Meeting did not happen.";
-  const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
-  await occurrences.updateOne(
-    { _id: occurrence._id, status: "processing" },
-    {
-      $set: {
-        status: "skipped",
-        last_error: message,
-        updated_at: now,
-      },
-    },
-  );
-  await updateSubscription(occurrence.project_id, occurrence.subscription_id, {
-    lastOccurrenceAt: occurrence.start.toISOString(),
-    lastStatus: "skipped",
-    lastError: message,
-  });
-}
-
 async function processOccurrence(
   project: ProjectDocument & { _id: string },
   subscription: WebexMeetingSeriesSubscription,
@@ -316,7 +383,7 @@ async function processOccurrence(
   loadInvoke: () => Promise<BackgroundInvoke>,
 ): Promise<boolean> {
   const occurrences = await getCollection<WebexMeetingOccurrenceDocument>(COLLECTION);
-  const claimed = await occurrences.findOneAndUpdate(
+  let claimed = await occurrences.findOneAndUpdate(
     {
       _id: occurrence._id,
       status: { $in: ["pending", "waiting_transcript", "ready"] },
@@ -367,23 +434,34 @@ async function processOccurrence(
       source: claimed.source,
     };
     const resolvedMeeting = await resolveOccurrenceMeeting(invoke, candidate);
-    if (resolvedMeeting.missed) {
-      await markMissed(claimed, now);
-      return false;
+    const downloaded = await downloadMeetingTranscript(invoke, {
+      meetingId: resolvedMeeting.meetingId,
+      title: claimed.title,
+      start: claimed.start.toISOString(),
+      siteUrl: subscription.siteUrl,
+    });
+    const meetingId = downloaded?.meetingId || resolvedMeeting.meetingId;
+    if (meetingId) {
+      const consolidated = await consolidateResolvedOccurrence(
+        occurrences,
+        claimed,
+        meetingId,
+        now,
+      );
+      if (!consolidated) return false;
+      claimed = consolidated;
     }
-    const meetingId = resolvedMeeting.meetingId;
-    if (!meetingId) {
+    if (!downloaded?.transcript || !meetingId) {
+      const skipIfExpired = resolvedMeeting.missed || !resolvedMeeting.meetingId;
       await markRetry(
         claimed,
         now,
         "Waiting for meeting transcript.",
-        "skipped",
+        skipIfExpired ? "skipped" : "failed",
+        skipIfExpired
+          ? "No accessible recording or transcript became available before the retry period ended."
+          : "No meeting transcript became available before the retry period ended.",
       );
-      return false;
-    }
-    const downloaded = await downloadMeetingTranscript(invoke, meetingId);
-    if (!downloaded?.transcript) {
-      await markRetry(claimed, now, "Waiting for meeting transcript.");
       return false;
     }
     if (downloaded.downloadedCount < downloaded.listedCount) {

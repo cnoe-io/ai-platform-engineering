@@ -124,7 +124,14 @@ export function createWebexMeetingSeriesSubscription({
 }
 
 const HOST_REQUIRED_REASON =
-  "You can’t add this series because you’re not the meeting host. Webex only exposes recordings and transcripts from your own meetings through a normal user connection.";
+  "You are not the meeting host. Auto-ingest can only process occurrences whose recording and transcript are available to your Webex account.";
+
+/** Default-on policy switch for adding series hosted by another Webex user. */
+export function nonHostMeetingSeriesAllowed(): boolean {
+  const configured = process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES;
+  if (configured === undefined || configured.trim() === "") return true;
+  return ["1", "true", "yes", "on"].includes(configured.trim().toLowerCase());
+}
 
 export function meetingSeriesHostEligibility(
   candidate: WebexMeetingSeriesCandidate,
@@ -458,6 +465,23 @@ function mergeRefs(
   };
 }
 
+const CROSS_SOURCE_OCCURRENCE_TOLERANCE_MS = 30 * 60_000;
+
+function nearbyCrossSourceOccurrence(
+  existing: WebexMeetingOccurrenceCandidate,
+  occurrence: WebexMeetingOccurrenceCandidate,
+): boolean {
+  if (existing.source === occurrence.source) return false;
+  if (existing.title.trim().toLowerCase() !== occurrence.title.trim().toLowerCase()) return false;
+  const existingStart = Date.parse(existing.start);
+  const occurrenceStart = Date.parse(occurrence.start);
+  return (
+    Number.isFinite(existingStart) &&
+    Number.isFinite(occurrenceStart) &&
+    Math.abs(existingStart - occurrenceStart) <= CROSS_SOURCE_OCCURRENCE_TOLERANCE_MS
+  );
+}
+
 function addOccurrence(
   candidate: WebexMeetingSeriesCandidate,
   occurrence: WebexMeetingOccurrenceCandidate | null,
@@ -468,10 +492,17 @@ function addOccurrence(
     (existing) =>
       existing.occurrenceKey === occurrence.occurrenceKey ||
       (existing.start === occurrence.start &&
-        normalizedWebLink(existing.webLink) === normalizedWebLink(occurrence.webLink)),
+        normalizedWebLink(existing.webLink) === normalizedWebLink(occurrence.webLink)) ||
+      nearbyCrossSourceOccurrence(existing, occurrence),
   );
   if (duplicate < 0) candidate.occurrences.push(occurrence);
-  else if (prefer) candidate.occurrences[duplicate] = occurrence;
+  else if (
+    prefer ||
+    (occurrence.source === "meetings_api" &&
+      candidate.occurrences[duplicate]?.source !== "meetings_api")
+  ) {
+    candidate.occurrences[duplicate] = occurrence;
+  }
 }
 
 /** Normalize and merge public Meetings API rows with User Hub calendar rows. */
@@ -584,6 +615,7 @@ export function normalizeMeetingSeries(input: {
     } else {
       candidate.sourceRefs = mergeRefs(candidate.sourceRefs, refs);
       candidate.hostEmail = candidate.hostEmail || hostEmailFromItem(item);
+      candidate.siteUrl = candidate.siteUrl || userHubSiteUrl;
       if (!candidate.sources.includes("userhub_calendar")) {
         candidate.sources.push("userhub_calendar");
       }
@@ -681,17 +713,33 @@ export async function resolveOccurrenceMeeting(
 
 export async function downloadMeetingTranscript(
   invoke: Invoke,
-  meetingId: string,
+  lookup:
+    | string
+    | {
+        meetingId?: string | null;
+        title: string;
+        start: string;
+        siteUrl?: string;
+      },
 ): Promise<{
   transcript: string;
+  meetingId?: string;
   transcriptId?: string;
   transcriptIds: string[];
   listedTranscriptIds: string[];
   listedCount: number;
   downloadedCount: number;
 } | null> {
+  const meetingId = typeof lookup === "string" ? lookup : lookup.meetingId || undefined;
   const payload = await invoke("webex_list_transcripts", {
-    meeting_id: meetingId,
+    ...(meetingId ? { meeting_id: meetingId } : {}),
+    ...(typeof lookup === "string"
+      ? {}
+      : {
+          meeting_title: lookup.title,
+          meeting_start: lookup.start,
+          ...(lookup.siteUrl ? { site_url: lookup.siteUrl } : {}),
+        }),
     max_results: 100,
     download: true,
     download_format: "txt",
@@ -703,6 +751,7 @@ export async function downloadMeetingTranscript(
     .map((item, originalIndex) => ({
       body: stringValue(item.body),
       id: stringValue(item.id),
+      meetingId: stringValue(item.meetingId),
       originalIndex,
       startTime: stringValue(item.startTime),
     }))
@@ -729,9 +778,11 @@ export async function downloadMeetingTranscript(
           .join("\n\n");
   const transcriptIds = segments.map((item) => item.id).filter(Boolean);
   const listedTranscriptIds = items.map((item) => stringValue(item.id)).filter(Boolean).sort();
+  const resolvedMeetingId = segments.find((item) => item.meetingId)?.meetingId || meetingId;
 
   return {
     transcript,
+    meetingId: resolvedMeetingId,
     transcriptId: transcriptIds[0],
     transcriptIds,
     listedTranscriptIds,

@@ -14,6 +14,7 @@ import {
   interactiveWebexMeetingInvoker,
   meetingSeriesHostEligibility,
   meetingSeriesMatches,
+  nonHostMeetingSeriesAllowed,
   webexMeetingSeriesDiscoveryWindow,
 } from "@/lib/tome/webex-meeting-series";
 import { isSynthesizedType } from "@/types/projects";
@@ -112,6 +113,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context: Ctx) =
     occurrences,
     candidates,
     canEdit: true,
+    allowNonHostSeries: nonHostMeetingSeriesAllowed(),
   });
 });
 
@@ -138,20 +140,20 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Ctx) 
       "MEETING_SERIES_NOT_FOUND",
     );
   }
-  const eligibility = meetingSeriesHostEligibility(candidate, tctx.user.email);
-  if (!eligibility.canAutoIngest) {
-    throw new ApiError(
-      eligibility.unavailableReason || "Only meetings hosted by you can be auto-ingested.",
-      403,
-      "WEBEX_MEETING_HOST_REQUIRED",
-    );
-  }
-
   const existing = tctx.project.autoIngest?.webexMeetingSeries ?? [];
   const duplicate = existing.find((item) => meetingSeriesMatches(candidate, item));
   if (duplicate) {
     await requestSubscriptionCalendarRefresh(duplicate, new Date());
     return successResponse({ subscription: duplicate, created: false });
+  }
+
+  const eligibility = meetingSeriesHostEligibility(candidate, tctx.user.email);
+  if (!eligibility.canAutoIngest && !nonHostMeetingSeriesAllowed()) {
+    throw new ApiError(
+      "Adding meeting series hosted by another user is disabled.",
+      403,
+      "WEBEX_NON_HOST_MEETING_SERIES_DISABLED",
+    );
   }
 
   const subject = sessionSub(tctx.session);

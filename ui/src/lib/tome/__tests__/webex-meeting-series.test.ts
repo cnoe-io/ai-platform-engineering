@@ -70,6 +70,7 @@ describe("Webex recurring meeting discovery", () => {
         ],
       },
       userHubCalendar: {
+        siteUrl: "https://primary.webex.com",
         items: [
           {
             id: "calendar-occurrence",
@@ -94,9 +95,61 @@ describe("Webex recurring meeting discovery", () => {
         userHubSeriesId: "calendar-series",
       },
       hostEmail: "host@example.com",
+      siteUrl: "https://primary.webex.com",
     });
     expect(result[0].occurrences).toHaveLength(1);
     expect(result[0].occurrences[0].meetingId).toBe("actual-1");
+  });
+
+  it("merges an early actual meeting with its nearby scheduled User Hub occurrence", () => {
+    const result = normalizeMeetingSeries({
+      meetingSeries: {
+        items: [
+          {
+            id: "series-1",
+            meetingType: "meetingSeries",
+            title: "Happy Testing Weekly Meeting",
+            hostEmail: "host@example.test",
+          },
+        ],
+      },
+      scheduledMeetings: { items: [] },
+      meetingInstances: {
+        items: [
+          {
+            id: "actual-1",
+            meetingSeriesId: "series-1",
+            meetingType: "meeting",
+            title: "Happy Testing Weekly Meeting",
+            start: "2026-09-03T12:31:24Z",
+            end: "2026-09-03T12:32:49Z",
+          },
+        ],
+      },
+      userHubCalendar: {
+        items: [
+          {
+            id: "calendar-1",
+            seriesId: "calendar-series-1",
+            subject: "Happy Testing Weekly Meeting",
+            organizerEmail: "host@example.test",
+            start: "2026-09-03T12:35:00Z",
+            end: "2026-09-03T12:45:00Z",
+          },
+        ],
+      },
+      now,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].occurrences).toEqual([
+      expect.objectContaining({
+        occurrenceKey: "actual-1",
+        meetingId: "actual-1",
+        start: "2026-09-03T12:31:24Z",
+        source: "meetings_api",
+      }),
+    ]);
   });
 
   it("keeps distinct series that reuse the same personal-room link and meeting number", () => {
@@ -374,6 +427,7 @@ describe("Webex recurring meeting discovery", () => {
       transcript:
         "--- Webex transcript segment 1 of 2 · 2026-09-02T10:00:00Z ---\nFirst segment\n\n" +
         "--- Webex transcript segment 2 of 2 · 2026-09-02T10:05:00Z ---\nSecond segment",
+      meetingId: "meeting-1",
       transcriptId: "transcript-early",
       transcriptIds: ["transcript-early", "transcript-late"],
       listedTranscriptIds: [
@@ -386,6 +440,39 @@ describe("Webex recurring meeting discovery", () => {
     });
     expect(invoke).toHaveBeenCalledWith("webex_list_transcripts", {
       meeting_id: "meeting-1",
+      max_results: 100,
+      download: true,
+      download_format: "txt",
+    });
+  });
+
+  it("locates a User Hub transcript by series occurrence when no instance id exists", async () => {
+    const invoke = jest.fn().mockResolvedValue({
+      items: [
+        {
+          id: "recording-1",
+          meetingId: "resolved-instance-1",
+          startTime: "2026-09-02T10:00:00Z",
+          body: "Shared transcript",
+        },
+      ],
+    });
+
+    await expect(
+      downloadMeetingTranscript(invoke, {
+        meetingId: null,
+        title: "Weekly sync",
+        start: "2026-09-02T10:00:00Z",
+        siteUrl: "https://primary.webex.com",
+      }),
+    ).resolves.toMatchObject({
+      transcript: "Shared transcript",
+      meetingId: "resolved-instance-1",
+    });
+    expect(invoke).toHaveBeenCalledWith("webex_list_transcripts", {
+      meeting_title: "Weekly sync",
+      meeting_start: "2026-09-02T10:00:00Z",
+      site_url: "https://primary.webex.com",
       max_results: 100,
       download: true,
       download_format: "txt",

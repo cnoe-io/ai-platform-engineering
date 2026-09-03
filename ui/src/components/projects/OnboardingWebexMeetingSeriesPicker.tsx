@@ -4,6 +4,14 @@ import Link from "next/link";
 import { CalendarDays, Loader2, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 interface Candidate {
@@ -16,7 +24,7 @@ interface Candidate {
 }
 
 interface ApiEnvelope {
-  data?: { candidates?: Candidate[] };
+  data?: { candidates?: Candidate[]; allowNonHostSeries?: boolean };
   error?: string | { message?: string };
   message?: string;
   code?: string;
@@ -41,6 +49,8 @@ export function OnboardingWebexMeetingSeriesPicker({
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [accessWarningCandidate, setAccessWarningCandidate] = useState<Candidate | null>(null);
+  const [allowNonHostSeries, setAllowNonHostSeries] = useState(true);
 
   const discover = useCallback(async () => {
     setLoading(true);
@@ -54,11 +64,15 @@ export function OnboardingWebexMeetingSeriesPicker({
         throw new Error(errorMessage(body));
       }
       const nextCandidates = body.data?.candidates ?? [];
+      const nextAllowNonHostSeries = body.data?.allowNonHostSeries !== false;
       setCandidates(nextCandidates);
-      const eligibleKeys = new Set(
-        nextCandidates.filter((candidate) => candidate.canAutoIngest).map((candidate) => candidate.seriesKey),
+      setAllowNonHostSeries(nextAllowNonHostSeries);
+      const availableKeys = new Set(
+        nextCandidates
+          .filter((candidate) => candidate.canAutoIngest || nextAllowNonHostSeries)
+          .map((candidate) => candidate.seriesKey),
       );
-      onSelectedSeriesKeysChange(selectedSeriesKeys.filter((key) => eligibleKeys.has(key)));
+      onSelectedSeriesKeysChange(selectedSeriesKeys.filter((key) => availableKeys.has(key)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not find recurring Webex meetings.");
     } finally {
@@ -81,8 +95,12 @@ export function OnboardingWebexMeetingSeriesPicker({
   }, [candidates, searchQuery]);
 
   const toggle = (candidate: Candidate) => {
-    if (!candidate.canAutoIngest) return;
     const selected = selectedSeriesKeys.includes(candidate.seriesKey);
+    if (!selected && !candidate.canAutoIngest && !allowNonHostSeries) return;
+    if (!selected && !candidate.canAutoIngest) {
+      setAccessWarningCandidate(candidate);
+      return;
+    }
     onSelectedSeriesKeysChange(
       selected
         ? selectedSeriesKeys.filter((key) => key !== candidate.seriesKey)
@@ -158,14 +176,15 @@ export function OnboardingWebexMeetingSeriesPicker({
                       "flex items-center gap-3 px-3 py-3",
                       candidate.canAutoIngest
                         ? "cursor-pointer hover:bg-accent/30"
-                        : "cursor-not-allowed bg-muted/20 opacity-50",
+                        : allowNonHostSeries
+                          ? "cursor-pointer bg-amber-50/70 hover:bg-amber-100/70 dark:bg-amber-950/20 dark:hover:bg-amber-950/30"
+                          : "cursor-not-allowed bg-muted/20 opacity-50",
                     )}
-                    title={candidate.canAutoIngest ? undefined : "Only the meeting host can add this series."}
                   >
                     <input
                       type="checkbox"
                       checked={selected}
-                      disabled={!candidate.canAutoIngest}
+                      disabled={!candidate.canAutoIngest && !allowNonHostSeries}
                       onChange={() => toggle(candidate)}
                       aria-label={`Select ${candidate.title}`}
                     />
@@ -178,8 +197,17 @@ export function OnboardingWebexMeetingSeriesPicker({
                         {candidate.hostEmail ? ` · Host: ${candidate.hostEmail}` : ""}
                       </span>
                       {!candidate.canAutoIngest && (
-                        <span className="block text-[11px] text-muted-foreground">
-                          Only the meeting host can add this series.
+                        <span
+                          className={cn(
+                            "block text-[11px]",
+                            allowNonHostSeries
+                              ? "text-amber-800 dark:text-amber-200"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {allowNonHostSeries
+                            ? "Not host · recording and transcript access required"
+                            : "Non-hosted meeting series are disabled by your administrator"}
                         </span>
                       )}
                     </span>
@@ -193,6 +221,49 @@ export function OnboardingWebexMeetingSeriesPicker({
           </p>
         </div>
       )}
+
+      <Dialog
+        open={Boolean(accessWarningCandidate)}
+        onOpenChange={(open) => {
+          if (!open) setAccessWarningCandidate(null);
+        }}
+      >
+        <DialogContent className="border-amber-400 sm:max-w-lg dark:border-amber-700">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
+              <TriangleAlert className="h-5 w-5 text-amber-600" /> Recording access required
+            </DialogTitle>
+            <DialogDescription>
+              You are not the host of “{accessWarningCandidate?.title}”.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            Auto-ingest will work only for occurrences whose recording and transcript Webex makes
+            available to your account—for example, because you are a cohost or the recording was
+            shared with you. A calendar invitation or attendance alone does not guarantee access.
+            Unavailable occurrences will retry and then be skipped.
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAccessWarningCandidate(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-amber-600 text-white hover:bg-amber-700"
+              disabled={!accessWarningCandidate}
+              onClick={() => {
+                const candidate = accessWarningCandidate;
+                setAccessWarningCandidate(null);
+                if (candidate && !selectedSeriesKeys.includes(candidate.seriesKey)) {
+                  onSelectedSeriesKeysChange([...selectedSeriesKeys, candidate.seriesKey]);
+                }
+              }}
+            >
+              Add with warning
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

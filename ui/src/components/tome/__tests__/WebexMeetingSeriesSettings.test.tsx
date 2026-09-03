@@ -76,4 +76,111 @@ describe("WebexMeetingSeriesSettings", () => {
     );
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
   });
+
+  it("warns before adding a series hosted by someone else", async () => {
+    (global.fetch as jest.Mock).mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "POST") {
+          return {
+            ok: true,
+            json: async () => ({
+              success: true,
+              data: {
+                subscription: {
+                  id: "subscription-guest",
+                  enabled: true,
+                  seriesKey: "series-guest",
+                  seriesSlug: "guest-sync",
+                  title: "Guest sync",
+                  sourceRefs: {},
+                  credentialOwner: {
+                    subject: "user-1",
+                    email: "attendee@example.test",
+                    name: "Example Attendee",
+                    confirmedAt: "2026-09-03T09:00:00Z",
+                  },
+                  createdAt: "2026-09-03T09:00:00Z",
+                  lastStatus: "pending",
+                },
+              },
+            }),
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: url.includes("discover=1")
+              ? {
+                  subscriptions: [],
+                  candidates: [
+                    {
+                      seriesKey: "series-guest",
+                      title: "Guest sync",
+                      hostEmail: "host@example.test",
+                      sources: ["userhub_calendar"],
+                      canAutoIngest: false,
+                      unavailableReason: "Recording access is required.",
+                    },
+                  ],
+                }
+              : { subscriptions: [], occurrences: [] },
+          }),
+        };
+      },
+    );
+
+    render(<WebexMeetingSeriesSettings slug="example-project" canEdit />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add series" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+
+    expect(await screen.findByText("Recording access required")).toBeInTheDocument();
+    expect(screen.getByText(/calendar invitation or attendance alone/i)).toBeInTheDocument();
+    expect(
+      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add with warning" }));
+
+    await waitFor(() =>
+      expect(
+        (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === "POST"),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("disables adding a non-hosted series when the server policy is off", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: url.includes("discover=1")
+            ? {
+                subscriptions: [],
+                allowNonHostSeries: false,
+                candidates: [
+                  {
+                    seriesKey: "series-guest",
+                    title: "Guest sync",
+                    hostEmail: "host@example.test",
+                    sources: ["userhub_calendar"],
+                    canAutoIngest: false,
+                  },
+                ],
+              }
+            : { subscriptions: [], occurrences: [] },
+        }),
+      };
+    });
+
+    render(<WebexMeetingSeriesSettings slug="example-project" canEdit />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add series" }));
+
+    expect(await screen.findByText("Disabled")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(screen.queryByText("Recording access required")).not.toBeInTheDocument();
+  });
 });

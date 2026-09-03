@@ -19,7 +19,7 @@ interface TestOccurrence {
 }
 
 interface TestOccurrenceQuery {
-  _id?: unknown;
+  _id?: unknown | { $in?: unknown[] };
   project_id?: unknown;
   subscription_id?: { $in: unknown[] };
   status?: string | { $in: unknown[] };
@@ -75,6 +75,21 @@ const occurrenceCollection = {
       toArray: async () => selected,
     };
     return cursor;
+  }),
+  deleteOne: jest.fn(async (filter: TestOccurrenceQuery) => {
+    const index = occurrences.findIndex((item) => item._id === filter._id);
+    if (index < 0) return { deletedCount: 0 };
+    occurrences.splice(index, 1);
+    return { deletedCount: 1 };
+  }),
+  deleteMany: jest.fn(async (filter: TestOccurrenceQuery) => {
+    const ids =
+      typeof filter._id === "object" && filter._id !== null && "$in" in filter._id
+        ? filter._id.$in ?? []
+        : [];
+    const before = occurrences.length;
+    occurrences = occurrences.filter((item) => !ids.includes(item._id));
+    return { deletedCount: before - occurrences.length };
   }),
 };
 
@@ -237,6 +252,7 @@ describe("Webex meeting-series scheduler", () => {
 
   it("shows a pending transcript state and stops after the default two-hour retry period", async () => {
     resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: false });
+    downloadMeetingTranscript.mockResolvedValue(null);
 
     await tickWebexMeetingSeriesScheduler(now, [project]);
 
@@ -249,20 +265,153 @@ describe("Webex meeting-series scheduler", () => {
 
     expect(occurrences[0]).toMatchObject({
       status: "skipped",
-      last_error: "No meeting transcript became available before the retry period ended.",
+      last_error:
+        "No accessible recording or transcript became available before the retry period ended.",
     });
   });
 
-  it("skips an occurrence immediately when Webex says the meeting was missed", async () => {
+  it("uses the series occurrence to retrieve a transcript without a public instance id", async () => {
+    resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: false });
+    downloadMeetingTranscript.mockResolvedValue({
+      transcript: "A shared decision was made.",
+      meetingId: "userhub-instance-1",
+      transcriptId: "recording-1",
+      transcriptIds: ["recording-1"],
+      listedTranscriptIds: ["recording-1"],
+      listedCount: 1,
+      downloadedCount: 1,
+    });
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(downloadMeetingTranscript).toHaveBeenCalledWith(expect.any(Function), {
+      meetingId: null,
+      title: "Platform sync",
+      start: "2026-09-01T10:30:00.000Z",
+      siteUrl: undefined,
+    });
+    expect(occurrences[0]).toMatchObject({
+      status: "waiting_transcript",
+      meeting_id: "userhub-instance-1",
+      transcript_id: "recording-1",
+    });
+  });
+
+  it("consolidates duplicate source rows that resolve to the same meeting instance", async () => {
+    discoverMeetingSeries.mockResolvedValueOnce([
+      {
+        seriesKey: "webex:series-1",
+        title: "Platform sync",
+        sourceRefs: { meetingSeriesId: "series-1" },
+        sources: ["meetings_api", "userhub_calendar"],
+        occurrences: [
+          {
+            occurrenceKey: "actual-1",
+            meetingId: "actual-1",
+            title: "Platform sync",
+            start: "2026-09-01T10:25:00Z",
+            end: "2026-09-01T10:35:00Z",
+            cancelled: false,
+            source: "meetings_api",
+          },
+          {
+            occurrenceKey: "calendar-1",
+            title: "Platform sync",
+            start: "2026-09-01T10:30:00Z",
+            end: "2026-09-01T11:30:00Z",
+            cancelled: false,
+            source: "userhub_calendar",
+          },
+        ],
+      },
+    ]);
+    resolveOccurrenceMeeting.mockResolvedValue({ meetingId: "actual-1", missed: false });
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]).toMatchObject({
+      meeting_id: "actual-1",
+      occurrence_key: "actual-1",
+      start: new Date("2026-09-01T10:25:00Z"),
+      source: "meetings_api",
+      status: "waiting_transcript",
+    });
+    expect(enqueueRun).not.toHaveBeenCalled();
+  });
+
+  it("removes an unprocessed duplicate when the same meeting already has a run", async () => {
+    claimOwnerCheck.mockResolvedValueOnce(false);
+    occurrences = [
+      {
+        _id: "actual-row",
+        project_id: "project-1",
+        subscription_id: "subscription-1",
+        occurrence_key: "actual-1",
+        meeting_id: "actual-1",
+        title: "Platform sync",
+        start: new Date("2026-09-01T10:25:00Z"),
+        end: new Date("2026-09-01T10:35:00Z"),
+        source: "meetings_api",
+        status: "failed",
+        attempts: 0,
+        next_attempt_at: now,
+        run_id: "existing-run",
+        last_error: "Existing ingest failed.",
+      },
+      {
+        _id: "calendar-row",
+        project_id: "project-1",
+        subscription_id: "subscription-1",
+        occurrence_key: "calendar-1",
+        meeting_id: "actual-1",
+        title: "Platform sync",
+        start: new Date("2026-09-01T10:30:00Z"),
+        end: new Date("2026-09-01T11:30:00Z"),
+        source: "userhub_calendar",
+        status: "waiting_transcript",
+        attempts: 0,
+        next_attempt_at: now,
+      },
+    ];
+
+    await tickWebexMeetingSeriesScheduler(now, [project]);
+
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]).toMatchObject({ _id: "actual-row", run_id: "existing-run" });
+    expect(enqueueRun).not.toHaveBeenCalled();
+    expect(projectUpdate).toHaveBeenCalledWith(
+      { _id: "project-1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "autoIngest.webexMeetingSeries.$[series].lastRunId": "existing-run",
+          "autoIngest.webexMeetingSeries.$[series].lastStatus": "failed",
+          "autoIngest.webexMeetingSeries.$[series].lastError": "Existing ingest failed.",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("checks User Hub before skipping an occurrence Webex reports as missed", async () => {
     resolveOccurrenceMeeting.mockResolvedValue({ meetingId: null, missed: true });
+    downloadMeetingTranscript.mockResolvedValue(null);
 
     await tickWebexMeetingSeriesScheduler(now, [project]);
 
     expect(occurrences[0]).toMatchObject({
-      status: "skipped",
-      last_error: "Meeting did not happen.",
+      status: "waiting_transcript",
+      last_error: "Waiting for meeting transcript.",
     });
-    expect(downloadMeetingTranscript).not.toHaveBeenCalled();
+    expect(downloadMeetingTranscript).toHaveBeenCalled();
+
+    await tickWebexMeetingSeriesScheduler(new Date("2026-09-01T13:31:00Z"), [project]);
+
+    expect(occurrences[0]).toMatchObject({
+      status: "skipped",
+      last_error:
+        "No accessible recording or transcript became available before the retry period ended.",
+    });
   });
 
   it("resets settling when another transcript segment appears", async () => {

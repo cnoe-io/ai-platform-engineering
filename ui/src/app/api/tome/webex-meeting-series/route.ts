@@ -13,6 +13,7 @@ import {
   discoverMeetingSeries,
   interactiveWebexMeetingInvoker,
   meetingSeriesHostEligibility,
+  nonHostMeetingSeriesAllowed,
   webexMeetingSeriesDiscoveryWindow,
 } from "@/lib/tome/webex-meeting-series";
 
@@ -35,5 +36,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...meetingSeriesHostEligibility(candidate, user.email),
     }),
   );
-  return successResponse({ candidates });
+  return successResponse({ candidates, allowNonHostSeries: nonHostMeetingSeriesAllowed() });
 });

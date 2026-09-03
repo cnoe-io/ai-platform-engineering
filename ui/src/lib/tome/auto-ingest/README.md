@@ -20,15 +20,16 @@ the chosen subscriptions with the new project. Meeting occurrences still
 follow their Webex calendar rather than the daily/weekly project-source
 schedule.
 
-Only the meeting host can add a series. Webex exposes the recordings and
-transcripts required by this workflow only through the host's normal user
-connection. Non-host rows remain visible but their **Add** button is disabled.
+For a series hosted by someone else, both onboarding and project settings show
+an explicit recording-access warning before allowing selection. Auto-ingest can
+process only occurrences whose recording and transcript Webex makes available
+to the connected user, such as cohosted or shared recordings.
 
 ## Execution Flow
 
 ```mermaid
 flowchart LR
-  A[Add hosted series] --> B[Store subscription and credential owner]
+  A[Add series] --> B[Store subscription and credential owner]
   B --> C[Reconcile Webex calendar per user and site]
   C --> D[Wait until occurrence end plus 10 minutes]
   D --> E[Resolve official meeting occurrence]
@@ -55,7 +56,8 @@ series owned by the same user normally share one discovery sweep.
 | Calendar refresh | Once daily by default, shared by all series for one user/site. |
 | Upcoming occurrence | The next check is moved earlier to occurrence end plus 10 minutes. |
 | First transcript attempt | Occurrence end plus 10 minutes, on the next scheduler tick. |
-| Scheduled meeting never started | Webex reports the occurrence as `missed`; mark it skipped as “Meeting did not happen” without transcript retries. |
+| Webex reports a meeting as missed | Still check User Hub during the retry window, because a shared/cohost recording may exist without a public instance; skip only if no accessible transcript appears. |
+| Series hosted by someone else | The settings UI permits it after an access warning. Each occurrence is ingested only when its recording and transcript are available to the subscribing user's Webex account. |
 | Transcript unavailable | Retry with backoff (15 minutes, 30 minutes, then 1 hour) within the configured maximum retry period. |
 | Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
 | Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |
@@ -66,6 +68,9 @@ series owned by the same user normally share one discovery sweep.
 An occurrence that ended before the subscription was created is not
 backfilled. Selecting a series while its meeting is in progress is supported.
 Cancelled and missed occurrences are skipped.
+
+Both the project settings picker and Project Review & Create allow a non-hosted
+series only after an explicit recording-access warning.
 
 ## Discovery
 
@@ -79,6 +84,18 @@ Tome invokes the configured `webex_meetings` MCP server directly. It combines:
 The discovery window covers the previous 48 hours and next 90 days. User Hub
 calendar discovery is required because some active recurring meetings do not
 appear reliably through `webex_list_meetings` alone.
+
+When an occurrence has no public meeting instance ID, Tome sends its series
+title, start time, and Webex site to `webex_list_transcripts`. The MCP server
+matches the nearest User Hub recording and returns its `meetingInstanceId` with
+the transcript. This supports cohost/shared recordings without treating calendar
+attendance alone as proof of recording access.
+
+Webex can report an early or late-started meeting twice: once at its actual time
+through the Meetings API and once at its scheduled time through User Hub. Tome
+merges nearby cross-source rows within the same series, preferring the actual
+Meetings API timing. As a second safety net, resolved rows with the same Webex
+`meetingInstanceId` are consolidated before any ingest run is created.
 
 User Hub local wall-clock timestamps are converted to UTC using the IANA
 timezone supplied by Webex. Ambiguous timezone-less calendar rows are ignored
@@ -108,8 +125,9 @@ differently named MCP server or provider requires a code change.
 | `TOME_AUTO_INGEST_ENABLED` | `false` | Must be `true` to start the scheduler, including meeting-series work. |
 | `TOME_AUTO_INGEST_TICK_MS` | `60000` | Local scheduler loop interval. |
 | `TOME_WEBEX_SERIES_REFRESH_MS` | `86400000` | Owner/site calendar refresh interval; minimum five minutes. |
+| `TOME_WEBEX_ALLOW_NON_HOST_SERIES` | `true` | Allow users to add meeting series hosted by someone else after the recording-access warning. Set `false` to disable this in both onboarding and project settings; write APIs enforce the same policy. Existing subscriptions are not removed. |
 | `TOME_WEBEX_TRANSCRIPT_SETTLE_MS` | `900000` | Required unchanged time before all transcript segments are merged and queued. Set `0` to disable settling. |
-| `TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS` | `7200000` | Maximum time after a meeting ends to retry resolving its official occurrence and transcript. |
+| `TOME_WEBEX_TRANSCRIPT_MAX_RETRY_PERIOD_MS` | `7200000` | Maximum time after a meeting ends to retry resolving its public or User Hub occurrence and transcript. |
 | `TOME_WEBEX_TRANSCRIPT_MAX_CHARS` | `400000` | Maximum transcript characters passed to one ingest; minimum 50,000. |
 | `TOME_WEBEX_MEETINGS_MCP_URL` | unset | Optional direct endpoint override for the configured MCP server. |
 

@@ -39,6 +39,7 @@ import {
   discoverMeetingSeries,
   interactiveWebexMeetingInvoker,
   meetingSeriesHostEligibility,
+  nonHostMeetingSeriesAllowed,
   webexMeetingSeriesDiscoveryWindow,
 } from "@/lib/tome/webex-meeting-series";
 import {
@@ -366,11 +367,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           );
         }
         const eligibility = meetingSeriesHostEligibility(candidate, email);
-        if (!eligibility.canAutoIngest) {
+        if (!eligibility.canAutoIngest && !nonHostMeetingSeriesAllowed()) {
           throw new ApiError(
-            eligibility.unavailableReason || "Only meetings hosted by you can be auto-ingested.",
+            "Adding meeting series hosted by another user is disabled.",
             403,
-            "WEBEX_MEETING_HOST_REQUIRED",
+            "WEBEX_NON_HOST_MEETING_SERIES_DISABLED",
           );
         }
         const subscription = createWebexMeetingSeriesSubscription({

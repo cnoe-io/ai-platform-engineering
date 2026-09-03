@@ -38,7 +38,8 @@ Mirrors Cisco's official Meetings MCP tool surface, plus local fallback helpers:
 - `webex_update_meeting` - patch a meeting
 - `webex_delete_meeting` - delete a scheduled meeting
 - `webex_list_recordings` - list recordings
-- `webex_list_transcripts` - list transcripts (and optionally inline-download VTT)
+- `webex_list_transcripts` - list transcripts (and optionally inline-download
+  text), with a User Hub fallback for recordings shared with the caller
 
 There is currently no `webex_get_meeting_summary` tool because Webex does not
 publish a public meeting-summary REST endpoint. Use
@@ -55,6 +56,27 @@ User Hub timestamps include an IANA timezone such as
 `America/Los_Angeles`. The MCP image includes the timezone database and
 normalizes those local wall-clock values to UTC. If timezone metadata cannot be
 resolved, the timestamp is omitted rather than returned as an ambiguous value.
+
+## Shared/cohost transcript fallback
+
+The public `/v1/meetingTranscripts` API can omit a transcript that the signed-in
+user can play and download in User Hub, including some recordings shared with a
+cohost. `webex_list_transcripts` enables `userhub_fallback` by default. It can use
+an exact `meeting_id`, or `meeting_title` plus `meeting_start` when the public API
+never exposes an instance ID:
+
+1. Derive the site host from public metadata, or use the supplied `site_url`.
+2. Search the site-specific User Hub recording list, following offset pagination.
+3. Match the title and occurrence time, then adopt and verify the recording
+   detail's `meetingInstanceId` across transcript segments.
+4. Download the transcript URL returned by the authenticated recording stream.
+
+The caller's existing OAuth token is used throughout; no browser cookies or
+server-side token storage are needed. Set `site_url` only when automatic site
+derivation is unavailable, or set `userhub_fallback=false` to disable this path.
+
+User Hub endpoints are not part of Webex's public REST API. Keep this behavior as
+a guarded fallback and expect Webex may change its response shape or paths.
 
 ## Run locally
 

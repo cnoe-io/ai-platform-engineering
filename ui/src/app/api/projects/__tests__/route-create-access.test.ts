@@ -103,6 +103,7 @@ describe("POST /api/projects access setup failures", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES;
     mockGetAuthFromBearerOrSession.mockResolvedValue({
       user: { email: "creator@example.test" },
       session: {
@@ -187,13 +188,13 @@ describe("POST /api/projects access setup failures", () => {
     expect(mockAuditTome).toHaveBeenCalledTimes(1);
   });
 
-  it("stores the onboarding schedule and selected hosted Webex meeting series atomically", async () => {
+  it("stores the onboarding schedule and a selected non-hosted Webex meeting series atomically", async () => {
     mockInteractiveWebexMeetingInvoker.mockResolvedValue(jest.fn());
     mockDiscoverMeetingSeries.mockResolvedValue([
       {
         seriesKey: "hosted-series",
         title: "Platform weekly",
-        hostEmail: "creator@example.test",
+        hostEmail: "host@example.test",
         siteUrl: "https://example.webex.test",
         sourceRefs: { meetingSeriesId: "series-id" },
         sources: ["meetings_api"],
@@ -244,6 +245,37 @@ describe("POST /api/projects access setup failures", () => {
       "https://example.webex.test",
       expect.any(Date),
     );
+  });
+
+  it("rejects a selected non-hosted Webex series when the policy is disabled", async () => {
+    process.env.TOME_WEBEX_ALLOW_NON_HOST_SERIES = "false";
+    mockInteractiveWebexMeetingInvoker.mockResolvedValue(jest.fn());
+    mockDiscoverMeetingSeries.mockResolvedValue([
+      {
+        seriesKey: "guest-series",
+        title: "Customer update",
+        hostEmail: "host@example.test",
+        siteUrl: "https://example.webex.test",
+        sourceRefs: { meetingSeriesId: "guest-series-id" },
+        sources: ["userhub_calendar"],
+        occurrences: [],
+      },
+    ]);
+
+    const response = await POST(
+      createRequest({
+        auto_ingest: {
+          enabled: true,
+          cron: "0 10 * * 1",
+          webex_meeting_series_keys: ["guest-series"],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.code).toBe("WEBEX_NON_HOST_MEETING_SERIES_DISABLED");
+    expect(projects.insertOne).not.toHaveBeenCalled();
   });
 
   it("rolls back and returns a sanitized recovery response for OpenFGA failures", async () => {
