@@ -96,30 +96,148 @@ When Graph RAG is enabled, Neo4j stores structured entities and relationships.
 
 ## Ownership, search access, and collections
 
-Data source administration and content access are separate.
+CAIPE keeps ownership, sharing, and runtime access separate. There are four
+independent subjects:
 
-- Each data source has one owner: a person or team that manages its configuration.
-- Search access is granted independently to people or teams.
-- A collection references data source IDs without duplicating chunks or changing
-  vector storage.
-- Updating collection membership changes the scope used by connected agents without editing each agent.
-- Authorization fails closed when CAIPE cannot verify access.
+| Subject | What they control | What sharing grants |
+|---------|-------------------|---------------------|
+| **Data source owner** | Connector configuration, ingestion, and direct Search sharing | Read access to that data source |
+| **Collection owner** | Collection metadata, member data sources, maintainers, and readers | Read access inherited by the collection's current members |
+| **Agent owner** | Agent configuration, including selected data sources and collections | Permission to use the agent |
+| **Agent user** | The request being run | Nothing automatically; this caller's existing permissions are evaluated at runtime |
+
+Ownership controls configuration. When another person runs an agent, CAIPE does
+not borrow the data access of the data source, collection, or agent owner.
+
+```mermaid
+flowchart LR
+  DSO(["Data source<br/>owner"]) -->|"Manages ingestion<br/>and direct sharing"| DS["Data source D1"]
+  CO(["Collection<br/>owner"]) -->|"Manages members<br/>and collection sharing"| C["Collection C<br/>D1 · D2"]
+  AO(["Agent<br/>owner"]) -->|"Configures the agent's<br/>maximum knowledge scope"| A["Agent A"]
+  U(["Agent user<br/>caller"]) -->|"can_use"| A
+
+  C -. "References stable ID" .-> DS
+  A -->|"Collection scope"| C
+  A -->|"Direct scope"| D3["Data source D3"]
+  U -->|"Caller identity is evaluated"| R["Runtime authorization"]
+
+  N["Owners' personal data access<br/>is not transferred to the caller"]
+  AO -. "Not an identity source" .-> N
+  CO -. "Not an identity source" .-> N
+  DSO -. "Not an identity source" .-> N
+
+  classDef owner fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px
+  classDef resource fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef caller fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+  classDef warning fill:#fff1f2,stroke:#e11d48,color:#881337,stroke-width:2px
+
+  class DSO,CO,AO owner
+  class DS,C,A,D3 resource
+  class U,R caller
+  class N warning
+```
+
+A collection is a control-plane grouping. It references data source IDs without
+copying chunks or changing vector storage. A caller with `can_read` on a
+collection inherits `can_read` on its current member data sources. Collection
+publishing and management remain separate from content read access.
 
 ## Agent knowledge scope
 
 Agent Builder can attach individual data sources and collections to an agent.
 
-The effective scope is:
+Runtime access is evaluated in this order:
 
-```text
-agent-selected sources and collection members
-∩
-data sources the invoking caller can search
+1. The caller must have `can_use` on the agent.
+2. The caller must have the organization-level `can_search` capability.
+3. CAIPE resolves data sources the caller can read. Direct data source or
+   knowledge-base grants and collection-inherited grants are combined.
+4. CAIPE resolves the agent's configured scope from its directly selected data
+   sources and the current members of its selected collections.
+5. Search receives only the intersection of the caller-readable set, the agent
+   scope, and any narrower request filter.
+
+```mermaid
+flowchart TB
+  U(["Agent user<br/>caller identity"])
+  G1{"Caller can_use<br/>Agent A?"}
+  G2{"Caller has organization<br/>can_search?"}
+  DENY["Request denied · 403"]
+
+  U --> G1
+  G1 -->|"No"| DENY
+  G1 -->|"Yes"| G2
+  G2 -->|"No"| DENY
+
+  subgraph CALLER["A · Caller-readable data sources"]
+    DIRECT["Direct can_read<br/>on a data source or knowledge base"]
+    CR["Collections the caller<br/>can_read"]
+    MEMBERS["Those collections'<br/>current member data sources"]
+    READABLE["Caller-readable set"]
+    DIRECT --> READABLE
+    CR --> MEMBERS --> READABLE
+  end
+
+  subgraph AGENT["B · Agent-configured scope"]
+    ADS["Directly selected<br/>data sources"]
+    AC["Selected collections"]
+    ACM["Those collections'<br/>current member data sources"]
+    SCOPE["Agent scope"]
+    ADS --> SCOPE
+    AC --> ACM --> SCOPE
+  end
+
+  G2 -->|"Yes"| READABLE
+  G2 -->|"Yes"| SCOPE
+  READABLE --> I{{"INTERSECTION"}}
+  SCOPE --> I
+  F["Optional request filter<br/>can only narrow"] --> I
+  I --> RESULT(["Authorized search results"])
+
+  OWNER["Agent owner's personal<br/>data access"] -. "Not used" .-> I
+
+  classDef gate fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef denied fill:#fff1f2,stroke:#e11d48,color:#881337,stroke-width:2px
+  classDef permission fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef scope fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px
+  classDef result fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+  classDef excluded fill:#f8fafc,stroke:#e11d48,color:#881337,stroke-width:2px,stroke-dasharray:5 5
+
+  class U,G1,G2 gate
+  class DENY denied
+  class DIRECT,CR,MEMBERS,READABLE permission
+  class ADS,AC,ACM,SCOPE,F scope
+  class RESULT result
+  class OWNER excluded
 ```
 
-The agent selection can narrow the caller's scope but never grants access to
-additional knowledge. An agent with no selected sources or collections cannot
-use RAG tools.
+The caller's readable set is therefore:
+
+```text
+direct data source or knowledge-base access
+UNION
+data sources inherited through readable collections
+```
+
+The effective agent result is:
+
+```text
+caller-readable data sources
+INTERSECT agent-selected data sources and collection members
+INTERSECT optional request filter
+```
+
+The agent's knowledge configuration is a scope, not a grant. For example, if a
+caller can read data source `D1` directly and an agent includes `D1` through a
+collection, `D1` remains available even if the caller cannot manage or discover
+that collection. Conversely, selecting a collection on an agent never gives the
+caller the collection owner's permissions.
+
+For interactive calls, the invoking user's bearer identity is evaluated. For
+scheduled or autonomous calls, CAIPE evaluates the task owner's delegated
+identity. Explicit service-account calls use that service account's grants. A
+missing delegated identity fails closed instead of falling back to the agent
+owner or the Dynamic Agents service account.
 
 ## MCP access
 
