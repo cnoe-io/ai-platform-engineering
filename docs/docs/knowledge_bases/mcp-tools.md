@@ -84,7 +84,7 @@ Retrieve full content of a specific document by ID.
 
 **Use when:** Need full context after identifying a relevant document via search.
 
-#### `fetch_datasources_and_entity_types`
+#### `list_datasources_and_entity_types`
 
 List all available datasources and entity types in the knowledge base.
 
@@ -158,7 +158,7 @@ Execute custom read-only Cypher queries.
 
 **Use when:** Complex queries that can't be expressed with other tools.
 
-**Note:** Queries are automatically scoped to the correct tenant labels (`NxsDataEntity` or `NxsSchemaEntity`).
+**Authorization:** Data-graph exploration is restricted to datasources the caller can search. Raw data-graph queries and deployment-wide ontology operations require unrestricted datasource access. Queries are also scoped to the appropriate graph labels (`NxsDataEntity` or `NxsSchemaEntity`).
 
 ## Filtering
 
@@ -166,8 +166,8 @@ Search and exploration tools support metadata filters:
 
 | Filter Key | Description | Example |
 |------------|-------------|---------|
-| `datasource_id` | Filter by data source | `"aws-production"` |
-| `ingestor_id` | Filter by ingestor | `"k8s-ingestor"` |
+| `datasource_id` | Filter by data source | `"primary"` |
+| `ingestor_id` | Filter by ingestor | `"primary-ingestor"` |
 | `is_structured_entity` | Only structured entities | `true` |
 | `document_type` | Filter by document type | `"runbook"`, `"structured:Pod"` |
 | `metadata.<key>` | Filter by nested metadata | `metadata.structured_entity_type` |
@@ -193,30 +193,30 @@ Filters are combined with AND logic.
 
 ## Example Agent Workflow
 
-Here's how an AI agent might use these tools to answer "What pods are running on node worker-1?":
+Here's how an AI agent might use these tools to answer "What workloads are running on node-a?":
 
 1. **Discover schema:**
    ```
-   fetch_datasources_and_entity_types()
-   → Sees "Pod" and "Node" entity types from k8s datasource
+   list_datasources_and_entity_types()
+   → Sees "Workload" and "Node" entity types from the primary datasource
    ```
 
 2. **Explore relationships:**
    ```
-   graph_explore_ontology_entity(entity_type="Pod", hops=1)
-   → Sees Pod has "RUNS_ON" relationship to Node
+   graph_explore_ontology_entity(entity_type="Workload", hops=1)
+   → Sees Workload has "RUNS_ON" relationship to Node
    ```
 
 3. **Find the node:**
    ```
-   search(query="worker-1", filters={"document_type": "structured:Node"})
+   search(query="node-a", filters={"document_type": "structured:Node"})
    → Gets Node entity ID
    ```
 
 4. **Explore node's pods:**
    ```
-   graph_explore_data_entity(entity_type="Node", entity_id="worker-1", hops=1)
-   → Gets all Pods connected to this Node
+   graph_explore_data_entity(entity_type="Node", entity_id="node-a", hops=1)
+   → Gets all Workloads connected to this Node
    ```
 
 ## Configuration

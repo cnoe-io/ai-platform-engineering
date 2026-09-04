@@ -125,8 +125,8 @@ const HOME_FEATURES = [
   },
   {
     icon: '🛠️',
-    title: 'Custom Agents',
-    description: 'Build agents with custom prompts, tools, and personas. No boilerplate.',
+    title: 'Agent Builder',
+    description: 'Build governed agents with approved models, tools, knowledge, and guardrails.',
     to: '/features',
   },
   {
