@@ -53,6 +53,7 @@ import {
   CalendarClock,
   ChevronDown,
   Database,
+  FolderKanban,
   Home,
   KeyRound,
   Mail,
@@ -83,6 +84,7 @@ interface ApplicationNavigationItem {
 function activeAreaForPath(pathname: string | null): string | null {
   if (pathname === "/") return "home";
   if (pathname?.startsWith("/chat")) return "chat";
+  if (pathname?.startsWith("/projects")) return "projects";
   if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
   if (pathname?.startsWith("/credentials")) return "credentials";
   if (pathname?.startsWith("/workflows")) return "workflows";
@@ -220,6 +222,12 @@ function ApplicationNavigationContents({
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
     { key: "chat",href: chatHref,label: "Chat",icon: MessageCircle },
+    config.projectsEnabled && {
+      key: "projects",
+      href: "/projects",
+      label: "Projects",
+      icon: FolderKanban,
+    },
     { key: "skills",href: "/skills",label: "Skills",icon: Zap },
     config.workflowsEnabled && {
       key: "workflows",
