@@ -1,3 +1,10 @@
+## 1.0.0-dev.24 (2026-09-04)
+
+### Fix
+
+- **autonomous-agents**: address code quality review
+- **docs**: version historical internal links (#2641)
+
 ## 1.0.0 (2026-09-03)
 
 ## 1.0.0-dev.23 (2026-09-03)
@@ -5,6 +12,8 @@
 ### Feat
 
 - add timezone support and userhub metadata
+- **agentic-apps**: add Weather reference runtime
+- **ui**: add config-driven hosted application runtime
 
 ## 1.0.0-dev.22 (2026-09-02)
 
@@ -28,6 +37,10 @@
 - **rag**: preserve job history across file datasource re-uploads
 
 ## 1.0.0-dev.19 (2026-09-02)
+
+### Feat
+
+- **scheduler**: min interval restriction
 
 ### Fix
 
@@ -144,11 +157,14 @@
 ### Feat
 
 - **ui**: add global command palette (#2463)
+- **autonomous**: remove redundent max retires and timeout
+- **autonomous**: webhook to be in a single chat with each run having "continue this run" button to chat on that particular run
 
 ### Fix
 
 - **ui**: show deployed version in about, refresh homepage, and consolidate release docs (#2595)
 - **ui**: hide API-created conversations from chat history (#2588)
+- **ui**: test
 
 ## 1.0.0-dev.6 (2026-08-26)
 
@@ -245,15 +261,36 @@
 
 ## 0.5.69-dev.2 (2026-08-20)
 
+### Feat
+
+- **docs**: up to date autonomous agent docs
+
+### Fix
+
+- **autonomous**: webhook secret ffs
+
 ## 0.5.69-dev.1 (2026-08-19)
+
+### Feat
+
+- **autonomous**: add min run interval (configurable) and wehook should NOT appear in the chat
+- **ui**: autonomous and schedule chats in separate sections to history
 
 ### Fix
 
 - **skills**: repair zip import ownership and file access
+- **autonomous**: add webhook limits and address security concerns
+- **autonomous**: better admin tab and remove task oversight
+- **autonomous**: secret should be secretly handled
+- **ui**: autonomous page scroll issue
 
 ## 0.5.69 (2026-08-18)
 
 ## 0.5.68-dev.8 (2026-08-18)
+
+### Feat
+
+- **autonomous**: simply team access and separate admin control to a tab
 
 ## 0.5.68-dev.7 (2026-08-17)
 
