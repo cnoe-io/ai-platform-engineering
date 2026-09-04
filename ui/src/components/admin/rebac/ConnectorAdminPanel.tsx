@@ -486,6 +486,10 @@ type DiscoveredRow = DiscoveredItem & {
   team_slug: string;
   agent_id: string;
   is_existing: boolean;
+  /** Persisted routing values, used to distinguish an edit from a no-op. */
+  configured_team_slug?: string;
+  configured_agent_id?: string;
+  configured_bot_id?: string;
 };
 
 function enrichDiscoveredRows(
@@ -494,6 +498,8 @@ function enrichDiscoveredRows(
     configuredItemsById: Map<string, ItemSummary>;
     globalDefaults: OnboardingDefaultSelection;
     legacyChannelAgents: Record<string, string>;
+    /** Administrators may reassign an existing channel from the UI. */
+    allowConfiguredEdits: boolean;
   },
 ): DiscoveredRow[] {
   return rows.map((row) => {
@@ -506,7 +512,7 @@ function enrichDiscoveredRows(
     const selectable =
       row.selectable !== false &&
       teamRequired &&
-      !configured &&
+      (!configured || sources.allowConfiguredEdits) &&
       (!pending || (pending.requesterIsViewer && pending.status === "pending"));
     const teamSlug =
       pending
@@ -539,6 +545,15 @@ function enrichDiscoveredRows(
       team_slug: teamSlug,
       agent_id: agentId,
       is_existing: row.is_existing || configured,
+      configured_team_slug: configured
+        ? row.configured_team_slug || existing?.team_slug || row.configuredTeamSlug || ""
+        : undefined,
+      configured_agent_id: configured
+        ? row.configured_agent_id || existing?.primary_agent_id || row.configuredAgentId || ""
+        : undefined,
+      configured_bot_id: configured
+        ? row.configured_bot_id || existing?.bot_id || row.botId || ""
+        : undefined,
     };
   });
 }
@@ -1080,7 +1095,7 @@ export function ConnectorAdminPanel({
         const selectable =
           item.selectable !== false &&
           teamRequired &&
-          !isExisting &&
+          (!isExisting || !selfService) &&
           (!pending || (pendingOwnedByViewer && pending.status === "pending"));
         const existingTeamName = existing?.team_slug
           ? teams.find((team) => team.slug === existing.team_slug)?.name
@@ -1135,6 +1150,9 @@ export function ConnectorAdminPanel({
               : prev.botId || existing?.bot_id || item.botId || "",
             availableBotIds: item.availableBotIds,
             is_existing: isExisting || prev.is_existing,
+            configured_team_slug: isExisting ? configuredTeamSlug : undefined,
+            configured_agent_id: isExisting ? configuredAgentId : undefined,
+            configured_bot_id: isExisting ? existing?.bot_id || item.botId || "" : undefined,
           };
         }
         return {
@@ -1156,12 +1174,16 @@ export function ConnectorAdminPanel({
               : "",
           botId: pending?.botId || existing?.bot_id || item.botId || "",
           is_existing: isExisting,
+          configured_team_slug: isExisting ? configuredTeamSlug : undefined,
+          configured_agent_id: isExisting ? configuredAgentId : undefined,
+          configured_bot_id: isExisting ? existing?.bot_id || item.botId || "" : undefined,
         };
       });
       return enrichDiscoveredRows(built, {
         configuredItemsById,
         globalDefaults: defaults,
         legacyChannelAgents,
+        allowConfiguredEdits: !selfService,
       });
     },
     [
@@ -1170,6 +1192,7 @@ export function ConnectorAdminPanel({
       configuredItemsById,
       effectiveOnboardingDefaults,
       legacyChannelAgents,
+      selfService,
       teams,
     ],
   );
@@ -1181,9 +1204,10 @@ export function ConnectorAdminPanel({
         configuredItemsById,
         globalDefaults: effectiveOnboardingDefaults,
         legacyChannelAgents,
+        allowConfiguredEdits: !selfService,
       }),
     );
-  }, [configuredItemsById, effectiveOnboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length]);
+  }, [configuredItemsById, effectiveOnboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length, selfService]);
 
   const fetchDiscoveryPage = useCallback(
     async (opts: {
@@ -1377,6 +1401,11 @@ export function ConnectorAdminPanel({
           (row.botId ?? "") !== (row.pendingApproval.botId ?? "")
         ),
       );
+      const configuredChanged = (row: DiscoveredRow) =>
+        !row.is_existing ||
+        row.team_slug !== (row.configured_team_slug ?? "") ||
+        row.agent_id !== (row.configured_agent_id ?? "") ||
+        (row.botId ?? "") !== (row.configured_bot_id ?? "");
       const withdrawalRows = discoveredRows.filter((row) =>
         row.selected &&
         row.selectable !== false &&
@@ -1390,7 +1419,8 @@ export function ConnectorAdminPanel({
         row.selectable !== false &&
         Boolean(row.team_slug) &&
         Boolean(row.agent_id) &&
-        (!row.pendingApproval || pendingChanged(row))
+        (!row.pendingApproval || pendingChanged(row)) &&
+        configuredChanged(row)
       );
       const submissionIds = new Set(submissionRows.map((row) => row.id));
       let result: Awaited<ReturnType<typeof adapter.applyOnboarding>> = {
@@ -1446,7 +1476,9 @@ export function ConnectorAdminPanel({
                   teams.find((team) => team.slug === row.team_slug)?.name ||
                   row.team_slug,
                 is_existing: true,
-                selectable: false,
+                configured_team_slug: row.team_slug,
+                configured_agent_id: row.agent_id,
+                configured_bot_id: row.botId || "",
                 selected: false,
                 pendingApproval: undefined,
               }
@@ -1997,6 +2029,9 @@ export function ConnectorAdminPanel({
               isExisting: row.is_existing,
               configuredBy: row.configuredBy,
               configuredAgentName: row.configuredAgentName,
+              configuredTeamSlug: row.configured_team_slug,
+              configuredAgentId: row.configured_agent_id,
+              configuredBotId: row.configured_bot_id,
               pendingApproval: row.pendingApproval,
               teamRequired: row.teamRequired,
               selectable: row.selectable,
