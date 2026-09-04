@@ -98,7 +98,7 @@ export function buildProxyTargetUrl(
   const suffix = encodedPath ? `/${encodedPath}` : "/";
   if (options.preserveMountPath && options.mountPath) {
     const normalizedMount = options.mountPath.replace(/\/+$/, "");
-    target.pathname = `${normalizedMount}${encodedPath ? suffix : ""}` || "/";
+    target.pathname = `${normalizedMount}${suffix}` || "/";
   } else {
     target.pathname = suffix;
   }
