@@ -10,6 +10,7 @@ import {
 } from "@/lib/agentic-apps/config";
 import { deriveAgenticAppSubjectId } from "@/lib/agentic-apps/identity";
 import { buildPublicAgenticApp } from "@/lib/agentic-apps/public-app";
+import { getAgenticAppById } from "@/lib/agentic-apps/registry";
 import { ApiError, getAuthenticatedUser } from "@/lib/api-middleware";
 
 export async function GET(request: NextRequest): Promise<Response> {
@@ -48,7 +49,13 @@ export async function GET(request: NextRequest): Promise<Response> {
         && app.installation.visible
         && app.manifest.surfaces.showInHub,
     )
-    .map((app) => buildPublicAgenticApp(app, canLaunchAgenticApp(app, userContext)));
+    .map((app) =>
+      buildPublicAgenticApp(
+        app,
+        canLaunchAgenticApp(app, userContext),
+        Boolean(getAgenticAppById(app.installation.appId)),
+      ),
+    );
 
   return Response.json({ items }, { headers: { "cache-control": "no-store" } });
 }

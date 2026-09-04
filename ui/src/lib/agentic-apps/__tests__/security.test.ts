@@ -175,6 +175,15 @@ describe("External Apps security contracts", () => {
   it("keeps private runtime coordinates out of the public catalog", () => {
     const publicApp = buildPublicAgenticApp(app, true);
     expect(publicApp).toEqual(expect.objectContaining({ appId: "example-app", href: "/apps/example-app" }));
+    expect(publicApp).toEqual(expect.objectContaining({
+      runtimeKind: "proxied-next-zone",
+      requestedScopes: ["example-app:read", "example-app:run"],
+      createdBy: "Deployment config",
+      visibility: "global",
+      sharedWithTeams: [],
+      canManage: false,
+      sharingEnabled: false,
+    }));
     expect(JSON.stringify(publicApp)).not.toContain("example.svc");
     expect(publicApp).not.toHaveProperty("runtime");
     expect(publicApp).not.toHaveProperty("origin");

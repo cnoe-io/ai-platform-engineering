@@ -370,4 +370,11 @@ export interface PublicAgenticApp {
   blockedReasons: string[];
   categories: string[];
   capabilities: string[];
+  runtimeKind: AgenticAppRuntimeKind;
+  requestedScopes: string[];
+  createdBy: string;
+  visibility: AgenticAppVisibility;
+  sharedWithTeams: string[];
+  canManage: boolean;
+  sharingEnabled: boolean;
 }
