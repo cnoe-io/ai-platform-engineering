@@ -14,7 +14,6 @@ const mockResolveKeycloakUserSubject = jest.fn();
 const mockWriteTeamMembershipTuples = jest.fn();
 const mockMongoRoleToOpenFgaRelations = jest.fn();
 const mockUpsertTeamMembershipSource = jest.fn();
-const mockLoadActiveTeamMembers = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -33,10 +32,6 @@ jest.mock("@/lib/rbac/team-membership-sync", () => ({
 
 jest.mock("@/lib/rbac/team-membership-source-store", () => ({
   upsertTeamMembershipSource: (...args: unknown[]) => mockUpsertTeamMembershipSource(...args),
-}));
-
-jest.mock("@/lib/rbac/team-membership-store", () => ({
-  loadActiveTeamMembers: (...args: unknown[]) => mockLoadActiveTeamMembers(...args),
 }));
 
 const ORG_ADMIN_LINK_TUPLE = {
@@ -58,7 +53,6 @@ describe("ensureSuperAdminsTeam org-admin linkage", () => {
     mockMongoRoleToOpenFgaRelations.mockReturnValue(["admin"]);
     mockWriteTeamMembershipTuples.mockResolvedValue(undefined);
     mockUpsertTeamMembershipSource.mockResolvedValue(undefined);
-    mockLoadActiveTeamMembers.mockResolvedValue([]);
     mockWriteOpenFgaTuples.mockImplementation(async (input: { writes: unknown[] }) => ({
       enabled: true,
       writes: input.writes.length,
@@ -96,9 +90,6 @@ describe("ensureSuperAdminsTeam org-admin linkage", () => {
       insertOne: jest.fn(),
       updateOne: jest.fn().mockResolvedValue({}),
     });
-    // Member already present, so the run is a noop for membership.
-    mockLoadActiveTeamMembers.mockResolvedValue([{ user_email: "a@cisco.com" }]);
-
     const { ensureSuperAdminsTeam } = await import("../super-admins-team");
     const result = await ensureSuperAdminsTeam({
       members: [{ email: "a@cisco.com", userSubject: "sub-a" }],
@@ -110,6 +101,24 @@ describe("ensureSuperAdminsTeam org-admin linkage", () => {
       writes: [ORG_ADMIN_LINK_TUPLE],
       deletes: [],
     });
+  });
+
+  it("does not restore bootstrap addresses to an existing UI-managed roster", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "team-id-1", slug: "super-admins", created_at: new Date() }),
+      insertOne: jest.fn(),
+      updateOne: jest.fn().mockResolvedValue({}),
+    });
+
+    const { ensureSuperAdminsTeam } = await import("../super-admins-team");
+    const result = await ensureSuperAdminsTeam({
+      members: [{ email: "removed-by-admin@cisco.com", userSubject: "sub-removed" }],
+      actor: "test",
+    });
+
+    expect(result.status).toBe("noop");
+    expect(mockWriteTeamMembershipTuples).not.toHaveBeenCalled();
+    expect(mockUpsertTeamMembershipSource).not.toHaveBeenCalled();
   });
 
   it("honors a custom org key via CAIPE_ORG_KEY", async () => {
