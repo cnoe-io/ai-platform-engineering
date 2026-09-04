@@ -319,16 +319,19 @@ async function prepareRun(
     meetings.length > 0 ? { webex: { meetings } } : {};
   const scopedProject = meetingOnly ? { ...project, sources: {} } : project;
 
-  // BHAGs and Areas carry their child projects so the agent can read their wikis:
-  // synthesis builds from them, compaction uses them as ground truth.
+  // BHAGs and Areas carry their child projects for synthesis/compaction. A
+  // meeting-only Area run remains scoped to that transcript and reads no
+  // unrelated child wiki, matching its attached-source isolation above.
   const endpoint = dispatch.endpoint || "/ingest";
   const isBhag = project.type === "bhag";
   const isArea = project.type === "area";
-  const childProjects = isBhag
-    ? await resolveBhagChildren(project.name)
-    : isArea
-      ? await resolveAreaChildren(project.name)
-      : [];
+  const childProjects = meetingOnly
+    ? []
+    : isBhag
+      ? await resolveBhagChildren(project.name)
+      : isArea
+        ? await resolveAreaChildren(project.name)
+        : [];
   if (run.quality_policy_mode !== "off") {
     const bundle = await captureEvidenceBundle({
       project: scopedProject,
@@ -380,7 +383,7 @@ async function prepareRun(
         .join(", ")}`,
     );
   }
-  if (isBhag || isArea) {
+  if (!meetingOnly && (isBhag || isArea)) {
     const kind = isBhag ? "BHAG" : "Area";
     const verb = endpoint === "/synthesize" ? "synthesis" : "compaction";
     await appendLog(
