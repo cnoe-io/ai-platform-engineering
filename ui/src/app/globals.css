@@ -964,6 +964,8 @@ pre code.hljs {
   padding: 2rem 2.5rem 6rem;
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .wide-reading .milkdown-host .milkdown .ProseMirror {
@@ -1009,6 +1011,17 @@ pre code.hljs {
 .milkdown-host .milkdown .ProseMirror:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+/* Crepe's reset gives text selections the low-contrast `--crepe-color-selected`
+   surface color. Keep native text selection distinct from Milkdown's block
+   selection state so copied text is easy to see in both themes. */
+.milkdown-host .milkdown .ProseMirror::-moz-selection,
+.milkdown-host .milkdown .ProseMirror *::-moz-selection,
+.milkdown-host .milkdown .ProseMirror::selection,
+.milkdown-host .milkdown .ProseMirror *::selection {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 /* Inline code: Crepe's default is a hard red (rgb(186,26,26)) on a fixed grey,
@@ -1212,6 +1225,6 @@ pre code.hljs {
   box-sizing: border-box;
 }
 .raw-markdown-editor::selection {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
