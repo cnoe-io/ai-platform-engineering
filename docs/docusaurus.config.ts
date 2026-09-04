@@ -108,6 +108,7 @@ const config: Config = {
           // historically published docs links also omitted the /docs route.
           {from: '/getting-started/quick-start', to: '/docs/getting-started/quick-start'},
           {from: '/knowledge_bases/graph_rag', to: '/docs/knowledge_bases/'},
+          {from: '/docs/features/custom-agents', to: '/docs/features/agent-builder'},
           // /docs/index has no real page; redirect to Quick Start
           {from: '/docs/index', to: '/docs/getting-started/quick-start'},
           ...releaseRedirects,
