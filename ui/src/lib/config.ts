@@ -72,12 +72,7 @@ export interface Config {
   showPoweredBy: boolean;
   /** Support email address for contact links */
   supportEmail: string;
-  /**
-   * Team slug pre-selected in new agent and project owner pickers — the
-   * deployment's catchall/default team (e.g. an everyone-gets-added-
-   * automatically team), so most users never have to search a long team list.
-   * Null leaves owner selection empty so the user must choose a team.
-   */
+  /** Default team slug for new agent and project ownership. */
   defaultTeamSlug: string | null;
   /**
    * When true and SSO is disabled, show Admin tab without login (dev only).
@@ -107,7 +102,7 @@ export interface Config {
    */
   workflowRunnerEnabled: boolean;
   /**
-   * Whether the Workflows tab is shown in the top navigation.
+   * Whether Workflows is shown in application navigation.
    * Set WORKFLOWS_ENABLED=true to enable.
    */
   workflowsEnabled: boolean;
@@ -155,36 +150,23 @@ export interface Config {
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
   defaultFontFamily: string;
-  /** Default color theme: "light" | "dark" | "midnight" | "nord" | "tokyo" | "cyberpunk" | "tron" | "matrix" */
+  /** Default color theme: "light" | "legacy-light" | "dark" | "midnight" | "nord" | "tokyo" | "cyberpunk" | "tron" | "matrix" */
   defaultTheme: string;
   /** Default gradient theme: "default" | "minimal" | "professional" | "ocean" | "sunset" | "cyberpunk" | "tron" | "matrix" */
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
-  /**
-   * Whether the host shell exposes the Agentic Apps Hub.
-   * Controlled by AGENTIC_APPS_INSTALL_ENABLED.
-   */
+  /** Whether the host shell exposes the Agentic Apps Hub. */
   agenticAppsEnabled: boolean;
-  /**
-   * Whether the Agentic SDLC (ship loop) UI is available.
-   * Set SHIP_LOOP_ENABLED=true to enable.
-   */
+  /** Whether the Agentic SDLC (ship loop) UI is available. */
   shipLoopEnabled: boolean;
-  /**
-   * Whether the Agentic SDLC assistant chat bubble is enabled.
-   * Set SHIP_LOOP_ASSISTANT_ENABLED=true (default false) to enable.
-   */
+  /** Whether the Agentic SDLC assistant chat bubble is enabled. */
   shipLoopAssistantEnabled: boolean;
-  /**
-   * Hours that recently resolved Agentic SDLC artifacts stay visible.
-   * Override with SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS (default 24).
-   */
+  /** Hours that recently resolved Agentic SDLC artifacts stay visible. */
   shipLoopResolvedArtifactLookbackHours: number;
-  /**
-   * Whether the Tome wiki app is available.
-   * Set TOME_ENABLED=true to enable.
-   */
+  /** Whether autonomous task scheduling and webhook automation is enabled */
+  autonomousAgentsEnabled: boolean;
+  /** Whether the Tome wiki app is available. */
   tomeEnabled: boolean;
   /** Optional default agent ID used to edit scheduled jobs */
   scheduleEditorAgentId: string | null;
@@ -194,7 +176,7 @@ export interface Config {
   schedulerAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
-  /** Jira instance base URL (e.g., "https://org.atlassian.net") */
+  /** Jira instance base URL. */
   jiraBaseUrl: string | null;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
   jiraTicketProject: string | null;
@@ -206,15 +188,7 @@ export interface Config {
   githubTicketRepo: string | null;
   /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
   githubTicketLabel: string;
-  /**
-   * Dedicated repo screenshots are committed to and embedded from (e.g.,
-   * "org/report-screenshots"). GitHub's issue API has no attachment upload
-   * endpoint, so screenshots can only be embedded by hosting them somewhere
-   * with a stable URL — this repo is that host. Off by default (OSS): when
-   * unset, the screenshot capture/upload UI is hidden for GitHub-routed
-   * reports rather than showing something that silently never attaches.
-   * Set GITHUB_SCREENSHOTS_REPO to enable.
-   */
+  /** Optional repository used to host screenshots attached to GitHub feedback issues. */
   githubScreenshotsRepo: string | null;
   /**
    * Streaming protocol used by agent servers: "custom" (default) or "agui".
@@ -229,19 +203,15 @@ export interface Config {
    * When ticketEnabled is false, the dialog still opens but cannot create tickets.
    */
   reportProblemEnabled: boolean;
-  /**
-   * Optional dynamic agent ID to handle "Report a Problem" in the global header.
-   * Used when reportProblemRouting is 'dynamic-agent'. Set REPORT_PROBLEM_AGENT_ID=<agent-id>.
-   */
+  /** Optional dynamic agent ID to handle Report a Problem. */
   reportProblemDynamicAgentId: string | null;
-  /**
-   * Controls where the global "Report a Problem" header button routes:
-   * - 'dynamic-agent': opens a new chat with the agent in REPORT_PROBLEM_DYNAMIC_AGENT_ID
-   * - 'github': opens the ticket dialog with GitHub as the provider
-   * - 'jira': opens the ticket dialog with Jira as the provider
-   * Unset (default): opens the ReportProblemDialog with whatever ticket provider is configured.
-   */
+  /** Controls where Report a Problem routes. */
   reportProblemRouting: 'dynamic-agent' | 'github' | 'jira' | null;
+  /**
+   * Whether the compact "Provide Feedback" shortcut is shown in the app header.
+   * Disabled by default. Set PROVIDE_FEEDBACK_ENABLED=true to enable it.
+   */
+  provideFeedbackEnabled: boolean;
   /** Derived: true if either Jira or GitHub ticket creation is enabled */
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
@@ -275,11 +245,11 @@ const DEFAULT_FONT_SIZE = 'medium';
 const DEFAULT_FONT_FAMILY = 'inter';
 const DEFAULT_THEME = 'dark';
 const DEFAULT_GRADIENT_THEME = 'default';
-
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
-const VALID_THEMES = ['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
+const VALID_THEMES = ['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
 const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'];
+const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
@@ -328,6 +298,7 @@ const DEFAULT_CONFIG: Config = {
   shipLoopEnabled: false,
   shipLoopAssistantEnabled: false,
   shipLoopResolvedArtifactLookbackHours: 24,
+  autonomousAgentsEnabled: false,
   tomeEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
@@ -336,6 +307,7 @@ const DEFAULT_CONFIG: Config = {
   reportProblemEnabled: true,
   reportProblemDynamicAgentId: null,
   reportProblemRouting: null,
+  provideFeedbackEnabled: false,
   jiraTicketEnabled: false,
   jiraBaseUrl: null,
   jiraTicketProject: null,
@@ -388,16 +360,14 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
   return _serverOnlyConfig;
 }
 
-const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
-
-function positiveInteger(value: string | undefined, fallback: number): number {
-  const n = parseInt(value ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 /** Return value if it's in the allowed list, otherwise return fallback. */
 function validated(value: string | undefined, allowed: string[], fallback: string): string {
   return value && allowed.includes(value) ? value : fallback;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -446,7 +416,7 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
-  const agenticAppsEnabled = process.env.AGENTIC_APPS_INSTALL_ENABLED === 'true';
+  const agenticAppsEnabled = env('AGENTIC_APPS_INSTALL_ENABLED') === 'true';
   const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
   const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
   const shipLoopResolvedArtifactLookbackHours = positiveInteger(
@@ -478,27 +448,29 @@ export function getServerConfig(): Config {
       (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
         process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
   );
-
+  const autonomousAgentsFlag =
+    env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
+  const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
+  const defaultTeamSlug = env('DEFAULT_TEAM_SLUG') || null;
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
-  // REPORT_PROBLEM_AGENT_ID is the canonical name; REPORT_PROBLEM_DYNAMIC_AGENT_ID kept for backward compat
-  const reportProblemDynamicAgentId = env('REPORT_PROBLEM_AGENT_ID') || env('REPORT_PROBLEM_DYNAMIC_AGENT_ID') || null;
+  const provideFeedbackEnabled = env('PROVIDE_FEEDBACK_ENABLED') === 'true';
+  const reportProblemDynamicAgentId =
+    env('REPORT_PROBLEM_AGENT_ID') || env('REPORT_PROBLEM_DYNAMIC_AGENT_ID') || null;
   const reportProblemRoutingRaw = env('REPORT_PROBLEM_ROUTING');
   const reportProblemRouting: 'dynamic-agent' | 'github' | 'jira' | null =
-    reportProblemRoutingRaw === 'dynamic-agent' || reportProblemRoutingRaw === 'github' || reportProblemRoutingRaw === 'jira'
+    reportProblemRoutingRaw === 'dynamic-agent' ||
+    reportProblemRoutingRaw === 'github' ||
+    reportProblemRoutingRaw === 'jira'
       ? reportProblemRoutingRaw
       : null;
   const jiraBaseUrl = env('JIRA_BASE_URL') || null;
-  const jiraEmail = env('JIRA_EMAIL') || null;
-  const jiraToken = env('REPORT_PROBLEM_JIRA_TOKEN') || env('JIRA_TICKET_TOKEN') || null;
-  // Auto-enable when all three credentials are present, or when explicitly set
-  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true'
-    || !!(jiraBaseUrl && jiraEmail && jiraToken);
+  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
   const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
@@ -535,7 +507,7 @@ export function getServerConfig(): Config {
     spinnerColor: env('SPINNER_COLOR') || null,
     showPoweredBy,
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
-    defaultTeamSlug: env('DEFAULT_TEAM_SLUG') || null,
+    defaultTeamSlug,
     allowDevAdminWhenSsoDisabled,
     unsafeRbacBypassEnabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
@@ -560,6 +532,7 @@ export function getServerConfig(): Config {
     shipLoopEnabled,
     shipLoopAssistantEnabled,
     shipLoopResolvedArtifactLookbackHours,
+    autonomousAgentsEnabled,
     tomeEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
@@ -568,6 +541,7 @@ export function getServerConfig(): Config {
     reportProblemEnabled,
     reportProblemDynamicAgentId,
     reportProblemRouting,
+    provideFeedbackEnabled,
     jiraTicketEnabled,
     jiraBaseUrl,
     jiraTicketProject,

@@ -1,4 +1,7 @@
-import { getAgenticAppById } from "@/lib/agentic-apps/registry";
+import {
+  getAgenticAppById,
+  isRetiredAgenticAppId,
+} from "@/lib/agentic-apps/registry";
 import { listAppInstallations, listAppPackages } from "@/lib/agentic-apps/store";
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import type {
@@ -25,6 +28,10 @@ export type AgenticAppExecutionBindingResult =
 export async function resolveAgenticAppExecutionBinding(
   appId: string,
 ): Promise<AgenticAppExecutionBindingResult> {
+  if (isRetiredAgenticAppId(appId)) {
+    return { error: "app_not_found", status: 404 };
+  }
+
   if (isMongoDBConfigured) {
     let installations: Awaited<ReturnType<typeof listAppInstallations>>;
     let packages: Awaited<ReturnType<typeof listAppPackages>>;

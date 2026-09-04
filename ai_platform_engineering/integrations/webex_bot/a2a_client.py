@@ -1,10 +1,11 @@
-# Copyright 2025 CNOE Contributors
+# Copyright 2025 CAIPE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """AG-UI SSE client for Dynamic Agents streaming (Webex bot)."""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from contextvars import ContextVar
@@ -13,6 +14,8 @@ from typing import Any, Dict, Iterator, Optional
 import httpx
 
 from .utils.interaction_signing import signed_interaction_headers
+
+logger = logging.getLogger("caipe.webex_bot.a2a_client")
 
 _SSE_ERROR_BODY_MAX_LEN = 200
 _SENSITIVE_SSE_ERROR_RE = re.compile(
@@ -251,15 +254,18 @@ class WebexSSEClient:
         assert client is not None
         try:
             headers = self._get_headers(bearer_token=bearer_token)
-            headers.update(signed_interaction_headers(
-                method="POST",
-                path="/api/chat/conversations",
-                kind=_interaction_kind(metadata),
-            ))
+            headers.update(
+                signed_interaction_headers(
+                    method="POST",
+                    path="/api/chat/conversations",
+                    kind=_interaction_kind(metadata),
+                )
+            )
+            headers["Accept"] = "application/json"
             response = client.post(
                 f"{self.base_url}/api/chat/conversations",
                 json=payload,
-                headers={**headers, "Accept": "application/json"},
+                headers=headers,
             )
             if response.status_code == 403:
                 try:
@@ -291,6 +297,92 @@ class WebexSSEClient:
             if owns_client:
                 client.close()
 
+    def update_conversation_metadata(
+        self,
+        conversation_id: str,
+        metadata: Dict[str, Any],
+        bearer_token: Optional[str] = None,
+    ) -> None:
+        """Merge keys into an existing conversation's metadata.
+
+        Calls ``PATCH /api/chat/conversations/{id}/metadata``. Only the
+        ``metadata`` field is updated — no other conversation fields are
+        touched. Failures are logged, not raised, so a metadata-persist
+        error never breaks the Webex reply that triggered it.
+        """
+        url = f"{self.base_url}/api/chat/conversations/{conversation_id}/metadata"
+        headers = {
+            **self._get_headers(bearer_token=bearer_token),
+            "Accept": "application/json",
+        }
+        client = self._http_client
+        owns_client = client is None
+        if owns_client:
+            client = httpx.Client(timeout=30)
+        assert client is not None
+        try:
+            response = client.patch(url, json={"metadata": metadata}, headers=headers)
+            if response.status_code not in (200, 204):
+                logger.warning(
+                    "Failed to update Webex conversation metadata: status=%s body=%s",
+                    response.status_code,
+                    response.text[:500],
+                )
+        finally:
+            if owns_client:
+                client.close()
+
+    def add_message(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        role: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        content: str = "",
+        bearer_token: Optional[str] = None,
+    ) -> None:
+        """Persist a single message row via the shared API (metadata-only).
+
+        Calls ``POST /api/chat/conversations/{id}/messages``. Mirrors the
+        Slack bot's ``SSEClient.add_message``: records per-turn message
+        metadata (source, agent, latency, linking) so admin stats count
+        Webex messages the same way as web and Slack — WITHOUT duplicating
+        the message content that already lives in Webex. ``content``
+        defaults to empty.
+
+        The upsert is keyed on ``message_id``, so this is idempotent — a
+        retried dispatch updates the row instead of duplicating it.
+        """
+        url = f"{self.base_url}/api/chat/conversations/{conversation_id}/messages"
+        headers = {
+            **self._get_headers(bearer_token=bearer_token),
+            "Accept": "application/json",
+        }
+        payload: Dict[str, Any] = {
+            "message_id": message_id,
+            "role": role,
+            "content": content,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+
+        client = self._http_client
+        owns_client = client is None
+        if owns_client:
+            client = httpx.Client(timeout=30)
+        assert client is not None
+        try:
+            response = client.post(url, json=payload, headers=headers)
+            if response.status_code not in (200, 201):
+                safe_detail = redact_sse_error_body(response.text)
+                raise RuntimeError(
+                    f"Failed to add Webex message: {response.status_code} {safe_detail}"
+                )
+        finally:
+            if owns_client:
+                client.close()
+
     def _stream_sse(
         self,
         url: str,
@@ -304,11 +396,13 @@ class WebexSSEClient:
         assert client is not None
         try:
             headers = self._get_headers(bearer_token=bearer_token)
-            headers.update(signed_interaction_headers(
-                method="POST",
-                path=url.split("?", 1)[0].replace(self.base_url, "", 1),
-                kind=_interaction_kind(payload.get("client_context")),
-            ))
+            headers.update(
+                signed_interaction_headers(
+                    method="POST",
+                    path=url.split("?", 1)[0].replace(self.base_url, "", 1),
+                    kind=_interaction_kind(payload.get("client_context")),
+                )
+            )
             with client.stream(
                 "POST",
                 url,

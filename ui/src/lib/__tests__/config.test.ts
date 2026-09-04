@@ -70,11 +70,13 @@ describe('getServerConfig', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL', 'DEFAULT_TEAM_SLUG', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
         'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
+        'AUTONOMOUS_AGENTS_ENABLED', 'ENABLE_AUTONOMOUS_AGENTS',
+        'PROVIDE_FEEDBACK_ENABLED',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -105,10 +107,10 @@ describe('getServerConfig', () => {
       expect(cfg.spinnerColor).toBeNull();
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
-      expect(cfg.defaultTeamSlug).toBeNull();
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.autonomousAgentsEnabled).toBe(false);
       expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
@@ -124,6 +126,7 @@ describe('getServerConfig', () => {
     it('should return default ticket integration values', () => {
       const cfg = getServerConfig();
       expect(cfg.reportProblemEnabled).toBe(true);
+      expect(cfg.provideFeedbackEnabled).toBe(false);
       expect(cfg.jiraTicketEnabled).toBe(false);
       expect(cfg.jiraTicketProject).toBeNull();
       expect(cfg.jiraTicketLabel).toBe('caipe-reported');
@@ -138,12 +141,11 @@ describe('getServerConfig', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
-        'agenticAppsEnabled',
         'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled', 'privateResourcesEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+        'showPoweredBy', 'supportEmail', 'defaultTeamSlug', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
@@ -151,20 +153,19 @@ describe('getServerConfig', () => {
         'actionAuditEnabled',
         'auditLogBackend',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-        'defaultTeamSlug',
         'dynamicAgentsUrl',
-        'reportProblemEnabled',
-        'reportProblemDynamicAgentId',
-        'reportProblemRouting',
+        'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
+        'autonomousAgentsEnabled',
+        'agenticAppsEnabled',
+        'tomeEnabled',
+        'reportProblemEnabled', 'reportProblemDynamicAgentId', 'reportProblemRouting',
+        'provideFeedbackEnabled',
         'jiraTicketEnabled', 'jiraBaseUrl', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel', 'githubScreenshotsRepo',
         'ticketEnabled', 'ticketProvider',
         'userInfoToolEnabled',
         'oidcRequiredGroup',
         'oktaSyncEnabled',
-        'privateResourcesEnabled',
-        'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
-        'tomeEnabled',
         'scheduleEditorAgentId',
         'schedulerAdminOnly',
         'schedulerEnabled',
@@ -179,6 +180,22 @@ describe('getServerConfig', () => {
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
+    });
+
+    it('should read AUTONOMOUS_AGENTS_ENABLED=true', () => {
+      process.env.AUTONOMOUS_AGENTS_ENABLED = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(true);
+    });
+
+    it('should read ENABLE_AUTONOMOUS_AGENTS=true as a compose-friendly alias', () => {
+      process.env.ENABLE_AUTONOMOUS_AGENTS = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(true);
+    });
+
+    it('should let ENABLE_AUTONOMOUS_AGENTS=false override the legacy UI alias', () => {
+      process.env.ENABLE_AUTONOMOUS_AGENTS = 'false';
+      process.env.AUTONOMOUS_AGENTS_ENABLED = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(false);
     });
 
     it('should read CAIPE_CREDENTIALS_ENABLED=true', () => {
@@ -287,11 +304,6 @@ describe('getServerConfig', () => {
       expect(getServerConfig().supportEmail).toBe('admin@cisco.com');
     });
 
-    it('should read DEFAULT_TEAM_SLUG', () => {
-      process.env.DEFAULT_TEAM_SLUG = 'primary';
-      expect(getServerConfig().defaultTeamSlug).toBe('primary');
-    });
-
     it('should read SPINNER_COLOR', () => {
       process.env.SPINNER_COLOR = '#ff6600';
       expect(getServerConfig().spinnerColor).toBe('#ff6600');
@@ -306,15 +318,13 @@ describe('getServerConfig', () => {
     });
   });
 
-  // ---------- Ticket Integration ----------
-
   describe('ticket integration env vars', () => {
     beforeEach(() => {
       clearEnv(
         'REPORT_PROBLEM_ENABLED',
+        'PROVIDE_FEEDBACK_ENABLED',
         'JIRA_TICKET_ENABLED', 'JIRA_TICKET_PROJECT', 'JIRA_TICKET_LABEL',
-        'JIRA_BASE_URL', 'JIRA_EMAIL', 'REPORT_PROBLEM_JIRA_TOKEN', 'JIRA_TICKET_TOKEN',
-        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL', 'GITHUB_SCREENSHOTS_REPO',
+        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL',
       );
     });
 
@@ -361,40 +371,6 @@ describe('getServerConfig', () => {
       expect(cfg.githubTicketLabel).toBe('prod-issues');
     });
 
-    it('should read GITHUB_SCREENSHOTS_REPO when set', () => {
-      process.env.GITHUB_SCREENSHOTS_REPO = 'org/report-screenshots';
-      const cfg = getServerConfig();
-      expect(cfg.githubScreenshotsRepo).toBe('org/report-screenshots');
-    });
-
-    it('should default githubScreenshotsRepo to null when unset', () => {
-      delete process.env.GITHUB_SCREENSHOTS_REPO;
-      const cfg = getServerConfig();
-      expect(cfg.githubScreenshotsRepo).toBeNull();
-    });
-
-    it('should read JIRA_BASE_URL when set', () => {
-      process.env.JIRA_BASE_URL = 'https://org.atlassian.net';
-      const cfg = getServerConfig();
-      expect(cfg.jiraBaseUrl).toBe('https://org.atlassian.net');
-    });
-
-    it('should default jiraBaseUrl to null when unset', () => {
-      delete process.env.JIRA_BASE_URL;
-      const cfg = getServerConfig();
-      expect(cfg.jiraBaseUrl).toBeNull();
-    });
-
-    it('should auto-enable Jira when JIRA_BASE_URL + JIRA_EMAIL + a token are all set, without JIRA_TICKET_ENABLED', () => {
-      delete process.env.JIRA_TICKET_ENABLED;
-      process.env.JIRA_BASE_URL = 'https://org.atlassian.net';
-      process.env.JIRA_EMAIL = 'bot@example.com';
-      process.env.REPORT_PROBLEM_JIRA_TOKEN = 'token';
-      process.env.JIRA_TICKET_PROJECT = 'OPENSD';
-      const cfg = getServerConfig();
-      expect(cfg.jiraTicketEnabled).toBe(true);
-    });
-
     it('should disable report problem when REPORT_PROBLEM_ENABLED=false', () => {
       process.env.REPORT_PROBLEM_ENABLED = 'false';
       const cfg = getServerConfig();
@@ -404,6 +380,12 @@ describe('getServerConfig', () => {
     it('should enable report problem by default', () => {
       const cfg = getServerConfig();
       expect(cfg.reportProblemEnabled).toBe(true);
+    });
+
+    it('should keep the header feedback shortcut opt-in', () => {
+      expect(getServerConfig().provideFeedbackEnabled).toBe(false);
+      process.env.PROVIDE_FEEDBACK_ENABLED = 'true';
+      expect(getServerConfig().provideFeedbackEnabled).toBe(true);
     });
 
     it('should derive ticketEnabled=false when no provider is enabled', () => {
@@ -642,7 +624,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultTheme).toBe('dark');
     });
 
-    it.each(['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+    it.each(['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (theme) => {
         process.env.DEFAULT_THEME = theme;
@@ -909,12 +891,11 @@ describe('getClientConfigScript (XSS safety)', () => {
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
-      'agenticAppsEnabled',
       'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled', 'privateResourcesEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+      'showPoweredBy', 'supportEmail', 'defaultTeamSlug', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
@@ -922,20 +903,19 @@ describe('getClientConfigScript (XSS safety)', () => {
       'actionAuditEnabled',
       'auditLogBackend',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-      'defaultTeamSlug',
       'dynamicAgentsUrl',
-      'reportProblemEnabled',
-      'reportProblemDynamicAgentId',
-      'reportProblemRouting',
+      'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
+      'autonomousAgentsEnabled',
+      'agenticAppsEnabled',
+      'tomeEnabled',
+      'reportProblemEnabled', 'reportProblemDynamicAgentId', 'reportProblemRouting',
+      'provideFeedbackEnabled',
       'jiraTicketEnabled', 'jiraBaseUrl', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel', 'githubScreenshotsRepo',
       'ticketEnabled', 'ticketProvider',
       'userInfoToolEnabled',
       'oidcRequiredGroup',
       'oktaSyncEnabled',
-      'privateResourcesEnabled',
-      'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
-      'tomeEnabled',
       'scheduleEditorAgentId',
       'schedulerAdminOnly',
       'schedulerEnabled',

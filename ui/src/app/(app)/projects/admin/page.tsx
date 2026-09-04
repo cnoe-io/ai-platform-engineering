@@ -1,12 +1,10 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
 import { ModelConfigTab } from "@/components/tome/admin/ModelConfigTab";
 import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
@@ -25,6 +23,15 @@ const TOME_ADMIN_TABS = [
   "admins",
 ] as const;
 type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
+
+const TOME_ADMIN_TAB_LABELS: Record<TomeAdminTab, string> = {
+  "page-templates": "Page Templates",
+  models: "Models",
+  experiments: "Model Evaluations",
+  analytics: "Analytics",
+  authorization: "RBAC Health",
+  admins: "Admins",
+};
 
 export default function TomeAdminPage() {
   return (
@@ -72,22 +79,19 @@ function TomeAdminPageContent() {
   if (!authorized) return null;
 
   return (
-    <section className="mx-auto max-w-5xl space-y-6 p-6">
-      <div className="flex items-start gap-3">
-        <Button asChild variant="ghost" size="icon" className="mt-0.5 shrink-0" title="Back to TOME">
-          <Link href="/projects" aria-label="Back to TOME">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">TOME Settings</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage TOME configuration and administrators. Visible to TOME Admins only.
-          </p>
-        </div>
-      </div>
+    <section className="mx-auto w-full max-w-6xl space-y-6 p-6">
+      <WorkspacePageHeader
+        breadcrumbs={[
+          { label: "Home", href: "/" },
+          { label: "TOME", href: "/projects" },
+          { label: "Settings", href: "/projects/admin" },
+          { label: TOME_ADMIN_TAB_LABELS[activeTab] },
+        ]}
+        description="Manage TOME configuration and administrators. Visible to TOME Admins only."
+        title="TOME Settings"
+      />
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="space-y-6">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="w-full space-y-6">
         <TabsList className="h-auto flex-wrap gap-1">
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
           <TabsTrigger value="models">Models</TabsTrigger>

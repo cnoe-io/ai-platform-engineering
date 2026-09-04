@@ -40,11 +40,11 @@ describe("buildTomeMcpbBundle", () => {
     expect(zip.file("node_modules/express/package.json")).not.toBeNull();
     expect(zip.file("node_modules/open/package.json")).not.toBeNull();
 
-    // express pins an older `debug` than the hoisted top-level copy, so npm
-    // nests its own node_modules/debug — must survive as a nested entry,
-    // not get silently skipped or collapsed to the (incompatible) top-level
-    // version.
-    expect(zip.file("node_modules/express/node_modules/debug/package.json")).not.toBeNull();
+    // `mcp-remote` resolves its Express 4.x runtime from its own nested
+    // dependency tree. Preserve that tree instead of collapsing it to the
+    // incompatible top-level Express 5.x/debug 4.x packages.
+    expect(zip.file("node_modules/mcp-remote/node_modules/express/package.json")).not.toBeNull();
+    expect(zip.file("node_modules/mcp-remote/node_modules/debug/package.json")).not.toBeNull();
   });
 
   it("omits --allow-http for a real https:// origin", async () => {

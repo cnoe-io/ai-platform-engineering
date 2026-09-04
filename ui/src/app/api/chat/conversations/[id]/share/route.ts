@@ -7,6 +7,7 @@ ApiError,
 requireConversationAccess,
 successResponse,
 validateEmail,
+validateConversationId,
 validateUUID,
 withAuth,
 withErrorHandler
@@ -272,7 +273,7 @@ export const GET = withErrorHandler(async (
     const params = await context.params;
     const conversationId = params.id;
 
-    if (!validateUUID(conversationId)) {
+    if (!validateConversationId(conversationId)) {
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
@@ -308,7 +309,7 @@ export const POST = withErrorHandler(async (
     const conversationId = params.id;
     const body: ShareConversationRequest = await request.json();
 
-    if (!validateUUID(conversationId)) {
+    if (!validateConversationId(conversationId)) {
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
@@ -442,7 +443,7 @@ export const PATCH = withErrorHandler(async (
     const conversationId = params.id;
     const body = await request.json();
 
-    if (!validateUUID(conversationId)) {
+    if (!validateConversationId(conversationId)) {
       throw new ApiError('Invalid conversation ID format', 400);
     }
 

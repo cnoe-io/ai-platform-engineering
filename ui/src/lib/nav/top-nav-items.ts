@@ -1,9 +1,10 @@
 // Shared catalog + helpers for admin-customizable top navigation.
 //
-// The AppHeader builds its full list of nav tabs (built-in tabs + any pinned
-// agentic apps), then applies the admin-configured order + hidden set via
-// `applyTopNavConfig`. The admin "Navigation" settings tab edits that same
-// config. Both sides key off the stable `key` strings below.
+// The application navigation rail builds its full list of destinations
+// (built-in destinations + any pinned agentic apps), then applies the
+// admin-configured order + hidden set via `applyTopNavConfig`. The admin
+// "Navigation" settings tab edits that same config. Both sides key off the
+// stable `key` strings below.
 //
 // assisted-by claude code claude-opus-4-8
 
@@ -15,8 +16,9 @@ export interface TopNavItemMeta {
 
 /**
  * Canonical built-in top-nav tabs in their default display order. Pinned
- * agentic apps (key `app-<appId>`) are appended dynamically by the header and
- * surfaced in the admin editor by fetching the installed-apps list — they are
+ * agentic apps (key `app-<appId>`) are appended dynamically by the application
+ * navigation rail and surfaced in the admin editor by fetching the installed-
+ * apps list — they are
  * not listed here because they vary per deployment.
  */
 export const BUILT_IN_TOP_NAV_ITEMS: TopNavItemMeta[] = [
@@ -54,10 +56,14 @@ export function normalizeTopNavConfig(input: unknown): TopNavConfig {
       ? (input as Record<string, unknown>)
       : {};
   const order = Array.isArray(rec.order)
-    ? rec.order.filter((x): x is string => typeof x === "string" && x.length > 0)
+    ? rec.order.filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      )
     : [];
   const hidden = Array.isArray(rec.hidden)
-    ? rec.hidden.filter((x): x is string => typeof x === "string" && x.length > 0)
+    ? rec.hidden.filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      )
     : [];
   // De-dupe while preserving first occurrence.
   return {

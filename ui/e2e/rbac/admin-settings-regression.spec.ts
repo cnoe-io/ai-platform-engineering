@@ -1,29 +1,19 @@
-// assisted-by Codex Codex-sonnet-4-6
-
-import { expect, test } from "@playwright/test";
+import { expect,test } from "@playwright/test";
 
 import {
-  fulfillJson,
+  DEFAULT_ADMIN_GATES,
   installMockedRbacApp,
   mockedRbacEnabled,
-  postJson,
 } from "./_mocked-rbac";
 
 const adminSession = {
-  email: "admin@example.test",
+  email: "admin@example.com",
   name: "Example Admin",
   role: "admin" as const,
   canViewAdmin: true,
 };
 
-type ReleaseNotesConfig = {
-  enabled: boolean;
-  repository_url: string | null;
-  previous_commit: string | null;
-  latest_commit: string | null;
-};
-
-test.describe("mocked admin settings browser regression", () => {
+test.describe("mocked Admin workspace browser regression",() => {
   test.beforeEach(() => {
     test.skip(
       !mockedRbacEnabled(),
@@ -31,233 +21,141 @@ test.describe("mocked admin settings browser regression", () => {
     );
   });
 
-  test("defaults bare admin route to Settings General", async ({ page }) => {
-    await installMockedRbacApp(page, {
+  test("opens bare Admin at the canonical Users destination",async ({ page }) => {
+    await installMockedRbacApp(page,{
       isAdmin: true,
       session: adminSession,
     });
 
-    await page.goto("/admin", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin",{ waitUntil: "domcontentloaded" });
 
-    await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
-    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(page.getByRole("tab", { name: "Default Agent" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Manage Unlinked Access" })).toBeVisible();
-  });
-
-  test("does not expose the removed Knowledge Bases settings tab", async ({ page }) => {
-    await installMockedRbacApp(page, {
-      isAdmin: true,
-      session: adminSession,
-    });
-
-    await page.goto("/admin?cat=settings&tab=rag-access", {
-      waitUntil: "domcontentloaded",
-    });
-
-    await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
-    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(page.getByRole("tab", { name: "Knowledge Bases" })).toHaveCount(0);
-    await expect(page.getByText("RAG Team Access")).toHaveCount(0);
-  });
-
-  test("explains Unlinked Access on the settings card and modal", async ({ page }) => {
-    await installMockedRbacApp(page, {
-      isAdmin: true,
-      session: adminSession,
-    });
-
-    await page.goto("/admin?cat=settings&tab=settings", {
-      waitUntil: "domcontentloaded",
-    });
-
-    await expect(page.getByText(/Set the starting access for people who message/)).toBeVisible();
-    await expect(page.getByText(/before they have signed in to the web UI/)).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/people\/users$/);
+    await expect(page.getByRole("heading",{ level: 1,name: "Users" })).toBeVisible();
     await expect(
-      page.getByText(/available to every unlinked caller and bot/),
-    ).toBeVisible();
-
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
-
-    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
-    await expect(dialog).toBeVisible();
-    await expect(
-      dialog.getByText(/Set the starting access for people who message/),
-    ).toBeVisible();
-    await expect(dialog.getByText(/available to every unlinked caller and bot/)).toBeVisible();
-  });
-
-  test("persists an admin commit range and renders its diff after reload", async ({ page }) => {
-    let releaseNotesConfig: ReleaseNotesConfig = {
-      enabled: false,
-      repository_url: null,
-      previous_commit: null,
-      latest_commit: null,
-    };
-    let savedPayload: ReleaseNotesConfig | null = null;
-    let compareRequest: URL | null = null;
-
-    await installMockedRbacApp(page, {
-      isAdmin: true,
-      session: adminSession,
-      handlers: [async ({ route, url, path, method }) => {
-        if (path === "/api/admin/platform-config" && method === "GET") {
-          await fulfillJson(route, {
-            success: true,
-            data: { release_notes: releaseNotesConfig },
-          });
-          return true;
-        }
-
-        if (path === "/api/admin/platform-config" && method === "PATCH") {
-          const body = await postJson(route) as { release_notes?: ReleaseNotesConfig } | null;
-          if (!body?.release_notes) {
-            await fulfillJson(route, { success: false }, 400);
-            return true;
-          }
-          releaseNotesConfig = { ...body.release_notes };
-          savedPayload = releaseNotesConfig;
-          await fulfillJson(route, {
-            success: true,
-            data: { release_notes: releaseNotesConfig },
-          });
-          return true;
-        }
-
-        if (path === "/api/settings") {
-          await fulfillJson(route, {
-            success: true,
-            data: {
-              preferences: {
-                releaseNotesNotificationsEnabled: true,
-                releaseNotesDismissedVersions: [],
-              },
-            },
-          });
-          return true;
-        }
-
-        if (path === "/api/changelog") {
-          await fulfillJson(route, { releases: [] });
-          return true;
-        }
-
-        if (path === "/api/version") {
-          await fulfillJson(route, {
-            version: "playwright",
-            packageVersion: "playwright",
-            gitCommit: "e2e",
-            buildDate: "2026-08-15T00:00:00.000Z",
-          });
-          return true;
-        }
-
-        if (path === "/api/release-notes") {
-          compareRequest = url;
-          await fulfillJson(route, {
-            requestedVersion: "playwright",
-            matchedVersion: "playwright",
-            title: "Changes 1111111 → 2222222",
-            date: "2026-08-15",
-            body: "> Changes from `1111111` through `2222222`.\n\n## What's New\n\n- **ui**: Configured browser regression\n\n[Compare all changes](https://github.com/example/repository/compare/1111111...2222222)",
-            source: "github-compare",
-            changelogUrl: "https://github.com/example/repository/compare/1111111...2222222",
-          });
-          return true;
-        }
-
-        return false;
-      }],
-    });
-
-    await page.goto("/admin?cat=settings&tab=settings", {
-      waitUntil: "domcontentloaded",
-    });
-
-    await page.getByLabel("Enable release notes notification").check();
-    await page.getByLabel("Repository URL").fill("https://github.com/example/repository");
-    await page.getByLabel("Previous upgraded commit").fill("1111111");
-    await page.getByLabel("Latest commit").fill("2222222");
-    await page.getByRole("button", { name: "Save release notes settings" }).click();
-
-    await expect.poll(() => savedPayload).toEqual({
-      enabled: true,
-      repository_url: "https://github.com/example/repository",
-      previous_commit: "1111111",
-      latest_commit: "2222222",
-    });
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-
-    await expect(page.getByLabel("Repository URL")).toHaveValue(
-      "https://github.com/example/repository",
+      page
+        .getByRole("navigation",{ name: "Application navigation" })
+        .getByRole("button",{ name: "Admin",exact: true }),
+    ).toHaveAttribute(
+      "aria-current",
+      "page",
     );
-    await expect(page.getByLabel("Previous upgraded commit")).toHaveValue("1111111");
-    await expect(page.getByLabel("Latest commit")).toHaveValue("2222222");
-
-    const dialog = page.getByRole("dialog", { name: "What's new in playwright" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("Configured browser regression")).toBeVisible();
-    await expect(dialog.getByRole("link", { name: "Compare all changes" })).toHaveAttribute(
+    const breadcrumb = page.getByRole("navigation",{ name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link",{ name: "Home" })).toHaveAttribute("href","/");
+    await expect(breadcrumb.getByRole("link",{ name: "Admin" })).toHaveAttribute(
       "href",
-      "https://github.com/example/repository/compare/1111111...2222222",
+      "/admin/people/users",
     );
-    await expect.poll(() => compareRequest?.searchParams.get("compare") ?? null).toBe("platform");
+    await expect(
+      breadcrumb.getByRole("link",{ name: "Teams & Users",exact: true }),
+    ).toHaveAttribute(
+      "href",
+      "/admin/people/users",
+    );
+    await expect(breadcrumb.getByRole("link",{ name: "Users",exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(
+      page.getByText("Review people, roles, memberships, and resource access."),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation",{ name: "Admin sections" })
+        .getByRole("link",{ name: "Users",exact: true }),
+    ).toHaveAttribute("aria-current","page");
   });
 
-  test("keeps the deployed-version release notes behavior when no range is configured", async ({
-    page,
-  }) => {
-    let releaseNotesRequests = 0;
-
-    await installMockedRbacApp(page, {
+  test("discloses categories and exposes them from the collapsed rail",async ({ page }) => {
+    await installMockedRbacApp(page,{
+      gates: {
+        ...DEFAULT_ADMIN_GATES,
+        feedback: true,
+        slack: true,
+        stats: true,
+        webex: true,
+      },
       isAdmin: true,
       session: adminSession,
-      handlers: [async ({ route, path }) => {
-        if (path === "/api/changelog") {
-          await fulfillJson(route, {
-            releases: [{
-              version: "playwright",
-              date: "2026-08-15",
-              sections: [{
-                type: "Highlights",
-                items: [{ text: "Legacy curated release note", scope: null }],
-              }],
-            }],
-          });
-          return true;
-        }
-
-        if (path === "/api/release-notes") {
-          releaseNotesRequests += 1;
-          await fulfillJson(route, { matchedVersion: null, body: null });
-          return true;
-        }
-
-        return false;
-      }],
     });
+    await page.goto("/admin/people/users",{ waitUntil: "domcontentloaded" });
 
-    await page.goto("/admin?cat=settings&tab=settings", {
-      waitUntil: "domcontentloaded",
+    const navigation = page.getByRole("navigation",{ name: "Admin sections" });
+    for (const category of [
+      "Teams & Users",
+      "Resources",
+      "Integrations",
+      "Insights",
+      "Metrics & Health",
+      "Security & Policy",
+    ]) {
+      await expect(navigation.getByRole("button",{ name: category,exact: true })).toBeVisible();
+    }
+
+    const resources = navigation.getByRole("button",{ name: "Resources",exact: true });
+    await resources.click();
+
+    await expect(resources).toHaveAttribute("aria-expanded","true");
+    await expect(
+      navigation.getByRole("button",{ name: "Teams & Users",exact: true }),
+    ).toHaveAttribute("aria-expanded","true");
+    await expect(navigation.getByRole("link",{ name: "Agent configuration" })).toBeVisible();
+    await expect(navigation.getByRole("link",{ name: "Skill Hubs" })).toBeVisible();
+    await expect(navigation.getByRole("link",{ name: "Users",exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/people\/users$/);
+    await expect(page.getByRole("heading",{ level: 1,name: "Users" })).toBeVisible();
+
+    await page.getByRole("button",{ name: "Collapse sidebar",exact: true }).click();
+    await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
+    await expect.poll(async () => page.context().cookies()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "caipe-application-navigation-collapsed",
+          value: "true",
+        }),
+      ]),
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
+    await page.getByRole("button",{ name: "Admin",exact: true }).hover();
+    const flyoutNavigation = page.getByRole("navigation",{ name: "Admin sections" });
+    const flyoutResources = flyoutNavigation.getByRole("button",{
+      name: "Resources",
+      exact: true,
     });
-
-    await expect(page.getByLabel("Repository URL")).toHaveValue("");
-    await expect(page.getByLabel("Previous upgraded commit")).toHaveValue("");
-    await expect(page.getByLabel("Latest commit")).toHaveValue("");
-    await page.getByRole("button", { name: "Show release notes popup" }).click();
-
-    const dialog = page.getByRole("dialog", { name: "What's new in playwright" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("Legacy curated release note")).toBeVisible();
-    expect(releaseNotesRequests).toBe(0);
+    if (await flyoutResources.getAttribute("aria-expanded") !== "true") {
+      await flyoutResources.click();
+    }
+    await flyoutNavigation.getByRole("link",{ name: "Agent configuration" }).click();
+    await expect(page).toHaveURL(/\/admin\/platform\/agents$/);
+    await expect(page.getByRole("heading",{ level: 1,name: "Agent configuration" })).toBeVisible();
   });
+
+  test("uses the application drawer when the rail would crowd content",async ({ page }) => {
+    await page.setViewportSize({ height: 768,width: 1024 });
+    await installMockedRbacApp(page,{
+      isAdmin: true,
+      session: adminSession,
+    });
+    await page.goto("/admin/people/users",{ waitUntil: "domcontentloaded" });
+
+    const drawerTrigger = page.getByRole("button",{ name: "Open navigation",exact: true });
+    await expect(drawerTrigger).toBeVisible();
+    await drawerTrigger.click();
+
+    const drawer = page.getByRole("dialog",{ name: "Navigation" });
+    await expect(drawer).toBeVisible();
+    const navigation = drawer.getByRole("navigation",{ name: "Admin sections" });
+    await navigation.getByRole("button",{ name: "Metrics & Health",exact: true }).click();
+    await navigation.getByRole("link",{ name: "Health",exact: true }).click();
+
+    await expect(page).toHaveURL(/\/admin\/operations\/health$/);
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("heading",{ level: 1,name: "Health" })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  });
+
 });

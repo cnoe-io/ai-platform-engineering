@@ -2,20 +2,30 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
-import { ChevronDown, Eye, EyeOff, Info, RefreshCw, Share2, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Info, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import React from "react";
 
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
-import { principalLabel, SecretProtectionBadge } from "./SecretProtectionDetails";
+import {
+  principalLabel,
+  SecretProtectionBadge,
+} from "./SecretProtectionDetails";
 import { SecretSharingPanel } from "./SecretSharingPanel";
 
 interface SecretMetadata {
   id: string;
   name: string;
   type: string;
-  owner?: { type: string; id: string; email?: string; name?: string; displayName?: string };
+  owner?: {
+    type: string;
+    id: string;
+    email?: string;
+    name?: string;
+    displayName?: string;
+  };
   createdBy?: {
     type: "user" | "service_account";
     id: string;
@@ -26,7 +36,13 @@ interface SecretMetadata {
   description?: string;
   maskedPreview: string;
   sharedWithTeams?: string[];
-  usage?: Array<{ type: string; id: string; name: string; location: string; detail?: string }>;
+  usage?: Array<{
+    type: string;
+    id: string;
+    name: string;
+    location: string;
+    detail?: string;
+  }>;
   storage?: {
     metadataCollection: string;
     payloadCollection: string;
@@ -44,9 +60,16 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return json.data;
 }
 
-async function apiErrorMessage(response: Response, fallback: string): Promise<string> {
-  const json = await response.json().catch(() => null) as { error?: unknown } | null;
-  return typeof json?.error === "string" && json.error.trim() ? json.error.trim() : fallback;
+async function apiErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const json = (await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null;
+  return typeof json?.error === "string" && json.error.trim()
+    ? json.error.trim()
+    : fallback;
 }
 
 function formatDate(value?: string): string {
@@ -56,13 +79,7 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
-export function SecretsManager({
-  collapsed = false,
-  onToggle,
-}: {
-  collapsed?: boolean;
-  onToggle?: () => void;
-} = {}) {
+export function SecretsManager() {
   const { toast } = useToast();
   const [secrets, setSecrets] = React.useState<SecretMetadata[]>([]);
   const [name, setName] = React.useState("");
@@ -70,14 +87,26 @@ export function SecretsManager({
   const [secretValueVisible, setSecretValueVisible] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createOrgLevel, setCreateOrgLevel] = React.useState(false);
-  const [sharingSecretId, setSharingSecretId] = React.useState<string | null>(null);
-  const [detailsSecretId, setDetailsSecretId] = React.useState<string | null>(null);
-  const [rotatingSecretId, setRotatingSecretId] = React.useState<string | null>(null);
+  const [sharingSecretId, setSharingSecretId] = React.useState<string | null>(
+    null,
+  );
+  const [detailsSecretId, setDetailsSecretId] = React.useState<string | null>(
+    null,
+  );
+  const [rotatingSecretId, setRotatingSecretId] = React.useState<string | null>(
+    null,
+  );
   const [rotateValue, setRotateValue] = React.useState("");
   const [rotateValueVisible, setRotateValueVisible] = React.useState(false);
-  const [savingRotateSecretId, setSavingRotateSecretId] = React.useState<string | null>(null);
-  const [pendingDeleteSecretId, setPendingDeleteSecretId] = React.useState<string | null>(null);
-  const [deletingSecretId, setDeletingSecretId] = React.useState<string | null>(null);
+  const [savingRotateSecretId, setSavingRotateSecretId] = React.useState<
+    string | null
+  >(null);
+  const [pendingDeleteSecretId, setPendingDeleteSecretId] = React.useState<
+    string | null
+  >(null);
+  const [deletingSecretId, setDeletingSecretId] = React.useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -90,13 +119,19 @@ export function SecretsManager({
     [detailsSecret],
   );
 
-  const reportError = React.useCallback((reason: unknown, fallback: string) => {
-    const message = reason instanceof Error && reason.message && !(reason instanceof TypeError)
-      ? reason.message
-      : fallback;
-    setError(message);
-    toast(message, "error", 8000);
-  }, [toast]);
+  const reportError = React.useCallback(
+    (reason: unknown, fallback: string) => {
+      const message =
+        reason instanceof Error &&
+        reason.message &&
+        !(reason instanceof TypeError)
+          ? reason.message
+          : fallback;
+      setError(message);
+      toast(message, "error", 8000);
+    },
+    [toast],
+  );
 
   const loadSecrets = React.useCallback(async () => {
     setLoading(true);
@@ -104,7 +139,9 @@ export function SecretsManager({
     try {
       const response = await fetch("/api/credentials/secrets");
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, "Could not load secrets"));
+        throw new Error(
+          await apiErrorMessage(response, "Could not load secrets"),
+        );
       }
       setSecrets(await parseApiResponse<SecretMetadata[]>(response));
     } catch (err) {
@@ -145,11 +182,15 @@ export function SecretsManager({
       });
 
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, "Could not save secret"));
+        throw new Error(
+          await apiErrorMessage(response, "Could not save secret"),
+        );
       }
 
       const created = await parseApiResponse<SecretMetadata>(response);
-      setSecrets((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setSecrets((current) =>
+        [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
+      );
       closeCreateDialog();
     } catch (err) {
       reportError(err, "Could not save secret");
@@ -164,7 +205,9 @@ export function SecretsManager({
         method: "DELETE",
       });
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, "Could not delete secret"));
+        throw new Error(
+          await apiErrorMessage(response, "Could not delete secret"),
+        );
       }
       setSecrets((current) => current.filter((item) => item.id !== secret.id));
       if (sharingSecretId === secret.id) {
@@ -204,7 +247,10 @@ export function SecretsManager({
     setRotateValueVisible(false);
   };
 
-  const handleRotate = async (event: React.FormEvent<HTMLFormElement>, secret: SecretMetadata) => {
+  const handleRotate = async (
+    event: React.FormEvent<HTMLFormElement>,
+    secret: SecretMetadata,
+  ) => {
     event.preventDefault();
     setSavingRotateSecretId(secret.id);
     setError(null);
@@ -218,7 +264,9 @@ export function SecretsManager({
         }),
       });
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, "Could not rotate secret"));
+        throw new Error(
+          await apiErrorMessage(response, "Could not rotate secret"),
+        );
       }
       const rotated = await parseApiResponse<SecretMetadata>(response);
       setSecrets((current) =>
@@ -237,37 +285,20 @@ export function SecretsManager({
   const updateSecretSharing = (secretId: string, teamIds: string[]) => {
     setSecrets((current) =>
       current.map((secret) =>
-        secret.id === secretId ? { ...secret, sharedWithTeams: teamIds } : secret,
+        secret.id === secretId
+          ? { ...secret, sharedWithTeams: teamIds }
+          : secret,
       ),
     );
   };
 
   return (
     <section className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <button
-          type="button"
-          className="flex flex-1 items-start gap-3 text-left"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-        >
-          <ChevronDown
-            className={`mt-1 h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
-            aria-hidden="true"
-          />
-          <div>
-            <h2 className="text-xl font-semibold">Saved Secrets</h2>
-            <p className="text-sm text-muted-foreground">
-              Store secrets that agents and services can use without showing the value again.
-            </p>
-          </div>
-        </button>
-        {!collapsed && (
-          <Button type="button" onClick={() => setCreateOpen(true)}>
-            Add Secret
-          </Button>
-        )}
-      </div>
+      <WorkspacePageActions>
+        <Button type="button" onClick={() => setCreateOpen(true)}>
+          Add Secret
+        </Button>
+      </WorkspacePageActions>
 
       {createOpen && (
         <div
@@ -284,7 +315,8 @@ export function SecretsManager({
               <div>
                 <h2 className="text-lg font-medium">Add Secret</h2>
                 <p className="text-sm text-muted-foreground">
-                  The value is saved once, encrypted, and hidden after you submit it.
+                  The value is saved once, encrypted, and hidden after you
+                  submit it.
                 </p>
               </div>
               <button
@@ -326,7 +358,11 @@ export function SecretsManager({
                         ? "Hide secret value before saving"
                         : "Show secret value before saving"
                     }
-                    title={secretValueVisible ? "Hide secret value" : "Show secret value"}
+                    title={
+                      secretValueVisible
+                        ? "Hide secret value"
+                        : "Show secret value"
+                    }
                     className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     onClick={() => setSecretValueVisible((current) => !current)}
                   >
@@ -348,7 +384,9 @@ export function SecretsManager({
               />
               <span>
                 Save as organization secret
-                <span className="ml-1 text-xs text-muted-foreground">(available to all org members, requires admin)</span>
+                <span className="ml-1 text-xs text-muted-foreground">
+                  (available to all org members, requires admin)
+                </span>
               </span>
             </label>
             <Button type="submit">Save Secret</Button>
@@ -356,34 +394,36 @@ export function SecretsManager({
         </div>
       )}
 
-      {!collapsed && (
-        <>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading secrets...</p>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading secrets...</p>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
           {secrets.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">No secrets yet.</p>
           ) : (
             <ul className="divide-y divide-border">
               {secrets.map((secret) => (
-                <li key={secret.id} className="p-4 transition-colors hover:bg-muted/20">
+                <li
+                  key={secret.id}
+                  className="p-4 transition-colors hover:bg-muted/20"
+                >
                   <div className="grid items-center gap-4 md:grid-cols-[minmax(0,1fr)_auto_auto]">
                     <div className="min-w-0">
                       <p className="truncate font-medium">{secret.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {secret.type}
-                        {secret.owner?.type === 'organization' && (
+                        {secret.owner?.type === "organization" && (
                           <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-300">
                             Organization
                           </span>
                         )}
-                        {secret.owner?.type !== 'organization' && (secret.sharedWithTeams?.length ?? 0) > 0 && (
-                          <span className="ml-2 rounded-full bg-teal-500/10 px-2 py-0.5 text-teal-300">
-                            Team access enabled
-                          </span>
-                        )}
+                        {secret.owner?.type !== "organization" &&
+                          (secret.sharedWithTeams?.length ?? 0) > 0 && (
+                            <span className="ml-2 rounded-full bg-teal-500/10 px-2 py-0.5 text-teal-300">
+                              Team access enabled
+                            </span>
+                          )}
                       </p>
                     </div>
                     <code className="w-fit rounded bg-muted px-2 py-1 text-xs">
@@ -445,7 +485,9 @@ export function SecretsManager({
                             aria-label={`Share ${secret.name}`}
                             title={`Share ${secret.name}`}
                             onClick={() =>
-                              setSharingSecretId((current) => (current === secret.id ? null : secret.id))
+                              setSharingSecretId((current) =>
+                                current === secret.id ? null : secret.id,
+                              )
                             }
                           >
                             <Share2 className="h-4 w-4" />
@@ -478,9 +520,12 @@ export function SecretsManager({
                           <p className="text-xs font-medium uppercase tracking-wide text-teal-300">
                             Rotate secret
                           </p>
-                          <h3 className="text-sm font-semibold">Update {secret.name}</h3>
+                          <h3 className="text-sm font-semibold">
+                            Update {secret.name}
+                          </h3>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Paste the new value. You can peek before saving; after rotation only a masked preview is shown.
+                            Paste the new value. You can peek before saving;
+                            after rotation only a masked preview is shown.
                           </p>
                         </div>
                         <Button
@@ -495,13 +540,17 @@ export function SecretsManager({
                       </div>
                       <div className="flex flex-col gap-3 md:flex-row md:items-end">
                         <div className="min-w-0 flex-1 space-y-1 text-sm">
-                          <label htmlFor={`rotate-secret-value-${secret.id}`}>New secret value</label>
+                          <label htmlFor={`rotate-secret-value-${secret.id}`}>
+                            New secret value
+                          </label>
                           <div className="relative">
                             <input
                               id={`rotate-secret-value-${secret.id}`}
                               className="w-full rounded-md border border-input bg-background px-3 py-2 pr-11"
                               value={rotateValue}
-                              onChange={(event) => setRotateValue(event.target.value)}
+                              onChange={(event) =>
+                                setRotateValue(event.target.value)
+                              }
                               required
                               type={rotateValueVisible ? "text" : "password"}
                             />
@@ -514,20 +563,34 @@ export function SecretsManager({
                                   ? "Hide new secret value before saving"
                                   : "Show new secret value before saving"
                               }
-                              title={rotateValueVisible ? "Hide new value" : "Show new value"}
+                              title={
+                                rotateValueVisible
+                                  ? "Hide new value"
+                                  : "Show new value"
+                              }
                               className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                              onClick={() => setRotateValueVisible((current) => !current)}
+                              onClick={() =>
+                                setRotateValueVisible((current) => !current)
+                              }
                             >
                               {rotateValueVisible ? (
-                                <EyeOff className="h-4 w-4" aria-hidden="true" />
+                                <EyeOff
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
                               ) : (
                                 <Eye className="h-4 w-4" aria-hidden="true" />
                               )}
                             </Button>
                           </div>
                         </div>
-                        <Button type="submit" disabled={savingRotateSecretId === secret.id}>
-                          {savingRotateSecretId === secret.id ? "Saving..." : "Save new value"}
+                        <Button
+                          type="submit"
+                          disabled={savingRotateSecretId === secret.id}
+                        >
+                          {savingRotateSecretId === secret.id
+                            ? "Saving..."
+                            : "Save new value"}
                         </Button>
                       </div>
                     </form>
@@ -543,7 +606,9 @@ export function SecretsManager({
                           <p className="text-xs font-medium uppercase tracking-wide text-teal-300">
                             Team access
                           </p>
-                <h3 className="text-sm font-semibold">Share {secret.name}</h3>
+                          <h3 className="text-sm font-semibold">
+                            Share {secret.name}
+                          </h3>
                         </div>
                         <Button
                           type="button"
@@ -558,7 +623,9 @@ export function SecretsManager({
                       <SecretSharingPanel
                         secretId={secret.id}
                         sharedWithTeams={secret.sharedWithTeams ?? []}
-                        onSharingChange={(teamIds) => updateSecretSharing(secret.id, teamIds)}
+                        onSharingChange={(teamIds) =>
+                          updateSecretSharing(secret.id, teamIds)
+                        }
                       />
                     </div>
                   )}
@@ -582,9 +649,12 @@ export function SecretsManager({
                 <p className="text-xs font-medium uppercase tracking-wide text-teal-300">
                   Secret details
                 </p>
-                <h2 className="mt-1 text-lg font-semibold">{detailsSecret.name}</h2>
+                <h2 className="mt-1 text-lg font-semibold">
+                  {detailsSecret.name}
+                </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Details only. The saved value stays protected; this preview is masked.
+                  Details only. The saved value stays protected; this preview is
+                  masked.
                 </p>
               </div>
               <Button
@@ -627,7 +697,9 @@ export function SecretsManager({
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-1 text-muted-foreground">Not shared with teams</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Not shared with teams
+                    </p>
                   )}
                 </div>
               </div>
@@ -656,32 +728,38 @@ export function SecretsManager({
               </div>
 
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Used by</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Used by
+                </p>
                 {(detailsSecret.usage?.length ?? 0) > 0 ? (
                   <div className="mt-2 space-y-1">
                     {detailsSecret.usage?.map((item) => (
-                      <p key={`${item.type}:${item.id}:${item.detail ?? ""}`} className="text-muted-foreground">
+                      <p
+                        key={`${item.type}:${item.id}:${item.detail ?? ""}`}
+                        className="text-muted-foreground"
+                      >
                         {item.name} · {item.location}
                         {item.detail ? ` · ${item.detail}` : ""}
                       </p>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-1 text-muted-foreground">Not used by any configured service yet</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Not used by any configured service yet
+                  </p>
                 )}
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Security</p>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Security
+                </p>
                 <SecretProtectionBadge storage={detailsSecret.storage} />
               </div>
             </div>
           </div>
         </div>
       )}
-        </>
-      )}
-
     </section>
   );
 }

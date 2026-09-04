@@ -1,14 +1,22 @@
 "use client";
 
 // Admin → Settings → Navigation. Lets an admin reorder the top-navigation
-// tabs (up/down) and enable/disable each one. Persists to
-// platform_config.top_nav via PATCH /api/admin/platform-config; the AppHeader
-// reads the same config (GET) and applies it for every user.
+// destinations (up/down) and enable/disable each one. Persists to
+// platform_config.top_nav via PATCH /api/admin/platform-config; the
+// application navigation rail reads the same config (GET) and applies it for
+// every user.
 //
 // assisted-by claude code claude-opus-4-8
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Loader2, RotateCcw } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  EyeOff,
+  Loader2,
+  RotateCcw,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -41,7 +49,7 @@ function buildRows(catalog: Row[], config: TopNavConfig): Row[] {
     ...item,
     enabled: !hidden.has(item.key),
   }));
-  // Reuse the same ordering the header applies, but DON'T drop hidden items —
+  // Reuse the same ordering the rail applies, but DON'T drop hidden items —
   // the admin still needs to see + re-enable them. Temporarily clear hidden so
   // applyTopNavConfig only reorders.
   return applyTopNavConfig(withEnabled, { order: config.order, hidden: [] });
@@ -71,7 +79,9 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
       const pinned: Row[] = [];
       if (appsRes && appsRes.ok) {
         const appsBody = await appsRes.json().catch(() => null);
-        const items = (appsBody?.items ?? appsBody?.data?.items ?? []) as Array<{
+        const items = (appsBody?.items ??
+          appsBody?.data?.items ??
+          []) as Array<{
           appId: string;
           displayName?: string;
           surfaces?: { showInTopNav?: boolean };
@@ -106,8 +116,7 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
 
   // Serialize current row state to compare against the last-saved snapshot.
   const currentKey = useMemo(
-    () =>
-      JSON.stringify(rows.map((r) => [r.key, r.enabled] as const)),
+    () => JSON.stringify(rows.map((r) => [r.key, r.enabled] as const)),
     [rows],
   );
   useEffect(() => {
@@ -200,11 +209,11 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Top Navigation</CardTitle>
+        <CardTitle>Navigation</CardTitle>
         <CardDescription>
-          Reorder the top-navigation tabs and enable or disable them. Changes
-          apply to every user. Disabled tabs are hidden from the header (their
-          pages remain reachable by direct URL).
+          Reorder navigation destinations and enable or disable them. Changes
+          apply to every user. Disabled destinations are hidden from the rail
+          (their pages remain reachable by direct URL).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -260,7 +269,9 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
                     size="sm"
                     className="h-7 gap-1.5 text-xs"
                     aria-label={
-                      row.enabled ? `Disable ${row.label}` : `Enable ${row.label}`
+                      row.enabled
+                        ? `Disable ${row.label}`
+                        : `Enable ${row.label}`
                     }
                     onClick={() => toggle(index)}
                   >

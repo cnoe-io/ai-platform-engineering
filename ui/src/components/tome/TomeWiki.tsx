@@ -12,9 +12,7 @@ import {
 } from "react";
 import {
   Activity,
-  ArrowLeft,
   ArrowUpRight,
-  ChevronRight,
   Eye,
   EyeOff,
   FileText,
@@ -39,6 +37,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { HeaderBreadcrumbPortal } from "@/components/layout/HeaderBreadcrumbSlot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -100,6 +99,7 @@ import {
   type TomeTrackedIssueLabel,
 } from "@/lib/tome/issue-filter-views";
 import { cn } from "@/lib/utils";
+import { getProjectsNavigationLabel } from "@/lib/navigation-labels";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { PageTreeNode } from "@/types/tome";
 import {
@@ -1079,39 +1079,106 @@ export function TomeWiki({ slug }: { slug: string }) {
         ref={wikiRootRef}
         className="flex h-full min-h-[calc(100vh-4rem)] flex-col bg-background"
       >
-        <header className="flex items-center gap-1 px-4 py-2 text-sm">
-          {/* Back to the projects list. The project's own detail/apps page is
-              skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
-          <Link
-            href="/projects"
-            onClick={(event) => {
-              if (interceptHrefNavigation("/projects")) event.preventDefault();
-            }}
-          >
-            <Button variant="ghost" size="sm" className="h-auto gap-1.5 px-2 py-1">
-              <ArrowLeft className="h-4 w-4" />
-              Projects
-            </Button>
-          </Link>
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <Breadcrumb
-            onBeforeNavigate={interceptHrefNavigation}
-            items={[
-              ...hierarchyCrumbs,
-              {
-                label: projectTitle ?? slug,
-                onClick: () => navigate({ kind: "agent" }),
-                icon: isBhag ? (
-                  <Target className="h-3.5 w-3.5 shrink-0 text-primary" />
-                ) : isArea ? (
-                  <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />
-                ) : undefined,
-                colorClass: isBhag ? "text-primary" : isArea ? "text-sky-600 dark:text-sky-400" : undefined,
-              },
-              ...crumbs,
-            ]}
-          />
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+        <header className="flex flex-wrap items-start gap-x-4 gap-y-2 border-b px-6 py-2 text-sm">
+          {/* Keep the global route hierarchy in one breadcrumb trail. The
+              project detail/apps page is still reachable via `?apps=1` when
+              needed, but it should not become a second breadcrumb row. */}
+          <HeaderBreadcrumbPortal>
+            <Breadcrumb
+              onBeforeNavigate={interceptHrefNavigation}
+              items={[
+                { label: "Home", href: "/" },
+                { label: getProjectsNavigationLabel(), href: "/projects" },
+                ...hierarchyCrumbs,
+                {
+                  label: projectTitle ?? slug,
+                  onClick: () => navigate({ kind: "agent" }),
+                  icon: isBhag ? (
+                    <Target className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : isArea ? (
+                    <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                  ) : undefined,
+                  colorClass: isBhag ? "text-primary" : isArea ? "text-sky-600 dark:text-sky-400" : undefined,
+                },
+                ...crumbs,
+              ]}
+            />
+          </HeaderBreadcrumbPortal>
+          <div className="min-w-0 flex-1">
+            {projectMetaLoading ? (
+              <div className="flex flex-col gap-2" data-testid="skeleton">
+                <div className="h-5 w-48 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted" />
+                <div className="flex gap-1.5">
+                  <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
+                  <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
+                  <div className="h-5 w-14 animate-pulse rounded-full bg-muted" />
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-lg font-semibold leading-tight">
+                  {projectTitle ?? slug}
+                </h1>
+                {projectMeta.description && (
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {projectMeta.description}
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {/* No type badge here: the breadcrumb's own page segment now
+                      carries the same icon+color (Target+primary for BHAG,
+                      Layers+sky for Area) — see `hierarchyCrumbs` and the
+                      project-title crumb above — so it isn't duplicated here.
+                      BHAG/Area membership (what this page belongs to) is also
+                      a breadcrumb segment now instead of a chip cluster. */}
+                  {projectMeta.teamName && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="gap-1">
+                          <Users className="h-3 w-3" />
+                          Shared with: {projectMeta.teamName}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Members of this team have direct view access. Access can also be inherited
+                        through the BHAG and Area hierarchy.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {projectMeta.dataSteward ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="gap-1">
+                          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[8px] font-semibold text-primary">
+                            {projectMeta.dataSteward.split("@")[0].split(/[.\-_]/).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join("")}
+                          </span>
+                          {projectMeta.dataSteward.split("@")[0]}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>Data steward: {projectMeta.dataSteward}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="gap-1 text-muted-foreground">
+                          <UserX className="h-3 w-3" />
+                          No data steward
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>No data steward assigned. Set one in project settings.</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {projectMeta.tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
             <TomeProductFeedback projectSlug={slug} pagePath={feedbackPagePath} />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1144,81 +1211,6 @@ export function TomeWiki({ slug }: { slug: string }) {
             </Button>
           </div>
         </header>
-
-        <div className="border-b pb-3 pl-6 pr-4 pt-0">
-          {projectMetaLoading ? (
-            <div className="flex flex-col gap-2" data-testid="skeleton">
-              <div className="h-5 w-48 animate-pulse rounded bg-muted" />
-              <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted" />
-              <div className="flex gap-1.5">
-                <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
-                <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
-                <div className="h-5 w-14 animate-pulse rounded-full bg-muted" />
-              </div>
-            </div>
-          ) : (
-            <>
-              <h1 className="text-lg font-semibold leading-tight">
-                {projectTitle ?? slug}
-              </h1>
-              {projectMeta.description && (
-                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                  {projectMeta.description}
-                </p>
-              )}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {/* No type badge here: the breadcrumb's own page segment now
-                    carries the same icon+color (Target+primary for BHAG,
-                    Layers+sky for Area) — see `hierarchyCrumbs` and the
-                    project-title crumb above — so it isn't duplicated here.
-                    BHAG/Area membership (what this page belongs to) is also
-                    a breadcrumb segment now instead of a chip cluster. */}
-                {projectMeta.teamName && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="gap-1">
-                        <Users className="h-3 w-3" />
-                        Shared with: {projectMeta.teamName}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      Members of this team have direct view access. Access can also be inherited
-                      through the BHAG and Area hierarchy.
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                {projectMeta.dataSteward ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="gap-1">
-                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[8px] font-semibold text-primary">
-                          {projectMeta.dataSteward.split("@")[0].split(/[.\-_]/).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join("")}
-                        </span>
-                        {projectMeta.dataSteward.split("@")[0]}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>Data steward: {projectMeta.dataSteward}</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="gap-1 text-muted-foreground">
-                        <UserX className="h-3 w-3" />
-                        No data steward
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>No data steward assigned. Set one in project settings.</TooltipContent>
-                  </Tooltip>
-                )}
-                {projectMeta.tags.map((tag) => (
-                  <Badge key={tag} variant="outline">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
 
         {error && (
           <p className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
@@ -1919,7 +1911,7 @@ function NavItem({
   if (!tipTitle) return button;
 
   return (
-    <Tooltip triggerClassName="w-full">
+    <Tooltip className="w-full">
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent
         side="right"

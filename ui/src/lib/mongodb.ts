@@ -214,10 +214,13 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 
-    // Skills API key registry — jti lookups on every skills-token request,
-    // active-key lookups per user on generate/status.
-    safeCreateIndex(db, 'skills_api_keys', { jti: 1 }, { unique: true }),
-    safeCreateIndex(db, 'skills_api_keys', { user_email: 1, status: 1 }),
+    // Teams are resolved by slug throughout RBAC and connector discovery.
+    safeCreateIndex(db, 'teams', { slug: 1 }),
+
+    // TOME MCP API keys — key lookup on every connector request and active-key
+    // replacement/status operations per Keycloak subject.
+    safeCreateIndex(db, 'tome_api_keys', { key_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'tome_api_keys', { owner_user_id: 1, status: 1 }),
 
     // TOME MCP API keys — key lookup on every connector request and active-key
     // replacement/status operations per Keycloak subject.
@@ -333,8 +336,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
-    safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
-    safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { channel_id: 1, status: 1, priority: 1 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
 
     // RAG ingestion source configuration (self-service ingestion, PR1)
@@ -344,35 +346,36 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'rag_ingestion_sources', { source_type: 1, status: 1 }),
     safeCreateIndex(db, 'rag_ingestion_sources', { config_driven: 1 }),
 
-    // TOME scheduled-ingest token health. One snapshot per credential owner
-    // and provider; _id enforces uniqueness, while status supports admin triage.
-    safeCreateIndex(db, 'tome_auto_ingest_credential_health', { status: 1, last_attempt_at: -1 }),
-    // Calendar-driven Webex occurrence jobs. `_id` is a deterministic
-    // project/subscription/occurrence hash, so rediscovery is idempotent.
-    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { project_id: 1, subscription_id: 1, status: 1, next_attempt_at: 1 }),
-    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { project_id: 1, subscription_id: 1, start: -1 }),
-    safeCreateIndex(db, 'tome_webex_meeting_occurrences', { run_id: 1 }),
+    // First-class RAG collections. Datasource content remains in Milvus under
+    // datasource_id; this is control-plane membership and delegation only.
+    safeCreateIndex(db, 'rag_collections', { is_platform: 1 }),
+    safeCreateIndex(db, 'rag_collections', { owner_subject: 1, updated_at: -1 }),
+    safeCreateIndex(db, 'rag_collections', { maintainer_team_slugs: 1 }),
+    safeCreateIndex(db, 'rag_collections', { reader_team_slugs: 1 }),
+    safeCreateIndex(db, 'rag_collections', { source_ids: 1 }),
 
-    // TOME chat run replay buffers. Completed buffers are disposable; the
-    // durable transcript lives in tome_chat_messages.
-    safeCreateIndex(db, 'tome_chat_runs', { project_id: 1, user_id: 1, status: 1, created_at: -1 }),
-    safeCreateIndex(db, 'tome_chat_runs', { expires_at: 1 }, { expireAfterSeconds: 0 }),
+    // Reusable publication approval workflow. Requested state remains
+    // separate from effective state until a domain adapter applies approval.
+    safeCreateIndex(db, 'publication_requests', { status: 1, created_at: -1 }),
+    safeCreateIndex(db, 'publication_requests', { 'resource.kind': 1, 'resource.id': 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { 'requested_state.source_ids': 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { approver_team_slugs: 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { approver_user_subjects: 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { 'requester.subject': 1, created_at: -1 }),
+    safeCreateIndex(db, 'publication_requests', { 'resource.kind': 1, 'requested_state.channel_defaults.channel_id': 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { 'resource.kind': 1, 'requested_state.space_id': 1, status: 1 }),
 
-    // TOME GitHub issues/discussions are a disposable read model. GitHub remains the
-    // source of truth; webhooks and explicit refreshes maintain these rows.
-    safeCreateIndex(db, 'tome_github_issues', { repo: 1, github_updated_at: -1 }),
-    safeCreateIndex(db, 'tome_github_issues', { repo: 1, content_type: 1, github_updated_at: -1 }),
-    safeCreateIndex(db, 'tome_github_issues', { repo: 1, state: 1, labels_normalized: 1, github_updated_at: -1 }),
-    safeCreateIndex(db, 'tome_github_repo_sync', { status: 1, updated_at: -1 }),
-    safeCreateIndex(db, 'tome_github_repo_sync', { status: 1, lease_until: 1 }),
-    safeCreateIndex(db, 'tome_github_repo_sync', { needs_reconciliation: 1, updated_at: -1 }),
-
-    // Provider-neutral CAIPE event log + durable per-subscriber deliveries.
-    // _id is the provider idempotency key for both collections.
-    safeCreateIndex(db, 'caipe_events', { type: 1, received_at: -1 }),
-    safeCreateIndex(db, 'caipe_events', { expires_at: 1 }, { expireAfterSeconds: 0 }),
-    safeCreateIndex(db, 'caipe_event_deliveries', { status: 1, available_at: 1 }),
-    safeCreateIndex(db, 'caipe_event_deliveries', { expires_at: 1 }, { expireAfterSeconds: 0 }),
+    // Durable header notifications. Direct, team, organization-admin, and
+    // global platform audiences share the feed while read state remains
+    // personal to each viewer.
+    safeCreateIndex(db, 'in_app_notifications', { event_key: 1 }, { unique: true }),
+    safeCreateIndex(db, 'in_app_notifications', { recipient_user_subjects: 1, created_at: -1 }),
+    safeCreateIndex(db, 'in_app_notifications', { recipient_team_slugs: 1, created_at: -1 }),
+    safeCreateIndex(db, 'in_app_notifications', { recipient_organization_admins: 1, created_at: -1 }),
+    safeCreateIndex(db, 'in_app_notifications', { recipient_platform_users: 1, created_at: -1 }),
+    safeCreateIndex(db, 'in_app_notifications', { archived_at: 1, created_at: -1 }),
+    safeCreateIndex(db, 'platform_health_notification_states', { active_incident_id: 1 }),
+    safeCreateIndex(db, 'platform_health_notification_states', { current_status: 1, updated_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

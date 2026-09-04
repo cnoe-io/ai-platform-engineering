@@ -67,19 +67,11 @@ import {
   TEAM_KB_OWNERSHIP_COLLECTION,
   type DropTeamKbOwnershipInputs,
 } from "./drop-team-kb-ownership";
+import {
+  ZIP_IMPORT_OWNER_BACKFILL_CONFIRMATION,
+  ZIP_IMPORT_OWNER_BACKFILL_MIGRATION_ID,
+} from "./zip-import-owner-backfill";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
-import {
-  applyProjectLabelsToSlugMigration,
-  planProjectLabelsToSlugMigration,
-  PROJECT_LABELS_TO_SLUG_CONFIRMATION,
-  PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
-} from "./project-labels-to-slug";
-import {
-  applyPrivateResourceVisibilityMigration,
-  planPrivateResourceVisibilityMigration,
-  PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
-  PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
-} from "./private-resource-visibility";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -464,19 +456,19 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   {
-    id: PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
+    id: ZIP_IMPORT_OWNER_BACKFILL_MIGRATION_ID,
     release: RELEASE_060,
-    schema_area: "private_resource_visibility",
-    from_version: 1,
-    to_version: 2,
+    schema_area: "agent_skills",
+    from_version: 2,
+    to_version: 3,
     kind: "explicit",
-    title: "Private-resource visibility classification",
+    title: "ZIP-imported skill owner backfill",
     description:
-      "Preserves legacy MCP servers as global, classifies credentials, and reconciles OpenFGA tuples before PRIVATE_RESOURCES_ENABLED is turned on.",
-    confirmation: PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
-    required: false,
-    blocking: false,
+      "Writes missing owner and creator tuples for existing non-system skills created by ZIP import. It does not alter team, writer, manager, or global grants.",
+    confirmation: ZIP_IMPORT_OWNER_BACKFILL_CONFIRMATION,
+    required: true,
     implemented: true,
+    dependencies: [AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID],
   },
   {
     id: TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
@@ -602,20 +594,6 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
-  {
-    id: PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
-    release: RELEASE_060,
-    schema_area: "tome_projects",
-    from_version: 1,
-    to_version: 2,
-    kind: "explicit",
-    title: "Migrate project hierarchy labels from display names to slugs",
-    description:
-      "Rewrites `labels.initiatives` and `labels.areas` on project documents to store the stable slug of the referenced BHAG or Area, replacing the frozen display-name strings that caused renames to break child-resolution across all read paths. Also unsets the legacy `name` field (superseded by `title` + `slug`).",
-    confirmation: PROJECT_LABELS_TO_SLUG_CONFIRMATION,
-    required: true,
-    implemented: true,
-  },
   {
     id: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
     release: RELEASE_060,
@@ -1894,7 +1872,7 @@ export function deriveMessagingRebacPlan(input: {
       if (!botId) {
         legacyRoutesRequiringBotAssignment += 1;
         warnings.push(
-          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; assign a bot in the Webex Legacy migration tab.`,
+          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; set bot_id on the route to migrate it.`,
         );
         continue;
       }
@@ -2211,11 +2189,6 @@ const MESSAGING_REBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> 
     collection: "webex_space_grants",
     keys: { workspace_id: 1, space_id: 1, "resource.type": 1, "resource.id": 1, status: 1 },
     options: { name: "webex_space_grant_lookup" },
-  },
-  {
-    collection: "webex_link_nonces",
-    keys: { expires_at: 1 },
-    options: { expireAfterSeconds: 0, name: "webex_link_nonce_expiry" },
   },
 ];
 
@@ -3032,9 +3005,6 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
     return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
   }
-  if (migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
-    return planProjectLabelsToSlugMigration();
-  }
   if (migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
     return deriveUserPreferencesDefaultAgentCleanupPlan(
       await loadUserPreferencesDefaultAgentCleanupInputs(),
@@ -3112,8 +3082,11 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     );
     return planAgentSkillOpenFgaReconcileMigration();
   }
-  if (migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
-    return planPrivateResourceVisibilityMigration();
+  if (migrationId === ZIP_IMPORT_OWNER_BACKFILL_MIGRATION_ID) {
+    const { planZipImportOwnerBackfillMigration } = await import(
+      "./zip-import-owner-backfill"
+    );
+    return planZipImportOwnerBackfillMigration();
   }
   if (migrationId === TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID) {
     const { teams, toolTuples } = await loadTeamToolWildcardInputs();
@@ -3397,12 +3370,6 @@ export async function applyMigration(input: {
     return result;
   }
 
-  if (input.migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
-    const result = await applyProjectLabelsToSlugMigration({ actor: input.actor, now });
-    await recordCompletedMigration({ definition, result, now, actor: input.actor });
-    return result;
-  }
-
   if (input.migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
     const userPreferences = await getCollection("user_preferences");
     const result = await applyUserPreferencesDefaultAgentCleanupMigration({
@@ -3430,8 +3397,17 @@ export async function applyMigration(input: {
     return result;
   }
 
-  if (input.migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
-    const result = await applyPrivateResourceVisibilityMigration({ actor: input.actor, now });
+  if (input.migrationId === ZIP_IMPORT_OWNER_BACKFILL_MIGRATION_ID) {
+    const {
+      planZipImportOwnerBackfillMigration,
+      applyZipImportOwnerBackfillMigration,
+    } = await import("./zip-import-owner-backfill");
+    const plan = await planZipImportOwnerBackfillMigration();
+    const result = await applyZipImportOwnerBackfillMigration({
+      plan,
+      actor: input.actor,
+      now,
+    });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;
   }

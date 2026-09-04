@@ -11,44 +11,67 @@ TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
+import { AutonomousTeamAccessPanel } from "@/components/admin/autonomous/AutonomousTeamAccessPanel";
+import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import {
+  AdminNavigation,
+  adminDestinationHref,
+} from "@/components/admin/workspace/AdminNavigation";
+import {
+  DEFAULT_ADMIN_DESTINATION_ID,
+  DEFAULT_READONLY_DESTINATION_ID,
+  filterAdminCategories,
+  findAdminCategoryForDestination,
+  findAdminDestinationById,
+  findAdminDestinationByPath,
+} from "@/components/admin/workspace/admin-routes";
 import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
 import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
+import { ApiStatsSection } from "@/components/admin/platform/ApiStatsSection";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
+import { WebexStatsSection } from "@/components/admin/platform/WebexStatsSection";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
 import { MigrationTab } from "@/components/admin/security/MigrationTab";
+import { PublicationApprovalQueue } from "@/components/admin/security/PublicationApprovalQueue";
 import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab";
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
-import { AgentGatewayRepairCard } from "@/components/admin/settings/AgentGatewayRepairCard";
-import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
-import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
-import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { RagSettingsTab } from "@/components/admin/settings/RagSettingsTab";
+import { TopNavSettingsTab } from "@/components/admin/TopNavSettingsTab";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
-import { FeedbackInfoDialog, type FeedbackDetail } from "@/components/admin/insights/FeedbackInfoDialog";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
 import { ServiceAccountsTab } from "@/components/admin/ServiceAccountsTab";
-import { TopNavSettingsTab } from "@/components/admin/TopNavSettingsTab";
 import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { PlatformAccessSettings } from "@/components/settings/sections/PlatformAccessSettings";
+import { PlatformAnnouncementsSettings } from "@/components/settings/sections/PlatformAnnouncementsSettings";
+import { PlatformDefaultsSettings } from "@/components/settings/sections/PlatformDefaultsSettings";
 import { Button } from "@/components/ui/button";
+import {
+  BuiltInResourceHint,
+  builtInTeamHelpText,
+} from "@/components/ui/built-in-resource-hint";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import {
 Dialog,
 DialogContent,
@@ -58,20 +81,19 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { MultiSelect,TagInput } from "@/components/ui/multi-select";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
-import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { Tabs,TabsContent } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
 import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import { ADMIN_STATS_SECTIONS,type AdminStats,type AdminStatsOwnerType,type AdminStatsSection } from "@/types/admin-stats";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,Info,KeyRound,LayoutGrid,Layers,Link2,ListChecks,Loader2,MessageSquare,Plug,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,Filter,Globe,KeyRound,Layers,Link2,Loader2,MessageSquare,RefreshCw,Search,Settings,ThumbsDown,ThumbsUp,Trash2,Unlink,UserPlus,Users,UsersIcon,Wrench,X,Zap } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -96,7 +118,7 @@ interface FeedbackEntry {
   message_id: string;
   conversation_id?: string;
   conversation_title?: string;
-  source?: 'web' | 'slack' | 'report' | 'project';
+  source?: 'web' | 'slack';
   channel_name?: string | null;
   content_snippet?: string;
   role?: string;
@@ -106,30 +128,6 @@ interface FeedbackEntry {
   submitted_at: string;
   trace_id?: string | null;
   slack_permalink?: string | null;
-  ticket_url?: string | null;
-  ticket_id?: string | null;
-  context_url?: string | null;
-  report_kind?: string | null;
-  project_slug?: string | null;
-  session_id?: string | null;
-  user_question?: string | null;
-  assistant_response?: string | null;
-  project_name?: string | null;
-  project_domain?: string | null;
-  categories?: string[];
-  areas?: string[];
-}
-
-interface FeedbackCategoryCount {
-  category: string;
-  positive: number;
-  negative: number;
-  total: number;
-}
-
-interface FeedbackWordCloudEntry {
-  text: string;
-  count: number;
 }
 
 interface FeedbackData {
@@ -141,14 +139,6 @@ interface FeedbackData {
     total: number;
     positive_rate: number;
   };
-  category_counts?: FeedbackCategoryCount[];
-  word_cloud?: {
-    positive: FeedbackWordCloudEntry[];
-    negative: FeedbackWordCloudEntry[];
-  };
-  projects?: Array<{ slug: string; title: string }>;
-  categories?: string[];
-  areas?: string[];
   pagination: {
     page: number;
     limit: number;
@@ -225,110 +215,6 @@ interface SimulationTeamOption {
   slug?: string;
   name: string;
   description?: string;
-}
-
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'mcp', 'release-notes', 'navigation', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
-const MOVED_ADMIN_TAB_MAP = {
-  'cas-insights': 'metrics',
-  insights: 'stats',
-  openfga: 'access-explorer',
-} as const;
-const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
-  slack: 'slack',
-  webex: 'webex',
-} as const;
-
-type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
-const DEFAULT_ADMIN_TAB = 'settings';
-const DEFAULT_READONLY_TAB = 'users';
-
-interface Category {
-  key: CategoryKey;
-  label: string;
-  icon: LucideIcon;
-  tabs: Array<{
-    value: string;
-    label: string;
-    icon: LucideIcon;
-    gateKey: string;
-  }>;
-}
-
-const CATEGORIES: Category[] = [
-  {
-    key: 'settings',
-    label: 'Settings',
-    icon: Settings,
-    tabs: [
-      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'navigation', label: 'Navigation', icon: LayoutGrid, gateKey: 'settings' },
-      { value: 'agents', label: 'Agents', icon: Bot, gateKey: 'agents' },
-      { value: 'mcp', label: 'MCP', icon: Plug, gateKey: 'mcp' },
-      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
-      { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
-      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
-      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
-    ],
-  },
-  {
-    key: 'people',
-    label: 'Teams & Users',
-    icon: Users,
-    tabs: [
-      { value: 'users', label: 'Users', icon: User, gateKey: 'users' },
-      { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
-      { value: 'identity-sync', label: 'Identity Sync', icon: RefreshCw, gateKey: 'identity_sync' },
-    ],
-  },
-  {
-    key: 'integrations',
-    label: 'Integrations',
-    icon: Globe,
-    tabs: [
-      { value: 'slack', label: 'Slack', icon: Hash, gateKey: 'slack' },
-      { value: 'webex', label: 'Webex', icon: MessageSquare, gateKey: 'webex' },
-    ],
-  },
-  {
-    key: 'insights',
-    label: 'Insights',
-    icon: TrendingUp,
-    tabs: [
-      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
-      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
-    ],
-  },
-  {
-    key: 'platform',
-    label: 'Metrics & Health',
-    icon: Activity,
-    tabs: [
-      { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
-      { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
-    ],
-  },
-  {
-    key: 'security',
-    label: 'Security & Policy',
-    icon: Shield,
-    tabs: [
-      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
-      { value: 'access-explorer', label: 'Access Explorer', icon: Shield, gateKey: 'openfga' },
-      { value: 'rbac-self-check', label: 'Self Check', icon: ListChecks, gateKey: 'openfga' },
-      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
-      { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
-      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
-    ],
-  },
-];
-
-function categoryForTab(tab: string): CategoryKey {
-  for (const cat of CATEGORIES) {
-    if (cat.tabs.some((t) => t.value === tab)) return cat.key;
-  }
-  return DEFAULT_ADMIN_CATEGORY;
 }
 
 // Admin Teams grid page size. The grid is server-paginated (`?page=`) so the
@@ -438,23 +324,6 @@ function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
   );
 }
 
-function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
-  return Boolean(tab && (VALID_TABS as readonly string[]).includes(tab));
-}
-
-function isValidCategory(category: string | null): category is CategoryKey {
-  return Boolean(category && CATEGORIES.some((c) => c.key === category));
-}
-
-function isValidOpenFgaSubtab(tab: string | null): tab is typeof VALID_OPENFGA_SUBTABS[number] {
-  return Boolean(tab && (VALID_OPENFGA_SUBTABS as readonly string[]).includes(tab));
-}
-
-function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
-  if (!tab) return null;
-  return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
-}
-
 function localDateFromBucketKey(dateKey: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
   if (!match) return null;
@@ -500,7 +369,7 @@ function OverviewStatsCards({
   overview?: AdminStats['overview'];
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <AsyncStatsCard error={error} loading={loading} testId="stats-card-overview-users">
         {overview ? <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -545,31 +414,8 @@ function OverviewStatsCards({
           </CardContent>
         </Card> : undefined}
       </AsyncStatsCard>
-
-      <AsyncStatsCard error={error} loading={loading} testId="stats-card-overview-shared">
-        {overview ? <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
-            <Share2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{overview.shared_conversations}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {overview.total_conversations > 0
-                ? ((overview.shared_conversations / overview.total_conversations) * 100).toFixed(1)
-                : '0.0'}
-              % of all conversations
-            </p>
-          </CardContent>
-        </Card> : undefined}
-      </AsyncStatsCard>
     </div>
   );
-}
-
-function movedOpenFgaDeepLinkTab(tab: string | null): typeof VALID_TABS[number] | null {
-  if (!tab) return null;
-  return (MOVED_OPENFGA_DEEPLINK_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
 function simulationTargetFromParams(searchParams: { get(name: string): string | null }): AdminTabGateSimulationTarget | null {
@@ -653,34 +499,22 @@ function AdminPage() {
   const [simulationUsers, setSimulationUsers] = useState<SimulationUserOption[]>([]);
   const [simulationTeams, setSimulationTeams] = useState<SimulationTeamOption[]>([]);
   const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
-  const userSelectedAdminTabRef = useRef(false);
-  const initialTab = searchParams.get('tab');
-  const defaultTab = effectiveOrganizationAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
-  const [activeTab, setActiveTab] = useState<string>(
-    isValidTab(initialTab) ? initialTab : defaultTab
-  );
-  const initialCat = searchParams.get('cat') as CategoryKey | null;
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
-    isValidCategory(initialCat)
-      ? initialCat
-      : categoryForTab(activeTab)
-  );
-  const categorySelectorLayoutId = React.useId();
+  const defaultDestinationId = effectiveOrganizationAdmin
+    ? DEFAULT_ADMIN_DESTINATION_ID
+    : DEFAULT_READONLY_DESTINATION_ID;
 
   const tabGateValues = useMemo<Record<string, boolean>>(
     () => ({
       ...gates,
+      platform_settings: effectiveOrganizationAdmin,
       feedback: Boolean(gates.feedback && feedbackEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
-      // General settings are part of the normal read-only user experience.
-      // Keep them visible during View As and let the child panels enforce the
-      // preview's read-only mode through `canMutateAdminData`.
-      settings: true,
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
-      ai_review: effectiveOrganizationAdmin,
+      autonomous: effectiveOrganizationAdmin && Boolean(getConfig('autonomousAgentsEnabled')),
+      rag: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
@@ -689,105 +523,96 @@ function AdminPage() {
   );
 
   const visibleCategories = useMemo(
-    () =>
-      CATEGORIES.filter((cat) =>
-        cat.tabs.some((t) => tabGateValues[t.gateKey])
-      ),
+    () => filterAdminCategories(tabGateValues),
     [tabGateValues]
   );
-
-  const visibleTabsForCategory = useMemo(
-    () =>
-      (CATEGORIES.find((c) => c.key === activeCategory)?.tabs ?? []).filter(
-        (t) => tabGateValues[t.gateKey]
-      ),
-    [activeCategory, tabGateValues]
+  const visibleDestinations = useMemo(
+    () => visibleCategories.flatMap((category) => category.destinations),
+    [visibleCategories],
   );
+  // Keep the legacy Grid URL usable while the canonical admin workspace uses
+  // scoped paths. This is intentionally a narrow alias for the navigation
+  // editor, not a second route model.
+  const legacyNavigationRequested =
+    pathname === "/admin" &&
+    searchParams.get("cat") === "settings" &&
+    searchParams.get("tab") === "navigation";
+  const requestedDestination = legacyNavigationRequested
+    ? findAdminDestinationById("navigation")
+    : findAdminDestinationByPath(pathname);
+  const requestedDestinationIsVisible = Boolean(
+    requestedDestination && visibleDestinations.some(
+      (destination) => destination.id === requestedDestination.id,
+    ),
+  );
+  const fallbackDestination =
+    visibleDestinations.find((destination) => destination.id === defaultDestinationId) ??
+    visibleDestinations[0];
+  const activeDestination =
+    (requestedDestinationIsVisible ? requestedDestination : undefined) ??
+    fallbackDestination ??
+    findAdminDestinationById(defaultDestinationId)!;
+  const activeCategory =
+    visibleCategories.find((category) =>
+      category.destinations.some((destination) => destination.id === activeDestination.id),
+    ) ?? findAdminCategoryForDestination(activeDestination.id);
+  const activeTab = activeDestination.id;
+  const breadcrumbSearchParams = new URLSearchParams(searchParams.toString());
+  const breadcrumbHref = (destination: typeof activeDestination) =>
+    adminDestinationHref(destination,breadcrumbSearchParams,activeDestination.id);
+  const categoryBreadcrumbDestination =
+    activeCategory.destinations[0] ?? activeDestination;
+  const adminBreadcrumbDestination =
+    visibleDestinations[0] ?? categoryBreadcrumbDestination;
+  const subgroupBreadcrumbDestination = activeDestination.subgroup
+    ? activeCategory.destinations.find(
+        (destination) => destination.subgroup === activeDestination.subgroup,
+      )
+    : undefined;
+  const adminNavigationVersion = [
+    activeDestination.id,
+    searchParams.toString(),
+    visibleCategories
+      .map((category) =>
+        `${category.id}:${category.destinations.map((destination) => destination.id).join(",")}`,
+      )
+      .join("|"),
+  ].join(";");
 
   useEffect(() => {
     if (adminRoleLoading || adminTabGatesLoading) return;
     if (visibleCategories.length === 0) return;
-
-    const requestedTab = searchParams.get('tab');
-    const requestedCategory = searchParams.get('cat');
-    const requestedOpenFgaSubtab = searchParams.get('subtab') ?? searchParams.get('openfgaTab');
-    const shouldOpenOpenFgaDeepLink = isValidOpenFgaSubtab(requestedOpenFgaSubtab);
-    const movedDeepLinkTab = movedOpenFgaDeepLinkTab(requestedOpenFgaSubtab);
-    const movedTab = movedAdminTab(requestedTab);
-    const tabFromUrl = shouldOpenOpenFgaDeepLink
-      ? 'access-explorer'
-      : movedDeepLinkTab ?? movedTab ?? (isValidTab(requestedTab) ? requestedTab : null);
-    const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
-    const defaultCategory = categoryForTab(defaultTab);
-
-    if (
-      !requestedTab &&
-      !requestedCategory &&
-      userSelectedAdminTabRef.current &&
-      (activeTab !== defaultTab || activeCategory !== defaultCategory)
-    ) {
-      return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("cat");
+    params.delete("tab");
+    if (activeDestination.id !== 'access-explorer') {
+      params.delete('subtab');
+      params.delete('openfgaTab');
     }
-
-    let nextCategory: CategoryKey | undefined;
-    let nextTab: string | undefined;
-    const tabConfig = tabFromUrl
-      ? CATEGORIES.flatMap((category) => category.tabs).find((tab) => tab.value === tabFromUrl)
-      : undefined;
-
-    if (tabFromUrl && tabConfig && tabGateValues[tabConfig.gateKey]) {
-      nextTab = tabFromUrl;
-      nextCategory = categoryForTab(tabFromUrl);
-    } else {
-      const preferredCategory =
-        categoryFromUrl && visibleCategories.some((category) => category.key === categoryFromUrl)
-          ? categoryFromUrl
-          : defaultCategory;
-      const fallbackCategory = visibleCategories.some((category) => category.key === preferredCategory)
-        ? preferredCategory
-        : visibleCategories[0].key;
-      nextCategory = fallbackCategory;
-      nextTab = CATEGORIES.find((category) => category.key === fallbackCategory)?.tabs.find(
-        (tab) => tabGateValues[tab.gateKey]
-      )?.value;
-    }
-
-    if (!nextCategory || !nextTab) return;
-
-    if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
-    if (activeTab !== nextTab) setActiveTab(nextTab);
-
     const shouldSetDefaultStatsRange =
-      nextTab === 'stats' && searchParams.get('dateRange') === null;
+      activeDestination.id === 'stats' && params.get('dateRange') === null;
+    if (shouldSetDefaultStatsRange) {
+      params.set('dateRange', '30d');
+      params.delete('from');
+      params.delete('to');
+    }
+    const query = params.toString();
+    const canonicalUrl = query
+      ? `${activeDestination.href}?${query}`
+      : activeDestination.href;
     if (
-      requestedCategory !== nextCategory
-      || requestedTab !== nextTab
+      pathname !== activeDestination.href
       || shouldSetDefaultStatsRange
     ) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('cat', nextCategory);
-      params.set('tab', nextTab);
-      if (shouldSetDefaultStatsRange) {
-        params.set('dateRange', '30d');
-        params.delete('from');
-        params.delete('to');
-      }
-      if (nextTab !== 'access-explorer') {
-        params.delete('subtab');
-        params.delete('openfgaTab');
-      }
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      router.replace(canonicalUrl, { scroll: false });
     }
   }, [
-    activeCategory,
-    activeTab,
+    activeDestination,
     adminTabGatesLoading,
     adminRoleLoading,
-    defaultTab,
     pathname,
     router,
     searchParams,
-    tabGateValues,
     visibleCategories,
   ]);
 
@@ -857,7 +682,6 @@ function AdminPage() {
     } else {
       params.delete("simulate_relation");
     }
-    userSelectedAdminTabRef.current = false;
     setSimulationDialogOpen(false);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [pathname, router, searchParams, simulationId, simulationRelation, simulationType]);
@@ -867,7 +691,6 @@ function AdminPage() {
     params.delete("simulate_type");
     params.delete("simulate_id");
     params.delete("simulate_relation");
-    userSelectedAdminTabRef.current = false;
     setSimulationDialogOpen(false);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [pathname, router, searchParams]);
@@ -880,10 +703,8 @@ function AdminPage() {
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const requestedSource = searchParams.get('source');
-  const sourceFromUrl: 'all' | 'web' | 'slack' | 'report' | 'project' =
-    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'report' || requestedSource === 'project'
-      ? requestedSource
-      : 'all';
+  const sourceFromUrl: 'all' | 'web' | 'slack' | 'webex' | 'api' =
+    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'webex' || requestedSource === 'api' ? requestedSource : 'all';
   const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
   const requestedDatePreset = searchParams.get('dateRange');
   const requestedFrom = searchParams.get('from');
@@ -898,59 +719,43 @@ function AdminPage() {
     ? { from: requestedFrom as string, to: requestedTo as string }
     : presetToRange(datePresetFromUrl);
 
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'report' | 'project'>(
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'webex' | 'api'>(
     sourceFromUrl
   );
   const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
   const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
   const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
+  const [webexEnabled, setWebexEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/user/preferences", { method: "GET", credentials: "same-origin" })
+      .then((response) => response.json())
+      .then((json: { data?: { integrations?: { webex?: boolean } } }) => {
+        if (!cancelled) setWebexEnabled(json.data?.integrations?.webex === true);
+      })
+      .catch(() => {
+        if (!cancelled) setWebexEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
     const range = feedbackDateRangeForBucket(point.date);
     if (!range) return;
 
-    userSelectedAdminTabRef.current = true;
-    setActiveCategory('insights');
-    setActiveTab('feedback');
     setDatePreset('custom');
     setDateRange(range);
     const params = new URLSearchParams(searchParams.toString());
-    params.set('cat', 'insights');
-    params.set('tab', 'feedback');
+    params.delete('subtab');
+    params.delete('openfgaTab');
     params.set('dateRange', 'custom');
     params.set('from', range.from);
     params.set('to', range.to);
-    params.delete('subtab');
-    params.delete('openfgaTab');
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams]);
-
-  const selectAdminTab = useCallback((tab: string) => {
-    userSelectedAdminTabRef.current = true;
-    setActiveTab(tab);
-    setActiveCategory(categoryForTab(tab));
-
-    const resetStatsRange = tab === 'stats';
-    if (resetStatsRange) {
-      setDatePreset('30d');
-      setDateRange(presetToRange('30d'));
-    }
-    updateUrlFilters({
-      cat: categoryForTab(tab),
-      tab,
-      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
-      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-    });
-  }, [updateUrlFilters]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
-      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
-      if (firstVisible) selectAdminTab(firstVisible.value);
-    },
-    [selectAdminTab, tabGateValues],
-  );
+    pushWithNavigationProgress(router,`/admin/insights/feedback?${params.toString()}`);
+  }, [router,searchParams]);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -973,7 +778,6 @@ function AdminPage() {
   const feedbackSearchFromUrl = commaSeparatedFilter(searchParams.get('search'));
 
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
-  const [feedbackDetail, setFeedbackDetail] = useState<FeedbackDetail | null>(null);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>(
     feedbackRatingFromUrl
   );
@@ -982,32 +786,13 @@ function AdminPage() {
   const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(feedbackSearchFromUrl);
   const [feedbackUsers, setFeedbackUsers] = useState<string[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
-  // Tome attribution filters (Project / BHAG / Area) — populated from the
-  // response's tome_projects/tome_bhags/tome_areas option lists.
-  const feedbackProjectsFromUrl = commaSeparatedFilter(searchParams.get('project'));
-  const feedbackBhagsFromUrl = commaSeparatedFilter(searchParams.get('category'));
-  const feedbackAreasFromUrl = commaSeparatedFilter(searchParams.get('area'));
-  const [feedbackProjectFilter, setFeedbackProjectFilter] = useState<string[]>(feedbackProjectsFromUrl);
-  const [feedbackBhagFilter, setFeedbackBhagFilter] = useState<string[]>(feedbackBhagsFromUrl);
-  const [feedbackAreaFilter, setFeedbackAreaFilter] = useState<string[]>(feedbackAreasFromUrl);
-  type FeedbackSortField = 'created_at' | 'rating' | 'source' | 'project_slug';
-  const feedbackSortByFromUrl = (searchParams.get('sortBy') as FeedbackSortField) || 'created_at';
-  const feedbackSortDirFromUrl = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
-  const [feedbackSortBy, setFeedbackSortBy] = useState<FeedbackSortField>(feedbackSortByFromUrl);
-  const [feedbackSortDir, setFeedbackSortDir] = useState<'asc' | 'desc'>(feedbackSortDirFromUrl);
 
   // Sync feedback-only filters to URL
   const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
     const defaults: Record<string, string | null> = {
-      tab: activeTab,
       rating: feedbackFilter !== 'all' ? feedbackFilter : null,
       channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
       search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
-      project: feedbackProjectFilter.length > 0 ? feedbackProjectFilter.join(',') : null,
-      category: feedbackBhagFilter.length > 0 ? feedbackBhagFilter.join(',') : null,
-      area: feedbackAreaFilter.length > 0 ? feedbackAreaFilter.join(',') : null,
-      sortBy: feedbackSortBy !== 'created_at' ? feedbackSortBy : null,
-      sortDir: feedbackSortDir !== 'desc' ? feedbackSortDir : null,
     };
     updateUrlFilters({ ...defaults, ...overrides });
   };
@@ -1051,11 +836,6 @@ function AdminPage() {
     searchParams.get('statsChannels'),
     searchParams.get('statsAgents'),
     searchParams.get('statsIncludeBots'),
-    searchParams.get('project'),
-    searchParams.get('category'),
-    searchParams.get('area'),
-    searchParams.get('sortBy'),
-    searchParams.get('sortDir'),
   ].map((value) => value ?? '').join('\u0000');
   const [previousInsightsFilterUrlKey, setPreviousInsightsFilterUrlKey] = useState(insightsFilterUrlKey);
 
@@ -1071,11 +851,6 @@ function AdminPage() {
     setStatsChannelFilter(statsChannelsFromUrl);
     setStatsAgentFilter(statsAgentsFromUrl);
     setShowBotUsers(statsIncludeBotsFromUrl);
-    setFeedbackProjectFilter(feedbackProjectsFromUrl);
-    setFeedbackBhagFilter(feedbackBhagsFromUrl);
-    setFeedbackAreaFilter(feedbackAreasFromUrl);
-    setFeedbackSortBy(feedbackSortByFromUrl);
-    setFeedbackSortDir(feedbackSortDirFromUrl);
   }
 
   const updateStatsFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -1437,11 +1212,6 @@ function AdminPage() {
     users = userFilter,
     range = dateRange,
     availableTeams = teams,
-    projectFilter = feedbackProjectFilter,
-    categoryFilter = feedbackBhagFilter,
-    areaFilter = feedbackAreaFilter,
-    sortBy = feedbackSortBy,
-    sortDir = feedbackSortDir,
   ): string => {
     const params = new URLSearchParams({ page: String(page), limit: '50' });
     if (rating !== 'all') params.set('rating', rating);
@@ -1465,11 +1235,6 @@ function AdminPage() {
     if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
     if (range.from) params.set('from', range.from);
     if (range.to) params.set('to', range.to);
-    if (projectFilter.length > 0) params.set('project', projectFilter.join(','));
-    if (categoryFilter.length > 0) params.set('category',categoryFilter.join(','));
-    if (areaFilter.length > 0) params.set('area', areaFilter.join(','));
-    if (sortBy !== 'created_at') params.set('sortBy', sortBy);
-    if (sortDir !== 'desc') params.set('sortDir', sortDir);
 
     return withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget);
   };
@@ -1563,7 +1328,7 @@ function AdminPage() {
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
     page = 1,
-    source?: 'all' | 'web' | 'slack' | 'report' | 'project',
+    source?: 'all' | 'web' | 'slack' | 'webex' | 'api',
     channels?: string[],
     searchTags?: string[],
     users?: string[],
@@ -1578,38 +1343,23 @@ function AdminPage() {
       users ?? userFilter,
       range ?? dateRange,
       teams,
-      feedbackProjectFilter,
-      feedbackBhagFilter,
-      feedbackAreaFilter,
-      feedbackSortBy,
-      feedbackSortDir,
     ));
   };
 
   const feedbackFilterKey = useMemo(() => JSON.stringify({
-    area: feedbackAreaFilter,
-    category: feedbackBhagFilter,
     channels: feedbackChannelFilter,
     from: dateRange.from,
-    project: feedbackProjectFilter,
     rating: feedbackFilter,
     search: feedbackSearchTags,
-    sortBy: feedbackSortBy,
-    sortDir: feedbackSortDir,
     source: sourceFilter,
     to: dateRange.to,
     users: userFilter,
   }), [
     dateRange.from,
     dateRange.to,
-    feedbackAreaFilter,
-    feedbackBhagFilter,
     feedbackChannelFilter,
     feedbackFilter,
-    feedbackProjectFilter,
     feedbackSearchTags,
-    feedbackSortBy,
-    feedbackSortDir,
     sourceFilter,
     userFilter,
   ]);
@@ -1631,26 +1381,12 @@ function AdminPage() {
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
-  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'report' | 'project') => {
+  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'webex' | 'api') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
     updateFeedbackUrl({ channels: null });
   };
-
-  const handleFeedbackSortChange = (field: FeedbackSortField) => {
-    const nextDir: 'asc' | 'desc' =
-      feedbackSortBy === field && feedbackSortDir === 'desc' ? 'asc' : 'desc';
-    setFeedbackSortBy(field);
-    setFeedbackSortDir(nextDir);
-    updateFeedbackUrl({
-      sortBy: field !== 'created_at' ? field : null,
-      sortDir: nextDir !== 'desc' ? nextDir : null,
-    });
-  };
-
-  const feedbackSortIndicator = (field: FeedbackSortField): string =>
-    feedbackSortBy === field ? (feedbackSortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
 
   const handleDeleteTeam = async (team: Team) => {
@@ -1689,6 +1425,14 @@ function AdminPage() {
     setTeamDetailsOpen(true);
   };
 
+  if (adminRoleLoading || adminTabGatesLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <CAIPESpinner size="lg" message="Opening admin workspace..." />
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -1706,98 +1450,76 @@ function AdminPage() {
   }
 
   return (
-    <div className="flex-1 overflow-hidden">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Global Crawl Console dialog. Rendered at the page root so
           it survives admin tab switches; opens via the header pill
           or auto-opens when SkillHubsSection starts the first
           crawl of the session. */}
       <CrawlConsoleDialog />
-      <ScrollArea className="h-full">
-          <div className="p-6 space-y-4 max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <div className="flex min-w-0 flex-wrap items-baseline">
-                <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-                <span className="ml-1 text-sm text-muted-foreground">
-                  {isAdmin
-                    ? ', Manage access, teams, health, and platform settings'
-                    : ', View access, teams, health, and platform settings'}
-                </span>
-              </div>
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setSimulationDialogOpen(true)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    isSimulationActive
-                      ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                      : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  {isSimulationActive ? (
-                    <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
-                  ) : (
-                    'View as'
-                  )}
-                </button>
-              )}
-              {!isAdmin && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                  <Eye className="h-3.5 w-3.5" />
-                  Read-Only
-                </span>
-              )}
-              {/* Always-visible status pill that opens the
-                  Crawl Console dialog. Hidden until at least
-                  one crawl has happened in this session, so
-                  the header doesn't gain a permanent "0 crawls"
-                  chip on freshly-loaded pages. */}
-              <CrawlConsoleHeaderPill />
-            </div>
-
-            {/* Tabbed Content */}
-            <Tabs
-              className="space-y-4"
-              onValueChange={selectAdminTab}
-              value={activeTab}
-            >
-              {/* Category selector */}
-              <div
-                aria-label="Admin sections"
-                className="flex flex-wrap gap-1.5"
-                role="group"
-              >
-                {visibleCategories.map((cat) => {
-                  const Icon = cat.icon;
-                  const isActive = activeCategory === cat.key;
-                  return (
-                    <button
-                      key={cat.key}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => handleCategoryChange(cat.key)}
-                      className={`relative isolate inline-flex items-center gap-1.5 overflow-hidden rounded-full px-3 py-1.5 text-xs font-medium transition-[color,transform,background-color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] motion-reduce:transform-none ${
-                        isActive
-                          ? 'bg-transparent text-primary-foreground'
-                          : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                      }`}
-                    >
-                      {isActive && (
-                        <SlidingSelectorIndicator
-                          className="admin-category-active-pill"
-                          layoutId={categorySelectorLayoutId}
-                          variant="liquid"
-                        />
-                      )}
-                      <span className="relative z-10 inline-flex items-center gap-1.5">
-                        <Icon className="h-3.5 w-3.5" />
-                        {cat.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+      <WorkspaceShell
+        header={(
+          <WorkspacePageHeader
+            actions={(
+              <>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setSimulationDialogOpen(true)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      isSimulationActive
+                        ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    {isSimulationActive ? (
+                      <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
+                    ) : (
+                      'View as'
+                    )}
+                  </button>
+                )}
+                <CrawlConsoleHeaderPill />
+              </>
+            )}
+            breadcrumbs={[
+              { label: "Home",href: "/" },
+              {
+                label: "Admin",
+                href: breadcrumbHref(adminBreadcrumbDestination),
+              },
+              {
+                label: activeCategory.label,
+                href: breadcrumbHref(categoryBreadcrumbDestination),
+              },
+              ...(activeDestination.subgroup &&
+              activeDestination.subgroup !== activeCategory.label
+                ? [{
+                    label: activeDestination.subgroup,
+                    href: breadcrumbHref(subgroupBreadcrumbDestination ?? activeDestination),
+                  }]
+                : []),
+              {
+                label: activeDestination.label,
+                href: breadcrumbHref(activeDestination),
+              },
+            ]}
+            description={activeDestination.description}
+            title={activeDestination.label}
+            titleId="admin-section-title"
+          />
+        )}
+        navigation={visibleCategories.length > 0 ? (
+          <AdminNavigation
+            activeDestination={activeDestination}
+            categories={visibleCategories}
+            searchParams={new URLSearchParams(searchParams.toString())}
+          />
+        ) : null}
+        navigationAreaKey="admin"
+        navigationVersion={adminNavigationVersion}
+      >
+        <Tabs value={activeTab} className="space-y-4">
 
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
                 <DialogContent>
@@ -1815,7 +1537,7 @@ function AdminPage() {
                         <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-type">
                           Subject type
                         </label>
-                        <select
+                        <Select
                           id="simulate-type"
                           value={simulationType}
                           onChange={(event) => {
@@ -1830,14 +1552,14 @@ function AdminPage() {
                         >
                           <option value="team">Team</option>
                           <option value="user">User</option>
-                        </select>
+                        </Select>
                       </div>
                       {simulationType === "team" && (
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-relation">
                             Role / relation
                           </label>
-                          <select
+                          <Select
                             id="simulate-relation"
                             value={simulationRelation}
                             onChange={(event) => setSimulationRelation(event.target.value as "member" | "admin")}
@@ -1845,7 +1567,7 @@ function AdminPage() {
                           >
                             <option value="admin">Manager/Admin</option>
                             <option value="member">Reader/Member</option>
-                          </select>
+                          </Select>
                         </div>
                       )}
                     </div>
@@ -1940,46 +1662,49 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
-              {isSimulationActive && !adminTabGatesLoading && visibleCategories.length === 0 && (
+              {visibleCategories.length === 0 && (
                 <div
                   role="status"
                   className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
                 >
-                  <p className="font-medium">No Admin access is available to {simulationDisplayName}.</p>
+                  <p className="font-medium">
+                    {isSimulationActive
+                      ? `No Admin access is available to ${simulationDisplayName}.`
+                      : "No Admin access is available for this account."}
+                  </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     This account has no Admin areas or connected Slack/Webex resources available.
                   </p>
                 </div>
               )}
 
-              {/* Filtered sub-tabs for the active category */}
-              {visibleTabsForCategory.length > 0 && (
-                <TabsList
-                  className="flex w-full justify-start gap-0"
-                  indicatorScope={activeCategory}
-                >
-                  {visibleTabsForCategory.map((t) => {
-                    const Icon = t.icon;
-                    return (
-                      <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
-                        <Icon className="h-4 w-4" />
-                        {t.label}
-                      </TabsTrigger>
-                    );
-                  })}
-                </TabsList>
+              {tabGateValues.platform_settings && (
+                <TabsContent value="defaults" className="space-y-4">
+                  <PlatformDefaultsSettings readOnly={isSimulationActive} />
+                </TabsContent>
               )}
 
-              {tabGateValues.settings && (
-                <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
-                  <ReleaseNotesSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
+              {tabGateValues.platform_settings && (
+                <TabsContent value="announcements" className="space-y-4">
+                  <PlatformAnnouncementsSettings readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.platform_settings && (
+                <TabsContent value="navigation" className="space-y-4">
+                  <TopNavSettingsTab isAdmin={canMutateAdminData && !isSimulationActive} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.platform_settings && (
+                <TabsContent value="access-before-sign-in" className="space-y-4">
+                  <PlatformAccessSettings readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.platform_settings && (
+                <TabsContent value="ai-review" className="space-y-4">
+                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -1992,13 +1717,24 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.autonomous && (
+                <TabsContent value="autonomous" className="space-y-4">
+                  <AutonomousTeamAccessPanel />
+                </TabsContent>
+              )}
+
               {tabGateValues.mcp && (
                 <TabsContent value="mcp" className="space-y-4">
                   <MCPCatalogSettingsCard
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
-                  <AgentGatewayRepairCard
+                </TabsContent>
+              )}
+
+              {tabGateValues.rag && (
+                <TabsContent value="rag" className="space-y-4">
+                  <RagSettingsTab
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
@@ -2011,18 +1747,6 @@ function AdminPage() {
                     readOnly={isSimulationActive}
                     simulationTarget={simulationTarget}
                   />
-                </TabsContent>
-              )}
-
-              {tabGateValues.settings && (
-                <TabsContent value="navigation" className="space-y-4">
-                  <TopNavSettingsTab isAdmin={isAdmin} />
-                </TabsContent>
-              )}
-
-              {tabGateValues.ai_review && (
-                <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -2163,6 +1887,7 @@ function AdminPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
+                      const builtInHelp = builtInTeamHelpText(team.slug);
                       return (
                       <Card key={team._id} className={cn(team.status === 'archived' && "opacity-60")}>
                         <CardHeader>
@@ -2170,6 +1895,9 @@ function AdminPage() {
                             <div>
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <CardTitle className="text-lg min-w-0 break-words">{team.name}</CardTitle>
+                                {builtInHelp && (
+                                  <BuiltInResourceHint text={builtInHelp} />
+                                )}
                                 {team.status === 'archived' && <ArchivedBadge />}
                                 {(team.idp_source_types?.length ?? 0) > 0 && (
                                   <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
@@ -2337,17 +2065,15 @@ function AdminPage() {
                       ))}
                     </div>
                     <div className="h-5 w-px bg-border" />
-                    <select
+                    <Select
                       value={sourceFilter}
-                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'report' | 'project')}
+                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'webex' | 'api')}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
-                      <option value="project">Project</option>
                       <option value="slack">Slack</option>
-                      <option value="report">Report</option>
-                    </select>
+                    </Select>
                     {sourceFilter === 'slack' && feedbackChannels.length > 0 && (
                       <>
                         <div className="h-5 w-px bg-border" />
@@ -2375,57 +2101,6 @@ function AdminPage() {
                       placeholder="Search reasons..."
                       badgeLabel="filters"
                     />
-                    {feedbackData?.projects && feedbackData.projects.length > 0 && (
-                      <>
-                        <div className="h-5 w-px bg-border" />
-                        <MultiSelect
-                          options={feedbackData.projects.map((p) => p.title)}
-                          selected={feedbackProjectFilter}
-                          onChange={(selected) => {
-                            setFeedbackProjectFilter(selected);
-                            updateFeedbackUrl({ project: selected.length > 0 ? selected.join(',') : null });
-                          }}
-                          placeholder="All Projects"
-                          searchPlaceholder="Search projects..."
-                          emptyLabel="No projects found"
-                          badgeLabel="projects"
-                        />
-                      </>
-                    )}
-                    {feedbackData?.categories && feedbackData.categories.length > 0 && (
-                      <>
-                        <div className="h-5 w-px bg-border" />
-                        <MultiSelect
-                          options={feedbackData.categories}
-                          selected={feedbackBhagFilter}
-                          onChange={(selected) => {
-                            setFeedbackBhagFilter(selected);
-                            updateFeedbackUrl({ category:selected.length > 0 ? selected.join(',') : null });
-                          }}
-                          placeholder="All Categories"
-                          searchPlaceholder="Search categories..."
-                          emptyLabel="No categories found"
-                          badgeLabel="categories"
-                        />
-                      </>
-                    )}
-                    {feedbackData?.areas && feedbackData.areas.length > 0 && (
-                      <>
-                        <div className="h-5 w-px bg-border" />
-                        <MultiSelect
-                          options={feedbackData.areas}
-                          selected={feedbackAreaFilter}
-                          onChange={(selected) => {
-                            setFeedbackAreaFilter(selected);
-                            updateFeedbackUrl({ area: selected.length > 0 ? selected.join(',') : null });
-                          }}
-                          placeholder="All Areas"
-                          searchPlaceholder="Search areas..."
-                          emptyLabel="No areas found"
-                          badgeLabel="areas"
-                        />
-                      </>
-                    )}
                     {(feedbackUsers.length > 0 || teams.length > 0) && (
                       <>
                         <div className="h-5 w-px bg-border" />
@@ -2492,121 +2167,6 @@ function AdminPage() {
                   </div>
                 )}
 
-                {/* Category counts + word cloud — reflect the current filters */}
-                {feedbackData && (
-                  ((feedbackData.category_counts?.length ?? 0) > 0) ||
-                  ((feedbackData.word_cloud?.positive.length ?? 0) > 0) ||
-                  ((feedbackData.word_cloud?.negative.length ?? 0) > 0)
-                ) && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Feedback by category</CardTitle>
-                        <CardDescription className="text-xs">
-                          Positive vs negative counts per feedback category
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        {(feedbackData.category_counts ?? []).length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No categorized feedback yet.</p>
-                        ) : (
-                          (feedbackData.category_counts ?? []).slice(0, 10).map((cat) => {
-                            const maxTotal = Math.max(
-                              ...(feedbackData.category_counts ?? []).map((c) => c.total),
-                              1,
-                            );
-                            return (
-                              <div key={cat.category} className="space-y-0.5">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="truncate">{cat.category}</span>
-                                  <span className="text-muted-foreground shrink-0 ml-2">
-                                    {cat.positive} pos · {cat.negative} neg
-                                  </span>
-                                </div>
-                                <div className="flex h-1.5 w-full overflow-hidden rounded bg-muted">
-                                  <div
-                                    className="bg-green-500"
-                                    style={{ width: `${(cat.positive / maxTotal) * 100}%` }}
-                                  />
-                                  <div
-                                    className="bg-red-500"
-                                    style={{ width: `${(cat.negative / maxTotal) * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Feedback word cloud</CardTitle>
-                        <CardDescription className="text-xs">
-                          Frequent words from feedback comments (sized by frequency)
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {(feedbackData.word_cloud?.positive.length ?? 0) === 0 &&
-                        (feedbackData.word_cloud?.negative.length ?? 0) === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No comment text to build a word cloud yet.
-                          </p>
-                        ) : (
-                          <>
-                            {(feedbackData.word_cloud?.positive.length ?? 0) > 0 && (
-                              <div>
-                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                                  Positive
-                                </p>
-                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                  {feedbackData.word_cloud!.positive.map((w) => {
-                                    const maxCount = feedbackData.word_cloud!.positive[0]?.count || 1;
-                                    const size = 10 + Math.round((w.count / maxCount) * 10);
-                                    return (
-                                      <span
-                                        key={w.text}
-                                        className="text-green-600 dark:text-green-400"
-                                        style={{ fontSize: `${size}px`, fontWeight: size > 15 ? 600 : 400 }}
-                                        title={`${w.count} mention${w.count === 1 ? '' : 's'}`}
-                                      >
-                                        {w.text}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                            {(feedbackData.word_cloud?.negative.length ?? 0) > 0 && (
-                              <div>
-                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                                  Negative
-                                </p>
-                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                  {feedbackData.word_cloud!.negative.map((w) => {
-                                    const maxCount = feedbackData.word_cloud!.negative[0]?.count || 1;
-                                    const size = 10 + Math.round((w.count / maxCount) * 10);
-                                    return (
-                                      <span
-                                        key={w.text}
-                                        className="text-red-600 dark:text-red-400"
-                                        style={{ fontSize: `${size}px`, fontWeight: size > 15 ? 600 : 400 }}
-                                        title={`${w.count} mention${w.count === 1 ? '' : 's'}`}
-                                      >
-                                        {w.text}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-
                 {/* Feedback entries */}
                 {feedbackLoading ? (
                   <div className="flex justify-center py-8">
@@ -2616,91 +2176,23 @@ function AdminPage() {
                   <div className="space-y-2">
                     <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
                       <div>User</div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="text-left hover:text-foreground"
-                          onClick={() => handleFeedbackSortChange('source')}
-                        >
-                          Source{feedbackSortIndicator('source')}
-                        </button>
-                        {feedbackData?.projects && feedbackData.projects.length > 0 && (
-                          <button
-                            type="button"
-                            className="text-left hover:text-foreground"
-                            title="Sort by project"
-                            onClick={() => handleFeedbackSortChange('project_slug')}
-                          >
-                            · Project{feedbackSortIndicator('project_slug')}
-                          </button>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="text-left hover:text-foreground"
-                        onClick={() => handleFeedbackSortChange('rating')}
-                      >
-                        Rating{feedbackSortIndicator('rating')}
-                      </button>
+                      <div>Source</div>
+                      <div>Rating</div>
                       <div>Reason</div>
-                      <button
-                        type="button"
-                        className="text-left hover:text-foreground"
-                        onClick={() => handleFeedbackSortChange('created_at')}
-                      >
-                        Date{feedbackSortIndicator('created_at')}
-                      </button>
+                      <div>Date</div>
                       <div className="col-span-2">Link</div>
                     </div>
                     {feedbackData.entries.map((entry, i) => (
                       <div key={`${entry.message_id}-${i}`} className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
-                        <div className="truncate text-xs text-muted-foreground" title={entry.submitted_by}>{entry.submitted_by}</div>
+                        <div className="truncate text-xs text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(entry.submitted_by)}>{entry.submitted_by}</div>
                         <div>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                             entry.source === 'slack'
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                              : entry.source === 'report'
-                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                : entry.source === 'project' || entry.session_id
-                                  ? 'bg-teal-500/10 text-teal-700 dark:text-teal-400'
-                                  : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           }`}>
-                            {entry.source === 'slack'
-                              ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}`
-                              : entry.source === 'report'
-                                ? 'Report'
-                                : entry.source === 'project' || entry.session_id
-                                  ? 'Project'
-                                  : 'Web'}
+                            {entry.source === 'slack' ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}` : 'Web'}
                           </span>
-                          {(entry.source === 'project' || entry.session_id) && entry.project_name && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              <span
-                                className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-muted text-muted-foreground"
-                                title="Project"
-                              >
-                                {entry.project_name}
-                              </span>
-                              {(entry.categories || []).map((cat) => (
-                                <span
-                                  key={cat}
-                                  className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
-                                  title="Category / Initiative"
-                                >
-                                  {cat}
-                                </span>
-                              ))}
-                              {(entry.areas || []).map((area) => (
-                                <span
-                                  key={area}
-                                  className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-                                  title="Area"
-                                >
-                                  {area}
-                                </span>
-                              ))}
-                            </div>
-                          )}
                         </div>
                         <div>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
@@ -2732,31 +2224,8 @@ function AdminPage() {
                             ? new Date(entry.submitted_at).toLocaleDateString()
                             : '—'}
                         </div>
-                        <div className="col-span-2 flex flex-wrap items-center gap-2">
-                          {entry.ticket_url ? (
-                            <a
-                              href={entry.ticket_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                              title="View GitHub issue"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              GitHub issue
-                            </a>
-                          ) : null}
-                          {entry.context_url ? (
-                            <a
-                              href={entry.context_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
-                              title="View report context"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Context
-                            </a>
-                          ) : entry.slack_permalink ? (
+                        <div className="col-span-2">
+                          {entry.slack_permalink ? (
                             <a
                               href={entry.slack_permalink}
                               target="_blank"
@@ -2767,35 +2236,6 @@ function AdminPage() {
                               <ExternalLink className="h-3 w-3" />
                               Slack thread
                             </a>
-                          ) : entry.source === 'project' || entry.session_id ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              title="View feedback details"
-                              onClick={() =>
-                                setFeedbackDetail({
-                                  submitted_by: entry.submitted_by,
-                                  submitted_at: entry.submitted_at,
-                                  rating: entry.rating,
-                                  reason: entry.reason,
-                                  trace_id: entry.trace_id,
-                                  message_id: entry.message_id,
-                                  conversation_id: entry.conversation_id,
-                                  project_slug: entry.project_slug,
-                                  session_id: entry.session_id,
-                                  user_question: entry.user_question,
-                                  assistant_response: entry.assistant_response,
-                                  project_name: entry.project_name,
-                                  project_domain: entry.project_domain,
-                                  categories: entry.categories,
-                                  areas: entry.areas,
-                                })
-                              }
-                            >
-                              <Info className="h-3.5 w-3.5" />
-                            </Button>
                           ) : entry.conversation_id ? (
                             <a
                               href={`/chat/${entry.conversation_id}?from=feedback${entry.message_id ? `&message=${entry.message_id}` : ''}`}
@@ -2812,7 +2252,7 @@ function AdminPage() {
                                 : 'View chat'}
                             </a>
                           ) : (
-                            !entry.ticket_url && <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </div>
                       </div>
@@ -2850,10 +2290,6 @@ function AdminPage() {
                     </p>
                   </div>
                 )}
-                <FeedbackInfoDialog
-                  entry={feedbackDetail}
-                  onClose={() => setFeedbackDetail(null)}
-                />
               </TabsContent>}
 
               {/* Usage Statistics Tab */}
@@ -2861,10 +2297,10 @@ function AdminPage() {
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <select
+                    <Select
                       value={sourceFilter}
                       onChange={(e) => {
-                        const src = e.target.value as 'all' | 'web' | 'slack' | 'report' | 'project';
+                        const src = e.target.value as 'all' | 'web' | 'slack' | 'webex' | 'api';
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
@@ -2874,10 +2310,10 @@ function AdminPage() {
                     >
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
-                      <option value="project">Project</option>
                       <option value="slack">Slack</option>
-                      <option value="report">Report</option>
-                    </select>
+                      {webexEnabled ? <option value="webex">Webex</option> : null}
+                      <option value="api">API</option>
+                    </Select>
                     {sourceFilter === 'slack' && statsChannels.length > 0 && (
                       <MultiSelect
                         options={statsChannels}
@@ -3580,6 +3016,24 @@ function AdminPage() {
                       rangeLabel={rangeLabel}
                       slack={stats.slack}
                     />
+
+                    {/* ─── Webex Section ─── */}
+                    {webexEnabled && (
+                      <WebexStatsSection
+                        error={statsSectionStatuses.webex.error}
+                        loading={statsSectionStatuses.webex.loading}
+                        rangeLabel={rangeLabel}
+                        webex={stats.webex}
+                      />
+                    )}
+
+                    {/* ─── API Section ─── */}
+                    <ApiStatsSection
+                      api={stats.api}
+                      error={statsSectionStatuses.api.error}
+                      loading={statsSectionStatuses.api.loading}
+                      rangeLabel={rangeLabel}
+                    />
                   </div>
 
                 {/* ─── Skills Section ─── */}
@@ -3730,6 +3184,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.approvals && (
+                <TabsContent value="approvals" className="space-y-4">
+                  <PublicationApprovalQueue readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
                   <AccessExplorerTab isAdmin={canMutateAdminData} />
@@ -3754,9 +3214,8 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-            </Tabs>
-          </div>
-        </ScrollArea>
+        </Tabs>
+      </WorkspaceShell>
 
       {/* Create Team Dialog */}
       <CreateTeamDialog
@@ -3772,6 +3231,7 @@ function AdminPage() {
         team={selectedTeam}
         mode={teamDialogMode}
         open={teamDetailsOpen}
+        canManageOrganization={canMutateAdminData}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={() => refreshAfterTeamMutation()}
         onTeamMutated={(updatedTeam) => {

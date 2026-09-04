@@ -197,7 +197,9 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
         </p>
         {isEditing && allowTransfer && onTransfer && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            Changing this team transfers management when you save.
+            Changing the owner team will transfer ownership when you save. If
+            you are not a member of the destination team, saving may remove your
+            own access.
           </p>
         )}
         {creatorSubject && (

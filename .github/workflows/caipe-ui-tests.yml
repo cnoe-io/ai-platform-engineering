@@ -50,6 +50,10 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      - name: Test External App examples
+        working-directory: ui
+        run: npm run test:external-app-examples
+
       - name: Run Jest tests
         id: jest
         working-directory: ui
@@ -336,6 +340,10 @@ jobs:
         working-directory: ui
         env:
           WORKFLOWS_ENABLED: 'true'
+          # The mocked Settings regression opens the authenticated user menu.
+          # This public setting is compiled into the client bundle, so set it
+          # while building as well as when serving the app below.
+          NEXT_PUBLIC_SSO_ENABLED: 'true'
           TOME_ENABLED: 'true'
           PRIVATE_RESOURCES_ENABLED: 'true'
           # The specs mock every API, so no real database is contacted. But the
@@ -351,6 +359,7 @@ jobs:
         working-directory: ui
         env:
           WORKFLOWS_ENABLED: 'true'
+          NEXT_PUBLIC_SSO_ENABLED: 'true'
           TOME_ENABLED: 'true'
           PRIVATE_RESOURCES_ENABLED: 'true'
           MONGODB_URI: 'mongodb://mock:27017'

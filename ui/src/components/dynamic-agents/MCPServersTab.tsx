@@ -2,7 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
+import { Card,CardContent } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -43,7 +44,6 @@ import { RemoteMCPCatalogDialog, type RemoteMCPTemplate } from "./RemoteMCPCatal
 // assisted-by Codex Codex-sonnet-4-6
 export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
 const MCP_SERVERS_LIST_URL = "/api/mcp-servers?page_size=100";
-
 type McpServerSortField = "name" | "transport" | "endpoint" | "status";
 type SortDirection = "asc" | "desc";
 
@@ -51,6 +51,10 @@ const DEFAULT_ROW_PERMISSIONS = {
   can_manage: false,
   can_invoke: false,
   can_discover: false,
+} as const;
+
+const DEFAULT_LIST_CAPABILITIES = {
+  repair_agentgateway: false,
 } as const;
 
 interface ProbeResult {
@@ -61,6 +65,14 @@ interface ProbeResult {
 }
 
 type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled";
+
+interface AgentGatewayMigrationWarning {
+  id: string;
+  endpoint: string;
+  target_endpoint?: string;
+  existing_endpoint?: string;
+  message: string;
+}
 
 interface FetchServersOptions {
   showLoading?: boolean;
@@ -196,6 +208,7 @@ export function MCPServersTab({
   onSelectedServerChange,
 }: MCPServersTabProps = {}) {
   const [servers, setServers] = React.useState<MCPServerConfigWithPermissions[]>([]);
+  const [listCapabilities, setListCapabilities] = React.useState(DEFAULT_LIST_CAPABILITIES);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingServer, setEditingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
@@ -207,6 +220,12 @@ export function MCPServersTab({
   const [showCatalog, setShowCatalog] = React.useState(false);
   const [catalogInitialValues, setCatalogInitialValues] = React.useState<MCPServerInitialValues | null>(null);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
+  const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
+    AgentGatewayMigrationWarning[]
+  >([]);
+  const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
+  const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
+  const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
   const [testingServer, setTestingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
   const [pendingDeleteServerId, setPendingDeleteServerId] = React.useState<string | null>(null);
   const [deletingServerId, setDeletingServerId] = React.useState<string | null>(null);
@@ -238,6 +257,7 @@ export function MCPServersTab({
             permissions: server.permissions ?? DEFAULT_ROW_PERMISSIONS,
           })),
         );
+        setListCapabilities(data.data.capabilities ?? DEFAULT_LIST_CAPABILITIES);
         setError(null);
       } else {
         if (!preserveListOnError) {
@@ -372,11 +392,7 @@ export function MCPServersTab({
         >
           <span>{label}</span>
           {active ? (
-            sortOrder === "asc" ? (
-              <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : (
-              <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-            )
+            sortOrder === "asc" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
           ) : (
             <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
           )}
@@ -495,6 +511,38 @@ export function MCPServersTab({
           error: errorMessage(err, "Probe failed"),
         },
       }));
+    }
+  };
+
+  const handleSyncAgentGateway = async () => {
+    setAgentGatewaySyncing(true);
+    setAgentGatewayError(null);
+    setAgentGatewayMessage(null);
+    setAgentGatewayMigrationWarnings([]);
+    try {
+      const response = await fetch("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
+      }
+      const addedCount = data.data.added?.length || 0;
+      const migratedCount = data.data.migrated?.length || 0;
+      const refreshedCount = data.data.refreshed?.length || 0;
+      setAgentGatewayMessage(
+        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
+          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
+        } from AgentGateway.`,
+      );
+      setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
+      await fetchServers();
+    } catch (err: unknown) {
+      setAgentGatewayError(errorMessage(err, "Failed to sync AgentGateway MCP servers"));
+    } finally {
+      setAgentGatewaySyncing(false);
     }
   };
 
@@ -633,16 +681,24 @@ export function MCPServersTab({
         onSelect={handleCatalogSelect}
         onSelectCustom={() => setIsCreating(true)}
       />
-    <Card>
-      <CardHeader>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-          <div className="min-w-0 space-y-1">
-            <CardTitle>MCP Servers</CardTitle>
-            <CardDescription className="max-w-3xl leading-relaxed">
-              Configure Streamable HTTP MCP servers. AgentGateway authorizes every tool call before forwarding it upstream.
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-self-end">
+      <WorkspacePageActions>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+            {listCapabilities.repair_agentgateway && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncAgentGateway}
+                disabled={agentGatewaySyncing}
+                title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
+              >
+                {agentGatewaySyncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Globe className="h-4 w-4 mr-2" />
+                )}
+                Repair AgentGateway
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -651,10 +707,60 @@ export function MCPServersTab({
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
-          </div>
         </div>
-      </CardHeader>
-      <CardContent>
+      </WorkspacePageActions>
+      <Card className="rounded-none border-0 bg-transparent shadow-none">
+        <CardContent className="px-0 pt-0">
+        {agentGatewayError && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-destructive">{agentGatewayError}</p>
+          </div>
+        )}
+
+        {agentGatewayMessage && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-green-500/10 border border-green-500/30 p-3">
+            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-green-700 dark:text-green-400">{agentGatewayMessage}</p>
+          </div>
+        )}
+
+        {agentGatewayMigrationWarnings.length > 0 && (
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    {agentGatewayMigrationWarnings.length} legacy MCP server
+                    {agentGatewayMigrationWarnings.length === 1 ? "" : "s"} conflict
+                    {agentGatewayMigrationWarnings.length === 1 ? "s" : ""} with AgentGateway targets.
+                  </h3>
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
+                    Remove or rename the legacy MCP server to let AgentGateway manage it. Use the row actions below to
+                    delete the legacy entry after you confirm it is no longer needed.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {agentGatewayMigrationWarnings.map((warning) => (
+                    <div key={warning.id} className="rounded-md border border-amber-500/20 bg-background/70 p-3">
+                      <div className="font-mono text-xs font-semibold">{warning.id}</div>
+                      {warning.existing_endpoint && (
+                        <p className="text-xs text-muted-foreground">
+                          Current: {warning.existing_endpoint}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        AgentGateway: {warning.target_endpoint || warning.endpoint}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -695,7 +801,12 @@ export function MCPServersTab({
               const rowActionError = rowActionErrors[server._id];
               const toolHealth = toolHealthStatus(server, probe);
               return (
-                <div key={server._id} className="space-y-2">
+                <div
+                  aria-label={`MCP server ${server.name}`}
+                  className="space-y-2"
+                  key={server._id}
+                  role="group"
+                >
                   <div
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"
@@ -968,7 +1079,7 @@ export function MCPServersTab({
             })}
           </div>
         )}
-      </CardContent>
+        </CardContent>
       <MCPToolTestDialog
         server={testingServer}
         open={Boolean(testingServer)}
@@ -976,7 +1087,7 @@ export function MCPServersTab({
           if (!open) setTestingServer(null);
         }}
       />
-    </Card>
+      </Card>
     </>
   );
 }

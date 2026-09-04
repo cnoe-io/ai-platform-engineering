@@ -1,50 +1,72 @@
 "use client";
 
 import { getErrorMessage } from "@/lib/error-utils";
+import { getConfig } from "@/lib/config";
 import type { Extension } from "@codemirror/state";
 
 import {
-AiReviewButton,
-AiReviewPanel,
-buildBlockingMessage,
-buildLastReview,
-useAiReview,
+  AiReviewButton,
+  AiReviewPanel,
+  buildBlockingMessage,
+  buildLastReview,
+  useAiReview,
 } from "@/components/ai-review";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModelPicker } from "@/components/ui/model-picker";
 import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
-import { getConfig } from "@/lib/config";
 import { gradientThemes } from "@/lib/gradient-themes";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type {
-AgentUIConfig,
-BuiltinToolsConfig,
-CustomThemeConfig,
-DynamicAgentConfig,
-DynamicAgentConfigCreate,
-DynamicAgentConfigUpdate,
-FeaturesConfig,
-InterruptOn,
-SubAgentRef,
-VisibilityType,
+  AgentUIConfig,
+  BuiltinToolsConfig,
+  CustomThemeConfig,
+  DynamicAgentConfig,
+  DynamicAgentConfigCreate,
+  DynamicAgentConfigUpdate,
+  FeaturesConfig,
+  InterruptOn,
+  SubAgentRef,
+  VisibilityType,
 } from "@/types/dynamic-agent";
-import { AnimatePresence,motion } from "framer-motion";
-import { AlertCircle,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Lock,Pencil,Sparkles,Users } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Globe,
+  GripHorizontal,
+  Loader2,
+  Lock,
+  Pencil,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { DatasourcePicker } from "./DatasourcePicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SkillsSelector } from "./SkillsSelector";
@@ -65,7 +87,6 @@ interface DynamicAgentEditorProps {
   onSave: () => void;
   onCancel: () => void;
 }
-
 /**
  * Generate a URL-safe slug from an agent name with agent- prefix.
  * e.g., "Knowledge Agent" -> "agent-knowledge-agent"
@@ -75,13 +96,32 @@ function generateSlug(name: string): string {
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-    .replace(/\s+/g, "-")          // Replace spaces with hyphens
-    .replace(/-+/g, "-")           // Collapse multiple hyphens
-    .replace(/^-|-$/g, "");        // Trim leading/trailing hyphens
+    .replace(/\s+/g, "-") // Replace spaces with hyphens
+    .replace(/-+/g, "-") // Collapse multiple hyphens
+    .replace(/^-|-$/g, ""); // Trim leading/trailing hyphens
   return slug ? `agent-${slug}` : "";
 }
 
-const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
+function hasRagToolAccess(
+  allowedTools: Record<string, string[] | boolean>,
+): boolean {
+  const selection = allowedTools["knowledge-base"];
+  return selection !== undefined && selection !== false;
+}
+
+function normalizeKnowledgeIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && Boolean(item.trim()),
+  );
+}
+
+const VISIBILITY_OPTIONS: {
+  value: VisibilityType;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+}[] = [
   {
     value: "private",
     label: "Private",
@@ -113,91 +153,75 @@ interface TeamOption {
 
 // Step definitions for the wizard
 const STEPS = [
-  { 
-    id: "basic" as const, 
-    label: "Basic Info", 
-    hint: "Define your agent's identity and access level" 
+  {
+    id: "basic" as const,
+    label: "Basic Info",
+    hint: "Define your agent's identity and access level",
   },
-  { 
-    id: "instructions" as const, 
-    label: "Instructions", 
-    hint: "Configure how your agent behaves" 
+  {
+    id: "instructions" as const,
+    label: "Instructions",
+    hint: "Configure how your agent behaves",
   },
-  { 
-    id: "tools" as const, 
-    label: "Tools", 
-    hint: "Select which tools your agent can use" 
+  {
+    id: "tools" as const,
+    label: "Tools",
+    hint: "Select which tools your agent can use",
   },
-  { 
-    id: "skills" as const, 
-    label: "Skills", 
-    hint: "Attach skills that guide your agent's behavior (optional)" 
+  {
+    id: "knowledge" as const,
+    label: "Knowledge",
+    hint: "Choose the collections and datasources this agent can search",
   },
-  { 
-    id: "advanced" as const, 
-    label: "Advanced", 
-    hint: "Subagents, approval rules, and middleware" 
+  {
+    id: "skills" as const,
+    label: "Skills",
+    hint: "Attach skills that guide your agent's behavior (optional)",
+  },
+  {
+    id: "advanced" as const,
+    label: "Advanced",
+    hint: "Subagents, approval rules, and middleware",
   },
 ];
 
 type StepId = AgentSetupStep;
 
-type BlockerField =
-  | "name"
-  | "modelAvailability"
-  | "model"
-  | "ownerTeam"
-  | "systemPrompt";
-
-interface FormBlocker {
-  field: BlockerField;
-  message: string;
-  step: StepId;
-}
-
-const BLOCKER_FOCUS_TARGETS: Record<BlockerField, string> = {
-  name: "name",
-  modelAvailability: "model-validation-target",
-  model: "modelId",
-  ownerTeam: "ownerTeam",
-  systemPrompt: "system-prompt-validation-target",
-};
-
 /**
  * Horizontal step indicator component
  */
-function StepIndicator({ 
-  steps, 
-  currentStep, 
-  onStepClick 
-}: { 
-  steps: typeof STEPS; 
-  currentStep: StepId; 
+function StepIndicator({
+  steps,
+  currentStep,
+  onStepClick,
+}: {
+  steps: typeof STEPS;
+  currentStep: StepId;
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
     <div className="flex items-center gap-0 ml-auto">
       {steps.map((step, index) => (
         <React.Fragment key={step.id}>
-          {index > 0 && (
-            <div className="w-5 h-0.5 bg-border mx-0.5" />
-          )}
+          {index > 0 && <div className="w-5 h-0.5 bg-border mx-0.5" />}
           <button
             type="button"
             onClick={() => onStepClick(step.id)}
             className={cn(
               "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
-              currentStep === step.id 
-                ? "bg-primary/10 text-primary" 
-                : "hover:bg-muted text-muted-foreground"
+              currentStep === step.id
+                ? "bg-primary/10 text-primary"
+                : "hover:bg-muted text-muted-foreground",
             )}
           >
-            <div className={cn(
-              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
-              currentStep === step.id 
-                ? "bg-primary text-primary-foreground" 
-                : "bg-muted"
-            )}>
+            <div
+              className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
+                currentStep === step.id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted",
+              )}
+            >
               {index + 1}
             </div>
             <span className="text-xs font-medium">{step.label}</span>
@@ -243,14 +267,12 @@ function CollapsibleSection({
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
         {badge && (
-          <span className="text-xs text-muted-foreground font-medium">{badge}</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            {badge}
+          </span>
         )}
       </button>
-      {expanded && (
-        <div className="px-4 pb-4 pt-1">
-          {children}
-        </div>
-      )}
+      {expanded && <div className="px-4 pb-4 pt-1">{children}</div>}
     </div>
   );
 }
@@ -290,9 +312,9 @@ function AdvancedStep({
   visibility: VisibilityType;
 }) {
   const interruptRuleCount = Object.values(interruptOn).reduce(
-    (sum, tools) => sum + Object.keys(tools).length, 0
+    (sum, tools) => sum + Object.keys(tools).length,
+    0,
   );
-  const middlewareCount = features?.middleware?.length ?? 0;
   const workflowCount = builtinTools?.workflows?.length ?? 0;
 
   return (
@@ -304,7 +326,9 @@ function AdvancedStep({
         defaultExpanded={false}
       >
         <p className="text-xs text-muted-foreground mb-2">
-          <span className="font-medium">Note:</span> Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+          <span className="font-medium">Note:</span> Subagents cannot be nested.
+          The agents you add here will not have access to their own subagents
+          when invoked.
         </p>
         <SubagentPicker
           agentId={agent?._id || null}
@@ -333,7 +357,6 @@ function AdvancedStep({
       <CollapsibleSection
         title="Middleware"
         description="Retries, limits, and preprocessing"
-        badge={`${middlewareCount} middleware${middlewareCount !== 1 ? "s" : ""}`}
       >
         <MiddlewarePicker
           value={features}
@@ -379,30 +402,37 @@ export function DynamicAgentEditor({
   const isCloning = !!cloneFrom;
   const privateResourcesEnabled = getConfig("privateResourcesEnabled");
   const { toast } = useToast();
-  
+
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
 
   // Form state - when cloning, append " (New)" to name
   const [name, setName] = React.useState(
-    isCloning && source ? `${source.name} (New)` : (source?.name || "")
+    isCloning && source ? `${source.name} (New)` : source?.name || "",
   );
-  const [description, setDescription] = React.useState(source?.description || "");
-  const [systemPrompt, setSystemPrompt] = React.useState(source?.system_prompt || "");
+  const [description, setDescription] = React.useState(
+    source?.description || "",
+  );
+  const [systemPrompt, setSystemPrompt] = React.useState(
+    source?.system_prompt || "",
+  );
   const [visibility, setVisibility] = React.useState<VisibilityType>(() => {
-    const raw = source?.visibility;
+    const raw = source?.visibility as VisibilityType | "private" | undefined;
     if (raw === "private" || raw === "team" || raw === "global") return raw;
     return "team";
   });
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
-    source?.shared_with_teams || []
+    source?.shared_with_teams || [],
   );
-  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(
+    source?.owner_team_slug || "",
+  );
   // Ownership transfer (spec 2026-06-03, US3). On edit, changing the owner
   // picker marks a pending transfer so the PUT can send owner_team_slug +
   // confirm_not_member.
   const [transferRequested, setTransferRequested] = React.useState(false);
-  const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
+  const [transferConfirmedNotMember, setTransferConfirmedNotMember] =
+    React.useState(false);
   // When the server rejects a transfer with TRANSFER_NOT_MEMBER_UNCONFIRMED
   // (the caller is not a member of the destination team per OpenFGA, even
   // though the client-side picker showed it — e.g. an org admin who is not a
@@ -410,38 +440,52 @@ export function DynamicAgentEditor({
   // instead of a dead-end error so the user can explicitly proceed.
   const [transferNeedsServerConfirm, setTransferNeedsServerConfirm] =
     React.useState(false);
-  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
-    source?.allowed_tools || {}
-  );
-  const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(
-    source?.builtin_tools
-  );
+  const [allowedTools, setAllowedTools] = React.useState<
+    Record<string, string[] | boolean>
+  >(source?.allowed_tools || {});
+  const [builtinTools, setBuiltinTools] = React.useState<
+    BuiltinToolsConfig | undefined
+  >(source?.builtin_tools);
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
-    source?.subagents || []
+    source?.subagents || [],
   );
-  const [skills, setSkills] = React.useState<string[]>(
-    source?.skills || []
+  const [skills, setSkills] = React.useState<string[]>(source?.skills || []);
+  const [datasourceIds, setDatasourceIds] = React.useState<string[]>(() =>
+    normalizeKnowledgeIds(source?.datasource_ids),
+  );
+  const [ragCollectionIds, setRagCollectionIds] = React.useState<string[]>(() =>
+    normalizeKnowledgeIds(source?.rag_collection_ids),
   );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
-    source?.features
+    source?.features,
   );
   const [interruptOn, setInterruptOn] = React.useState<InterruptOn>(
-    source?.interrupt_on || { builtin: { request_user_input: true } }
+    source?.interrupt_on || { builtin: { request_user_input: true } },
   );
   const [modelId, setModelId] = React.useState(source?.model?.id || "");
-  const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
+  const [modelProvider, setModelProvider] = React.useState(
+    source?.model?.provider || "",
+  );
   const [gradientTheme, setGradientTheme] = React.useState<string>(
-    source?.ui?.gradient_theme || "default"
+    source?.ui?.gradient_theme || "default",
   );
-  const [customThemeConfig, setCustomThemeConfig] = React.useState<CustomThemeConfig>(
-    source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
-  );
+  const [customThemeConfig, setCustomThemeConfig] =
+    React.useState<CustomThemeConfig>(
+      source?.ui?.custom_theme_config || {
+        gradient_from: "#6366f1",
+        gradient_to: "#1e1b4b",
+        accent_color: "#ffffff",
+      },
+    );
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
-  const hasRequestUserInputInterrupt = !!interruptOn?.builtin?.request_user_input;
+  const hasRequestUserInputInterrupt =
+    !!interruptOn?.builtin?.request_user_input;
   React.useEffect(() => {
-    const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
+    const cfg = (
+      builtinTools as Record<string, { enabled?: boolean } | undefined>
+    )?.["request_user_input"];
     const isEnabled = !!(cfg && cfg.enabled);
     const hasRule = hasRequestUserInputInterrupt;
 
@@ -476,34 +520,35 @@ export function DynamicAgentEditor({
   const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
     null,
   );
-  const [validationTarget, setValidationTarget] = React.useState<
-    (FormBlocker & { attempt: number }) | null
-  >(null);
-  const [nextBuzzCount, setNextBuzzCount] = React.useState(0);
   const [, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
-  const [availableTeams, setAvailableTeams] = React.useState<
-    TeamOption[]
-  >([]);
-  const [teamDefaultsApplied, setTeamDefaultsApplied] = React.useState(
-    Boolean(source?.owner_team_slug),
-  );
+  const [availableTeams, setAvailableTeams] = React.useState<TeamOption[]>([]);
 
   // AI suggestion state
-  const [generatingField, setGeneratingField] = React.useState<string | null>(null);
+  const [generatingField, setGeneratingField] = React.useState<string | null>(
+    null,
+  );
   const [promptTab, setPromptTab] = React.useState<"edit" | "preview">("edit");
   const [editorHeight, setEditorHeight] = React.useState(480);
-  const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null);
-  const [showSuggestPromptInput, setShowSuggestPromptInput] = React.useState(false);
-  const [suggestPromptInstruction, setSuggestPromptInstruction] = React.useState("");
-  const [showSuggestBasicInput, setShowSuggestBasicInput] = React.useState(false);
-  const [suggestBasicInstruction, setSuggestBasicInstruction] = React.useState("");
+  const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(
+    null,
+  );
+  const [showSuggestPromptInput, setShowSuggestPromptInput] =
+    React.useState(false);
+  const [suggestPromptInstruction, setSuggestPromptInstruction] =
+    React.useState("");
+  const [showSuggestBasicInput, setShowSuggestBasicInput] =
+    React.useState(false);
+  const [suggestBasicInstruction, setSuggestBasicInstruction] =
+    React.useState("");
   const [enhanceExisting, setEnhanceExisting] = React.useState(false);
   const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
-  const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
+  const [promptStyle, setPromptStyle] = React.useState<
+    "concise" | "comprehensive"
+  >("concise");
 
   // AI Review hook for the system prompt (Instructions step). The hook is a no-op
   // when `/api/review-configs/agent-system-prompt` is not configured / disabled —
@@ -527,30 +572,39 @@ export function DynamicAgentEditor({
   }, [review.isPassed]);
 
   // Editor resize drag handlers
-  const handleDragStart = React.useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragRef.current = { startY: e.clientY, startHeight: editorHeight };
+  const handleDragStart = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragRef.current = { startY: e.clientY, startHeight: editorHeight };
 
-    const handleDragMove = (ev: MouseEvent) => {
-      if (!dragRef.current) return;
-      const delta = ev.clientY - dragRef.current.startY;
-      const newHeight = Math.max(200, Math.min(window.innerHeight * 0.85, dragRef.current.startHeight + delta));
-      setEditorHeight(newHeight);
-    };
+      const handleDragMove = (ev: MouseEvent) => {
+        if (!dragRef.current) return;
+        const delta = ev.clientY - dragRef.current.startY;
+        const newHeight = Math.max(
+          200,
+          Math.min(
+            window.innerHeight * 0.85,
+            dragRef.current.startHeight + delta,
+          ),
+        );
+        setEditorHeight(newHeight);
+      };
 
-    const handleDragEnd = () => {
-      dragRef.current = null;
-      document.removeEventListener("mousemove", handleDragMove);
-      document.removeEventListener("mouseup", handleDragEnd);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
+      const handleDragEnd = () => {
+        dragRef.current = null;
+        document.removeEventListener("mousemove", handleDragMove);
+        document.removeEventListener("mouseup", handleDragEnd);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
 
-    document.addEventListener("mousemove", handleDragMove);
-    document.addEventListener("mouseup", handleDragEnd);
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-  }, [editorHeight]);
+      document.addEventListener("mousemove", handleDragMove);
+      document.addEventListener("mouseup", handleDragEnd);
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [editorHeight],
+  );
 
   // CodeMirror extensions for markdown syntax highlighting
   const [cmExtensions, setCmExtensions] = React.useState<Extension[]>([]);
@@ -572,7 +626,9 @@ export function DynamicAgentEditor({
         ]);
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ID generation and validation
@@ -595,8 +651,14 @@ export function DynamicAgentEditor({
         const response = await fetch("/api/dynamic-agents");
         const data = await response.json();
         // API returns paginated response: {success, data: {items: [...], ...}}
-        if (data.success && data.data?.items && Array.isArray(data.data.items)) {
-          const ids = new Set<string>(data.data.items.map((a: DynamicAgentConfig) => a._id));
+        if (
+          data.success &&
+          data.data?.items &&
+          Array.isArray(data.data.items)
+        ) {
+          const ids = new Set<string>(
+            data.data.items.map((a: DynamicAgentConfig) => a._id),
+          );
           setExistingIds(ids);
         }
       } catch (err) {
@@ -615,20 +677,23 @@ export function DynamicAgentEditor({
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
-          
+
           if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
-              (m: { model_id: string; provider: string }) => 
-                m.model_id === source.model.id && m.provider === source.model.provider
+              (m: { model_id: string; provider: string }) =>
+                m.model_id === source.model.id &&
+                m.provider === source.model.provider,
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
               setModelProvider(existingModel.provider);
             } else {
               // Model no longer available - reset to first available
-              console.warn(`Agent model "${source.model.id}" no longer available, resetting to default`);
+              console.warn(
+                `Agent model "${source.model.id}" no longer available, resetting to default`,
+              );
               if (data.data.length > 0) {
                 setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
@@ -651,7 +716,7 @@ export function DynamicAgentEditor({
       }
     }
     fetchModels();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount - agent prop is stable
 
   // Fetch available teams for team visibility sharing
@@ -662,29 +727,13 @@ export function DynamicAgentEditor({
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableTeams(data.data);
-          // Prefer the deployment-wide catchall team for new agents. The
-          // endpoint already limits non-admin users to their own teams, and we
-          // additionally require the returned team to be owner-eligible. A
-          // user's existing choice (or a cloned agent's owner) always wins.
-          const defaultSlug = getConfig("defaultTeamSlug");
-          const defaultTeam = data.data.find(
-            (team: TeamOption) =>
-              team.slug === defaultSlug && team.can_own_agents !== false,
-          );
-          if (!isEditing && defaultTeam?.slug) {
-            setOwnerTeamSlug((current) => current || defaultTeam.slug || "");
-          }
         }
       } catch (err) {
         console.error("Failed to fetch teams:", err);
-      } finally {
-        // Like the model default, the owner-team default is initial form
-        // state—not a user edit. Re-key dirty tracking after it settles.
-        setTeamDefaultsApplied(true);
       }
     }
     fetchTeams();
-  }, [isEditing]);
+  }, []);
 
   // When editing an existing agent, find out if it is the platform default.
   // If it is, lock the visibility selector so the admin can't accidentally
@@ -722,10 +771,13 @@ export function DynamicAgentEditor({
     setActiveStep(initialStep);
   }, [initialStep]);
 
-  const selectStep = React.useCallback((step: StepId) => {
-    setActiveStep(step);
-    onStepChange?.(step);
-  }, [onStepChange]);
+  const selectStep = React.useCallback(
+    (step: StepId) => {
+      setActiveStep(step);
+      onStepChange?.(step);
+    },
+    [onStepChange],
+  );
 
   // Local state for the in-app "you have unsaved changes" confirmation when the
   // user clicks the back arrow. We don't route this through the global store's
@@ -738,7 +790,7 @@ export function DynamicAgentEditor({
   // ensures the dirty-tracking snapshot is taken AFTER defaults are applied,
   // preventing a false "dirty" right after model defaults populate.
   const [modelDefaultsApplied, setModelDefaultsApplied] = React.useState(
-    !!source?.model?.id
+    !!source?.model?.id,
   );
 
   // Aggregate all editable form fields into a single object so the
@@ -755,6 +807,8 @@ export function DynamicAgentEditor({
       builtinTools,
       subagents,
       skills,
+      datasourceIds,
+      ragCollectionIds,
       features,
       modelId,
       modelProvider,
@@ -771,86 +825,28 @@ export function DynamicAgentEditor({
       builtinTools,
       subagents,
       skills,
+      datasourceIds,
+      ragCollectionIds,
       features,
       modelId,
       modelProvider,
       gradientTheme,
-    ]
+    ],
   );
 
   // The snapshot key combines the source identity with the model-defaults
   // sentinel. When either changes, the dirty hook re-snapshots so the form
   // appears clean.
-  const snapshotIdentity =
-    agent?._id ?? cloneFrom?._id ?? "new";
-  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}|${teamDefaultsApplied ? "1" : "0"}`;
+  const snapshotIdentity = agent?._id ?? cloneFrom?._id ?? "new";
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
 
   const { dirty, resetSnapshot } = useEditorDirtyTracking({
     enabled: !readOnly,
     currentValues: currentFormValues,
     snapshotKey,
   });
-
-  // Team-scoped agents need an owning team. Global agents are governed by
-  // organization policy and deliberately do not require team ownership.
-  const ownerTeamMissing = visibility === "team" && !ownerTeamSlug;
-  const blockers: FormBlocker[] = React.useMemo(() => {
-    const list: FormBlocker[] = [];
-    if (!name.trim()) {
-      list.push({ field: "name", message: "Agent name is required", step: "basic" });
-    }
-    if (availableModels.length === 0) {
-      list.push({
-        field: "modelAvailability",
-        message: "At least one model provider must be configured",
-        step: "basic",
-      });
-    } else if (!modelId || !modelProvider) {
-      list.push({ field: "model", message: "Model selection is required", step: "basic" });
-    }
-    if (ownerTeamMissing) {
-      list.push({ field: "ownerTeam", message: "Owner Team is required", step: "basic" });
-    }
-    if (!systemPrompt.trim()) {
-      list.push({
-        field: "systemPrompt",
-        message: "Instructions (system prompt) are required",
-        step: "instructions",
-      });
-    }
-    return list;
-  }, [name, systemPrompt, modelId, modelProvider, availableModels.length, ownerTeamMissing]);
-
-  const firstBlocker = blockers[0];
-  const blockerStepLabel = firstBlocker
-    ? STEPS.find((step) => step.id === firstBlocker.step)?.label ?? firstBlocker.step
-    : null;
-
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
-
-  const revealBlocker = (blocker: FormBlocker, buzzNext = false) => {
-    setValidationTarget((current) => ({
-      ...blocker,
-      attempt: (current?.attempt ?? 0) + 1,
-    }));
-    if (buzzNext) setNextBuzzCount((count) => count + 1);
-    if (activeStep !== blocker.step) selectStep(blocker.step);
-  };
-
-  React.useEffect(() => {
-    if (!validationTarget || activeStep !== validationTarget.step) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      const target = document.getElementById(
-        BLOCKER_FOCUS_TARGETS[validationTarget.field],
-      );
-      target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-      target?.focus({ preventScroll: true });
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeStep, validationTarget]);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
@@ -859,17 +855,6 @@ export function DynamicAgentEditor({
   };
 
   const goToNextStep = async () => {
-    // Required fields do not disable navigation controls. Instead, keep the
-    // user on the relevant step and let the persistent inline footer warning
-    // explain what needs attention.
-    const currentStepBlocker = blockers.find(
-      (blocker) => blocker.step === activeStep,
-    );
-    if (currentStepBlocker) {
-      revealBlocker(currentStepBlocker, true);
-      return;
-    }
-
     // Gate the instructions → tools transition behind a passing AI Review when
     // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
     // no-op when the config is disabled or informational.
@@ -901,7 +886,7 @@ export function DynamicAgentEditor({
    */
   const handleSuggest = async (
     field: "description" | "system_prompt" | "theme",
-    instruction?: string
+    instruction?: string,
   ) => {
     if (!name.trim() || !modelId) return;
 
@@ -916,15 +901,17 @@ export function DynamicAgentEditor({
             name,
             description: description || undefined,
             system_prompt: systemPrompt || undefined,
-            allowed_tools: Object.keys(allowedTools).length > 0 ? allowedTools : undefined,
+            allowed_tools:
+              Object.keys(allowedTools).length > 0 ? allowedTools : undefined,
             builtin_tools: builtinTools,
-            subagents: subagents.length > 0
-              ? subagents.map((s) => ({
-                  agent_id: s.agent_id,
-                  name: s.name || s.agent_id,
-                  description: s.description,
-                }))
-              : undefined,
+            subagents:
+              subagents.length > 0
+                ? subagents.map((s) => ({
+                    agent_id: s.agent_id,
+                    name: s.name || s.agent_id,
+                    description: s.description,
+                  }))
+                : undefined,
           },
           model: { id: modelId, provider: modelProvider },
           ...(instruction ? { instruction } : {}),
@@ -953,7 +940,9 @@ export function DynamicAgentEditor({
           break;
         case "theme": {
           // Check for custom theme response: "custom:#hex1,#hex2,#hex3"
-          const customMatch = content.match(/custom:\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})/);
+          const customMatch = content.match(
+            /custom:\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})/,
+          );
           if (customMatch) {
             setGradientTheme("custom");
             setCustomThemeConfig({
@@ -972,7 +961,7 @@ export function DynamicAgentEditor({
           } else {
             // Fuzzy: find any valid theme ID contained in the response
             const fuzzyMatch = gradientThemes.find((t) =>
-              content.toLowerCase().includes(t.id)
+              content.toLowerCase().includes(t.id),
             );
             if (fuzzyMatch) {
               setGradientTheme(fuzzyMatch.id);
@@ -986,7 +975,10 @@ export function DynamicAgentEditor({
       }
     } catch (err) {
       console.error(`AI suggest (${field}) failed:`, err);
-      toast(getErrorMessage(err, "") || "Failed to generate suggestion", "error");
+      toast(
+        getErrorMessage(err, "") || "Failed to generate suggestion",
+        "error",
+      );
     } finally {
       setGeneratingField(null);
     }
@@ -1000,10 +992,13 @@ export function DynamicAgentEditor({
     setShowSuggestBasicInput(false);
     setSuggestBasicInstruction("");
     // If enhancing existing description, pass it as context
-    const existingHint = enhanceExistingBasic && description.trim()
-      ? `The current description is: "${description}". Use it as a starting point and enhance/refine it.`
-      : undefined;
-    const fullInstruction = [existingHint, instruction].filter(Boolean).join("\n\n");
+    const existingHint =
+      enhanceExistingBasic && description.trim()
+        ? `The current description is: "${description}". Use it as a starting point and enhance/refine it.`
+        : undefined;
+    const fullInstruction = [existingHint, instruction]
+      .filter(Boolean)
+      .join("\n\n");
     setEnhanceExistingBasic(false);
     // Run both in parallel
     await Promise.all([
@@ -1020,10 +1015,13 @@ export function DynamicAgentEditor({
     setShowSuggestPromptInput(false);
     setSuggestPromptInstruction("");
     // If user wants to enhance existing content, pass it as context
-    const existingHint = enhanceExisting && systemPrompt.trim()
-      ? `The current system prompt is provided below — use it as a starting point and enhance/refine it based on the user's guidance.\n\n<current_prompt>\n${systemPrompt}\n</current_prompt>`
-      : undefined;
-    const fullInstruction = [existingHint, instruction].filter(Boolean).join("\n\n");
+    const existingHint =
+      enhanceExisting && systemPrompt.trim()
+        ? `The current system prompt is provided below — use it as a starting point and enhance/refine it based on the user's guidance.\n\n<current_prompt>\n${systemPrompt}\n</current_prompt>`
+        : undefined;
+    const fullInstruction = [existingHint, instruction]
+      .filter(Boolean)
+      .join("\n\n");
     setEnhanceExisting(false);
     handleSuggest("system_prompt", fullInstruction || undefined);
   };
@@ -1036,21 +1034,13 @@ export function DynamicAgentEditor({
     opts?: { forceConfirmNotMember?: boolean },
   ) => {
     e?.preventDefault();
+    setLoading(true);
     setError(null);
     setTransferNeedsServerConfirm(false);
-
-    // Submission stays clickable. If the form is incomplete, route the user
-    // to the first missing field; the footer warning remains visible and the
-    // server is never called with an invalid payload.
-    if (firstBlocker) {
-      revealBlocker(firstBlocker);
-      return;
-    }
-
-    setLoading(true);
     // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
     // `transferConfirmedNotMember`; the caller passes the value through opts.
-    const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
+    const confirmNotMember =
+      opts?.forceConfirmNotMember || transferConfirmedNotMember;
 
     // Gate save behind a passing AI Review when the admin has flagged this
     // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
@@ -1079,6 +1069,18 @@ export function DynamicAgentEditor({
       }
     }
 
+    // Validate required fields
+    if (!modelId || !modelProvider) {
+      setError("Model selection is required");
+      setLoading(false);
+      return;
+    }
+    if (!isEditing && visibility !== "private" && !ownerTeamSlug) {
+      setError("Owner team is required");
+      setLoading(false);
+      return;
+    }
+
     // Validate ID for new agents
     if (!isEditing) {
       if (!generatedId) {
@@ -1087,7 +1089,9 @@ export function DynamicAgentEditor({
         return;
       }
       if (idClash) {
-        setError(`Agent ID "${generatedId}" already exists. Please use a different name.`);
+        setError(
+          `Agent ID "${generatedId}" already exists. Please use a different name.`,
+        );
         setLoading(false);
         return;
       }
@@ -1098,7 +1102,9 @@ export function DynamicAgentEditor({
       const uiConfig: AgentUIConfig | undefined = gradientTheme
         ? {
             gradient_theme: gradientTheme,
-            ...(gradientTheme === "custom" ? { custom_theme_config: customThemeConfig } : {}),
+            ...(gradientTheme === "custom"
+              ? { custom_theme_config: customThemeConfig }
+              : {}),
           }
         : undefined;
 
@@ -1118,11 +1124,18 @@ export function DynamicAgentEditor({
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
-          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+          shared_with_teams:
+            visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
+          // Always send the array, even empty — `pickMutableFields` only
+          // omits keys that are `undefined`, so sending `undefined` here
+          // when the picker is cleared would leave the previously-saved
+          // restriction in place instead of clearing it.
+          datasource_ids: datasourceIds,
+          rag_collection_ids: ragCollectionIds,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -1130,7 +1143,7 @@ export function DynamicAgentEditor({
           // Ownership transfer (US3): only send owner_team_slug when the user
           // changed the owner picker, so a normal edit never trips the route's
           // transfer guard.
-          ...(visibility !== "private" && transferRequested
+          ...(transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
                 confirm_not_member: confirmNotMember,
@@ -1165,12 +1178,18 @@ export function DynamicAgentEditor({
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
-          owner_team_slug: visibility === "private" ? undefined : ownerTeamSlug,
-          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+          owner_team_slug: ownerTeamSlug,
+          shared_with_teams:
+            visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
+          // New agents follow the combined collection + datasource hand
+          // exactly. Empty arrays keep RAG tools available with no indexed
+          // content in scope.
+          datasource_ids: datasourceIds,
+          rag_collection_ids: ragCollectionIds,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -1208,7 +1227,7 @@ export function DynamicAgentEditor({
       ) {
         setTransferNeedsServerConfirm(true);
         setError(
-          "You are not a member of the destination team. Click \"Confirm Transfer\" to transfer ownership anyway.",
+          'You are not a member of the destination team. Click "Confirm Transfer" to transfer ownership anyway.',
         );
       } else {
         setError(getErrorMessage(err, "") || "An error occurred");
@@ -1217,6 +1236,54 @@ export function DynamicAgentEditor({
       setLoading(false);
     }
   };
+
+  // Each entry describes one reason the Create Agent / Save Changes button is
+  // disabled. We render `blockers[0]` next to the button so the user always
+  // sees WHY they can't submit and on which step to fix it — previously the
+  // button just went `disabled` with no explanation, which the user reported
+  // as confusing (especially the Owner Team case, where the picker sits on
+  // the first wizard step but the button lives below step 5's content).
+  //
+  // assisted-by Cursor claude-opus-4-7
+  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+
+  const blockers: { field: string; label: string; step: StepId }[] =
+    React.useMemo(() => {
+      const list: { field: string; label: string; step: StepId }[] = [];
+      if (!name.trim()) {
+        list.push({ field: "name", label: "Agent name", step: "basic" });
+      }
+      if (availableModels.length === 0) {
+        // Distinct from "model not picked" — the user can't pick anything
+        // because nothing is configured. Surfacing this separately tells the
+        // operator the problem is upstream (no providers configured).
+        list.push({
+          field: "modelAvailability",
+          label: "At least one model provider must be configured",
+          step: "basic",
+        });
+      } else if (!modelId) {
+        list.push({ field: "model", label: "Model", step: "basic" });
+      }
+      if (ownerTeamMissing) {
+        list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
+      }
+      if (!systemPrompt.trim()) {
+        list.push({
+          field: "systemPrompt",
+          label: "Instructions (system prompt)",
+          step: "instructions",
+        });
+      }
+      return list;
+    }, [name, systemPrompt, modelId, availableModels.length, ownerTeamMissing]);
+
+  const isValid = blockers.length === 0;
+  const firstBlocker = blockers[0];
+  const blockerStepLabel = firstBlocker
+    ? (STEPS.find((s) => s.id === firstBlocker.step)?.label ??
+      firstBlocker.step)
+    : null;
 
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
@@ -1253,10 +1320,10 @@ export function DynamicAgentEditor({
               {readOnly
                 ? `View Agent - ${agent?.name}`
                 : isEditing
-                ? `Edit Agent - ${agent?.name}`
-                : isCloning
-                ? "Clone Agent"
-                : "Create Agent"}
+                  ? `Edit Agent - ${agent?.name}`
+                  : isCloning
+                    ? "Clone Agent"
+                    : "Create Agent"}
             </CardTitle>
             <CardDescription>
               {readOnly
@@ -1264,15 +1331,17 @@ export function DynamicAgentEditor({
                   ? "You do not have permission to edit this agent"
                   : "This agent is managed by configuration and cannot be edited"
                 : isEditing
-                ? "Update the agent configuration"
-                : isCloning
-                ? `Creating a copy of "${cloneFrom?.name}"`
-                : "Configure a new custom AI agent"}
+                  ? "Update the agent configuration"
+                  : isCloning
+                    ? `Creating a copy of "${cloneFrom?.name}"`
+                    : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
           <AgentAvatar
             gradientTheme={gradientTheme}
-            customThemeConfig={gradientTheme === "custom" ? customThemeConfig : undefined}
+            customThemeConfig={
+              gradientTheme === "custom" ? customThemeConfig : undefined
+            }
             rounded="rounded-lg"
             size="ml-auto h-9 w-9"
             iconSize="h-5 w-5"
@@ -1285,855 +1354,1027 @@ export function DynamicAgentEditor({
           {/* Step Indicator + title inline */}
           <div className="flex items-center gap-4 border-b pb-3 mt-2">
             <div className="shrink-0">
-              <h3 className="text-xl font-bold text-primary">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
+              <h3 className="text-xl font-bold text-primary">
+                Step {currentStepIndex + 1}: {currentStepConfig?.label}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {currentStepConfig?.hint}
+              </p>
             </div>
-            <StepIndicator 
-              steps={STEPS} 
-              currentStep={activeStep} 
-              onStepClick={(step) => {
-                const targetIndex = STEPS.findIndex((candidate) => candidate.id === step);
-                const blockingField = blockers.find(
-                  (blocker) =>
-                    STEPS.findIndex((candidate) => candidate.id === blocker.step) >= currentStepIndex &&
-                    STEPS.findIndex((candidate) => candidate.id === blocker.step) < targetIndex,
-                );
-                if (targetIndex > currentStepIndex && blockingField) {
-                  revealBlocker(blockingField);
-                  return;
-                }
-                selectStep(step);
-              }}
+            <StepIndicator
+              steps={STEPS}
+              currentStep={activeStep}
+              onStepClick={selectStep}
             />
           </div>
 
-          <fieldset className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
-
-          {/* Basic Info Step */}
-          {activeStep === "basic" && (
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  Agent Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  placeholder="e.g., Code Review Agent"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={loading || !!readOnly}
-                  className={cn(
-                    validationTarget?.field === "name" &&
-                      !name.trim() &&
-                      "border-orange-500/70 focus-visible:ring-orange-500",
-                  )}
-                  aria-invalid={
-                    validationTarget?.field === "name" && !name.trim()
-                      ? true
-                      : undefined
-                  }
-                  aria-describedby={
-                    validationTarget?.field === "name" && !name.trim()
-                      ? "name-required-message"
-                      : undefined
-                  }
-                />
-                {validationTarget?.field === "name" && !name.trim() && (
-                  <p
-                    id="name-required-message"
-                    role="alert"
-                    className="text-xs text-orange-700 dark:text-orange-400"
-                  >
-                    Enter an agent name before continuing.
-                  </p>
-                )}
-                {/* Show generated ID */}
-                {isEditing ? (
-                  <p className="text-xs text-muted-foreground">
-                    id: <code className="bg-muted px-1 py-0.5 rounded">{agent._id}</code>
-                  </p>
-                ) : generatedId ? (
-                  <p className={`text-xs ${idClash ? "text-destructive" : "text-muted-foreground"}`}>
-                    id: <code className={`px-1 py-0.5 rounded ${idClash ? "bg-destructive/10" : "bg-muted"}`}>
-                      {generatedId}
-                    </code>
-                    {idClash && <span className="ml-1 font-medium">- already exists, choose a different name</span>}
-                  </p>
-                ) : null}
-              </div>
-
-              {/* LLM Model - right after name so AI Suggest buttons can use it */}
-              <div className="space-y-2">
-                <Label htmlFor="modelId">
-                  LLM Model <span className="text-destructive">*</span>
-                </Label>
-                <div
-                  id="model-validation-target"
-                  tabIndex={-1}
-                  className={cn(
-                    "p-3 rounded-lg border-2 border-primary/20 bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    (validationTarget?.field === "model" ||
-                      validationTarget?.field === "modelAvailability") &&
-                      "border-orange-500/70 focus-visible:ring-orange-500",
-                  )}
-                >
-                  <select
-                    id="modelId"
-                    value={`${modelId}::${modelProvider}`}
-                    onChange={(e) => {
-                      const lastDelimiter = e.target.value.lastIndexOf("::");
-                      if (lastDelimiter > 0) {
-                        const selectedId = e.target.value.slice(0, lastDelimiter);
-                        const selectedProvider = e.target.value.slice(lastDelimiter + 2);
-                        if (selectedId && selectedProvider) {
-                          setModelId(selectedId);
-                          setModelProvider(selectedProvider);
-                        }
-                      }
-                    }}
-                    disabled={loading || !!readOnly || modelsLoading || availableModels.length === 0}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {modelsLoading ? (
-                      <option value="">Loading models...</option>
-                    ) : availableModels.length === 0 ? (
-                      <option value="" disabled>No models available</option>
-                    ) : (
-                      availableModels.map((model) => (
-                        <option key={`${model.model_id}::${model.provider}`} value={`${model.model_id}::${model.provider}`}>
-                          {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  {!modelsLoading && availableModels.length === 0 ? (
-                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-2">
-                      No LLM models available. Please check your deployment configuration.
+          <fieldset
+            className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}
+          >
+            {/* Basic Info Step */}
+            {activeStep === "basic" && (
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="name">
+                    Agent Name <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="name"
+                    placeholder="e.g., Code Review Agent"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={loading || !!readOnly}
+                  />
+                  {/* Show generated ID */}
+                  {isEditing ? (
+                    <p className="text-xs text-muted-foreground">
+                      id:{" "}
+                      <code className="bg-muted px-1 py-0.5 rounded">
+                        {agent._id}
+                      </code>
                     </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      The language model that powers this agent&apos;s reasoning.
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between relative">
-                  <Label htmlFor="description">Description</Label>
-                  <div className="relative">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading || !!readOnly}
-                      onClick={() => { setShowSuggestBasicInput((v) => { if (!v) setEnhanceExistingBasic(!!description.trim()); return !v; }); setShowSuggestPromptInput(false); }}
-                      title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "AI-generate description and theme"}
+                  ) : generatedId ? (
+                    <p
+                      className={`text-xs ${idClash ? "text-destructive" : "text-muted-foreground"}`}
                     >
-                      {isGenerating && (generatingField === "description" || generatingField === "theme") ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3 w-3" />
-                      )}
-                      AI Suggest
-                    </Button>
-                    <AnimatePresence>
-                      {showSuggestBasicInput && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
-                        >
-                          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                            Describe what this agent does
-                          </label>
-                          <p className="text-[11px] text-muted-foreground/70 mb-2">
-                            Generates a description and picks a matching theme.
-                          </p>
-                          <Input
-                            autoFocus
-                            value={suggestBasicInstruction}
-                            onChange={(e) => setSuggestBasicInstruction(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSuggestBasicInfo(suggestBasicInstruction.trim() || undefined);
-                              if (e.key === "Escape") setShowSuggestBasicInput(false);
-                            }}
-                            placeholder="e.g., Summarizes documents and answers questions..."
-                            className="h-8 text-sm mb-2"
-                          />
-                          {description.trim() && (
-                            <label className="flex items-center gap-2 mb-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={enhanceExistingBasic}
-                                onChange={(e) => setEnhanceExistingBasic(e.target.checked)}
-                                className="rounded border-muted"
-                              />
-                              <span className="text-xs text-muted-foreground">Enhance existing text</span>
-                            </label>
-                          )}
-                          <div className="flex justify-end gap-1.5">
-                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSuggestBasicInput(false)}>
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-7 text-xs gap-1 gradient-primary text-white"
-                              onClick={() => handleSuggestBasicInfo(suggestBasicInstruction.trim() || undefined)}
-                            >
-                              <Sparkles className="h-3 w-3" />
-                              Generate
-                            </Button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-                <Textarea
-                  id="description"
-                  placeholder="What does this agent do?"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  disabled={loading || !!readOnly}
-                  rows={2}
-                />
-              </div>
-
-              {/* Agent Theme */}
-              <div className="space-y-2">
-                <Label>Agent Theme</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Choose a color theme for this agent&apos;s avatar.
-                </p>
-                <div className="grid grid-cols-6 gap-1.5">
-                  {gradientThemes.map((theme) => (
-                    <button
-                      key={theme.id}
-                      type="button"
-                      onClick={() => { setGradientTheme(theme.id); setShowCustomPicker(false); }}
-                      className={cn(
-                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
-                        gradientTheme === theme.id
-                          ? "border-primary bg-primary/10"
-                          : "border-border hover:border-primary/50 hover:bg-muted/50"
-                      )}
-                      disabled={loading || !!readOnly}
-                      title={theme.description}
-                    >
-                      <div
-                        className="w-6 h-6 rounded-md shrink-0"
-                        style={{
-                          background: `linear-gradient(to bottom right, ${theme.from}, ${theme.to})`,
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[11px] font-medium block truncate">{theme.label.split(' (')[0]}</span>
-                        <span className="text-[10px] text-muted-foreground block truncate">
-                          {theme.description}
-                        </span>
-                      </div>
-                      {gradientTheme === theme.id && (
-                        <Check className="h-3 w-3 text-primary shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                  {/* Custom theme button */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => { setGradientTheme("custom"); setShowCustomPicker(!showCustomPicker); }}
-                      className={cn(
-                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left w-full",
-                        gradientTheme === "custom"
-                          ? "border-primary bg-primary/10"
-                          : "border-border hover:border-primary/50 hover:bg-muted/50"
-                      )}
-                      disabled={loading || !!readOnly}
-                      title="Custom colors"
-                    >
-                      <div
-                        className="w-6 h-6 rounded-md shrink-0 border border-dashed border-muted-foreground/40 flex items-center justify-center"
-                        style={gradientTheme === "custom" ? { background: `linear-gradient(to bottom right, ${customThemeConfig.gradient_from}, ${customThemeConfig.gradient_to})` } : undefined}
+                      id:{" "}
+                      <code
+                        className={`px-1 py-0.5 rounded ${idClash ? "bg-destructive/10" : "bg-muted"}`}
                       >
-                        {gradientTheme !== "custom" && <span className="text-[10px] text-muted-foreground">+</span>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[11px] font-medium block truncate">Custom</span>
-                        <span className="text-[10px] text-muted-foreground block truncate">
-                          Pick your own
+                        {generatedId}
+                      </code>
+                      {idClash && (
+                        <span className="ml-1 font-medium">
+                          - already exists, choose a different name
                         </span>
-                      </div>
-                      {gradientTheme === "custom" && (
-                        <Check className="h-3 w-3 text-primary shrink-0" />
                       )}
-                    </button>
+                    </p>
+                  ) : null}
+                </div>
 
-                    {/* Custom theme picker popup — positioned to the left of the button */}
-                    {showCustomPicker && gradientTheme === "custom" && (
-                      <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
-                        {/* Preview */}
-                        <div className="flex items-center gap-3">
-                          <AgentAvatar
-                            gradientTheme="custom"
-                            customThemeConfig={customThemeConfig}
-                            rounded="rounded-xl"
-                            size="h-12 w-12"
-                            iconSize="h-6 w-6"
-                            className="transition-all"
-                          />
-                          <div className="text-xs text-muted-foreground">
-                            Live preview
-                          </div>
-                        </div>
-
-                        {/* Color inputs */}
-                        <div className="space-y-2.5">
-                          <div className="flex items-center gap-2">
-                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient From</label>
-                            <div className="flex items-center gap-1.5 flex-1">
-                              <input
-                                type="color"
-                                value={customThemeConfig.gradient_from}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
-                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
-                              />
-                              <Input
-                                value={customThemeConfig.gradient_from}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
-                                className="h-7 text-xs font-mono"
-                                placeholder="#6366f1"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient To</label>
-                            <div className="flex items-center gap-1.5 flex-1">
-                              <input
-                                type="color"
-                                value={customThemeConfig.gradient_to}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
-                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
-                              />
-                              <Input
-                                value={customThemeConfig.gradient_to}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
-                                className="h-7 text-xs font-mono"
-                                placeholder="#1e1b4b"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="text-[11px] font-medium w-24 shrink-0">Icon Color</label>
-                            <div className="flex items-center gap-1.5 flex-1">
-                              <input
-                                type="color"
-                                value={customThemeConfig.accent_color}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
-                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
-                              />
-                              <Input
-                                value={customThemeConfig.accent_color}
-                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
-                                className="h-7 text-xs font-mono"
-                                placeholder="#ffffff"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Done button */}
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="w-full h-7 text-xs"
-                          onClick={() => setShowCustomPicker(false)}
-                        >
-                          Done
-                        </Button>
-                      </div>
+                {/* LLM Model - right after name so AI Suggest buttons can use it */}
+                <div className="space-y-2">
+                  <Label htmlFor="modelId">
+                    LLM Model <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                    <ModelPicker
+                      id="modelId"
+                      options={availableModels}
+                      modelId={modelId}
+                      modelProvider={modelProvider}
+                      onChange={(selectedId, selectedProvider) => {
+                        setModelId(selectedId);
+                        setModelProvider(selectedProvider);
+                      }}
+                      loading={modelsLoading}
+                      disabled={
+                        loading ||
+                        !!readOnly
+                      }
+                      triggerClassName="font-medium"
+                    />
+                    {!modelsLoading && availableModels.length === 0 ? (
+                      <p className="text-xs text-destructive mt-2">
+                        No LLM models available. Please check your deployment
+                        configuration.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        The language model that powers this agent&apos;s
+                        reasoning.
+                      </p>
                     )}
                   </div>
                 </div>
-              </div>
 
-              {/* Owner-team picker + share-with-teams multi-select +
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between relative">
+                    <Label htmlFor="description">Description</Label>
+                    <div className="relative">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                        disabled={!canSuggest || loading || !!readOnly}
+                        onClick={() => {
+                          setShowSuggestBasicInput((v) => {
+                            if (!v)
+                              setEnhanceExistingBasic(!!description.trim());
+                            return !v;
+                          });
+                          setShowSuggestPromptInput(false);
+                        }}
+                        title={
+                          !name.trim()
+                            ? "Enter a name first"
+                            : !modelId
+                              ? "Select a model first"
+                              : "AI-generate description and theme"
+                        }
+                      >
+                        {isGenerating &&
+                        (generatingField === "description" ||
+                          generatingField === "theme") ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3 w-3" />
+                        )}
+                        AI Suggest
+                      </Button>
+                      <AnimatePresence>
+                        {showSuggestBasicInput && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                          >
+                            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                              Describe what this agent does
+                            </label>
+                            <p className="text-[11px] text-muted-foreground/70 mb-2">
+                              Generates a description and picks a matching
+                              theme.
+                            </p>
+                            <Input
+                              autoFocus
+                              value={suggestBasicInstruction}
+                              onChange={(e) =>
+                                setSuggestBasicInstruction(e.target.value)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter")
+                                  handleSuggestBasicInfo(
+                                    suggestBasicInstruction.trim() || undefined,
+                                  );
+                                if (e.key === "Escape")
+                                  setShowSuggestBasicInput(false);
+                              }}
+                              placeholder="e.g., Summarizes documents and answers questions..."
+                              className="h-8 text-sm mb-2"
+                            />
+                            {description.trim() && (
+                              <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={enhanceExistingBasic}
+                                  onChange={(e) =>
+                                    setEnhanceExistingBasic(e.target.checked)
+                                  }
+                                  className="rounded border-muted"
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  Enhance existing text
+                                </span>
+                              </label>
+                            )}
+                            <div className="flex justify-end gap-1.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setShowSuggestBasicInput(false)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 text-xs gap-1 gradient-primary text-white"
+                                onClick={() =>
+                                  handleSuggestBasicInfo(
+                                    suggestBasicInstruction.trim() || undefined,
+                                  )
+                                }
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                Generate
+                              </Button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                  <Textarea
+                    id="description"
+                    placeholder="What does this agent do?"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={loading || !!readOnly}
+                    rows={2}
+                  />
+                </div>
+
+                {/* Agent Theme */}
+                <div className="space-y-2">
+                  <Label>Agent Theme</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Choose a color theme for this agent&apos;s avatar.
+                  </p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {gradientThemes.map((theme) => (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        onClick={() => {
+                          setGradientTheme(theme.id);
+                          setShowCustomPicker(false);
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
+                          gradientTheme === theme.id
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50",
+                        )}
+                        disabled={loading || !!readOnly}
+                        title={theme.description}
+                      >
+                        <div
+                          className="w-6 h-6 rounded-md shrink-0"
+                          style={{
+                            background: `linear-gradient(to bottom right, ${theme.from}, ${theme.to})`,
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[11px] font-medium block truncate">
+                            {theme.label.split(" (")[0]}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground block truncate">
+                            {theme.description}
+                          </span>
+                        </div>
+                        {gradientTheme === theme.id && (
+                          <Check className="h-3 w-3 text-primary shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                    {/* Custom theme button */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGradientTheme("custom");
+                          setShowCustomPicker(!showCustomPicker);
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left w-full",
+                          gradientTheme === "custom"
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50",
+                        )}
+                        disabled={loading || !!readOnly}
+                        title="Custom colors"
+                      >
+                        <div
+                          className="w-6 h-6 rounded-md shrink-0 border border-dashed border-muted-foreground/40 flex items-center justify-center"
+                          style={
+                            gradientTheme === "custom"
+                              ? {
+                                  background: `linear-gradient(to bottom right, ${customThemeConfig.gradient_from}, ${customThemeConfig.gradient_to})`,
+                                }
+                              : undefined
+                          }
+                        >
+                          {gradientTheme !== "custom" && (
+                            <span className="text-[10px] text-muted-foreground">
+                              +
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[11px] font-medium block truncate">
+                            Custom
+                          </span>
+                          <span className="text-[10px] text-muted-foreground block truncate">
+                            Pick your own
+                          </span>
+                        </div>
+                        {gradientTheme === "custom" && (
+                          <Check className="h-3 w-3 text-primary shrink-0" />
+                        )}
+                      </button>
+
+                      {/* Custom theme picker popup — positioned to the left of the button */}
+                      {showCustomPicker && gradientTheme === "custom" && (
+                        <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
+                          {/* Preview */}
+                          <div className="flex items-center gap-3">
+                            <AgentAvatar
+                              gradientTheme="custom"
+                              customThemeConfig={customThemeConfig}
+                              rounded="rounded-xl"
+                              size="h-12 w-12"
+                              iconSize="h-6 w-6"
+                              className="transition-all"
+                            />
+                            <div className="text-xs text-muted-foreground">
+                              Live preview
+                            </div>
+                          </div>
+
+                          {/* Color inputs */}
+                          <div className="space-y-2.5">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium w-24 shrink-0">
+                                Gradient From
+                              </label>
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="color"
+                                  value={customThemeConfig.gradient_from}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      gradient_from: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                                />
+                                <Input
+                                  value={customThemeConfig.gradient_from}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      gradient_from: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 text-xs font-mono"
+                                  placeholder="#6366f1"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium w-24 shrink-0">
+                                Gradient To
+                              </label>
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="color"
+                                  value={customThemeConfig.gradient_to}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      gradient_to: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                                />
+                                <Input
+                                  value={customThemeConfig.gradient_to}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      gradient_to: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 text-xs font-mono"
+                                  placeholder="#1e1b4b"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium w-24 shrink-0">
+                                Icon Color
+                              </label>
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="color"
+                                  value={customThemeConfig.accent_color}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      accent_color: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                                />
+                                <Input
+                                  value={customThemeConfig.accent_color}
+                                  onChange={(e) =>
+                                    setCustomThemeConfig((prev) => ({
+                                      ...prev,
+                                      accent_color: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 text-xs font-mono"
+                                  placeholder="#ffffff"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Done button */}
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="w-full h-7 text-xs"
+                            onClick={() => setShowCustomPicker(false)}
+                          >
+                            Done
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Owner-team picker + share-with-teams multi-select +
                   effective-access preview are now the shared
                   <TeamOwnershipFields> control bundle (spec 2026-06-03,
                   US1). The agent's visibility toggle is interleaved via
                   `betweenOwnerAndShare`, the platform-admin warning via
                   `ownerExtra`, and the agent-specific grant copy via
                   `renderGrantDetail`, so the UX is unchanged (SC-006). */}
-              <TeamOwnershipFields
-                ownerTeamSlug={ownerTeamSlug}
-                sharedTeamSlugs={sharedWithTeams}
-                isEditing={isEditing}
-                ownerRequired={visibility !== "private"}
-                allowTransfer={isEditing}
-                resourceNoun="agent"
-                disabled={loading || !!readOnly}
-                showOwner={visibility !== "private"}
-                showShare={visibility === "team"}
-                currentUserTeamSlugs={availableTeams
-                  .map((team) => team.slug)
-                  .filter((slug): slug is string => Boolean(slug))}
-                onOwnerTeamChange={setOwnerTeamSlug}
-                onSharedTeamsChange={setSharedWithTeams}
-                onTransfer={(_newOwnerSlug, confirmedNotMember) => {
-                  // The component already applied the new slug via
-                  // onOwnerTeamChange; record that this edit is a transfer so
-                  // the PUT sends owner_team_slug + confirm_not_member.
-                  setTransferRequested(true);
-                  setTransferConfirmedNotMember(confirmedNotMember);
-                  // Picking a different destination clears any stale
-                  // not-a-member rejection so the inline "Confirm Transfer"
-                  // button (and its message) can't linger and refer to the
-                  // previously-chosen team.
-                  setTransferNeedsServerConfirm(false);
-                  setError(null);
-                }}
-                availableTeams={availableTeams
-                  .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
-                  .map<TeamPickerOption>((team) => ({
-                    slug: team.slug,
-                    name: team.name,
-                    _id: team._id,
-                  }))}
-                ownerTeamOptions={availableTeams
-                  .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
-                  .map<TeamPickerOption>((team) => ({
-                    slug: team.slug,
-                    name: team.user_role
-                      ? `${team.name} (${team.user_role})`
-                      : team.name,
-                    _id: team._id,
-                    disabled: team.can_own_agents === false,
-                  }))}
-                ownerHelpText={
-                  <>Team admins can manage this agent.</>
-                }
-                shareHelpText={
-                  <>Additional teams can use this agent.</>
-                }
-                ownerExtra={
-                  !isEditing && availableTeams.length === 0 ? (
-                    <p className="text-xs text-orange-700 dark:text-orange-400">
-                      You must belong to at least one team to create a team-owned agent.
-                    </p>
-                  ) : ownerTeamMissing ? (
-                    <p className="text-xs text-orange-700 dark:text-orange-400" role="alert">
-                      Select an owner team.
-                    </p>
-                  ) : null
-                }
-                beforeOwner={
-                  <div className="space-y-2">
-                    <Label>Visibility</Label>
-                    {isPlatformDefault && (
-                      <p
-                        className="text-xs text-amber-600 dark:text-amber-400"
-                        data-testid="platform-default-visibility-note"
-                      >
-                        This agent is the platform default for new chats, so every signed-in user
-                        can use it. Change the platform default in Admin → Settings before changing
-                        its visibility.
+                <TeamOwnershipFields
+                  ownerTeamSlug={ownerTeamSlug}
+                  sharedTeamSlugs={sharedWithTeams}
+                  isEditing={isEditing}
+                  ownerRequired={visibility !== "private"}
+                  allowTransfer={isEditing}
+                  resourceNoun="agent"
+                  disabled={loading || !!readOnly}
+                  showOwner={visibility !== "private"}
+                  showShare={visibility === "team"}
+                  currentUserTeamSlugs={availableTeams
+                    .map((team) => team.slug)
+                    .filter((slug): slug is string => Boolean(slug))}
+                  onOwnerTeamChange={setOwnerTeamSlug}
+                  onSharedTeamsChange={setSharedWithTeams}
+                  onTransfer={(_newOwnerSlug, confirmedNotMember) => {
+                    // The component already applied the new slug via
+                    // onOwnerTeamChange; record that this edit is a transfer so
+                    // the PUT sends owner_team_slug + confirm_not_member.
+                    setTransferRequested(true);
+                    setTransferConfirmedNotMember(confirmedNotMember);
+                    // Picking a different destination clears any stale
+                    // not-a-member rejection so the inline "Confirm Transfer"
+                    // button (and its message) can't linger and refer to the
+                    // previously-chosen team.
+                    setTransferNeedsServerConfirm(false);
+                    setError(null);
+                  }}
+                  availableTeams={availableTeams
+                    .filter((team): team is typeof team & { slug: string } =>
+                      Boolean(team.slug),
+                    )
+                    .map<TeamPickerOption>((team) => ({
+                      slug: team.slug,
+                      name: team.name,
+                      _id: team._id,
+                    }))}
+                  ownerTeamOptions={availableTeams
+                    .filter((team): team is typeof team & { slug: string } =>
+                      Boolean(team.slug),
+                    )
+                    .map<TeamPickerOption>((team) => ({
+                      slug: team.slug,
+                      name: team.user_role
+                        ? `${team.name} (${team.user_role})`
+                        : team.name,
+                      _id: team._id,
+                      disabled: team.can_own_agents === false,
+                    }))}
+                  ownerHelpText={
+                    <>
+                      Select a team you belong to as the owner. You manage this
+                      agent as its creator; team members can use it; team admins
+                      can manage it.
+                    </>
+                  }
+                  shareHelpText={
+                    <>
+                      Select which additional teams can access this agent.
+                      Members of a shared team can DM it and use it in any Slack
+                      channel or Webex space mapped to that team. Team admins
+                      can manage shared agents.
+                    </>
+                  }
+                  ownerExtra={
+                    !isEditing && availableTeams.length === 0 ? (
+                      <p className="text-xs text-destructive">
+                        You must belong to at least one team to create a
+                        team-owned agent.
                       </p>
-                    )}
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      {VISIBILITY_OPTIONS
-                        .filter((opt) => opt.value !== "private" || privateResourcesEnabled || visibility === "private")
-                        .map((opt) => {
-                        // When this agent is the platform default, lock the
-                        // selector so the admin can't try to demote
-                        // `global → team` here — the BFF will reject it.
-                        const lockedByPlatformDefault = isPlatformDefault;
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setVisibility(opt.value)}
-                            className={`p-3 rounded-lg border text-left transition-colors ${
-                              visibility === opt.value
-                                ? "border-primary bg-primary/5"
-                                : "border-muted hover:border-primary/50"
-                            } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
-                            disabled={loading || !!readOnly || lockedByPlatformDefault}
-                          >
-                            <div className="flex items-center gap-2 mb-1">
-                              {opt.icon}
-                              <span className="font-medium text-sm">{opt.label}</span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">{opt.description}</div>
-                          </button>
-                        );
-                      })}
+                    ) : null
+                  }
+                  betweenOwnerAndShare={
+                    <div className="space-y-2">
+                      <Label>Visibility</Label>
+                      {isPlatformDefault && (
+                        <p
+                          className="text-xs text-amber-600 dark:text-amber-400"
+                          data-testid="platform-default-visibility-note"
+                        >
+                          This agent is the platform default for new chats, so
+                          every signed-in user can use it. Change the platform
+                          default in Admin → Settings before changing its
+                          visibility.
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {VISIBILITY_OPTIONS
+                          .filter(
+                            (opt) =>
+                              opt.value !== "private" ||
+                              privateResourcesEnabled ||
+                              visibility === "private",
+                          )
+                          .map((opt) => {
+                          // When this agent is the platform default, lock the
+                          // selector so the admin can't try to demote
+                          // `global → team` here — the BFF will reject it.
+                          const lockedByPlatformDefault = isPlatformDefault;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setVisibility(opt.value)}
+                              className={`p-3 rounded-lg border text-left transition-colors ${
+                                visibility === opt.value
+                                  ? "border-primary bg-primary/5"
+                                  : "border-muted hover:border-primary/50"
+                              } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
+                              disabled={
+                                loading || !!readOnly || lockedByPlatformDefault
+                              }
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                {opt.icon}
+                                <span className="font-medium text-sm">
+                                  {opt.label}
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {opt.description}
+                              </div>
+                            </button>
+                          );
+                          })}
+                      </div>
+                      {visibility === "global" && (
+                        <div
+                          role="note"
+                          aria-label="Global visibility summary"
+                          className="space-y-1 rounded-lg border bg-muted/30 p-3 text-xs"
+                          data-testid="global-visibility-grant-preview"
+                        >
+                          <div className="font-medium text-foreground">
+                            Everyone can use this agent
+                            {isPlatformDefault
+                              ? " (it is also the platform default)"
+                              : ""}
+                            .
+                          </div>
+                          <p className="text-muted-foreground">
+                            When you save, every signed-in user will be able to
+                            chat with this agent. Owner-team admins still manage
+                            it.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  }
+                />
+              </div>
+            )}
+
+            {/* Instructions Step */}
+            {activeStep === "instructions" && (
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between relative">
+                    <Label htmlFor="systemPrompt">
+                      System Prompt <span className="text-destructive">*</span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                          disabled={!canSuggest || loading || !!readOnly}
+                          onClick={() => {
+                            setShowSuggestPromptInput((v) => {
+                              if (!v) setEnhanceExisting(!!systemPrompt.trim());
+                              return !v;
+                            });
+                            setShowSuggestBasicInput(false);
+                          }}
+                          title={
+                            !name.trim()
+                              ? "Enter a name first"
+                              : !modelId
+                                ? "Select a model first"
+                                : "Generate system prompt with AI"
+                          }
+                        >
+                          {generatingField === "system_prompt" ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-3 w-3" />
+                          )}
+                          AI Suggest
+                        </Button>
+
+                        {/* Inline popover for instructions */}
+                        <AnimatePresence>
+                          {showSuggestPromptInput && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                              transition={{ duration: 0.15 }}
+                              className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                            >
+                              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                                What should the system prompt cover?
+                              </label>
+                              <Input
+                                autoFocus
+                                value={suggestPromptInstruction}
+                                onChange={(e) =>
+                                  setSuggestPromptInstruction(e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter")
+                                    handleSuggestSystemPrompt(
+                                      suggestPromptInstruction.trim() ||
+                                        undefined,
+                                    );
+                                  if (e.key === "Escape")
+                                    setShowSuggestPromptInput(false);
+                                }}
+                                placeholder="e.g., Focus on step-by-step reasoning..."
+                                className="h-8 text-sm mb-2"
+                              />
+                              {systemPrompt.trim() && (
+                                <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={enhanceExisting}
+                                    onChange={(e) =>
+                                      setEnhanceExisting(e.target.checked)
+                                    }
+                                    className="rounded border-muted"
+                                  />
+                                  <span className="text-xs text-muted-foreground">
+                                    Enhance existing text
+                                  </span>
+                                </label>
+                              )}
+                              <div className="flex items-center gap-1 mb-2">
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "px-2 py-0.5 text-xs rounded-full border transition-colors",
+                                    promptStyle === "concise"
+                                      ? "border-primary text-primary bg-primary/10"
+                                      : "border-border text-muted-foreground hover:border-primary/30",
+                                  )}
+                                  onClick={() => setPromptStyle("concise")}
+                                >
+                                  Concise
+                                </button>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "px-2 py-0.5 text-xs rounded-full border transition-colors",
+                                    promptStyle === "comprehensive"
+                                      ? "border-primary text-primary bg-primary/10"
+                                      : "border-border text-muted-foreground hover:border-primary/30",
+                                  )}
+                                  onClick={() =>
+                                    setPromptStyle("comprehensive")
+                                  }
+                                >
+                                  Comprehensive
+                                </button>
+                              </div>
+                              <div className="flex justify-end gap-1.5">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() =>
+                                    setShowSuggestPromptInput(false)
+                                  }
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1 gradient-primary text-white"
+                                  onClick={() =>
+                                    handleSuggestSystemPrompt(
+                                      suggestPromptInstruction.trim() ||
+                                        undefined,
+                                    )
+                                  }
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  Generate
+                                </Button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      {/* AI Review button — sibling to AI Suggest. Renders disabled
+                      when the target isn't configured; the panel below renders
+                      null in the same case so this is the only visible affordance. */}
+                      <AiReviewButton review={review} size="sm" />
                     </div>
                   </div>
-                }
-              />
-            </div>
-          )}
 
-          {/* Instructions Step */}
-          {activeStep === "instructions" && (
-            <div
-              id="system-prompt-validation-target"
-              tabIndex={-1}
-              className={cn(
-                "space-y-4 pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                validationTarget?.field === "systemPrompt" &&
-                  "focus-visible:ring-orange-500",
-              )}
-            >
-              <div className="space-y-2">
-                <div className="flex items-center justify-between relative">
-                  <Label htmlFor="systemPrompt">
-                    System Prompt <span className="text-destructive">*</span>
-                  </Label>
-                  <div className="flex items-center gap-2">
-                  <div className="relative">
+                  {/* Edit / Preview tabs */}
+                  <div className="flex items-center gap-1 border-b border-border/30">
+                    <button
+                      type="button"
+                      onClick={() => setPromptTab("edit")}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
+                        promptTab === "edit"
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromptTab("preview")}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
+                        promptTab === "preview"
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Eye className="h-3 w-3" />
+                      Preview
+                    </button>
+                  </div>
+
+                  {/* Editor column + AI Review panel side-by-side. Panel renders
+                    null when the target isn't configured / disabled, so the
+                    flex container collapses to just the editor in that case. */}
+                  <div className="flex gap-3 min-h-0">
+                    <div className="flex-1 min-w-0">
+                      {promptTab === "edit" ? (
+                        <div
+                          className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]"
+                          style={{ height: `${editorHeight}px` }}
+                        >
+                          <React.Suspense
+                            fallback={
+                              <div className="flex items-center justify-center h-48 text-zinc-500">
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                <span className="text-sm">
+                                  Loading editor...
+                                </span>
+                              </div>
+                            }
+                          >
+                            <CodeMirrorEditor
+                              value={systemPrompt}
+                              onChange={(val: string) => setSystemPrompt(val)}
+                              extensions={cmExtensions}
+                              theme="dark"
+                              height={`${editorHeight}px`}
+                              style={{ fontSize: "15px" }}
+                              basicSetup={{
+                                lineNumbers: true,
+                                foldGutter: true,
+                                highlightActiveLine: true,
+                                bracketMatching: true,
+                                autocompletion: false,
+                                indentOnInput: true,
+                              }}
+                              placeholder="You are a helpful AI assistant that specializes in..."
+                              editable={
+                                !loading &&
+                                !readOnly &&
+                                generatingField !== "system_prompt"
+                              }
+                            />
+                          </React.Suspense>
+                        </div>
+                      ) : (
+                        <div
+                          className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none"
+                          style={{ height: `${editorHeight}px` }}
+                        >
+                          {systemPrompt.trim() ? (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={getMarkdownComponents()}
+                            >
+                              {systemPrompt}
+                            </ReactMarkdown>
+                          ) : (
+                            <p className="text-muted-foreground italic text-sm">
+                              Nothing to preview. Switch to Edit to write your
+                              system prompt.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Drag handle to resize editor */}
+                      <div
+                        onMouseDown={handleDragStart}
+                        className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
+                      >
+                        <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                      </div>
+                    </div>
+                    <AiReviewPanel
+                      review={review}
+                      style={{ height: `${editorHeight + 12}px` }}
+                      onClickAnchor={(anchor) => {
+                        // Phase 1: no-op stub. A follow-up will scroll the
+                        // CodeMirror view to `anchor.line_start` and flash a
+                        // gutter decoration. Logging keeps the wiring observable
+                        // during development.
+                        if (process.env.NODE_ENV !== "production") {
+                          console.debug("[ai-review] anchor click", anchor);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">
+                    Define your agent&apos;s behavior, personality, and
+                    capabilities.
+                  </p>
+
+                  {blockingMessage && (
+                    <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                      <p className="text-sm text-destructive">
+                        {blockingMessage}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tools Step */}
+            {activeStep === "tools" && (
+              <div className="space-y-6 pt-2">
+                {/* Built-in Tools */}
+                <BuiltinToolsPicker
+                  value={builtinTools}
+                  onChange={setBuiltinTools}
+                  disabled={loading || !!readOnly}
+                />
+
+                {/* MCP Tools */}
+                <div className="space-y-4">
+                  <div>
+                    <Label>MCP Tool Access</Label>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Select which MCP servers and tools this agent can use. If
+                      no servers are selected, the agent will have no external
+                      tool access.
+                    </p>
+                  </div>
+
+                  <AllowedToolsPicker
+                    value={allowedTools}
+                    onChange={setAllowedTools}
+                    disabled={loading || !!readOnly}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Knowledge Step */}
+            {activeStep === "knowledge" && (
+              <div className="space-y-4 pt-2">
+                {!hasRagToolAccess(allowedTools) && (
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      To enable access to knowledge bases, enable the Knowledge
+                      Base tool calls in the previous step.
+                    </p>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading || !!readOnly}
-                      onClick={() => { setShowSuggestPromptInput((v) => { if (!v) setEnhanceExisting(!!systemPrompt.trim()); return !v; }); setShowSuggestBasicInput(false); }}
-                      title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "Generate system prompt with AI"}
+                      className="shrink-0"
+                      onClick={() => selectStep("tools")}
                     >
-                      {generatingField === "system_prompt" ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3 w-3" />
-                      )}
-                      AI Suggest
+                      Go to Tools
                     </Button>
-
-                    {/* Inline popover for instructions */}
-                    <AnimatePresence>
-                      {showSuggestPromptInput && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
-                        >
-                          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                            What should the system prompt cover?
-                          </label>
-                          <Input
-                            autoFocus
-                            value={suggestPromptInstruction}
-                            onChange={(e) => setSuggestPromptInstruction(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSuggestSystemPrompt(suggestPromptInstruction.trim() || undefined);
-                              if (e.key === "Escape") setShowSuggestPromptInput(false);
-                            }}
-                            placeholder="e.g., Focus on step-by-step reasoning..."
-                            className="h-8 text-sm mb-2"
-                          />
-                          {systemPrompt.trim() && (
-                            <label className="flex items-center gap-2 mb-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={enhanceExisting}
-                                onChange={(e) => setEnhanceExisting(e.target.checked)}
-                                className="rounded border-muted"
-                              />
-                              <span className="text-xs text-muted-foreground">Enhance existing text</span>
-                            </label>
-                          )}
-                          <div className="flex items-center gap-1 mb-2">
-                            <button
-                              type="button"
-                              className={cn(
-                                "px-2 py-0.5 text-xs rounded-full border transition-colors",
-                                promptStyle === "concise"
-                                  ? "border-primary text-primary bg-primary/10"
-                                  : "border-border text-muted-foreground hover:border-primary/30"
-                              )}
-                              onClick={() => setPromptStyle("concise")}
-                            >
-                              Concise
-                            </button>
-                            <button
-                              type="button"
-                              className={cn(
-                                "px-2 py-0.5 text-xs rounded-full border transition-colors",
-                                promptStyle === "comprehensive"
-                                  ? "border-primary text-primary bg-primary/10"
-                                  : "border-border text-muted-foreground hover:border-primary/30"
-                              )}
-                              onClick={() => setPromptStyle("comprehensive")}
-                            >
-                              Comprehensive
-                            </button>
-                          </div>
-                          <div className="flex justify-end gap-1.5">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => setShowSuggestPromptInput(false)}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-7 text-xs gap-1 gradient-primary text-white"
-                              onClick={() => handleSuggestSystemPrompt(suggestPromptInstruction.trim() || undefined)}
-                            >
-                              <Sparkles className="h-3 w-3" />
-                              Generate
-                            </Button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  {/* AI Review button — sibling to AI Suggest. Renders disabled
-                      when the target isn't configured; the panel below renders
-                      null in the same case so this is the only visible affordance. */}
-                  <AiReviewButton review={review} size="sm" />
-                  </div>
-                </div>
-
-                {/* Edit / Preview tabs */}
-                <div className="flex items-center gap-1 border-b border-border/30">
-                  <button
-                    type="button"
-                    onClick={() => setPromptTab("edit")}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
-                      promptTab === "edit"
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Pencil className="h-3 w-3" />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPromptTab("preview")}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
-                      promptTab === "preview"
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Eye className="h-3 w-3" />
-                    Preview
-                  </button>
-                </div>
-
-                {/* Editor column + AI Review panel side-by-side. Panel renders
-                    null when the target isn't configured / disabled, so the
-                    flex container collapses to just the editor in that case. */}
-                <div className="flex gap-3 min-h-0">
-                  <div className="flex-1 min-w-0">
-                    {promptTab === "edit" ? (
-                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
-                        <React.Suspense
-                          fallback={
-                            <div className="flex items-center justify-center h-48 text-zinc-500">
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              <span className="text-sm">Loading editor...</span>
-                            </div>
-                          }
-                        >
-                          <CodeMirrorEditor
-                            value={systemPrompt}
-                            onChange={(val: string) => setSystemPrompt(val)}
-                            extensions={cmExtensions}
-                            theme="dark"
-                            height={`${editorHeight}px`}
-                            style={{ fontSize: "15px" }}
-                            basicSetup={{
-                              lineNumbers: true,
-                              foldGutter: true,
-                              highlightActiveLine: true,
-                              bracketMatching: true,
-                              autocompletion: false,
-                              indentOnInput: true,
-                            }}
-                            placeholder="You are a helpful AI assistant that specializes in..."
-                            editable={!loading && !readOnly && generatingField !== "system_prompt"}
-                          />
-                        </React.Suspense>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
-                        {systemPrompt.trim() ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={getMarkdownComponents()}
-                          >
-                            {systemPrompt}
-                          </ReactMarkdown>
-                        ) : (
-                          <p className="text-muted-foreground italic text-sm">
-                            Nothing to preview. Switch to Edit to write your system prompt.
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Drag handle to resize editor */}
-                    <div
-                      onMouseDown={handleDragStart}
-                      className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
-                    >
-                      <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
-                    </div>
-                  </div>
-                  <AiReviewPanel
-                    review={review}
-                    style={{ height: `${editorHeight + 12}px` }}
-                    onClickAnchor={(anchor) => {
-                      // Phase 1: no-op stub. A follow-up will scroll the
-                      // CodeMirror view to `anchor.line_start` and flash a
-                      // gutter decoration. Logging keeps the wiring observable
-                      // during development.
-                      if (process.env.NODE_ENV !== "production") {
-                        console.debug("[ai-review] anchor click", anchor);
-                      }
-                    }}
-                  />
-                </div>
-
-                <p className="text-sm text-muted-foreground">
-                  Define your agent&apos;s behavior, personality, and capabilities.
-                </p>
-
-                {validationTarget?.field === "systemPrompt" &&
-                  !systemPrompt.trim() && (
-                    <p role="alert" className="text-xs text-orange-700 dark:text-orange-400">
-                      Enter instructions before continuing.
-                    </p>
-                  )}
-
-                {blockingMessage && (
-                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                    <p className="text-sm text-destructive">{blockingMessage}</p>
                   </div>
                 )}
+                <div
+                  className={cn(
+                    "transition-opacity",
+                    !hasRagToolAccess(allowedTools) && "opacity-50",
+                  )}
+                >
+                  <DatasourcePicker
+                    ownerTeamSlug={ownerTeamSlug}
+                    value={datasourceIds}
+                    onChange={setDatasourceIds}
+                    collectionValue={ragCollectionIds}
+                    onCollectionChange={setRagCollectionIds}
+                    // A new RAG-enabled agent starts with Platform RAG only
+                    // after migration has actually created that collection.
+                    defaultToPlatform={
+                      !source && hasRagToolAccess(allowedTools)
+                    }
+                    disabled={
+                      loading || !!readOnly || !hasRagToolAccess(allowedTools)
+                    }
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Tools Step */}
-          {activeStep === "tools" && (
-            <div className="space-y-6 pt-2">
-              {/* Built-in Tools */}
-              <BuiltinToolsPicker
-                value={builtinTools}
-                onChange={setBuiltinTools}
-                disabled={loading || !!readOnly}
-              />
-
-              {/* MCP Tools */}
+            {/* Step: Skills */}
+            {activeStep === "skills" && (
               <div className="space-y-4">
                 <div>
-                  <Label>MCP Tool Access</Label>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    Select which MCP servers and tools this agent can use. If no servers are selected,
-                    the agent will have no external tool access.
+                  <p className="text-sm text-muted-foreground">
+                    Skills provide specialized instructions and workflows that
+                    guide your agent&apos;s behavior for specific tasks. The
+                    agent reads skill content on demand via progressive
+                    disclosure.
                   </p>
                 </div>
 
-                <AllowedToolsPicker
-                  value={allowedTools}
-                  onChange={setAllowedTools}
+                <SkillsSelector
+                  value={skills}
+                  onChange={setSkills}
                   disabled={loading || !!readOnly}
                 />
               </div>
+            )}
 
-              {/* Advanced: Middleware */}
-              <div className="border-t pt-4">
-                <MiddlewarePicker
-                  value={features}
-                  onChange={setFeatures}
-                  disabled={loading || !!readOnly}
-                  availableModels={availableModels}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Step: Skills */}
-          {activeStep === "skills" && (
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
-                  for specific tasks. The agent reads skill content on demand via progressive disclosure.
-                </p>
-              </div>
-
-              <SkillsSelector
-                value={skills}
-                onChange={setSkills}
-                disabled={loading || !!readOnly}
+            {/* Advanced Step */}
+            {activeStep === "advanced" && (
+              <AdvancedStep
+                agent={agent}
+                subagents={subagents}
+                setSubagents={setSubagents}
+                interruptOn={interruptOn}
+                setInterruptOn={setInterruptOn}
+                allowedTools={allowedTools}
+                builtinTools={builtinTools}
+                setBuiltinTools={(v) => setBuiltinTools(v)}
+                features={features}
+                setFeatures={setFeatures}
+                availableModels={availableModels}
+                setMiddlewareError={setMiddlewareError}
+                loading={loading || !!readOnly}
+                visibility={visibility}
               />
-            </div>
-          )}
+            )}
 
-          {/* Advanced Step */}
-          {activeStep === "advanced" && (
-            <AdvancedStep
-              agent={agent}
-              subagents={subagents}
-              setSubagents={setSubagents}
-              interruptOn={interruptOn}
-              setInterruptOn={setInterruptOn}
-              allowedTools={allowedTools}
-              builtinTools={builtinTools}
-              setBuiltinTools={(v) => setBuiltinTools(v)}
-              features={features}
-              setFeatures={setFeatures}
-              availableModels={availableModels}
-              setMiddlewareError={setMiddlewareError}
-              loading={loading || !!readOnly}
-              visibility={visibility}
-            />
-          )}
-
-          {/* Error */}
-          {error && (
-            <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2">
-              <p className="text-sm text-destructive">{error}</p>
-              {transferNeedsServerConfirm && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={loading}
-                  onClick={() => {
-                    setTransferConfirmedNotMember(true);
-                    void handleSubmit(undefined, { forceConfirmNotMember: true });
-                  }}
-                >
-                  Confirm Transfer
-                </Button>
-              )}
-            </div>
-          )}
+            {/* Error */}
+            {error && (
+              <div
+                role="alert"
+                className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2"
+              >
+                <p className="text-sm text-destructive">{error}</p>
+                {transferNeedsServerConfirm && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={loading}
+                    onClick={() => {
+                      setTransferConfirmedNotMember(true);
+                      void handleSubmit(undefined, {
+                        forceConfirmNotMember: true,
+                      });
+                    }}
+                  >
+                    Confirm Transfer
+                  </Button>
+                )}
+              </div>
+            )}
           </fieldset>
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={goToPreviousStep}
               disabled={currentStepIndex === 0 || loading}
               size="sm"
@@ -2141,67 +2382,51 @@ export function DynamicAgentEditor({
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <motion.div
-              key={`next-buzz-${nextBuzzCount}`}
-              data-testid="next-step-feedback"
-              data-validation-buzz={nextBuzzCount}
-              animate={
-                nextBuzzCount > 0
-                  ? { x: [0, -6, 6, -4, 4, 0] }
-                  : undefined
-              }
-              transition={{ duration: 0.32, ease: "easeOut" }}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void goToNextStep()}
+              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              size="sm"
             >
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void goToNextStep()}
-                disabled={currentStepIndex === STEPS.length - 1 || loading}
-                size="sm"
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </motion.div>
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
           </div>
         </form>
       </CardContent>
 
       {/* Action Buttons - Outside the card content */}
       <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
-        <div className="mr-auto min-w-0 text-xs">
-          {!readOnly && firstBlocker ? (
-            <button
-              type="button"
-              data-testid="create-agent-blocker-hint"
-              className="flex items-center gap-1.5 text-left text-orange-700 hover:underline dark:text-orange-400"
-              onClick={() => revealBlocker(firstBlocker)}
-            >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                {firstBlocker.message}
-                {blockerStepLabel ? ` (${blockerStepLabel} step)` : ""}.
-              </span>
-            </button>
-          ) : readOnly ? (
+        <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
+          {readOnly ? (
             "This agent is config-driven and cannot be modified"
           ) : (
             <>
               {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
-              {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+              {Object.keys(allowedTools).length} MCP server(s),{" "}
+              {subagents.length} subagent(s)
             </>
           )}
         </div>
-        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={loading}
+        >
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
           <Button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !isValid}
+            // Native-tooltip mirror of the inline hint above. Helps users who
+            // hover the button looking for an explanation when they miss the
+            // inline text (e.g. on narrow screens where the hint wraps).
             title={
               !loading && firstBlocker
-                ? `${firstBlocker.message}${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
+                ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
                 : undefined
             }
           >

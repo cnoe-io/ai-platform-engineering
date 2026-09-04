@@ -162,14 +162,14 @@ test.describe("agent editor owner-team transfer", () => {
     ).toHaveCount(0);
     await expect(page.getByLabel(/Owner Team/i)).toBeEnabled();
     await expect(
-      page.getByText(/Changing this team transfers management when you save/i),
+      page.getByText(/Changing the owner team will transfer ownership when you save/i),
     ).toBeVisible();
 
     await page.getByLabel(/Owner Team/i).click();
     const ownerList = page.getByRole("listbox", { name: /Select a team that will own this agent/i });
     await ownerList.getByRole("option", { name: /Data Eng.*team:data-eng/i }).click();
 
-    await page.getByRole("button", { name: /Pick one or more teams to share with/i }).click();
+    await page.getByRole("combobox", { name: /Pick one or more teams to share with/i }).click();
     await page.getByRole("option", { name: /Security.*team:security/i }).click();
 
     const updateRequest = page.waitForRequest((request) => {

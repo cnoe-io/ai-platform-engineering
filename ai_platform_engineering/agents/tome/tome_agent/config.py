@@ -74,7 +74,7 @@ class Settings(BaseSettings):
 
     # Base URL of the CAIPE UI/API (e.g. https://caipe.example.com). When set,
     # the /caipe/projects endpoint forwards the signed-in user's bearer token to
-    # CAIPE's GET /api/projects so LLM Wiki can list the projects that user can
+    # CAIPE's GET /api/projects so TOME can list the projects that the user can
     # access. Empty disables the feature.
     caipe_api_url: str = ""
 

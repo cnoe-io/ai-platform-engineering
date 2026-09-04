@@ -127,17 +127,11 @@ describe("MCPServersTab AgentGateway repair", () => {
     }) as unknown as typeof fetch;
   });
 
-  it("does not expose the global AgentGateway repair action", async () => {
+  it("shows the capability-gated AgentGateway repair action in page actions", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    const description = screen.getByText(
-      "Configure Streamable HTTP MCP servers. AgentGateway authorizes every tool call before forwarding it upstream.",
-    );
-    expect(description).toHaveClass("max-w-3xl", "leading-relaxed");
-    expect(description.parentElement).toHaveClass("min-w-0");
-    expect(screen.getByRole("button", { name: "Refresh" }).parentElement).toHaveClass("shrink-0");
-    expect(screen.queryByRole("button", { name: /Repair AgentGateway/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Repair AgentGateway/i })).toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalledWith(
       "/api/mcp-servers/agentgateway/sync",
       expect.anything(),
@@ -417,11 +411,11 @@ describe("MCPServersTab AgentGateway repair", () => {
     expect(await screen.findByText("Add MCP Server")).toBeInTheDocument();
   });
 
-  it("shows permitted row actions without exposing global AgentGateway repair", async () => {
+  it("shows permitted row actions and the capability-gated repair action", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    expect(screen.queryByRole("button", { name: /Repair AgentGateway/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Repair AgentGateway/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Probe tools for Jira/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /test mcp tools for jira/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Delete Jira/i })).toBeInTheDocument();

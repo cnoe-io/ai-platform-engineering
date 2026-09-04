@@ -29,6 +29,7 @@ interface TooltipProps {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  className?: string;
   triggerClassName?: string;
 }
 
@@ -63,6 +64,7 @@ export function Tooltip({
   open: controlledOpen,
   defaultOpen = false,
   onOpenChange,
+  className,
   triggerClassName,
 }: TooltipProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
@@ -114,14 +116,26 @@ export function Tooltip({
 
   return (
     <TooltipStateContext.Provider
-      value={{ open, setOpen, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose }}
+      value={{
+        open,
+        setOpen,
+        triggerRef,
+        hoverHoldRef,
+        cancelPendingClose,
+        scheduleClose,
+      }}
     >
       <span
         ref={(node) => {
           const firstChild = node?.firstElementChild;
-          triggerRef.current = firstChild instanceof HTMLElement ? firstChild : node;
+          triggerRef.current =
+            firstChild instanceof HTMLElement ? firstChild : node;
         }}
-        className={cn("relative inline-flex items-center align-middle", triggerClassName)}
+        className={cn(
+          "relative inline-flex items-center align-middle",
+          className,
+          triggerClassName,
+        )}
       >
         {children}
       </span>
@@ -160,8 +174,13 @@ function TooltipTriggerSlot({
 }
 
 export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
-  const { setOpen, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose } =
-    React.useContext(TooltipStateContext);
+  const {
+    setOpen,
+    triggerRef,
+    hoverHoldRef,
+    cancelPendingClose,
+    scheduleClose,
+  } = React.useContext(TooltipStateContext);
   const { delayDuration } = React.useContext(TooltipContext);
   const openTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -199,15 +218,15 @@ export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onFocus={(event) => {
-        triggerRef.current = event.currentTarget;
-        cancelPendingClose();
-        setOpen(true);
+          triggerRef.current = event.currentTarget;
+          cancelPendingClose();
+          setOpen(true);
         }}
         onBlur={() => {
-        // Focus left the trigger; let the close timer decide. The
-        // tooltip body is not focusable by default, so for a11y the
-        // focus path is straightforward: close on blur.
-        setOpen(false);
+          // Focus left the trigger; let the close timer decide. The
+          // tooltip body is not focusable by default, so for a11y the
+          // focus path is straightforward: close on blur.
+          setOpen(false);
         }}
       />
     );
@@ -324,7 +343,10 @@ export function TooltipContent({
         } else if (side === "bottom") {
           // Body top = top; clamp so body bottom <= viewport - margin.
           if (top + effectiveH > viewportH - VIEWPORT_MARGIN) {
-            top = Math.max(VIEWPORT_MARGIN, viewportH - VIEWPORT_MARGIN - effectiveH);
+            top = Math.max(
+              VIEWPORT_MARGIN,
+              viewportH - VIEWPORT_MARGIN - effectiveH,
+            );
           }
         } else {
           // left / right — Y is centered on `top`. Clamp so the
@@ -338,10 +360,7 @@ export function TooltipContent({
       }
 
       if (contentW > 0) {
-        const effectiveW = Math.min(
-          contentW,
-          viewportW - 2 * VIEWPORT_MARGIN,
-        );
+        const effectiveW = Math.min(contentW, viewportW - 2 * VIEWPORT_MARGIN);
 
         if (side === "top" || side === "bottom") {
           const half = effectiveW / 2;
@@ -374,13 +393,13 @@ export function TooltipContent({
     const raf = requestAnimationFrame(updatePosition);
 
     // Update position on scroll/resize
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
     };
   }, [open, side, sideOffset, triggerRef]);
 
@@ -433,7 +452,7 @@ export function TooltipContent({
         side === "bottom" && "-translate-x-1/2",
         side === "left" && "-translate-x-full -translate-y-1/2",
         side === "right" && "-translate-y-1/2",
-        className
+        className,
       )}
       style={{
         top: `${position.top}px`,
@@ -446,7 +465,7 @@ export function TooltipContent({
   );
 
   // Use portal to render outside overflow containers
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return createPortal(content, document.body);
   }
 

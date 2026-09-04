@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -29,7 +29,7 @@ from deepagents.backends.store import StoreBackend
 from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from jinja2 import ChainableUndefined, TemplateSyntaxError
-from jinja2.sandbox import SandboxedEnvironment, SecurityError
+from jinja2.sandbox import ImmutableSandboxedEnvironment, SecurityError
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.store.memory import InMemoryStore
@@ -74,6 +74,7 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
     mcp_credential_connect_warning,
+    pin_datasource_filters,
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
@@ -94,18 +95,6 @@ if TYPE_CHECKING:
     from dynamic_agents.services.stream_encoders import StreamEncoder
 
 logger = logging.getLogger(__name__)
-
-
-def _public_client_context(client_context: ClientContext | None) -> dict[str, Any]:
-    """Remove BFF-only authorization proof before exposing context to an LLM/tool."""
-
-    if not client_context:
-        return {}
-    return {
-        key: value
-        for key, value in client_context.model_dump().items()
-        if not key.startswith("_caipe_")
-    }
 
 
 @dataclass
@@ -163,7 +152,7 @@ def _with_general_purpose_tool_result_recovery(
 # - ChainableUndefined: missing/nested keys return "" instead of raising.
 # - Built-in globals stripped: agent prompts only need conditionals and
 #   variable interpolation, not lipsum(), cycler(), namespace(), etc.
-_jinja_env = SandboxedEnvironment(undefined=ChainableUndefined)
+_jinja_env = ImmutableSandboxedEnvironment(undefined=ChainableUndefined)
 _jinja_env.globals = {}
 
 
@@ -209,7 +198,7 @@ def _render_system_prompt(
         SystemPromptRenderError: If the template has syntax errors,
             attempts unsafe attribute access, or otherwise fails to render.
     """
-    ctx = _public_client_context(client_context)
+    ctx = client_context.model_dump() if client_context else {}
     user_ctx = user.model_dump(exclude={"raw_claims"}) if user else {}
     try:
         template = _jinja_env.from_string(template_str)
@@ -639,6 +628,7 @@ class AgentRuntime:
                 config.name,
             )
         self._session_id = session_id
+
         self._graph = None
         # Attachment blob store, built lazily on first use (see
         # ``attachment_store``). Shared between the write path (upload bytes,
@@ -734,6 +724,25 @@ class AgentRuntime:
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
 
+    def _rag_datasource_provider(
+        self,
+        config: DynamicAgentConfig,
+    ) -> Callable[[], list[str]] | None:
+        """Return a fail-closed live collection-membership resolver."""
+        if not config.rag_collection_ids:
+            return None
+        if not self._mongo_service:
+            logger.warning(
+                "Agent '%s' has RAG collections but no MongoDB service; "
+                "only explicit datasource pins will be available",
+                config.name,
+            )
+            return lambda: list(config.datasource_ids or [])
+        return lambda: self._mongo_service.resolve_rag_datasource_ids(
+            config.rag_collection_ids or [],
+            config.datasource_ids,
+        )
+
     @staticmethod
     def _prompt_cache_enabled() -> bool:
         """Whether Bedrock prompt caching is on for this deployment.
@@ -818,29 +827,14 @@ class AgentRuntime:
 
         if not self.settings.credential_api_url or not self._auth_bearer:
             return None
-        client_context = self._client_context.model_dump() if self._client_context else {}
-        trusted_interaction = {
-            "token": str(client_context.get("_caipe_trusted_interaction") or ""),
-            "signature": str(client_context.get("_caipe_trusted_interaction_signature") or ""),
-        }
         return CredentialExchangeClient(
             base_url=self.settings.credential_api_url,
             audience=self.settings.credential_service_audience,
             token_provider=lambda: self._auth_bearer or "",
-            trusted_interaction=trusted_interaction,
         )
 
-    def _trusted_interaction_headers(self) -> dict[str, str]:
-        return self._trusted_interaction
-
     def refresh_trusted_interaction(self, client_context: ClientContext | None) -> None:
-        """Refresh the signed web/DM proof used by long-lived MCP clients.
-
-        Agent runtimes and their HTTP clients are cached by conversation. The
-        BFF sends a new short-lived proof with every chat request, so update the
-        shared mapping in place. Existing httpx request hooks retain a reference
-        to this mapping and pick up the new proof without rebuilding MCP tools.
-        """
+        """Refresh the signed web/DM proof used by cached MCP clients."""
 
         context = client_context.model_dump() if client_context else {}
         self._trusted_interaction.update(
@@ -894,7 +888,6 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=self.config.id,
-                trusted_interaction=self._trusted_interaction_headers(),
             )
             cred_result = await resolve_mcp_connections_credential_refs(
                 self.mcp_servers,
@@ -943,6 +936,21 @@ class AgentRuntime:
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
+                # 1c. Pin RAG search-style tools to the agent's configured datasources.
+                #     The server independently intersects with the caller's RBAC-accessible
+                #     datasources, so this only narrows — it never grants access on its own.
+                datasource_provider = self._rag_datasource_provider(self.config)
+                static_datasource_ids = self.config.datasource_ids
+                if static_datasource_ids is None and self.config.rag_collection_ids is not None:
+                    static_datasource_ids = []
+                if static_datasource_ids is not None or datasource_provider is not None:
+                    tools = pin_datasource_filters(
+                        tools,
+                        static_datasource_ids,
+                        agent_name=self.config.name,
+                        datasource_ids_provider=datasource_provider,
+                    )
+
                 # Only report missing tools for servers that connected successfully
                 # (tools from failed servers are expected to be missing)
                 if missing:
@@ -960,7 +968,7 @@ class AgentRuntime:
                 )
 
         # 2. Add built-in tools
-        client_ctx = _public_client_context(self._client_context) or None
+        client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
         builtin_tool_names = {t.name for t in builtin_tools}
         if builtin_tools:
@@ -1138,7 +1146,7 @@ class AgentRuntime:
                     "agent_id": self.config.id,
                     "conv_id": self._session_id,
                     "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
-                    "client_context": _public_client_context(self._client_context) or None,
+                    "client_context": self._client_context.model_dump() if self._client_context else None,
                 },
                 workflow_labels=getattr(self, "_workflow_labels", None),
             )
@@ -1502,7 +1510,6 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=subagent_config.id,
-                trusted_interaction=self._trusted_interaction_headers(),
             )
             cred_result = await resolve_mcp_connections_credential_refs(
                 self.mcp_servers,
@@ -1531,10 +1538,21 @@ class AgentRuntime:
                     ]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                datasource_provider = self._rag_datasource_provider(subagent_config)
+                static_datasource_ids = subagent_config.datasource_ids
+                if static_datasource_ids is None and subagent_config.rag_collection_ids is not None:
+                    static_datasource_ids = []
+                if static_datasource_ids is not None or datasource_provider is not None:
+                    mcp_tools = pin_datasource_filters(
+                        mcp_tools,
+                        static_datasource_ids,
+                        agent_name=subagent_config.name,
+                        datasource_ids_provider=datasource_provider,
+                    )
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config
-        client_ctx = _public_client_context(self._client_context) or None
+        client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
         builtin_tool_names = {tool.name for tool in builtin_tools}
         if builtin_tools:

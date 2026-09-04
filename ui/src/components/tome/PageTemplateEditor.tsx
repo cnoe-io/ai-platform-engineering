@@ -332,7 +332,7 @@ export function PageTemplateEditor() {
                 <td className="px-3 py-2">
                   <Switch
                     checked={p.enabled !== false}
-                    onChange={(e) => updateRow(i, { enabled: e.target.checked })}
+                    onCheckedChange={(checked) => updateRow(i, { enabled: checked })}
                     className="mt-1.5"
                     aria-label="Templating enabled"
                     title={p.enabled === false ? "Templating disabled" : "Templating enabled"}

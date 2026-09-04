@@ -48,6 +48,14 @@ const BUILT_IN_APPS: BuiltInAppEntry[] = [
 
 const BUILT_IN_APP_IDS: readonly string[] = BUILT_IN_APPS.map((entry) => entry.manifest.id);
 
+// Historical LLM Wiki app. Its old browser route was `/apps/ttt`; the
+// current project wiki is served by TOME under `/projects/<slug>/tome`.
+const RETIRED_AGENTIC_APP_IDS = new Set(["ttt"]);
+
+export function isRetiredAgenticAppId(appId: string): boolean {
+  return RETIRED_AGENTIC_APP_IDS.has(appId.trim().toLowerCase());
+}
+
 export function getEnabledAgenticApps(): AgenticAppManifest[] {
   if (!isAgenticAppsInstallEnabled()) {
     return [];
@@ -56,6 +64,7 @@ export function getEnabledAgenticApps(): AgenticAppManifest[] {
   const enabledIds = parseEnabledAppIds(process.env.AGENTIC_APPS_ENABLED);
 
   return BUILT_IN_APPS.filter((entry) => {
+    if (isRetiredAgenticAppId(entry.manifest.id)) return false;
     if (!enabledIds.has(entry.manifest.id)) return false;
     if (isAppDisabledByEnv(entry.manifest.id)) return false;
     if (entry.isProductEnabled && !entry.isProductEnabled()) return false;
@@ -64,6 +73,7 @@ export function getEnabledAgenticApps(): AgenticAppManifest[] {
 }
 
 export function getAgenticAppById(appId: string): AgenticAppManifest | null {
+  if (isRetiredAgenticAppId(appId)) return null;
   return getEnabledAgenticApps().find((app) => app.id === appId) ?? null;
 }
 

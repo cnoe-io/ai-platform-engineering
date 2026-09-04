@@ -1,25 +1,17 @@
-// assisted-by Codex Codex-sonnet-4-6
-
-import { AuthGuard } from "@/components/auth-guard";
 import { notFound } from "next/navigation";
 
-import { AgenticAppShell } from "../AgenticAppShell";
+import { AgenticAppShell } from "@/components/agentic-apps/AgenticAppShell";
+import { AuthGuard } from "@/components/auth-guard";
+import { isAgenticAppsEnabled } from "@/lib/agentic-apps/config";
 
-interface AgenticAppPageProps {
+export default async function AgenticAppPage({
+  params,
+}: {
   params: Promise<{ appId: string; path?: string[] }>;
-}
-
-/**
- * Canonical CAIPE shell for proxied Agentic Apps.
- *
- * `/apps/<id>` and its deep links remain browser-visible while the iframe
- * talks to the private authenticated runtime gateway under `/api`.
- */
-export default async function AgenticAppPage({ params }: AgenticAppPageProps) {
+}): Promise<React.ReactElement> {
+  if (!isAgenticAppsEnabled()) notFound();
   const { appId, path = [] } = await params;
-  if (appId === "embed") {
-    notFound();
-  }
+  if (appId === "embed") notFound();
   return (
     <AuthGuard>
       <AgenticAppShell appId={appId} path={path} />

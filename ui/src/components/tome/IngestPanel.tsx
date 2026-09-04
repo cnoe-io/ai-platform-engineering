@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
+import Link from "next/link";
 import {
   CheckCircle2,
   ChevronDown,
@@ -941,12 +942,12 @@ export function IngestPanel({
                               ) : null}
                             </div>
                             {(noToken || accessIssue) && (
-                              <a
+                              <Link
                                 href="/credentials"
                                 className="shrink-0 text-xs text-primary hover:underline"
                               >
                                 {noToken ? "Connect →" : "Fix access →"}
-                              </a>
+                              </Link>
                             )}
                           </li>
                         );
@@ -1027,9 +1028,9 @@ export function IngestPanel({
                         ) : !meetings || meetings.length === 0 ? (
                           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
                             No meetings found. Connect Webex in
-                            <a href="/credentials" className="mx-1 underline">
+                            <Link href="/credentials" className="mx-1 underline">
                               /credentials
-                            </a>
+                            </Link>
                             if you haven&apos;t.
                           </div>
                         ) : filteredMeetings.length === 0 ? (

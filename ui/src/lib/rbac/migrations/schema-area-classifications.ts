@@ -148,10 +148,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Slack channel ReBAC migration target.",
   },
-  slack_link_nonces: {
-    classification: "metadata",
-    description: "Short-lived Slack account-linking nonce records.",
-  },
   slack_user_metrics: {
     classification: "baseline_v1",
     description: "Slack user linkage metrics.",
@@ -198,10 +194,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   users: {
     classification: "baseline_v1",
     description: "User identity records.",
-  },
-  webex_link_nonces: {
-    classification: "metadata",
-    description: "Short-lived Webex account-linking nonce records.",
   },
   webex_space_agent_routes: {
     classification: "baseline_v1",

@@ -52,7 +52,7 @@ export const GET = withErrorHandler(
       }
 
       if (
-        agent.visibility === "private"
+        (agent.visibility as string) === "private"
         && (typeof session.sub !== "string" || !isPrivateAgentOwner(agent, session.sub))
       ) {
         throw new ApiError("Agent not found", 404);

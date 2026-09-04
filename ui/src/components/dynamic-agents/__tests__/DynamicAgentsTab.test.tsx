@@ -3,6 +3,19 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 
 // assisted-by Codex Codex-sonnet-4-6
 
+const mockPush = jest.fn();
+const mockCreateConversation = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
+jest.mock("@/store/chat-store", () => ({
+  useChatStore: (selector: (state: unknown) => unknown) => selector({
+    createConversation: mockCreateConversation,
+  }),
+}));
+
 // DynamicAgentEditor pulls in react-markdown/react-syntax-highlighter, which
 // is unrelated to search/pagination and breaks jsdom module transforms.
 jest.mock("../DynamicAgentEditor", () => ({
@@ -48,12 +61,6 @@ function makeAgent(overrides: Partial<DynamicAgentConfigWithPermissions> = {}): 
     ui: { gradient_theme: "default" },
     enabled: true,
     owner_id: "user-1",
-    creator_id: "creator@example.test",
-    creator: {
-      label: "Example Creator",
-      name: "Example Creator",
-      email: "creator@example.test",
-    },
     is_system: false,
     created_at: "2026-05-01T00:00:00Z",
     updated_at: "2026-05-01T00:00:00Z",
@@ -73,6 +80,9 @@ describe("DynamicAgentsTab search + pagination", () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    mockPush.mockReset();
+    mockCreateConversation.mockReset();
+    mockCreateConversation.mockResolvedValue("conversation-1");
     fetchMock = jest.fn(() => {
       return Promise.resolve(
         jsonResponse({
@@ -88,6 +98,32 @@ describe("DynamicAgentsTab search + pagination", () => {
     jest.useRealTimers();
   });
 
+  it("shows agent-shaped rows while the list is loading", async () => {
+    let resolveFetch!: (response: Response) => void;
+    fetchMock.mockImplementation(
+      () => new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    render(<DynamicAgentsTab />);
+
+    expect(screen.getByTestId("agents-list-skeleton")).toBeInTheDocument();
+    expect(screen.getByText("Loading agents...")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFetch(jsonResponse({
+        success: true,
+        data: { items: [makeAgent()], total: 1 },
+      }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("agents-list-skeleton")).not.toBeInTheDocument();
+    });
+  });
+
   it("fetches agents on mount with default page and page_size params", async () => {
     render(<DynamicAgentsTab />);
 
@@ -100,12 +136,16 @@ describe("DynamicAgentsTab search + pagination", () => {
     });
   });
 
-  it("shows who created each agent without exposing an identity subject", async () => {
+  it("starts a chat with the selected row's agent", async () => {
     render(<DynamicAgentsTab />);
 
-    expect(await screen.findByText("Created by")).toBeInTheDocument();
-    expect(await screen.findByText("Example Creator")).toBeInTheDocument();
-    expect(await screen.findByText("creator@example.test")).toBeInTheDocument();
+    const chatButton = await screen.findByRole("button", { name: "Chat with Ops Helper" });
+    fireEvent.click(chatButton);
+
+    await waitFor(() => {
+      expect(mockCreateConversation).toHaveBeenCalledWith("agent-1");
+      expect(mockPush).toHaveBeenCalledWith("/chat/conversation-1");
+    });
   });
 
   it("debounces search input and calls fetch with the search param after 300ms", async () => {
@@ -199,73 +239,6 @@ describe("DynamicAgentsTab search + pagination", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/dynamic-agents?page=2&page_size=20");
     });
-  });
-
-  it.each([
-    ["Name", "name", "desc"],
-    ["Visibility", "visibility", "asc"],
-    ["Tools", "tools", "asc"],
-    ["Grade", "grade", "asc"],
-    ["Status", "status", "asc"],
-  ])(
-    "sorts by %s across the server-side result set",
-    async (label, sortBy, sortOrder) => {
-      render(<DynamicAgentsTab />);
-
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      fetchMock.mockClear();
-      fireEvent.click(screen.getByRole("button", {
-        name: `Sort by ${label} ${sortOrder === "asc" ? "ascending" : "descending"}`,
-      }));
-
-      await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          `/api/dynamic-agents?page=1&page_size=20&sort_by=${sortBy}&sort_order=${sortOrder}`,
-        );
-      });
-    },
-  );
-
-  it("toggles the active sort direction and exposes it to assistive technology", async () => {
-    render(<DynamicAgentsTab />);
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
-      "aria-sort",
-      "ascending",
-    );
-
-    fetchMock.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Sort by Name descending" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/dynamic-agents?page=1&page_size=20&sort_by=name&sort_order=desc",
-      );
-    });
-    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
-      "aria-sort",
-      "descending",
-    );
-
-    fetchMock.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Sort by Name ascending" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/dynamic-agents?page=1&page_size=20",
-      );
-    });
-    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
-      "aria-sort",
-      "ascending",
-    );
   });
 
   it("calls fetch with the updated page_size and resets to page 1 when rows-per-page changes", async () => {
@@ -385,6 +358,33 @@ describe("DynamicAgentsTab search + pagination", () => {
     expect(onSelectedAgentChange).toHaveBeenCalledWith(null);
   });
 
+  it("shows an editor-shaped skeleton while a directly linked agent loads", async () => {
+    let resolveAgent!: (response: Response) => void;
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/dynamic-agents/agents/agent-1") {
+        return new Promise<Response>((resolve) => {
+          resolveAgent = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({ success: true, data: { items: [makeAgent()], total: 1 } }),
+      );
+    });
+
+    render(<DynamicAgentsTab selectedAgentId="agent-1" />);
+
+    expect(screen.getByTestId("agent-editor-skeleton")).toBeInTheDocument();
+    expect(screen.getByText("Loading agent...")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveAgent(jsonResponse({ success: true, data: makeAgent() }));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByTestId("dynamic-agent-editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-editor-skeleton")).not.toBeInTheDocument();
+  });
+
   it("keeps the selected row open when the page adds the agent ID to the URL", async () => {
     const onSelectedAgentChange = jest.fn();
     const { rerender } = render(
@@ -412,5 +412,38 @@ describe("DynamicAgentsTab search + pagination", () => {
       "data-agent-id",
       "agent-1",
     );
+  });
+  it("no longer renders the autonomous enablement or task controls", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          items: [
+            makeAgent({
+              _id: "deploy-agent",
+              name: "Deploy Agent",
+              owner_team_slug: "primary",
+              permissions: {
+                can_manage: true,
+                can_write: true,
+                can_discover: true,
+              },
+            }),
+          ],
+          total: 1,
+        },
+      }),
+    );
+
+    render(<DynamicAgentsTab />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByText("Deploy Agent")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/enable autonomous/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/disable autonomous/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/autonomous status/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/manage autonomous tasks/i)).not.toBeInTheDocument();
   });
 });

@@ -29,6 +29,15 @@ jest.mock("@/lib/tome/chat-run-store", () => ({
   finishChatRun: (...args: unknown[]) => mockFinishChatRun(...args),
   markChatRunRunning: (...args: unknown[]) => mockMarkChatRunRunning(...args),
 }));
+jest.mock("@/lib/tome/github-issue-scope", () => ({
+  readableTomeRollupProjects: jest.fn().mockResolvedValue([]),
+  resolveTomeGitHubCredential: jest.fn().mockResolvedValue(null),
+  rollupGitHubRepos: jest.fn().mockResolvedValue([]),
+}));
+jest.mock("@/lib/tome/github-issue-cache", () => ({
+  buildTomeIssueContext: jest.fn().mockResolvedValue(undefined),
+  loadTomeIssueCache: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock("@/lib/metrics", () => ({
   getMetrics: () => ({ tomeActiveChatSessions: {} }),
   trackActiveStream: (body: ReadableStream<Uint8Array>) => body,

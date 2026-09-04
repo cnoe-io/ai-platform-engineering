@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { getProjectsNavigationLabel } from "@/lib/navigation-labels";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
@@ -220,7 +221,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Projects
+        {getProjectsNavigationLabel()}
       </Link>
 
       <header className="flex flex-wrap items-start justify-between gap-4">

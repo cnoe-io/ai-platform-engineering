@@ -28,8 +28,7 @@ export interface JWTIdentity {
   groups: string[];
   /** Stable subject identifier from the JWT (`sub` claim). */
   sub?: string;
-  /** Present on local skills API tokens — looked up against the key registry
-   *  (see ui/src/lib/skills-api-keys.ts) to enforce revocation. */
+  /** Present on local skills API tokens and used by the key registry for revocation. */
   jti?: string;
   /**
    * True when the token was minted via the OAuth2 client-credentials grant
@@ -167,21 +166,8 @@ export async function validateBearerJWT(
   const issuer = process.env.OIDC_ISSUER;
 
   if (!issuer) {
-    throw new Error('OIDC_ISSUER is not configured; Bearer JWT validation is unavailable');
+    throw new Error('OIDC_ISSUER is not configured — Bearer JWT validation is unavailable');
   }
-
-  // Accept tokens from additional issuers when explicitly configured. Needed
-  // when the same realm is reachable under more than one issuer URL, e.g. the
-  // MCP OAuth/PKCE flow runs against the public Keycloak hostname while the UI
-  // validates against the in-cluster one. `jose` treats an issuer array as
-  // "the token's `iss` MUST match one of these". Defaults to the single
-  // OIDC_ISSUER, so behavior is unchanged unless OIDC_ACCEPTED_ISSUERS is set.
-  const acceptedIssuers: string[] = [issuer];
-  for (const i of (process.env.OIDC_ACCEPTED_ISSUERS || '').split(',').map((s) => s.trim()).filter(Boolean)) {
-    if (!acceptedIssuers.includes(i)) acceptedIssuers.push(i);
-  }
-  const issuerOption: string | string[] =
-    acceptedIssuers.length === 1 ? acceptedIssuers[0] : acceptedIssuers;
 
   const jwks = await getJWKS();
   // Build the accepted audience list. `jose.jwtVerify` treats an array as
@@ -216,10 +202,10 @@ export async function validateBearerJWT(
 
   try {
     const { payload } = await jwtVerify(token, jwks, {
-      issuer: issuerOption,
+      issuer,
       audience,
     });
-    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${acceptedIssuers.join(',')})`);
+    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${issuer})`);
     return extractIdentity(payload);
   } catch (primaryError) {
     // Only fall back to additional JWKS on key-not-found errors.
@@ -356,8 +342,7 @@ export async function signLocalSkillsToken(
   const expSeconds = parseExpiry(expiresIn);
   const stableSubject = subject ?? email;
   // Before subject binding was added, the fourth argument was the token ID.
-  // Reuse an explicitly supplied subject as the ID when no fifth argument is
-  // present so existing callers remain revocable during the transition.
+  // Reuse it as the ID when no fifth argument is present for compatibility.
   const tokenId = jti ?? subject ?? randomUUID();
 
   return new SignJWT({

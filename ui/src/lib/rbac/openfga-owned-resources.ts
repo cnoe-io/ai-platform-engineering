@@ -38,8 +38,14 @@ function ownerPrincipal(
 interface OwnedResourceInput {
   ownerSubject?: string | null;
   ownerSubjectKind?: OwnerSubjectKind;
+  /** Previous personal owner to revoke during an explicit ownership transfer. */
+  previousOwnerSubject?: string | null;
+  previousOwnerSubjectKind?: OwnerSubjectKind;
   ownerTeamSlug?: string | null;
-  previousOwnerTeamSlug?: string | null;
+  /** Whether the resource retains a direct personal-owner grant. */
+  personalOwnerAccess?: boolean;
+  /** Whether the previous state had a direct personal-owner grant. */
+  previousPersonalOwnerAccess?: boolean;
   /**
    * Keycloak `sub` of the creator. Written once as an audit-only
    * `user:<sub> creator <type>:<id>` tuple and never deleted (spec
@@ -47,14 +53,13 @@ interface OwnedResourceInput {
    * track provenance are unaffected.
    */
   creatorSubject?: string | null;
-  personalOwnerAccess?: boolean;
-  previousPersonalOwnerAccess?: boolean;
 }
 
 export interface McpServerRelationshipInput extends OwnedResourceInput {
   serverId: string;
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
+  previousOwnerTeamSlug?: string | null;
   /** Grant organization members discovery/use access to a global server. */
   globalOrganizationAccess?: boolean;
   /** Revoke the prior organization-member grant when demoting from global. */
@@ -139,9 +144,8 @@ export interface IngestionSourceRelationshipInput extends OwnedResourceInput {
 export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
   knowledgeBaseId: string;
   /**
-   * Desired set of team slugs that should have read+manage on this KB in
-   * addition to the owner team. Mirrors the Agent editor's "Share with
-   * Teams" multi-select (`reconcileAgentRelationships`). Invalid slugs are
+   * Desired set of team slugs that should have read-only Search access on
+   * this KB in addition to the owner. Invalid slugs are
    * silently dropped; duplicates are deduped. When omitted, only the owner
    * team is granted.
    */
@@ -154,6 +158,16 @@ export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
    * a dangling tuple.
    */
   previousSharedTeamSlugs?: readonly string[] | null;
+  /** Desired direct-user Search grants (Keycloak subjects). */
+  nextSharedUserSubjects?: readonly string[] | null;
+  /** Previously persisted direct-user grants, used to emit revocations. */
+  previousSharedUserSubjects?: readonly string[] | null;
+  /**
+   * Set only while cleaning a legacy projection in which search-only team
+   * admins also received `manager`. New Search Access policies leave this
+   * false, keeping repeated diffs idempotent.
+   */
+  previousSharedTeamAdminsManage?: boolean;
   /**
    * Previous owner-team slug, if it differed from the new owner. Allows
    * deleting the old owner-team grant when the KB is transferred to a
@@ -208,6 +222,10 @@ export interface TeamGrantTuplesInput {
   previousOwnerTeamSlug?: string | null;
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
+  /** Whether admins of shared (non-owner) teams receive `manager`. */
+  sharedTeamAdminsManage?: boolean;
+  /** Whether the previous shared-team projection included `manager`. */
+  previousSharedTeamAdminsManage?: boolean;
 }
 
 /**
@@ -241,6 +259,7 @@ export function buildTeamGrantTuples(
 
   const nextSharedSlugs = normalizeTeamSlugs(input.nextSharedTeamSlugs);
   const previousSharedSlugs = normalizeTeamSlugs(input.previousSharedTeamSlugs);
+  const sharedTeamAdminsManage = input.sharedTeamAdminsManage !== false;
 
   // Effective desired team slugs = owner ∪ shared. Union semantics mean an
   // owner team that also appears in the shared list neither double-writes nor
@@ -249,30 +268,47 @@ export function buildTeamGrantTuples(
   if (nextOwnerSlug) nextEffective.add(nextOwnerSlug);
   for (const slug of nextSharedSlugs) nextEffective.add(slug);
 
+  const nextManagers = new Set<string>();
+  if (nextOwnerSlug) nextManagers.add(nextOwnerSlug);
+  if (sharedTeamAdminsManage) {
+    for (const slug of nextSharedSlugs) nextManagers.add(slug);
+  }
   for (const slug of nextEffective) {
     for (const relation of memberRelations) {
       writes.push({ user: `team:${slug}#member`, relation, object });
     }
-    writes.push({ user: `team:${slug}#admin`, relation: "manager", object });
+    if (nextManagers.has(slug)) {
+      writes.push({ user: `team:${slug}#admin`, relation: "manager", object });
+    }
   }
 
   const previousEffective = new Set<string>();
   if (previousOwnerSlug) previousEffective.add(previousOwnerSlug);
   for (const slug of previousSharedSlugs) previousEffective.add(slug);
 
+  const previousManagers = new Set<string>();
+  if (previousOwnerSlug) previousManagers.add(previousOwnerSlug);
+  const previousSharedTeamAdminsManage =
+    input.previousSharedTeamAdminsManage ?? sharedTeamAdminsManage;
+  if (previousSharedTeamAdminsManage) {
+    for (const slug of previousSharedSlugs) previousManagers.add(slug);
+  }
   for (const slug of previousEffective) {
-    if (nextEffective.has(slug)) continue;
-    for (const relation of memberRelations) {
-      deletes.push({ user: `team:${slug}#member`, relation, object });
+    if (!nextEffective.has(slug)) {
+      for (const relation of memberRelations) {
+        deletes.push({ user: `team:${slug}#member`, relation, object });
+      }
     }
-    deletes.push({ user: `team:${slug}#admin`, relation: "manager", object });
+    if (previousManagers.has(slug) && !nextManagers.has(slug)) {
+      deletes.push({ user: `team:${slug}#admin`, relation: "manager", object });
+    }
   }
 
   return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
 
 /**
- * Canonical input for any group-owned, share-with-teams resource. See
+ * Canonical input for any person/team-owned, shareable resource. See
  * `docs/docs/specs/2026-06-03-unified-shareable-resource-rbac/contracts/reconciler-and-route.md`
  * (R1).
  */
@@ -284,11 +320,22 @@ export interface ShareableResourceInput {
   /** Optional personal/service-account owner subject → `<kind>:<sub> owner <type>:<id>`. */
   ownerSubject?: string | null;
   ownerSubjectKind?: OwnerSubjectKind;
+  /** Previous personal/service-account owner to revoke during a transfer. */
+  previousOwnerSubject?: string | null;
+  previousOwnerSubjectKind?: OwnerSubjectKind;
   ownerTeamSlug?: string | null;
   /** Transfer: revokes the old owner team's grants when it differs from `ownerTeamSlug`. */
   previousOwnerTeamSlug?: string | null;
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
+  /** Direct user grants. These receive the same member relations as teams. */
+  nextSharedUserSubjects?: readonly string[] | null;
+  /** Prior direct user grants, so removing a person emits tuple deletes. */
+  previousSharedUserSubjects?: readonly string[] | null;
+  /** Whether admins of shared (non-owner) teams receive `manager`. */
+  sharedTeamAdminsManage?: boolean;
+  /** Whether admins in the previous shared set received `manager`. */
+  previousSharedTeamAdminsManage?: boolean;
   /** Member relations beyond the default `reader` — e.g. `["ingestor"]`, `["user"]`. */
   extraMemberRelations?: readonly string[];
   /** Override the member-relation set entirely (agent uses `["user"]`, not `reader`+extras). */
@@ -331,6 +378,14 @@ export function buildShareableResourceTupleDiff(
   if (ownerUser) {
     writes.push({ user: ownerUser, relation: "owner", object });
   }
+  const previousOwnerUser = ownerPrincipal(
+    input.previousOwnerSubject,
+    input.previousOwnerSubjectKind,
+  );
+  const deletes: OpenFgaTupleKey[] = [];
+  if (previousOwnerUser && previousOwnerUser !== ownerUser) {
+    deletes.push({ user: previousOwnerUser, relation: "owner", object });
+  }
 
   // 3. owner-team + shared-team grants (the shared primitive).
   const memberRelations =
@@ -344,11 +399,39 @@ export function buildShareableResourceTupleDiff(
     previousOwnerTeamSlug: input.previousOwnerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
+    sharedTeamAdminsManage: input.sharedTeamAdminsManage,
+    previousSharedTeamAdminsManage: input.previousSharedTeamAdminsManage,
   });
   writes.push(...teamGrants.writes);
-  const deletes: OpenFgaTupleKey[] = [...teamGrants.deletes];
+  deletes.push(...teamGrants.deletes);
 
-  // 4. organization-wide grant (opt-in; only emitted when the flag is
+  // 4. optional direct-user grants. Personal ownership is already sufficient
+  // for the owner, so do not duplicate reader/ingestor tuples for that user.
+  // Keeping this in the shared primitive gives RAG one reconciliation path for
+  // team and individual Search Access while leaving other resource types
+  // byte-for-byte unchanged when these inputs are omitted.
+  const ownerUserSubject =
+    input.ownerSubjectKind === undefined || input.ownerSubjectKind === "user"
+      ? input.ownerSubject?.trim() || null
+      : null;
+  const nextUserSubjects = normalizeTeamSlugs(input.nextSharedUserSubjects).filter(
+    (subject) => subject !== ownerUserSubject,
+  );
+  const previousUserSubjects = normalizeTeamSlugs(input.previousSharedUserSubjects);
+  const nextUserSet = new Set(nextUserSubjects);
+  for (const subject of nextUserSubjects) {
+    for (const relation of memberRelations) {
+      writes.push({ user: `user:${subject}`, relation, object });
+    }
+  }
+  for (const subject of previousUserSubjects) {
+    if (nextUserSet.has(subject)) continue;
+    for (const relation of memberRelations) {
+      deletes.push({ user: `user:${subject}`, relation, object });
+    }
+  }
+
+  // 5. organization-wide grant (opt-in; only emitted when the flag is
   // involved so other types stay byte-for-byte unchanged). Org members get the
   // same member relations as a shared team (reader/user/caller for mcp_tool).
   if (input.sharedWithOrg === true || input.previousSharedWithOrg === true) {
@@ -364,7 +447,7 @@ export function buildShareableResourceTupleDiff(
     }
   }
 
-  // 5. data_source inheritance edge (the model's first tuple-to-userset).
+  // 6. data_source inheritance edge (the model's first tuple-to-userset).
   if (
     input.parentKnowledgeBaseId &&
     isValidOpenFgaId(input.parentKnowledgeBaseId)
@@ -375,6 +458,7 @@ export function buildShareableResourceTupleDiff(
       object,
     });
   }
+
   // creator and parent_kb are never in a delete set — only team + org grants are.
   return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
@@ -540,27 +624,66 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
   if (!isValidOpenFgaId(input.knowledgeBaseId)) {
     throw new Error(`Invalid OpenFGA knowledge base id: ${input.knowledgeBaseId}`);
   }
-  // Thin adapter over the shared core (FR-003): a KB member gets
-  // `reader` + `ingestor`; the diff order (owner-subject → reader →
-  // ingestor → manager) is preserved by `buildShareableResourceTupleDiff`.
-  return buildShareableResourceTupleDiff({
+  // Search audiences are query-only. `ingestor` remains in the model for
+  // trusted ingestion identities and legacy transports, but sharing a data
+  // source never grants it. Owner lifecycle authority comes from the
+  // independent ingestion_source graph.
+  const diff = buildShareableResourceTupleDiff({
     objectType: "knowledge_base",
     objectId: input.knowledgeBaseId,
     creatorSubject: input.creatorSubject,
     ownerSubject: input.ownerSubject,
+    previousOwnerSubject: input.previousOwnerSubject,
+    previousOwnerSubjectKind: input.previousOwnerSubjectKind,
+    ownerSubjectKind: input.ownerSubjectKind,
     ownerTeamSlug: input.ownerTeamSlug,
     previousOwnerTeamSlug: input.previousOwnerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
-    extraMemberRelations: ["ingestor"],
+    nextSharedUserSubjects: input.nextSharedUserSubjects,
+    previousSharedUserSubjects: input.previousSharedUserSubjects,
+    sharedTeamAdminsManage: false,
+    previousSharedTeamAdminsManage: input.previousSharedTeamAdminsManage,
   });
+
+  // During development this branch briefly projected Search as
+  // reader+ingestor. Reconciliation is also our local-data cleanup path: any
+  // audience represented by the persisted desired/previous policy loses that
+  // stale direct ingestor tuple. OpenFGA filters no-op deletes, so this remains
+  // safe and idempotent for fresh installations and is not a migration.
+  const staleTeamSlugs = normalizeTeamSlugs([
+    ...(input.nextSharedTeamSlugs ?? []),
+    ...(input.previousSharedTeamSlugs ?? []),
+    ...(input.ownerTeamSlug ? [input.ownerTeamSlug] : []),
+    ...(input.previousOwnerTeamSlug ? [input.previousOwnerTeamSlug] : []),
+  ]);
+  const staleUserSubjects = normalizeTeamSlugs([
+    ...(input.nextSharedUserSubjects ?? []),
+    ...(input.previousSharedUserSubjects ?? []),
+  ]);
+  const object = `knowledge_base:${input.knowledgeBaseId}`;
+  return {
+    writes: diff.writes,
+    deletes: uniqueTuples([
+      ...diff.deletes,
+      ...staleTeamSlugs.map((slug) => ({
+        user: `team:${slug}#member`,
+        relation: "ingestor",
+        object,
+      })),
+      ...staleUserSubjects.map((subject) => ({
+        user: `user:${subject}`,
+        relation: "ingestor",
+        object,
+      })),
+    ]),
+  };
 }
 
 /**
  * Build a data_source tuple diff with the same owner + shared-teams
- * semantics as `buildKnowledgeBaseRelationshipTupleDiff`. The relation
- * pair on a shared team is the same (`team:<slug>#member reader`,
- * `team:<slug>#admin manager`) — see [deploy/openfga/model.fga] for
+ * semantics as `buildKnowledgeBaseRelationshipTupleDiff`. See
+ * [deploy/openfga/model.fga] for
  * the `data_source` type definition.
  */
 export function buildDataSourceRelationshipTupleDiff(
@@ -574,6 +697,9 @@ export function buildDataSourceRelationshipTupleDiff(
     objectId: input.dataSourceId,
     creatorSubject: input.creatorSubject,
     ownerSubject: input.ownerSubject,
+    previousOwnerSubject: input.previousOwnerSubject,
+    previousOwnerSubjectKind: input.previousOwnerSubjectKind,
+    ownerSubjectKind: input.ownerSubjectKind,
     ownerTeamSlug: input.ownerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
@@ -607,6 +733,9 @@ export function buildMcpToolRelationshipTupleDiff(
     objectId: input.toolId,
     creatorSubject: input.creatorSubject,
     ownerSubject: input.ownerSubject,
+    previousOwnerSubject: input.previousOwnerSubject,
+    previousOwnerSubjectKind: input.previousOwnerSubjectKind,
+    ownerSubjectKind: input.ownerSubjectKind,
     ownerTeamSlug: input.ownerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
@@ -638,6 +767,9 @@ export function buildIngestionSourceRelationshipTupleDiff(
     objectId: input.sourceId,
     creatorSubject: input.creatorSubject,
     ownerSubject: input.ownerSubject,
+    previousOwnerSubject: input.previousOwnerSubject,
+    previousOwnerSubjectKind: input.previousOwnerSubjectKind,
+    ownerSubjectKind: input.ownerSubjectKind,
     ownerTeamSlug: input.ownerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,

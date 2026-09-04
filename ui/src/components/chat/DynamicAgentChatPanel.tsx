@@ -26,6 +26,7 @@ import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { buildContextGroundedMessage } from "@/lib/chat-client-context";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -2035,13 +2036,13 @@ export function ChatPanel({
               )}
             </div>
             {readOnlyReason === 'admin_audit' ? (
-            <a
+            <Link
               href="/admin?tab=feedback"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
               Back to Feedback
-            </a>
+            </Link>
             ) : (readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled') ? (
             <div className="flex items-center gap-2 flex-wrap">
               {showAgentPicker ? (

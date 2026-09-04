@@ -42,9 +42,10 @@ const nextConfig: NextConfig = {
   // HTTP security headers — applied to all responses
   headers: async () => [
     {
-      // All routes except the private Agentic App runtime gateway. Canonical
-      // /apps/* pages are top-level CAIPE shells and remain clickjacking-protected.
-      source: '/((?!api/agentic-apps/runtime/).*)',
+      // External App responses arrive on their canonical /apps/* URLs after
+      // an internal proxy rewrite. Keep every route outside that surface and
+      // the private runtime gateway unframeable.
+      source: '/((?!apps(?:/|$)|api/agentic-apps/runtime/).*)',
       headers: [
         { key: 'X-Frame-Options', value: 'DENY' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -69,15 +70,46 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      // Only the private same-origin runtime gateway is iframe-embeddable.
-      // SAMEORIGIN keeps the microfrontend usable without allowing third-party
-      // sites to frame authenticated Agentic App content.
+      source: '/apps/:path*',
+      headers: [
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+        { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        {
+          key: 'Content-Security-Policy-Report-Only',
+          value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob: https:",
+            "font-src 'self' data:",
+            "connect-src 'self' wss: https:",
+            "frame-ancestors 'self'",
+          ].join('; '),
+        },
+      ],
+    },
+    {
       source: '/api/agentic-apps/runtime/(.*)',
       headers: [
         { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        {
+          key: 'Content-Security-Policy-Report-Only',
+          value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob: https:",
+            "font-src 'self' data:",
+            "connect-src 'self' wss: https:",
+            "frame-ancestors 'self'",
+          ].join('; '),
+        },
       ],
     },
   ],

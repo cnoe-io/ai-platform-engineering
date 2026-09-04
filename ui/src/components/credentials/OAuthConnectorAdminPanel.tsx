@@ -4,6 +4,7 @@ import React from "react";
 
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 
 interface OAuthConnectorMetadata {
@@ -255,7 +256,7 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
               {registrationMode === "manual" || editingConnector ? (
               <label className="space-y-1 text-sm md:col-span-2">
                 <span>Built-in template</span>
-                <select
+                <Select
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
                   defaultValue=""
                   onChange={applyBuiltInTemplate}
@@ -266,7 +267,7 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                       {descriptor.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               ) : null}
               <label className="space-y-1 text-sm">

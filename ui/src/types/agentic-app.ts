@@ -87,6 +87,9 @@ export interface AgenticAppPdpPolicyAction {
   casAction?: AgenticAppCasAction;
 }
 
+/** Canonical hosted-app policy name used by the deployment-owned catalog. */
+export type AgenticAppPolicyAction = AgenticAppPdpPolicyAction;
+
 /** Per-environment install / enable flags (Mongo implementation in a later task). */
 export interface AgenticAppInstallationRecord {
   appId: string;
@@ -241,7 +244,7 @@ export interface AgenticAppManifest {
     eventChannels?: string[];
     mongoCollections?: string[];
   };
-  health: {
+  health?: {
     endpoint: string;
     timeoutMs?: number;
     blockLaunchWhen?: AgenticAppHealthStatus[];
@@ -337,4 +340,34 @@ export interface AgenticAppAuditEventRecord {
   outcome?: string;
   reasonCode?: string;
   payload?: Record<string, unknown>;
+}
+
+/** Deployment-owned installation shape used by the upstream hosted-app runtime. */
+export interface AgenticAppInstallation {
+  appId: string;
+  packageId: string;
+  installed: boolean;
+  enabled: boolean;
+  visible: boolean;
+  runtimeMountPath?: string;
+  runtimeOriginOverride?: string;
+  accessOverrides?: {
+    requiredRoles?: string[];
+  };
+}
+
+export interface ConfiguredAgenticApp {
+  manifest: AgenticAppManifest;
+  installation: AgenticAppInstallation;
+}
+
+export interface PublicAgenticApp {
+  appId: string;
+  displayName: string;
+  description: string;
+  href: string;
+  canLaunch: boolean;
+  blockedReasons: string[];
+  categories: string[];
+  capabilities: string[];
 }

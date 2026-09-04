@@ -39,6 +39,11 @@ import {
   type ShareableResourceInput,
 } from "./openfga-owned-resources";
 import { openFgaResourceId } from "./openfga-resource-ids";
+import {
+  isEveryoneKnowledgeAudience,
+  reconcileExistingUnlinkedKnowledgeAccess,
+  withUnlinkedEveryoneKnowledgeAccess,
+} from "./unlinked-knowledge-access";
 
 export { OpenFgaReconcileRequiredError } from "@/lib/authz";
 
@@ -81,11 +86,6 @@ async function reconcileOwnedResource(
  * `team:<slug>` member usersets that opted into the all-MCP-servers wildcard,
  * read from the `tool:*` sentinel (the single source of truth now that the
  * `team.resources.tool_wildcard` flag is gone). Returns slugs only.
- *
- * `tool:*` is a full object (type "tool", id "*"), which OpenFGA's /read
- * accepts fine with no `user` — server-side tuple_key filtering here was
- * never the bug (the actual 400 came from a `user`-only filter elsewhere,
- * see access.ts's readAllTuples).
  */
 async function listToolWildcardTeamSlugs(): Promise<string[]> {
   const slugs = new Set<string>();
@@ -227,7 +227,26 @@ export async function reconcileConfigDrivenLlmModelRelationships(
 export async function reconcileKnowledgeBaseRelationships(
   input: KnowledgeBaseRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildKnowledgeBaseRelationshipTupleDiff(input));
+  const previousEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.previousSharedTeamSlugs,
+  );
+  const nextEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.nextSharedTeamSlugs,
+  );
+  const diff = await withUnlinkedEveryoneKnowledgeAccess(
+    {
+      type: "datasource",
+      id: input.knowledgeBaseId,
+      previousEveryoneAccess,
+      nextEveryoneAccess,
+    },
+    buildKnowledgeBaseRelationshipTupleDiff(input),
+  );
+  const result = await reconcileOwnedResource(diff);
+  if (previousEveryoneAccess && !nextEveryoneAccess) {
+    await reconcileExistingUnlinkedKnowledgeAccess();
+  }
+  return result;
 }
 
 export async function reconcileDataSourceRelationships(
@@ -248,6 +267,57 @@ export async function reconcileIngestionSourceRelationships(
   return reconcileOwnedResource(buildIngestionSourceRelationshipTupleDiff(input));
 }
 
+async function deleteAllRelationshipTuplesForObject(
+  object: string,
+  source: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  if (!isOpenFgaReconciliationEnabled()) {
+    throw new OpenFgaReconcileRequiredError();
+  }
+
+  const deletes = await readAllTuplesForObject(object);
+  const diff = { writes: [] as OpenFgaTupleKey[], deletes: uniqueTuples(deletes) };
+  assertReconciliationEnabled(diff);
+  return reconcileTupleDiff(diff, { ...ctx, source: ctx?.source ?? source });
+}
+
+/** Remove every management tuple for an ingestion-source config row. */
+export async function deleteAllIngestionSourceRelationshipTuples(
+  sourceId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `ingestion_source:${sourceId}`,
+    "ingestion_source_delete",
+    ctx,
+  );
+}
+
+/** Remove every query/share tuple for a knowledge base. */
+export async function deleteAllKnowledgeBaseRelationshipTuples(
+  knowledgeBaseId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `knowledge_base:${knowledgeBaseId}`,
+    "knowledge_base_delete",
+    ctx,
+  );
+}
+
+/** Remove every tuple for a datasource, including its parent_kb edge. */
+export async function deleteAllDataSourceRelationshipTuples(
+  dataSourceId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `data_source:${dataSourceId}`,
+    "data_source_delete",
+    ctx,
+  );
+}
+
 /**
  * Remove every tuple targeting `mcp_tool:<toolId>` so deleting a custom MCP
  * tool leaves no orphaned grants.
@@ -255,19 +325,10 @@ export async function reconcileIngestionSourceRelationships(
 export async function deleteAllMcpToolRelationshipTuples(
   toolId: string,
 ): Promise<OpenFgaReconcileResult> {
-  if (!isOpenFgaReconciliationEnabled()) {
-    throw new OpenFgaReconcileRequiredError();
-  }
-
-  const object = `mcp_tool:${toolId}`;
-  const allTuples = await readAllTuplesForObjects([object]);
-
-  const diff = {
-    writes: [] as OpenFgaTupleKey[],
-    deletes: allTuples.filter((tuple) => tuple.object === object),
-  };
-  assertReconciliationEnabled(diff);
-  return reconcileTupleDiff(diff, { source: "mcp_tool_delete" });
+  return deleteAllRelationshipTuplesForObject(
+    `mcp_tool:${toolId}`,
+    "mcp_tool_delete",
+  );
 }
 
 const MCP_TOOL_WILDCARD_SUFFIX = "_*";
@@ -281,12 +342,6 @@ function mcpServerRelatedObjects(serverId: string): string[] {
   ];
 }
 
-/**
- * Every tuple on `object`, exhausting pagination. `object` is always a full
- * type:id (e.g. `mcp_server:<id>`), which OpenFGA's /read accepts with no
- * `user` — this never needed the unfiltered-scan workaround (that was only
- * required for the `user`-only filter fixed in access.ts's readAllTuples).
- */
 async function readAllTuplesForObject(object: string): Promise<OpenFgaTupleKey[]> {
   const tuples: OpenFgaTupleKey[] = [];
   let continuationToken: string | undefined;
@@ -296,14 +351,6 @@ async function readAllTuplesForObject(object: string): Promise<OpenFgaTupleKey[]
     continuationToken = page.continuationToken;
   } while (continuationToken);
   return tuples;
-}
-
-/** Tuples targeting any of `objects` — one exact-object read per object, run
- * concurrently, each exhausting its own pagination fully (no scan cap: a
- * cleanup/delete path must never silently drop a stale grant). */
-async function readAllTuplesForObjects(objects: string[]): Promise<OpenFgaTupleKey[]> {
-  const perObject = await Promise.all(objects.map((object) => readAllTuplesForObject(object)));
-  return perObject.flat();
 }
 
 /**
@@ -318,7 +365,10 @@ export async function deleteAllMcpServerRelationshipTuples(
     throw new OpenFgaReconcileRequiredError();
   }
 
-  const deletes = await readAllTuplesForObjects(mcpServerRelatedObjects(serverId));
+  const deletes: OpenFgaTupleKey[] = [];
+  for (const object of mcpServerRelatedObjects(serverId)) {
+    deletes.push(...(await readAllTuplesForObject(object)));
+  }
 
   const diff = { writes: [] as OpenFgaTupleKey[], deletes: uniqueTuples(deletes) };
   assertReconciliationEnabled(diff);
