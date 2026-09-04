@@ -12,7 +12,7 @@ const FEATURES = [
     to: '/docs/features/agent-builder',
     items: [
       'Six-step builder for identity, instructions, tools, knowledge, skills, and advanced controls',
-      'Approved models, MCP tools, built-in tools, data sources, and collections',
+      'Configured models, MCP tools, built-in tools, data sources, and collections',
       'Subagents, workflows, middleware, and human approval rules',
       'Team ownership and global sharing with RBAC enforcement',
       'Test in chat, clone, export, or bootstrap agents through Helm',
@@ -25,10 +25,10 @@ const FEATURES = [
     to: '/docs/features/workflows',
     items: [
       'Ordered agent steps with per-step prompts and optional capability overrides',
-      'Jinja-compatible context from previous steps and the invoking user',
+      'Jinja-compatible context from previous steps and run input',
       'Abort, skip, or retry failed steps; pause for human input or approval',
       'Persistent run timelines, tool events, statuses, and artifacts',
-      'Run from the UI, an approved agent, or the authenticated API',
+      'Start runs from the UI, an agent with workflow access, or the REST API',
     ],
   },
   {
@@ -91,7 +91,7 @@ const FEATURES = [
       'Self-service file, web, and collaboration data sources',
       'Deployment-managed infrastructure ingestors',
       'Hybrid semantic and keyword retrieval with optional Graph RAG',
-      'Owner and Search grants enforced through OIDC and OpenFGA',
+      'Ownership and search access enforced through OIDC and OpenFGA',
       'Reusable collections and MCP tools for search, fetch, discovery, and graph exploration',
     ],
   },

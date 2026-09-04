@@ -4,15 +4,19 @@ sidebar_position: 2
 
 # Workflows
 
-Compose agents into repeatable, inspectable processes. A workflow runs an ordered sequence of agent steps, passes context forward, applies a failure policy to each step, and records the complete run timeline.
+Use Workflows to compose agents into repeatable, inspectable processes. Each
+workflow runs an ordered sequence of agent steps, passes context forward, applies
+a failure policy to each step, and records the complete run timeline.
 
-**Quick links**: [CAIPE UI Helm chart](../installation/helm-charts/ai-platform-engineering/caipe-ui-chart) · [Workflow RBAC](../security/rbac/workflows)
+**Quick links**:
+[CAIPE UI Helm chart](../installation/helm-charts/ai-platform-engineering/caipe-ui-chart) ·
+[Workflow RBAC](../security/rbac/workflows)
 
 ## How it works
 
 ```mermaid
 flowchart TB
-  T["UI · approved agent · authenticated API"]
+  T["UI · agent with access · REST API"]
   W["Workflow run"]
   S1["1 · Gather context"]
   S2["2 · Analyze"]
@@ -67,14 +71,17 @@ Review the release evidence below and identify blocking risks:
 Every execution creates a persistent workflow-run record.
 
 - Status progression includes `pending`, `running`, `waiting_for_input`, `completed`, `failed`, and `cancelled`.
-- The run timeline shows agent responses, tool calls, errors, human-input events, and approvals.
+- The run timeline shows agent responses, tool calls, errors, human input events,
+  and approvals.
 - Files produced during a run are retained as artifacts.
 - A running workflow can be cancelled.
-- Runs are private by default. The owner can create a workspace-readable link for collaborative review.
+- Runs are private by default. The owner can share a run with the workspace for
+  collaborative review.
 
 ## Human input and approval
 
-An agent step can pause the workflow when it needs structured input or approval to use a protected tool.
+An agent step can pause the workflow when it needs structured input or approval
+to use a protected tool.
 
 1. The agent emits an interrupt containing a prompt and form fields.
 2. The workflow enters `waiting_for_input`.
@@ -89,10 +96,14 @@ Interrupts raised by a subagent are propagated to the parent workflow run.
 Supported trigger paths are:
 
 - **CAIPE UI** — start and inspect a run interactively.
-- **Approved agent** — add the `workflows` built-in tool and grant the agent access to specific workflow definitions.
-- **Authenticated API** — create a run through `POST /api/workflow-runs` with a valid bearer token.
+- **Agent** — add the `workflows` built-in tool and grant the agent access to
+  specific workflow definitions.
+- **REST API** — create a run through `POST /api/workflow-runs` with a valid
+  bearer token.
 
-Workflow definitions do not currently contain cron schedules. For scheduled automation, configure a scheduled or autonomous agent and grant that agent access to the workflow.
+Workflow definitions do not currently contain cron schedules. For scheduled
+automation, configure a scheduled or autonomous agent and grant that agent
+access to the workflow.
 
 ## Access control
 
@@ -102,6 +113,6 @@ Workflow definitions and workflow runs use separate visibility models.
 - Run visibility can be `private`, `workspace`, or `admin`.
 - Sharing a run creates workspace-readable access; it does not change the definition's team grants.
 - OpenFGA relationships authorize access to definitions and runs on API requests.
-- Organization administrators can inspect runs for authorized troubleshooting.
+- Admins can inspect runs for authorized troubleshooting.
 
 UI controls help explain the current access state, but server-side authorization remains authoritative.

@@ -1,6 +1,9 @@
 # Knowledge Bases architecture
 
-This page describes how CAIPE ingests, authorizes, searches, and serves organizational knowledge. For implementation details and environment variables, see the [RAG codebase architecture](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/Architecture.md).
+This page describes how CAIPE ingests, authorizes, searches, and serves
+organizational knowledge. For implementation details and environment variables,
+see
+[RAG codebase architecture](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/Architecture.md).
 
 ## Component architecture
 
@@ -42,19 +45,21 @@ flowchart TB
 
 | Component | Default port | Responsibility |
 |-----------|--------------|----------------|
-| **CAIPE UI and BFF** | 3000 | Datasource management, collections, search, graph exploration, and authenticated API proxying |
+| **CAIPE UI and BFF** | 3000 | Data source management, collections, search, graph exploration, and authenticated API proxying |
 | **RAG server** | 9446 | Ingestion, hybrid search, graph operations, REST APIs, and MCP tools |
 | **Ontology Agent** | 8098 | Optional background discovery and validation of entity relationships |
 | **Ingestors** | Varies | Retrieve data from external systems and submit normalized content or entities |
 
-OIDC establishes caller identity. OpenFGA relationships decide which knowledge-base actions and resources that identity may use. The RAG server enforces datasource authorization even when a request has already passed through the UI BFF.
+OIDC establishes the caller's identity. OpenFGA relationships decide which
+knowledge-base actions and resources that identity may use. The RAG server checks
+data source access even when a request has already passed through the UI BFF.
 
 ## Document ingestion
 
 ```mermaid
 flowchart LR
   SRC["Document source"]
-  N["Normalize and attach<br/>datasource metadata"]
+  N["Normalize and attach<br/>data source metadata"]
   C["Chunk text<br/>with overlap"]
   D["Dense embedding"]
   S["BM25 sparse vector"]
@@ -65,13 +70,15 @@ flowchart LR
   C --> S --> M
 ```
 
-1. An ingestor retrieves source content and associates every item with a datasource ID.
+1. An ingestor retrieves source content and associates every item with a data source ID.
 2. The RAG server normalizes and chunks the text while preserving useful metadata.
 3. An embedding provider creates dense semantic vectors.
 4. Milvus produces and indexes BM25 sparse vectors for keyword matching.
 5. Milvus stores both representations for filtered hybrid retrieval.
 
-Datasource IDs are part of the security boundary. Reloading a datasource replaces its indexed content and removes stale pages while preserving its ownership and Search grants.
+Data source IDs are part of the security boundary. Reloading a data source
+replaces its indexed content and removes stale pages while preserving its
+ownership and search access.
 
 ## Structured-entity ingestion
 
@@ -91,9 +98,14 @@ flowchart LR
   N --> O --> OG
 ```
 
-Structured ingestors can submit entities and relationships instead of document pages. The server splits nested structures into connected entities, makes their properties searchable, and stores their relationships in Neo4j when Graph RAG is enabled.
+Structured ingestors can submit entities and relationships instead of document
+pages. The server splits nested structures into connected entities, makes their
+properties searchable, and stores their relationships in Neo4j when Graph RAG
+is enabled.
 
-The Ontology Agent examines entity types and properties, finds candidate relationships, evaluates them, and writes accepted relationships to the ontology graph.
+The Ontology Agent examines entity types and properties, finds candidate
+relationships, evaluates them, and writes accepted relationships to the
+ontology graph.
 
 ## Authorized query flow
 
@@ -107,20 +119,25 @@ sequenceDiagram
 
   Caller->>UI: Search or agent request
   UI->>FGA: Resolve caller capabilities and resources
-  FGA-->>UI: Allowed datasource IDs
+  FGA-->>UI: Allowed data source IDs
   UI->>RAG: Query + bearer token + requested scope
-  RAG->>FGA: Revalidate datasource access
-  FGA-->>RAG: Effective datasource IDs
+  RAG->>FGA: Revalidate data source access
+  FGA-->>RAG: Effective data source IDs
   RAG->>DB: Filtered vector or graph query
   DB-->>RAG: Authorized matches
   RAG-->>Caller: Ranked results
 ```
 
-For a direct user search, the requested scope may include every datasource for which the caller has Search access. For an agent request, CAIPE intersects those grants with the data sources and collections selected on the agent. Both paths fail closed when authorization cannot be verified.
+For a direct search, the requested scope may include every data source the caller
+can search. For an agent request, CAIPE intersects that access with the data
+sources and collections selected for the agent. Both paths fail closed when
+authorization cannot be verified.
 
 ## Hybrid retrieval
 
-A query produces a dense vector and a sparse keyword representation. Milvus runs both searches within the authorized datasource filter, then CAIPE combines the result scores with configurable weights.
+A query produces a dense vector and a sparse keyword representation. Milvus runs
+both searches within the authorized data source filter, then CAIPE combines the
+result scores with configurable weights.
 
 | Strategy | Semantic weight | Keyword weight | Useful for |
 |----------|-----------------|----------------|------------|
@@ -136,7 +153,7 @@ These values describe the standard presets. Deployments can tune the weights for
 |---------|---------|
 | **Milvus** | Dense HNSW and sparse BM25 indexes |
 | **Neo4j** | Optional data and ontology graphs |
-| **Redis** | Datasource metadata, ingestion jobs, and ontology state |
+| **Redis** | Data source metadata, ingestion jobs, and ontology state |
 | **Object storage** | Milvus object persistence |
 | **etcd** | Milvus metadata coordination |
 

@@ -4,9 +4,13 @@ sidebar_position: 1
 
 # Agent Builder
 
-Create team-owned agents without writing application code. Agent Builder combines instructions, approved models, tools, organizational knowledge, reusable skills, and runtime guardrails in one guided experience.
+Use Agent Builder to create team-owned agents without writing application code.
+The guided UI brings together instructions, configured models, tools,
+organizational knowledge, reusable skills, and runtime guardrails.
 
-**Quick links**: [Dynamic Agents Helm chart](../installation/helm-charts/ai-platform-engineering/dynamic-agents-chart) · [Developer guide](../development/creating-an-agent)
+**Quick links**:
+[Dynamic Agents Helm chart](../installation/helm-charts/ai-platform-engineering/dynamic-agents-chart) ·
+[Developer guide](../development/creating-an-agent)
 
 ## How it works
 
@@ -33,37 +37,44 @@ flowchart TB
   P -. "constrains resource access" .-> X
 ```
 
-Agent Builder saves the agent definition. The Dynamic Agents runtime loads that definition when an authenticated caller starts a chat. Authorization is evaluated at runtime for both the agent and the resources it uses.
+Agent Builder saves the agent definition. The Dynamic Agents runtime loads that
+definition when an authenticated caller starts a chat. At runtime, CAIPE checks
+the caller's access to both the agent and the resources it uses.
 
 ## Build an agent
 
-The builder guides authors through six steps:
+Agent Builder guides you through six steps:
 
 | Step | Configure |
 |------|-----------|
-| **Basic information** | Name, description, owner team, and team or global visibility |
+| **Basic Info** | Name, description, owner team, and team or global visibility |
 | **Instructions** | System prompt, model, and model parameters |
 | **Tools** | Registered MCP tools and CAIPE built-in tools |
 | **Knowledge** | Individual data sources and reusable collections |
 | **Skills** | Reusable instructions and packaged capabilities |
-| **Advanced** | Subagents, human approval rules, middleware, and approved workflows |
+| **Advanced** | Subagents, human approval rules, middleware, and workflow access |
 
-After saving, authors can test the agent in chat without redeploying the runtime. Agents can also be cloned, enabled or disabled, and exported as YAML.
+After you save an agent, you can test it in chat without redeploying the runtime.
+You can also clone it, enable or disable it, and export it as YAML.
 
 ## Knowledge and tool scope
 
 - MCP servers can connect over `stdio`, SSE, or Streamable HTTP.
-- Built-in tools include URL fetch, current datetime, user information, wait, human-input requests, and approved workflow execution.
+- Built-in tools include URL fetch, current date and time, user information,
+  wait, human input requests, and workflow execution.
 - Selecting data sources or collections narrows the knowledge available to the agent.
-- The effective knowledge scope is the intersection of the agent selection and the invoking caller's current access. Configuring knowledge never grants the caller additional access.
+- The effective knowledge scope is the intersection of the agent's selection and
+  the invoking caller's search access. Configuring knowledge never grants the
+  caller additional access.
 - Sensitive tools can require human approval before execution.
 
 ## Ownership and sharing
 
-Every agent is owned by a team.
+Every agent has an owner team.
 
 - **Team visibility** grants use according to the selected team relationships.
-- **Global visibility** makes the agent discoverable across the organization while retaining team ownership for management.
+- **Global visibility** makes the agent discoverable across the organization
+  while retaining team ownership for management.
 - OpenFGA relationships control who can discover, use, manage, share, or delete an agent.
 - Resource authorization is checked when the agent runs; hiding an action in the UI is not a security boundary.
 
@@ -76,9 +87,11 @@ Use `appConfig` in the `caipe-ui` chart to preconfigure resources at installatio
 | `appConfig.models` | Model endpoints available for agent selection |
 | `appConfig.mcp_servers` | MCP server registrations |
 | `appConfig.agents` | Agent definitions, capabilities, and visibility |
-| `appConfig.workflow_configs` | Workflow definitions that approved agents can run |
+| `appConfig.workflow_configs` | Workflow definitions that agents can run when granted access |
 
-Bootstrapped resources are marked `config_driven` and initially remain read-only in the UI. An administrator can adopt supported config-driven agents into database-backed management when interactive editing is required.
+Bootstrapped resources are marked `config_driven` and initially remain read-only
+in the UI. An admin can adopt supported config-driven agents into database-backed
+management when interactive editing is required.
 
 Applying the configuration is idempotent: upgrades do not duplicate entries, and removed config-driven entries are cleaned up on a later startup.
 
