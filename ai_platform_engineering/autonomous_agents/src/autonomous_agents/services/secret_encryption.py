@@ -34,9 +34,11 @@ class WebhookSecretEnvelope(TypedDict):
 class WebhookSecretProtector(Protocol):
     """Encrypt and decrypt webhook secrets without exposing storage details."""
 
-    async def encrypt(self, task_id: str, plaintext: str) -> WebhookSecretEnvelope: ...
+    async def encrypt(self, task_id: str, plaintext: str) -> WebhookSecretEnvelope:
+        pass
 
-    async def decrypt(self, task_id: str, envelope: dict[str, Any]) -> str: ...
+    async def decrypt(self, task_id: str, envelope: dict[str, Any]) -> str:
+        pass
 
 
 _ALGORITHM = "AES-256-GCM"
