@@ -1,10 +1,10 @@
 // Idempotently bootstrap the "Super Admins" team that backs the platform
 // default-team selector.
 //
-// On UI startup (after `reconcileBootstrapAdmins` resolves the bootstrap
-// admin emails to Keycloak user subjects) we materialise a team called
-// "Super Admins" with slug `super-admins` whose membership mirrors
-// `RBAC_BOOTSTRAP_ADMIN_EMAILS`/`BOOTSTRAP_ADMIN_EMAILS`:
+// On first UI startup (after `reconcileBootstrapAdmins` resolves the
+// bootstrap-admin emails to Keycloak user subjects) we materialise a team
+// called "Super Admins" with slug `super-admins` from
+// `RBAC_BOOTSTRAP_ADMIN_EMAILS`/`BOOTSTRAP_ADMIN_EMAILS`.
 //
 //   - First listed email -> Mongo role=owner, OpenFGA `team:super-admins#admin`
 //   - All others         -> Mongo role=admin, OpenFGA `team:super-admins#admin`
@@ -12,9 +12,12 @@
 // The model already implies `member` from `admin` (Option C fix), so we
 // only need to write the admin tuple.
 //
-// The team is marked `source: "system"` and `is_system_managed: true` so the
-// generic team APIs (PATCH/DELETE) can refuse rename/delete and the UI can
-// show a "managed by platform" badge.
+// The platform owns the team's identity and organization-admin connector, but
+// its roster is intentionally UI-managed after creation. That lets an
+// organization move normal administration to Admin > Teams without a deploy
+// silently restoring a removed bootstrap address on the next reconciliation.
+// Bootstrap email addresses remain a deployment-only break-glass mechanism;
+// they are not a UI-managed setting.
 //
 // assisted-by Cursor claude-opus-4-7
 
@@ -23,7 +26,6 @@ import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/reserved-teams";
 import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
-import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import {
 mongoRoleToOpenFgaRelations,
 resolveKeycloakUserSubject,
@@ -164,8 +166,8 @@ function emptySkipped(reason: string): SuperAdminsBootstrapResult {
  *
  * - If no bootstrap admins are configured, returns `skipped` and does nothing.
  * - If the team is missing, creates it and writes membership tuples.
- * - If the team exists but is missing one or more bootstrap admins, adds the
- *   missing rows in both Mongo and OpenFGA. Never demotes or removes anyone.
+ * - If the team already exists, preserves its UI-managed roster. It only
+ *   refreshes the platform marker and organization-admin connector tuple.
  * - Never throws: per-member failures are captured in `warnings` so the
  *   surrounding startup migration can finish.
  */
@@ -209,7 +211,6 @@ export async function ensureSuperAdminsTeam(
   );
 
   let membersAdded = 0;
-  let membersAlreadyPresent = 0;
   let membersUnresolved = 0;
 
   const existing = await teams.findOne({ slug: SUPER_ADMINS_TEAM_SLUG });
@@ -296,85 +297,12 @@ export async function ensureSuperAdminsTeam(
     };
   }
 
-  // Team already exists. Top up missing bootstrap admins; never demote or
-  // remove anyone -- this preserves manual edits an admin may have made.
+  // The roster is UI-managed after initial creation. In particular, do not
+  // re-add an address from BOOTSTRAP_ADMIN_EMAILS here: that would make an
+  // Admin > Teams removal appear successful until the next startup.
   //
-  // Commit 6/8 of the canonical-team-membership refactor (spec
-  // 2026-05-26-canonical-team-membership): "who's already on the team"
-  // comes from the canonical `team_membership_sources` store, NOT from
-  // the now-defunct `existing.members[]` array.
-  const existingMembers = await loadActiveTeamMembers(SUPER_ADMINS_TEAM_SLUG);
-  const existingMemberEmails = new Set(
-    existingMembers
-      .map((m) => (typeof m.user_email === "string" ? m.user_email.toLowerCase() : ""))
-      .filter((email): email is string => email.length > 0),
-  );
-  const teamId = existing._id ? String(existing._id) : SUPER_ADMINS_TEAM_SLUG;
-  const createdAt = (existing.created_at ?? now).toISOString();
-  const sourceBase = {
-    team_id: teamId,
-    team_slug: SUPER_ADMINS_TEAM_SLUG,
-    source_type: "manual" as const,
-    managed: true,
-    status: "active" as const,
-    created_by: existing.created_by ?? actor,
-    created_at: createdAt,
-    first_seen_at: createdAt,
-    last_seen_at: now.toISOString(),
-    last_applied_at: now.toISOString(),
-  };
-  // Commit 6/8 of the canonical-team-membership refactor: the old
-  // `newMemberDocs[]` collector existed only to build the $push payload
-  // into teams.members[]. With that write gone we just need a count so
-  // we can report status: "updated" vs "noop" to the caller.
-  let newMemberCount = 0;
-  for (const member of resolvedMembers) {
-    if (existingMemberEmails.has(member.email)) {
-      membersAlreadyPresent += 1;
-      continue;
-    }
-    newMemberCount += 1;
-    if (!member.userSubject) {
-      membersUnresolved += 1;
-      warnings.push(
-        `${member.email}: no Keycloak subject; persisted membership source for later repair`,
-      );
-    } else {
-      try {
-        await writeTeamMembershipTuples(
-          member.userSubject,
-          SUPER_ADMINS_TEAM_SLUG,
-          mongoRoleToOpenFgaRelations("admin"),
-          "assign",
-        );
-        membersAdded += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`${member.email}: failed to write OpenFGA tuple: ${message}`);
-      }
-    }
-    const source: TeamMembershipSource = {
-      ...sourceBase,
-      user_email: member.email,
-      user_subject: member.userSubject,
-      relationship: "admin",
-    };
-    try {
-      await upsertTeamMembershipSource(source);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`${member.email}: failed to record membership source: ${message}`);
-    }
-  }
-
-  // Always make sure the system-managed marker is set on the team doc --
-  // upgrades from a hand-created `super-admins` team should inherit it.
-  //
-  // Commit 6/8 of the canonical-team-membership refactor (spec
-  // 2026-05-26-canonical-team-membership): we no longer $push into
-  // teams.members[]. Membership lives exclusively in
-  // team_membership_sources (the upsert loop above), so we only need
-  // to refresh the system-managed marker and mutation timestamps here.
+  // The system-managed marker still protects the canonical team identity and
+  // the connector tuple below continues to make its admin members org admins.
   const setOps: Record<string, unknown> = {
     is_system_managed: true,
     source: existing.source ?? "system",
@@ -385,11 +313,11 @@ export async function ensureSuperAdminsTeam(
 
   await ensureSuperAdminsOrgAdminTuple(warnings);
   return {
-    status: newMemberCount > 0 ? "updated" : "noop",
+    status: "noop",
     team_slug: SUPER_ADMINS_TEAM_SLUG,
-    members_added: membersAdded,
-    members_already_present: membersAlreadyPresent,
-    members_unresolved: membersUnresolved,
+    members_added: 0,
+    members_already_present: 0,
+    members_unresolved: 0,
     warnings,
   };
 }
