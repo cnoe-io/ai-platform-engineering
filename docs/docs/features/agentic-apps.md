@@ -146,6 +146,42 @@ missing packages, duplicate mounts, unsupported runtime kinds, and malformed
 policy declarations stop startup instead of silently exposing a partial
 catalog. ConfigMap volume updates are read on subsequent requests.
 
+## Try the Weather example
+
+The repository includes an opt-in
+[Weather reference runtime](https://github.com/caipe-io/ai-platform-engineering/tree/main/ui/examples/external-apps/weather)
+that exercises this contract end to end:
+
+- a standalone Node.js application, separate from the CAIPE UI;
+- live forecast and air-quality data from Open-Meteo, with no provider key;
+- browser assets and API calls rooted beneath `/apps/weather/`;
+- independent verification of the app-scoped JWT; and
+- separate read and write scopes, including an exact mutation route.
+
+It is a hosting example, not the CAIPE Weather agent. Merging or building the
+repository does not start, register, or expose it.
+
+To try it with a locally running CAIPE UI, generate one secret of at least 32
+bytes and provide the same value to both processes. Start the example from the
+`ui` directory:
+
+```bash
+AGENTIC_APP_TOKEN_SECRET='paste-the-same-generated-secret-here' \
+  node examples/external-apps/weather/server.mjs
+```
+
+Then start the UI with the committed opt-in catalog:
+
+```bash
+AGENTIC_APPS_INSTALL_ENABLED=true \
+AGENTIC_APPS_CONFIG_PATH="$PWD/examples/external-apps/weather/agentic-apps.yaml" \
+AGENTIC_APP_TOKEN_SECRET='paste-the-same-generated-secret-here' \
+  npm run dev
+```
+
+After signing in, open `/apps` and select **Weather**. The example README also
+documents its container build, routes, and trust boundary.
+
 ## Route policies
 
 Routes fail closed. A request is proxied only when one of these rules matches:

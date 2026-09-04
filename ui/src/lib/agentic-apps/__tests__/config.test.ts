@@ -35,6 +35,29 @@ describe("External Apps deployment config", () => {
     });
   });
 
+  it("keeps the bundled Weather example compatible with the catalog parser", () => {
+    const [configured] = loadConfiguredAgenticApps(
+      join(process.cwd(), "examples/external-apps/weather/agentic-apps.yaml"),
+    );
+
+    expect(configured).toEqual(
+      expect.objectContaining({
+        manifest: expect.objectContaining({
+          id: "weather",
+          runtime: expect.objectContaining({ mountPath: "/apps/weather" }),
+          access: expect.objectContaining({
+            tokenScopes: ["weather:read", "weather:write"],
+          }),
+        }),
+        installation: expect.objectContaining({
+          appId: "weather",
+          enabled: true,
+          visible: true,
+        }),
+      }),
+    );
+  });
+
   it("accepts the full deployment catalog shape while selecting the runtime contract", () => {
     const deploymentShape = validConfig()
       .replace(
