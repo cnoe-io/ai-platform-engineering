@@ -6,6 +6,7 @@ import type { ConfiguredAgenticApp } from "@/types/agentic-app";
 
 const mockGetAuthenticatedUser = jest.fn();
 const mockGetConfiguredAgenticApp = jest.fn();
+const mockEvaluateAgenticAppCasCompatibility = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => ({
   ApiError: class ApiError extends Error {
@@ -17,6 +18,11 @@ jest.mock("@/lib/api-middleware", () => ({
 jest.mock("@/lib/agentic-apps/config", () => ({
   isAgenticAppsEnabled: () => true,
   getConfiguredAgenticApp: (...args: unknown[]) => mockGetConfiguredAgenticApp(...args),
+}));
+
+jest.mock("@/lib/agentic-apps/cas-compat", () => ({
+  evaluateAgenticAppCasCompatibility: (...args: unknown[]) =>
+    mockEvaluateAgenticAppCasCompatibility(...args),
 }));
 
 import { GET } from "./route";
@@ -36,6 +42,7 @@ const configuredApp: ConfiguredAgenticApp = {
       origin: "http://example-app.example.svc",
       mountPath: "/apps/example-app",
     },
+    authorization: { resourceType: "agentic_app", launchAction: "use" },
     surfaces: { showInHub: true },
     access: {
       requiredRoles: ["user"],
@@ -73,6 +80,11 @@ describe("External App runtime route", () => {
       session: { sub: "stable-subject", role: "user" },
     });
     mockGetConfiguredAgenticApp.mockReturnValue(configuredApp);
+    mockEvaluateAgenticAppCasCompatibility.mockResolvedValue({
+      mode: "enforce",
+      casDecision: "ALLOW",
+      effectiveEffect: "allow",
+    });
   });
 
   afterAll(() => {
@@ -147,6 +159,25 @@ describe("External App runtime route", () => {
     expect(response.headers.get("location")).toBe(
       "/apps/example-app/login?next=%2F",
     );
+    fetchMock.mockRestore();
+  });
+
+  it("fails closed before proxying when CAS denies the route action", async () => {
+    mockEvaluateAgenticAppCasCompatibility.mockResolvedValueOnce({
+      mode: "enforce",
+      casDecision: "DENY",
+      casReason: "NO_CAPABILITY",
+      effectiveEffect: "deny",
+    });
+    const fetchMock = jest.spyOn(global, "fetch");
+
+    const response = await GET(
+      new NextRequest("https://host.example/api/agentic-apps/runtime/example-app"),
+      { params: Promise.resolve({ appId: "example-app", path: [] }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
     fetchMock.mockRestore();
   });
 });

@@ -27,13 +27,13 @@ export async function register() {
   const { applySeedConfig } = await import("./lib/seed-config");
   await applySeedConfig();
 
-  // Project the built-in Agentic App role-level "user" contract into OpenFGA
-  // before the first app request; explicit user/team/admin grants remain untouched.
+  // Project deployment-configured app availability into OpenFGA without
+  // restoring global access over persisted Private or Team sharing choices.
   try {
-    const { reconcileBuiltinAgenticAppCasAccess } = await import(
+    const { reconcileConfiguredAgenticAppCasAccess } = await import(
       "./lib/agentic-apps/cas-reconcile"
     );
-    await reconcileBuiltinAgenticAppCasAccess();
+    await reconcileConfiguredAgenticAppCasAccess();
   } catch (err) {
     console.error("[instrumentation] Agentic App CAS reconcile failed closed:", err);
   }

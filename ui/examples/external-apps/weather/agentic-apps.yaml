@@ -24,14 +24,20 @@ agentic_apps:
             - action: proxy:GET
               defaultEffect: allow
               requiredScopes: [weather:read]
+              casAction: read
             - action: proxy:HEAD
               defaultEffect: allow
               requiredScopes: [weather:read]
+              casAction: read
             - action: update-preferences
               method: POST
               path: /api/preferences
               defaultEffect: allow
               requiredScopes: [weather:write]
+              casAction: write
+        authorization:
+          resourceType: agentic_app
+          launchAction: use
         health:
           endpoint: /healthz
           timeoutMs: 1500

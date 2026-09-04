@@ -1,44 +1,71 @@
-import { buildBuiltinAgenticAppCasTupleDiff } from "../cas-reconcile";
+import type { ConfiguredAgenticApp } from "@/types/agentic-app";
 
-describe("built-in Agentic App CAS reconciliation", () => {
-  it("grants enabled apps and revokes only the platform wildcard for disabled apps", () => {
-    expect(
-      buildBuiltinAgenticAppCasTupleDiff(
-        new Set(["weather"]),
-        ["weather", "finops"],
-      ),
-    ).toEqual({
-      writes: expect.arrayContaining([
-        {
-          user: "user:*",
-          relation: "user",
-          object: "agentic_app:weather",
-        },
-      ]),
-      deletes: expect.arrayContaining([
-        {
-          user: "user:*",
-          relation: "user",
-          object: "agentic_app:finops",
-        },
-      ]),
-    });
-  });
+import { buildConfiguredAgenticAppCasTupleDiff } from "../cas-reconcile";
 
-  it("does not restore global tuples for a restricted app", () => {
-    const diff = buildBuiltinAgenticAppCasTupleDiff(
-      new Set(["weather"]),
-      ["weather"],
-      new Set(["weather"]),
+function configuredApp(id: string): ConfiguredAgenticApp {
+  return {
+    manifest: {
+      id,
+      displayName: id,
+      description: "Example",
+      apiVersion: "1.0",
+      runtime: {
+        kind: "proxied-next-zone",
+        origin: "https://app.example.test",
+        mountPath: `/apps/${id}`,
+      },
+      authorization: { resourceType: "agentic_app", launchAction: "use" },
+      surfaces: { showInHub: true },
+      access: {
+        tokenScopes: ["example:read"],
+        policyActions: [{ action: "proxy:GET", defaultEffect: "allow" }],
+      },
+    },
+    installation: {
+      appId: id,
+      packageId: id,
+      installed: true,
+      enabled: true,
+      visible: true,
+    },
+  };
+}
+
+describe("configured External App CAS reconciliation", () => {
+  it("preserves global, team, and private sharing across restarts", () => {
+    const diff = buildConfiguredAgenticAppCasTupleDiff(
+      [configuredApp("global-app"), configuredApp("team-app"), configuredApp("private-app")],
+      new Map([
+        ["global-app", "global"],
+        ["team-app", "team"],
+        ["private-app", "private"],
+      ]),
     );
-    expect(diff.writes).toEqual([]);
+
+    expect(diff.writes).toEqual(
+      expect.arrayContaining([
+        {
+          user: "user:*",
+          relation: "user",
+          object: "agentic_app:global-app",
+        },
+        expect.objectContaining({
+          relation: "manager",
+          object: "agentic_app:team-app",
+        }),
+      ]),
+    );
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         {
           user: "user:*",
           relation: "user",
-          object: "agentic_app:weather",
+          object: "agentic_app:team-app",
         },
+        expect.objectContaining({
+          relation: "manager",
+          object: "agentic_app:private-app",
+        }),
       ]),
     );
   });

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import yaml from "js-yaml";
 
 import type {
+  AgenticAppCasAction,
   AgenticAppInstallation,
   AgenticAppManifest,
   AgenticAppPolicyAction,
@@ -187,6 +188,22 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
 
   const surfacesRaw = asRecord(raw.surfaces, `${path}.surfaces`);
   const accessRaw = asRecord(raw.access, `${path}.access`);
+  const authorizationRaw = raw.authorization === undefined
+    ? undefined
+    : asRecord(raw.authorization, `${path}.authorization`);
+  if (authorizationRaw) {
+    assertKnownKeys(
+      authorizationRaw,
+      ["resourceType", "launchAction"],
+      `${path}.authorization`,
+    );
+    if (authorizationRaw.resourceType !== "agentic_app") {
+      throw new Error(`${path}.authorization.resourceType must be "agentic_app"`);
+    }
+    if (authorizationRaw.launchAction !== "use") {
+      throw new Error(`${path}.authorization.launchAction must be "use"`);
+    }
+  }
   assertKnownKeys(
     accessRaw,
     [
@@ -285,6 +302,14 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
           }
         : {}),
     },
+    ...(authorizationRaw
+      ? {
+          authorization: {
+            resourceType: "agentic_app" as const,
+            launchAction: "use" as const,
+          },
+        }
+      : {}),
     ...(healthRaw
       ? {
           health: {
@@ -346,6 +371,7 @@ function parsePolicyAction(value: unknown, path: string): AgenticAppPolicyAction
       "requiredScopes",
       "method",
       "path",
+      "casAction",
     ],
     path,
   );
@@ -383,7 +409,23 @@ function parsePolicyAction(value: unknown, path: string): AgenticAppPolicyAction
     ...(raw.path !== undefined
       ? { path: requiredAbsolutePath(raw.path, `${path}.path`) }
       : {}),
+    ...(raw.casAction !== undefined
+      ? { casAction: requiredCasAction(raw.casAction, `${path}.casAction`) }
+      : {}),
   };
+}
+
+function requiredCasAction(value: unknown, path: string): AgenticAppCasAction {
+  if (
+    value === "read"
+    || value === "use"
+    || value === "write"
+    || value === "approve"
+    || value === "manage"
+  ) {
+    return value;
+  }
+  throw new Error(`${path} must be read, use, write, approve, or manage`);
 }
 
 function parseAccessOverrides(

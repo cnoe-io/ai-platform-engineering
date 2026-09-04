@@ -1,24 +1,22 @@
 import { reconcileTupleDiff } from "@/lib/authz/reconcile";
-import { BUILTIN_AGENTIC_APP_PACKAGE_SEEDS } from "@/lib/agentic-apps/builtin-packages";
-import { getEnabledAgenticApps } from "@/lib/agentic-apps/registry";
+import { loadConfiguredAgenticApps } from "@/lib/agentic-apps/config";
 import { effectiveAgenticAppVisibility } from "@/lib/agentic-apps/sharing";
 import type { TeamResourceTupleDiff } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import type {
+  AgenticAppVisibility,
+  ConfiguredAgenticApp,
+} from "@/types/agentic-app";
 
-/**
- * Built-in apps declare `requiredRoles: ["user"]`, so their corresponding
- * CAS grant is the typed wildcard `user:* user agentic_app:<id>`. Disabled
- * built-ins lose that platform-owned wildcard while explicit user/team/admin
- * grants remain untouched.
- */
-export function buildBuiltinAgenticAppCasTupleDiff(
-  enabledAppIds: ReadonlySet<string>,
-  builtinAppIds: readonly string[],
-  nonGlobalAppIds: ReadonlySet<string> = new Set(),
+export function buildConfiguredAgenticAppCasTupleDiff(
+  apps: readonly ConfiguredAgenticApp[],
+  persistedVisibility: ReadonlyMap<string, AgenticAppVisibility> = new Map(),
 ): TeamResourceTupleDiff {
   const writes: TeamResourceTupleDiff["writes"] = [];
   const deletes: TeamResourceTupleDiff["deletes"] = [];
-  for (const appId of builtinAppIds) {
+
+  for (const app of apps) {
+    const appId = app.installation.appId;
     const publicUseTuple = {
       user: "user:*",
       relation: "user",
@@ -29,45 +27,49 @@ export function buildBuiltinAgenticAppCasTupleDiff(
       relation: "manager",
       object: `agentic_app:${appId}`,
     };
-    if (enabledAppIds.has(appId) && !nonGlobalAppIds.has(appId)) {
+    const active = app.installation.installed
+      && app.installation.enabled
+      && app.installation.visible;
+    const visibility = persistedVisibility.get(appId) ?? "global";
+
+    if (active && visibility === "global") {
       writes.push(publicUseTuple, orgAdminTuple);
+      continue;
+    }
+    deletes.push(publicUseTuple);
+    if (active && visibility === "team") {
+      writes.push(orgAdminTuple);
     } else {
-      deletes.push(publicUseTuple, orgAdminTuple);
+      deletes.push(orgAdminTuple);
     }
   }
   return { writes, deletes };
 }
 
-export async function reconcileBuiltinAgenticAppCasAccess(): Promise<void> {
-  const enabledAppIds = new Set(getEnabledAgenticApps().map((manifest) => manifest.id));
-  const builtinAppIds: string[] = BUILTIN_AGENTIC_APP_PACKAGE_SEEDS.map(
-    (seed) => seed.packageId,
-  );
-  const nonGlobalAppIds = new Set<string>();
+export async function reconcileConfiguredAgenticAppCasAccess(): Promise<void> {
+  const apps = loadConfiguredAgenticApps();
+  const persistedVisibility = new Map<string, AgenticAppVisibility>();
   const { isMongoDBConfigured } = await import("@/lib/mongodb");
   if (isMongoDBConfigured) {
     const { listAppInstallations } = await import("@/lib/agentic-apps/store");
-    const installations = await listAppInstallations();
-    for (const installation of installations) {
-      if (
-        builtinAppIds.includes(installation.appId) &&
-        effectiveAgenticAppVisibility(installation) !== "global"
-      ) {
-        nonGlobalAppIds.add(installation.appId);
+    const configuredIds = new Set(apps.map((app) => app.installation.appId));
+    for (const installation of await listAppInstallations()) {
+      if (configuredIds.has(installation.appId)) {
+        persistedVisibility.set(
+          installation.appId,
+          effectiveAgenticAppVisibility(installation),
+        );
       }
     }
   }
-  const diff = buildBuiltinAgenticAppCasTupleDiff(
-    enabledAppIds,
-    builtinAppIds,
-    nonGlobalAppIds,
-  );
+
+  const diff = buildConfiguredAgenticAppCasTupleDiff(apps, persistedVisibility);
   const result = await reconcileTupleDiff(diff, {
-    source: "agentic_apps_builtin_access",
+    source: "external_apps_configured_access",
   });
   if (result.enabled && (result.writes > 0 || result.deletes > 0)) {
     console.log(
-      `[agentic-apps/cas] Reconciled built-in access: ${result.writes} grants, ${result.deletes} revocations`,
+      `[external-apps/cas] Reconciled configured access: ${result.writes} grants, ${result.deletes} revocations`,
     );
   }
 }

@@ -24,6 +24,7 @@ describe("External Apps deployment config", () => {
         expect.objectContaining({
           manifest: expect.objectContaining({
             id: "example-app",
+            authorization: { resourceType: "agentic_app", launchAction: "use" },
             access: expect.objectContaining({ tokenScopes: ["example-app:read"] }),
           }),
           installation: expect.objectContaining({
@@ -203,6 +204,10 @@ function validConfig(): string {
           policyActions:
             - action: proxy:GET
               defaultEffect: allow
+              casAction: read
+        authorization:
+          resourceType: agentic_app
+          launchAction: use
         health:
           endpoint: /health
   installations:

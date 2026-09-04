@@ -14,12 +14,15 @@ import {
 } from "@/lib/agentic-apps/sharing";
 import { resolveAgenticAppCasMode } from "@/lib/agentic-apps/cas-compat";
 import {
+  getConfiguredAgenticApp,
+  isAgenticAppsEnabled,
+} from "@/lib/agentic-apps/config";
+import {
   appendAgenticAppEvent,
   installAppPackage,
   listAppInstallations,
   updateAppInstallationSharing,
 } from "@/lib/agentic-apps/store";
-import { getAgenticAppById } from "@/lib/agentic-apps/registry";
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
@@ -156,6 +159,10 @@ async function loadInstallation(appId: string): Promise<{
   installation: Awaited<ReturnType<typeof listAppInstallations>>[number];
   persisted: boolean;
 }> {
+  const configured = isAgenticAppsEnabled() ? getConfiguredAgenticApp(appId) : null;
+  if (!configured) {
+    throw new ApiError("Agentic app not found", 404);
+  }
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is required for Agentic Apps", 503);
   }
@@ -164,15 +171,13 @@ async function loadInstallation(appId: string): Promise<{
   );
   if (installation) return { installation, persisted: true };
 
-  const manifest = getAgenticAppById(appId);
-  if (!manifest) throw new ApiError("Agentic app not found", 404);
   return {
     installation: {
       appId,
-      packageId: manifest.id,
-      installed: true,
-      enabled: true,
-      visible: true,
+      packageId: configured.installation.packageId,
+      installed: configured.installation.installed,
+      enabled: configured.installation.enabled,
+      visible: configured.installation.visible,
       createdBy: "seed-config",
       visibility: "global",
       sharedWithTeams: [],
