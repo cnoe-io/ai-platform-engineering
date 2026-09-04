@@ -38,7 +38,13 @@ We’re excited to collaborate with you!
 
 ## Star History
 
-![CAIPE GitHub star history](.github/star-history.svg)
+<a href="https://www.star-history.com/?repos=caipe-io%2Fai-platform-engineering&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=caipe-io/ai-platform-engineering&type=date&theme=dark&legend=top-left&sealed_token=2pJ_vytsPWOg-JDRZGQ_kXj-X-rSI5k-l21euZDAPyYNjKvcjIGG8juj8wqt-U7KA9wGQ9OZpaPH4Blb3AG4hyXhibQFCDHdw_pCKHzcOVy8hfAMLayzEQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=caipe-io/ai-platform-engineering&type=date&legend=top-left&sealed_token=2pJ_vytsPWOg-JDRZGQ_kXj-X-rSI5k-l21euZDAPyYNjKvcjIGG8juj8wqt-U7KA9wGQ9OZpaPH4Blb3AG4hyXhibQFCDHdw_pCKHzcOVy8hfAMLayzEQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=caipe-io/ai-platform-engineering&type=date&legend=top-left&sealed_token=2pJ_vytsPWOg-JDRZGQ_kXj-X-rSI5k-l21euZDAPyYNjKvcjIGG8juj8wqt-U7KA9wGQ9OZpaPH4Blb3AG4hyXhibQFCDHdw_pCKHzcOVy8hfAMLayzEQ" />
+ </picture>
+</a>
 
 ## Contributors
 
