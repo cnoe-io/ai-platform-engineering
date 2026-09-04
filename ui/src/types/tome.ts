@@ -243,6 +243,9 @@ export interface WebexMeetingOccurrenceDocument {
   transcript_ids?: string[];
   transcript_fingerprint?: string;
   transcript_observed_at?: Date;
+  /** Active project run currently preventing this ready occurrence from queuing. */
+  blocked_by_run_id?: string;
+  blocked_by_run_status?: IngestRunStatus;
   last_error?: string;
   created_at: Date;
   updated_at: Date;
@@ -265,6 +268,8 @@ export interface WebexMeetingOccurrenceSummary {
   logLines: number;
   reviewOutcome?: "approved" | "rejected" | "auto_promoted";
   reviewedBy?: string;
+  blockedByRunId?: string;
+  blockedByRunStatus?: IngestRunStatus;
   lastError?: string;
 }
 

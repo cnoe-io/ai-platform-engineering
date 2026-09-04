@@ -45,6 +45,12 @@ export function summarizeWebexMeetingOccurrences(
         logLines: run?.log?.length ?? 0,
         ...(run?.review_outcome ? { reviewOutcome: run.review_outcome } : {}),
         ...(run?.reviewed_by ? { reviewedBy: run.reviewed_by } : {}),
+        ...(occurrence.blocked_by_run_id
+          ? { blockedByRunId: occurrence.blocked_by_run_id }
+          : {}),
+        ...(occurrence.blocked_by_run_status
+          ? { blockedByRunStatus: occurrence.blocked_by_run_status }
+          : {}),
         ...(occurrence.last_error ? { lastError: occurrence.last_error } : {}),
       };
     });

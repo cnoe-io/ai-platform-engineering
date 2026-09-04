@@ -419,6 +419,19 @@ export function WebexMeetingSeriesSettings({
     }
     return grouped;
   }, [occurrences]);
+  const reviewBlockersBySubscription = useMemo(() => {
+    const blockers = new Map<string, WebexMeetingOccurrenceSummary>();
+    for (const occurrence of occurrences) {
+      if (
+        occurrence.status === "ready" &&
+        occurrence.blockedByRunStatus === "awaiting_review" &&
+        !blockers.has(occurrence.subscriptionId)
+      ) {
+        blockers.set(occurrence.subscriptionId, occurrence);
+      }
+    }
+    return blockers;
+  }, [occurrences]);
 
   const toggleHistory = (subscriptionId: string) => {
     setExpandedSeries((current) => {
@@ -493,7 +506,8 @@ export function WebexMeetingSeriesSettings({
                       {occurrencesBySubscription.get(subscription.id)?.length ?? 0} past occurrence
                       {(occurrencesBySubscription.get(subscription.id)?.length ?? 0) === 1 ? "" : "s"}
                     </p>
-                    {subscription.lastError && (
+                    {subscription.lastError &&
+                    !reviewBlockersBySubscription.has(subscription.id) ? (
                       <p
                         className={cn(
                           "mt-1 text-xs",
@@ -513,7 +527,7 @@ export function WebexMeetingSeriesSettings({
                           ),
                         )}
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </button>
                 {mutating === subscription.id ? (
@@ -543,6 +557,30 @@ export function WebexMeetingSeriesSettings({
                   </div>
                 )}
               </div>
+              {reviewBlockersBySubscription.has(subscription.id) && (
+                <div className="mx-3 mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <div>
+                    <p className="font-medium">Warning: needs attention</p>
+                    <p>
+                      Transcript ready; another ingest draft needs review before this meeting can
+                      continue.
+                      {nextCheckSuffix(
+                        "ready",
+                        reviewBlockersBySubscription.get(subscription.id)?.nextAttemptAt,
+                      )}
+                    </p>
+                    {reviewBlockersBySubscription.get(subscription.id)?.blockedByRunId && (
+                      <Link
+                        className="font-medium underline underline-offset-2"
+                        href={`/projects/${encodeURIComponent(slug)}/tome/ingest/${encodeURIComponent(reviewBlockersBySubscription.get(subscription.id)!.blockedByRunId!)}/review`}
+                      >
+                        Review blocking ingest
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
               {expandedSeries.has(subscription.id) && (
                 <div
                   id={`webex-series-history-${subscription.id}`}

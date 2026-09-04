@@ -46,6 +46,8 @@ describe("Webex meeting occurrence history", () => {
           end: new Date("2026-09-01T11:00:00Z"),
           transcript_ids: ["transcript-1", "transcript-2"],
           run_id: "run-newer",
+          blocked_by_run_id: "blocking-run",
+          blocked_by_run_status: "awaiting_review",
         }),
       ],
       [
@@ -79,6 +81,8 @@ describe("Webex meeting occurrence history", () => {
       runStatus: "awaiting_review",
       reportId: "report-2",
       logLines: 2,
+      blockedByRunId: "blocking-run",
+      blockedByRunStatus: "awaiting_review",
     });
     expect(rows[1]).toMatchObject({
       transcriptFound: true,
