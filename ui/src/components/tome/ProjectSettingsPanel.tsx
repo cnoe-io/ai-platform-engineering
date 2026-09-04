@@ -52,7 +52,11 @@ import type {
   ProjectType,
   TomeReviewMode,
 } from "@/types/projects";
-import { dataStewardUserEmail, isSynthesizedType } from "@/types/projects";
+import {
+  dataStewardUserEmail,
+  isSynthesizedType,
+  supportsWebexMeetingSeries,
+} from "@/types/projects";
 import {
   DEFAULT_SCHEDULE,
   cronToSchedule,
@@ -828,7 +832,7 @@ export function ProjectSettingsPanel({
                   <TabsTrigger value="models" className={TAB_TRIGGER_CLASS}>
                     Models
                   </TabsTrigger>
-                  {!isSynthesized && (
+                  {supportsWebexMeetingSeries(projectKind) && (
                     <TabsTrigger value="auto-ingest" className={TAB_TRIGGER_CLASS}>
                       Auto-ingest
                     </TabsTrigger>
@@ -1342,10 +1346,11 @@ export function ProjectSettingsPanel({
                 </TabsContent>
               )}
 
-              {!isSynthesized && (
+              {supportsWebexMeetingSeries(projectKind) && (
                 <TabsContent value="auto-ingest" className="space-y-6 pt-6">
                   <div className="space-y-6">
-                    <Field label="Auto-ingest">
+                    {projectKind === "project" && (
+                      <Field label="Auto-ingest">
                       <fieldset disabled={!canEdit} className="space-y-4 disabled:opacity-60">
                         <p className="text-xs text-muted-foreground">
                           Run ingest automatically on a schedule, on top of manual runs.
@@ -1513,7 +1518,8 @@ export function ProjectSettingsPanel({
                           </>
                         )}
                       </fieldset>
-                    </Field>
+                      </Field>
+                    )}
                     <WebexMeetingSeriesSettings slug={slug} canEdit={canEdit} />
                   </div>
                 </TabsContent>

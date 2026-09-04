@@ -3,8 +3,13 @@
 Tome can follow recurring Webex meeting series and create an ingest run after
 each accessible recorded occurrence has ended and its transcript is available.
 The connected user may be the host, a cohost, or a user with whom Webex shared
-the recording. This flow is independent of the project's CRON-based
-project-source auto-ingest schedule.
+the recording. Recurring series are supported on regular projects and Areas;
+BHAGs remain synthesis-only. This flow is independent of the project's
+CRON-based project-source auto-ingest schedule.
+
+An Area meeting ingest is transcript-only. It updates the Area wiki directly
+without pulling the Area's attached sources, reading child-project wikis, or
+starting a child-project refresh or Area synthesis cascade.
 
 ## User Flow
 
@@ -91,8 +96,8 @@ store `sourceScope: "webex_meetings"` on the run dispatch. Run preparation then:
 5. Applies the same empty-source rule again in the agent request builder as
    defense in depth.
 
-This excludes GitHub repositories, Confluence, Webex spaces, and every other
-attached project source from the meeting-only request.
+This excludes GitHub repositories, Confluence, Webex spaces, Area child-project
+wikis, and every other attached source from the meeting-only request.
 
 ## Execution Flow
 
@@ -133,7 +138,7 @@ series owned by the same user normally share one discovery sweep.
 | Transcript found | Wait until all listed bodies download and the transcript IDs/content remain unchanged for 15 minutes by default. |
 | Additional segment appears | Reset the transcript settle window, then merge every segment in start-time order. |
 | Transcript deadline | Stop retrying 2 hours after the occurrence ended by default. |
-| Another project ingest is running | Keep the occurrence ready and retry after 5 minutes. If that run is awaiting review, show a collapsed **Warning: needs attention** message with a link to the blocking review. |
+| Another ingest is running for the same Tome entity | Keep the occurrence ready and retry after 5 minutes. If that run is awaiting review, show a collapsed **Warning: needs attention** message with a link to the blocking review. |
 | Discovery failure | Retry the owner/site calendar after 15 minutes. |
 
 An occurrence that ended before the subscription was created is not silently

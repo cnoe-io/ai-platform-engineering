@@ -119,6 +119,12 @@ export function isSynthesizedType(type: ProjectType | undefined): boolean {
   return type === "bhag" || type === "area";
 }
 
+/** Recurring Webex meetings can feed regular project and Area wikis. BHAGs
+ * remain synthesis-only because their content rolls up Areas/projects. */
+export function supportsWebexMeetingSeries(type: ProjectType | undefined): boolean {
+  return type !== "bhag";
+}
+
 /**
  * Label dimensions for discovery + the executive dashboard. Free-form,
  * multi-value (except domain). `domain` is denormalized from the structural

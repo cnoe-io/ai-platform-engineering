@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { ObjectId, type Collection } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
-import type { ProjectDocument, WebexMeetingSeriesSubscription } from "@/types/projects";
+import {
+  supportsWebexMeetingSeries,
+  type ProjectDocument,
+  type WebexMeetingSeriesSubscription,
+} from "@/types/projects";
 import {
   TOME_COLLECTIONS,
   type WebexMeetingOccurrenceDocument,
@@ -529,7 +533,7 @@ async function processOccurrence(
       const needsReview = blockingRun?.status === "awaiting_review";
       const message = needsReview
         ? "Transcript ready; another ingest draft needs review before this meeting can continue."
-        : "Transcript ready; waiting for another project ingest to finish.";
+        : "Transcript ready; waiting for another ingest on this Tome entity to finish.";
       const nextAttemptAt = new Date(now.getTime() + 5 * 60_000);
       await occurrences.updateOne(
         { _id: claimed._id, status: "processing" },
@@ -640,6 +644,7 @@ function ownerSiteGroups(
 ): OwnerSiteGroup[] {
   const groups = new Map<string, OwnerSiteGroup>();
   for (const project of projects) {
+    if (!supportsWebexMeetingSeries(project.type)) continue;
     for (const subscription of project.autoIngest?.webexMeetingSeries ?? []) {
       if (!subscription.enabled) continue;
       const ownerSubject = subscription.credentialOwner.subject;
@@ -766,6 +771,7 @@ export async function tickWebexMeetingSeriesScheduler(
   }
 
   for (const project of projects) {
+    if (!supportsWebexMeetingSeries(project.type)) continue;
     const subscriptions = (project.autoIngest?.webexMeetingSeries ?? []).filter(
       (subscription) => subscription.enabled,
     );

@@ -143,6 +143,80 @@ describe("POST /api/tome/projects/[slug]/webex-meeting-series", () => {
     );
   });
 
+  it("allows an Area to subscribe to a recurring meeting", async () => {
+    mockLoadTomeProject.mockResolvedValueOnce({
+      projectId: "area-id",
+      project: {
+        _id: "area-id",
+        type: "area",
+        slug: "example-area",
+        autoIngest: {
+          enabled: false,
+          cron: "0 9 * * *",
+          credentialOwner: null,
+          webexMeetingSeries: [],
+        },
+      },
+      canEdit: true,
+      user: { email: "owner@example.test" },
+      session: {
+        sub: "owner-subject",
+        user: { name: "Example Owner", email: "owner@example.test" },
+      },
+    });
+
+    const response = await POST(
+      new NextRequest(
+        "http://example.test/api/tome/projects/example-area/webex-meeting-series",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seriesKey: "example-series" }),
+        },
+      ),
+      context,
+    );
+
+    expect(response.status).toBe(201);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "area-id" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          autoIngest: expect.objectContaining({
+            webexMeetingSeries: [expect.objectContaining({ id: "subscription-id" })],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("keeps recurring meeting ingestion unavailable for BHAGs", async () => {
+    mockLoadTomeProject.mockResolvedValueOnce({
+      projectId: "bhag-id",
+      project: { _id: "bhag-id", type: "bhag", slug: "example-bhag" },
+      canEdit: true,
+      user: { email: "owner@example.test" },
+      session: { sub: "owner-subject" },
+    });
+
+    const response = await POST(
+      new NextRequest(
+        "http://example.test/api/tome/projects/example-bhag/webex-meeting-series",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seriesKey: "example-series" }),
+        },
+      ),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe("MEETING_SERIES_PROJECT_REQUIRED");
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
   it("rejects adding a non-hosted series when the policy is disabled", async () => {
     mockMeetingSeriesHostEligibility.mockReturnValue({ canAutoIngest: false });
     mockNonHostMeetingSeriesAllowed.mockReturnValue(false);

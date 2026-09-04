@@ -251,6 +251,27 @@ describe("Webex meeting-series scheduler", () => {
     );
   });
 
+  it("processes Area subscriptions while leaving BHAGs synthesis-only", async () => {
+    const area = { ...project, type: "area" as const };
+    const bhag = {
+      ...project,
+      _id: "bhag-1",
+      slug: "example-bhag",
+      type: "bhag" as const,
+    };
+
+    await tickWebexMeetingSeriesScheduler(now, [area, bhag]);
+    await tickWebexMeetingSeriesScheduler(new Date(now.getTime() + 15 * 60_000), [area, bhag]);
+
+    expect(enqueueRun).toHaveBeenCalledWith(
+      area,
+      expect.objectContaining({
+        dispatch: expect.objectContaining({ sourceScope: "webex_meetings" }),
+      }),
+    );
+    expect(occurrences).not.toContainEqual(expect.objectContaining({ project_id: "bhag-1" }));
+  });
+
   it("marks a settled transcript as needing attention when another draft awaits review", async () => {
     await tickWebexMeetingSeriesScheduler(now, [project]);
 
