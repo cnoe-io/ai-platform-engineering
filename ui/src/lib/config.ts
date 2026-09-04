@@ -154,6 +154,8 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether autonomous task scheduling and webhook automation is enabled */
   autonomousAgentsEnabled: boolean;
+  /** Whether the deployment-owned external Apps catalog is exposed */
+  agenticAppsEnabled: boolean;
   /** Optional default agent ID used to edit scheduled jobs */
   scheduleEditorAgentId: string | null;
   /** Whether the scheduled-agent workflow is enabled */
@@ -270,6 +272,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   autonomousAgentsEnabled: false,
+  agenticAppsEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
   schedulerAdminOnly: false,
@@ -403,6 +406,7 @@ export function getServerConfig(): Config {
   const autonomousAgentsFlag =
     env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
   const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
+  const agenticAppsEnabled = env('AGENTIC_APPS_INSTALL_ENABLED') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -468,6 +472,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     autonomousAgentsEnabled,
+    agenticAppsEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
     schedulerAdminOnly: env('SCHEDULER_ADMIN_ONLY') === 'true',
