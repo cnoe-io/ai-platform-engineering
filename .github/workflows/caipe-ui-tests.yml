@@ -50,6 +50,10 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      - name: Test External App examples
+        working-directory: ui
+        run: npm run test:external-app-examples
+
       - name: Run Jest tests
         id: jest
         working-directory: ui

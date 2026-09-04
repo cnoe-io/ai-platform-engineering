@@ -10,6 +10,7 @@ import {
 } from "../runtime";
 import { mintAgenticAppToken, verifyAgenticAppToken } from "../tokens";
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
+import { createWeatherJwtVerifier } from "../../../../examples/external-apps/weather/auth.mjs";
 
 const app: ConfiguredAgenticApp = {
   manifest: {
@@ -74,6 +75,35 @@ describe("External Apps security contracts", () => {
     );
     await expect(verifyAgenticAppToken(minted.token, "other-app")).rejects.toThrow(
       /audience/,
+    );
+  });
+
+  it("mints a token accepted by the independent Weather example verifier", async () => {
+    const minted = await mintAgenticAppToken({
+      appId: "weather",
+      subject: "stable-subject",
+      scopes: ["weather:read"],
+      decisionId: "decision-weather",
+      correlationId: "correlation-weather",
+    });
+    const verifyWeatherRequest = createWeatherJwtVerifier({
+      secret: process.env.AGENTIC_APP_TOKEN_SECRET,
+    });
+
+    expect(
+      verifyWeatherRequest(
+        { authorization: `Bearer ${minted.token}` },
+        "weather:read",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        ok: true,
+        identity: expect.objectContaining({
+          subject: "stable-subject",
+          appId: "weather",
+          scopes: ["weather:read"],
+        }),
+      }),
     );
   });
 
