@@ -19,9 +19,11 @@ import {
   Plus,
   RotateCcw,
   Rocket,
+  Search,
   Settings,
   Target,
   UserX,
+  X,
 } from "lucide-react";
 
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
@@ -39,6 +41,8 @@ import {
 } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { normLabel } from "@/lib/projects/labels";
+import { projectMatchesQuery } from "@/lib/tome/project-search";
+import { projectGridClassName } from "@/lib/tome/project-grid";
 import {
   applyBhagOrder,
   moveBhagAround,
@@ -484,7 +488,7 @@ function AreaSubGroup({
       </div>
 
       {!collapsed && items.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className={projectGridClassName()}>
           {items.map((p) => (
             <ProjectCard key={String(p._id)} project={p} />
           ))}
@@ -720,7 +724,7 @@ function ProjectGroup({
           )}
 
           {items.length > 0 && (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className={projectGridClassName()}>
               {items.map((p) => (
                 <ProjectCard key={String(p._id)} project={p} />
               ))}
@@ -760,6 +764,7 @@ export function ProjectsHub() {
     placement: "before" | "after";
   } | null>(null);
   const [orderSaving, setOrderSaving] = useState(false);
+  const [projectQuery, setProjectQuery] = useState("");
 
   // First-run walkthrough, once per browser (shared key with the wiki). The
   // Help button reopens it any time.
@@ -848,10 +853,15 @@ export function ProjectsHub() {
     }
   }
 
+  const normalizedProjectQuery = projectQuery.trim();
+  const filteredProjects = normalizedProjectQuery
+    ? projects.filter((project) => projectMatchesQuery(project, normalizedProjectQuery))
+    : projects;
+
   // Projects tagged to an Area (via labels.areas), keyed by the Area's
   // normalized label, so each Area sub-accordion can list its own projects.
   const projectsByAreaLabel = new Map<string, EnrichedProject[]>();
-  for (const p of projects) {
+  for (const p of filteredProjects) {
     for (const areaLabel of p.labels?.areas ?? []) {
       const key = normLabel(areaLabel);
       if (!projectsByAreaLabel.has(key)) projectsByAreaLabel.set(key, []);
@@ -1006,6 +1016,7 @@ export function ProjectsHub() {
       .then((res) => res.json())
       .then((body) => setIsTomeAdmin(Boolean(body.isTomeAdmin)))
       .catch(() => undefined);
+
   }, []);
 
   // A promoted BHAG/Area entity with zero tagged children never appears as a
@@ -1014,8 +1025,8 @@ export function ProjectsHub() {
   // tags a project to it. Inject an empty group for any entity not already
   // covered, so a freshly created BHAG/Area is findable immediately.
   const entitiesForGroupBy = groupBy === "initiative" ? bhags : groupBy === "area" ? areas : [];
-  let groups = groupProjects(projects, groupBy);
-  if (groupBy === "initiative" || groupBy === "area") {
+  let groups = groupProjects(filteredProjects, groupBy);
+  if (!normalizedProjectQuery && (groupBy === "initiative" || groupBy === "area")) {
     const covered = new Set(groups.map((g) => normLabel(g.label)));
     for (const entity of entitiesForGroupBy) {
       const key = normLabel(entity.slug);
@@ -1051,10 +1062,10 @@ export function ProjectsHub() {
           .filter((group) => group.key !== "__ungrouped__")
           .map((group) => normLabel(group.label))
       : [];
-  const activeIngests = projects.flatMap((p) => p.active_ingests ?? []);
+  const activeIngests = filteredProjects.flatMap((p) => p.active_ingests ?? []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 p-6">
+    <div className="mx-auto w-full max-w-[1600px] space-y-8 p-6">
       <section className="relative overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-primary/5 p-5 md:p-6">
         <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-primary/20 blur-3xl" />
         <div className="relative grid gap-5 md:grid-cols-2 md:items-center">
@@ -1094,14 +1105,37 @@ export function ProjectsHub() {
       <section className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">
+            <h2 className="whitespace-nowrap text-xl font-semibold">
               {loading
                 ? "Your projects"
-                : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
+                : normalizedProjectQuery
+                  ? `${filteredProjects.length} of ${projects.length} projects`
+                  : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
             </h2>
             <ActiveIngestsIndicator runs={activeIngests} />
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative w-44 sm:w-56">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                value={projectQuery}
+                onChange={(event) => setProjectQuery(event.target.value)}
+                placeholder="Find project…"
+                aria-label="Find a TOME project"
+                className="h-8 w-full rounded-lg border border-border/60 bg-background/40 pl-8 pr-8 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/70 hover:border-border focus:border-primary/50 focus:bg-background focus:ring-2 focus:ring-primary/15 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {projectQuery && (
+                <button
+                  type="button"
+                  onClick={() => setProjectQuery("")}
+                  aria-label="Clear project search"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1174,16 +1208,30 @@ export function ProjectsHub() {
           </div>
         )}
 
-        <TooltipProvider>
-          {groupBy === "none" ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {groups[0]?.items.map((p) => (
-                <ProjectCard key={String(p._id)} project={p} />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {groups.map((g) => {
+        {!loading && projects.length > 0 && filteredProjects.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center">
+            <p className="text-sm font-medium">No projects match “{normalizedProjectQuery}”.</p>
+            <button
+              type="button"
+              onClick={() => setProjectQuery("")}
+              className="mt-2 text-sm text-primary hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+
+        {filteredProjects.length > 0 && (
+          <TooltipProvider>
+            {groupBy === "none" ? (
+              <div className={projectGridClassName()}>
+                {groups[0]?.items.map((p) => (
+                  <ProjectCard key={String(p._id)} project={p} />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {groups.map((g) => {
                 const areaEntity = groupBy === "area" ? areaByLabel.get(normLabel(g.label)) : null;
                 const parentBhagLabel = areaEntity?.labels?.initiatives?.[0] ?? null;
                 const parentBhagName = parentBhagLabel
@@ -1233,6 +1281,7 @@ export function ProjectsHub() {
                       ...new Map([...bySlug, ...byName].map((p) => [String(p._id), p])).values(),
                     ];
                     const existing = merged.get(key);
+                    if (normalizedProjectQuery && entityItems.length === 0 && !existing) continue;
                     if (existing) {
                       const byId = new Map(existing.items.map((p) => [String(p._id), p]));
                       for (const p of entityItems) byId.set(String(p._id), p);
@@ -1287,10 +1336,11 @@ export function ProjectsHub() {
                     }
                   />
                 );
-              })}
-            </div>
-          )}
-        </TooltipProvider>
+                })}
+              </div>
+            )}
+          </TooltipProvider>
+        )}
       </section>
 
       <OnboardingModal open={onboardingOpen} onOpenChange={handleOnboardingChange} />
