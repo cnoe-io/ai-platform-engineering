@@ -9,36 +9,33 @@ see
 
 ```mermaid
 flowchart TB
-  subgraph Clients
-    UI["CAIPE UI"]
-    AG["Agents and MCP clients"]
-    ING["Ingestors<br/>documents · collaboration · infrastructure"]
-  end
-
-  BFF["CAIPE BFF<br/>session and capability checks"]
-  RAG["RAG server<br/>REST API · MCP · ingestion · retrieval"]
-  AUTH["OIDC + OpenFGA<br/>identity and resource authorization"]
+  ENTRY["Experience and ingestion<br/>CAIPE UI · agents · MCP clients · ingestors"]
+  BFF["CAIPE BFF<br/>session · capability checks"]
+  RAG(["RAG server<br/>REST · MCP · ingestion · retrieval"])
+  AUTH{"OIDC + OpenFGA<br/>identity · authorization"}
   ONT["Ontology Agent<br/>relationship discovery"]
+  DATA[("Knowledge stores<br/>Milvus · Neo4j · Redis<br/>object storage + etcd")]
 
-  subgraph Storage
-    MIL[("Milvus<br/>dense + BM25 indexes")]
-    NEO[("Neo4j<br/>data + ontology graphs")]
-    REDIS[("Redis<br/>metadata + jobs")]
-    OBJ[("Object storage + etcd<br/>Milvus dependencies")]
-  end
-
-  UI -->|"session request"| BFF
-  BFF -->|"bearer token"| RAG
-  AG -->|"MCP /mcp"| RAG
-  ING -->|"REST /v1/ingest"| RAG
+  ENTRY -->|"UI session"| BFF -->|"bearer token"| RAG
+  ENTRY -->|"MCP + ingestion APIs"| RAG
   RAG <--> AUTH
-  RAG <--> MIL
-  RAG <--> NEO
-  RAG <--> REDIS
-  MIL --- OBJ
+  RAG <--> DATA
   ONT <--> RAG
-  ONT <--> NEO
-  ONT <--> REDIS
+  ONT <--> DATA
+
+  classDef client fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-width:2px
+  classDef gateway fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef hub fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,stroke-width:3px
+  classDef policy fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef agent fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px
+  classDef store fill:#ccfbf1,stroke:#0f766e,color:#134e4a,stroke-width:2px
+
+  class ENTRY client
+  class BFF gateway
+  class RAG hub
+  class AUTH policy
+  class ONT agent
+  class DATA store
 ```
 
 ### Core components
@@ -58,16 +55,28 @@ data source access even when a request has already passed through the UI BFF.
 
 ```mermaid
 flowchart LR
-  SRC["Document source"]
-  N["Normalize and attach<br/>data source metadata"]
-  C["Chunk text<br/>with overlap"]
-  D["Dense embedding"]
-  S["BM25 sparse vector"]
-  M[("Milvus")]
+  SRC(["Document source"])
+  N["1 · Normalize<br/>attach source metadata"]
+  C["2 · Chunk<br/>preserve context"]
+  D["3A · Embed<br/>semantic meaning"]
+  S["3B · Index<br/>exact terms"]
+  M[("Milvus<br/>hybrid index")]
 
   SRC --> N --> C
-  C --> D --> M
-  C --> S --> M
+  C -->|"Dense"| D --> M
+  C -->|"BM25"| S --> M
+
+  classDef source fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-width:2px
+  classDef process fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef semantic fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,stroke-width:2px
+  classDef keyword fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef store fill:#ccfbf1,stroke:#0f766e,color:#134e4a,stroke-width:3px
+
+  class SRC source
+  class N,C process
+  class D semantic
+  class S keyword
+  class M store
 ```
 
 1. An ingestor retrieves source content and associates every item with a data source ID.
@@ -84,18 +93,30 @@ ownership and search access.
 
 ```mermaid
 flowchart LR
-  SRC["Structured source<br/>infrastructure or catalog API"]
-  P["Parse entities and<br/>split nested structures"]
-  V["Create searchable<br/>entity representations"]
-  M[("Milvus")]
-  N[("Neo4j data graph")]
-  O["Ontology Agent"]
-  OG[("Ontology graph")]
+  SRC(["Structured source<br/>infrastructure · catalog API"])
+  P["1 · Parse entities<br/>split nested structures"]
+  V["2 · Build searchable<br/>representations"]
+  M[("Milvus<br/>hybrid index")]
+  N[("Neo4j<br/>data graph")]
+  O["3 · Ontology Agent<br/>discover relationships"]
+  OG[("Neo4j<br/>ontology graph")]
 
   SRC --> P --> V
-  V --> M
-  V --> N
-  N --> O --> OG
+  V -->|"Search"| M
+  V -->|"Relationships"| N
+  N --> O -->|"Accepted links"| OG
+
+  classDef source fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-width:2px
+  classDef process fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef store fill:#ccfbf1,stroke:#0f766e,color:#134e4a,stroke-width:2px
+  classDef agent fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px
+  classDef ontology fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+
+  class SRC source
+  class P,V process
+  class M,N store
+  class O agent
+  class OG ontology
 ```
 
 Structured ingestors can submit entities and relationships instead of document
@@ -111,6 +132,7 @@ ontology graph.
 
 ```mermaid
 sequenceDiagram
+  autonumber
   actor Caller
   participant UI as CAIPE UI / agent runtime
   participant FGA as OpenFGA
@@ -118,11 +140,13 @@ sequenceDiagram
   participant DB as Milvus / Neo4j
 
   Caller->>UI: Search or agent request
+  Note over Caller,UI: Identity stays attached to the request
   UI->>FGA: Resolve caller capabilities and resources
   FGA-->>UI: Allowed data source IDs
   UI->>RAG: Query + bearer token + requested scope
   RAG->>FGA: Revalidate data source access
   FGA-->>RAG: Effective data source IDs
+  Note over RAG,DB: Storage receives only the effective scope
   RAG->>DB: Filtered vector or graph query
   DB-->>RAG: Authorized matches
   RAG-->>Caller: Ranked results

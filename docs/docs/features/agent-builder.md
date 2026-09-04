@@ -15,26 +15,42 @@ organizational knowledge, reusable skills, and runtime guardrails.
 ## How it works
 
 ```mermaid
-flowchart TB
-  subgraph DEFINE["Define and govern"]
-    direction LR
-    B["Configure<br/>identity · instructions · model"]
-    C["Add capabilities<br/>tools · knowledge · skills"]
-    D["Apply guardrails and save<br/>ownership · sharing · approvals"]
-    B --> C --> D
+flowchart LR
+  subgraph BUILD["Design time · Agent Builder"]
+    direction TB
+    D["1 · Define<br/>identity · instructions · model"]
+    E["2 · Equip<br/>tools · knowledge · skills"]
+    G["3 · Govern<br/>owner · visibility · approvals"]
+    D --> E --> G
   end
 
-  subgraph RUN["Use at runtime"]
-    direction LR
-    U["Authenticated caller"]
-    R["Dynamic Agents runtime"]
-    X["Authorized tools, knowledge,<br/>subagents, and workflows"]
-    U --> R --> X
-  end
+  C(["Authenticated<br/>caller"])
+  R(["Dynamic Agents<br/>runtime"])
+  X["Authorized capabilities<br/>tools · knowledge · workflows"]
+  O(["Agent response"])
+  P{"OpenFGA<br/>policy"}
 
-  D --> R
-  P["OpenFGA policy"] -. "authorizes agent use" .-> R
-  P -. "constrains resource access" .-> X
+  G -->|"Save"| R
+  C -->|"Start chat"| R
+  R <-->|"Authorized calls"| X
+  R --> O
+  P -. "Can use agent?" .-> R
+  P -. "May access resource?" .-> X
+
+  classDef buildStep fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef actor fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-width:2px
+  classDef runtime fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,stroke-width:3px
+  classDef capability fill:#ccfbf1,stroke:#0f766e,color:#134e4a,stroke-width:2px
+  classDef policy fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef outcome fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+
+  class D,E,G buildStep
+  class C actor
+  class R runtime
+  class X capability
+  class P policy
+  class O outcome
+  style BUILD fill:#eff6ff,stroke:#93c5fd,color:#1e3a8a,stroke-width:2px
 ```
 
 Agent Builder saves the agent definition. The Dynamic Agents runtime loads that

@@ -11,26 +11,25 @@ reusable collections, and resource-level access control.
 ## How it works
 
 ```mermaid
-flowchart TB
-  S["Sources<br/>files · web · collaboration · infrastructure"]
-  I["Ingest<br/>normalize · chunk · embed"]
-  V["Milvus<br/>dense + BM25"]
-  N["Neo4j<br/>optional graph"]
-  C["Collections<br/>references to data source IDs"]
-  U["User or agent request"]
-  A["OIDC identity"]
-  X["OpenFGA scope<br/>caller access ∩ agent selection"]
-  Q["Search · fetch · graph"]
-  R["Authorization-filtered results"]
+flowchart LR
+  S["1 · Prepare knowledge<br/>sources → normalize → index<br/>Milvus + optional Neo4j"]
+  G[["2 · Govern scope<br/>OIDC identity + OpenFGA access<br/>∩ selected collections"]]
+  Q["3 · Retrieve<br/>hybrid search · fetch · graph"]
+  R(["Authorized<br/>results"])
 
-  S --> I
-  I --> V
-  I --> N
-  C -. "selects scope" .-> Q
-  U --> A --> X --> Q
-  V --> Q
-  N --> Q
+  S -->|"Indexed knowledge"| Q
+  G -->|"Effective data source IDs"| Q
   Q --> R
+
+  classDef process fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef policy fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef query fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:3px
+  classDef outcome fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+
+  class S process
+  class G policy
+  class Q query
+  class R outcome
 ```
 
 ## Knowledge Bases in the UI

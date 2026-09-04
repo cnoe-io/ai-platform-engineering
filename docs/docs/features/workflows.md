@@ -16,23 +16,46 @@ a failure policy to each step, and records the complete run timeline.
 
 ```mermaid
 flowchart TB
-  T["UI · agent with access · REST API"]
-  W["Workflow run"]
-  S1["1 · Gather context"]
-  S2["2 · Analyze"]
-  H{"Input or approval needed?"}
-  P["Pause on run timeline"]
-  S3["3 · Publish result"]
-  O["Status · events · artifacts"]
+  T(["Start anywhere<br/>CAIPE UI · authorized agent · REST API"])
+  W(["Workflow<br/>run"])
+
+  subgraph FLOW["Ordered execution"]
+    direction LR
+    S1["1 · Gather<br/>context"]
+    S2["2 · Analyze<br/>evidence"]
+    H{"Input or<br/>approval?"}
+    P["Pause on<br/>timeline"]
+    S3["3 · Publish<br/>result"]
+
+    S1 -->|"previous_output"| S2 --> H
+    H -->|"No"| S3
+    H -->|"Yes"| P -->|"Resume"| S2
+  end
+
+  O(["Run record<br/>timeline · artifacts"])
   E["Per-step failure policy<br/>abort · skip · retry"]
 
-  T --> W --> S1
-  S1 -->|"previous_output"| S2 --> H
-  H -->|yes| P --> S2
-  H -->|no| S3 --> O
-  E -.-> S1
-  E -.-> S2
-  E -.-> S3
+  T --> W
+  W --> S1
+  S3 --> O
+  E -. "Applied to every step" .-> S2
+
+  classDef trigger fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-width:2px
+  classDef run fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,stroke-width:3px
+  classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px
+  classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef pause fill:#ffe4e6,stroke:#e11d48,color:#881337,stroke-width:2px
+  classDef policy fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px
+  classDef outcome fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+
+  class T trigger
+  class W run
+  class S1,S2,S3 step
+  class H decision
+  class P pause
+  class E policy
+  class O outcome
+  style FLOW fill:#eff6ff,stroke:#93c5fd,color:#1e3a8a,stroke-width:2px
 ```
 
 ## Visual workflow builder
