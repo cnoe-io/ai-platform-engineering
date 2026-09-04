@@ -211,7 +211,6 @@ export async function ensureSuperAdminsTeam(
   );
 
   let membersAdded = 0;
-  let membersAlreadyPresent = 0;
   let membersUnresolved = 0;
 
   const existing = await teams.findOne({ slug: SUPER_ADMINS_TEAM_SLUG });
