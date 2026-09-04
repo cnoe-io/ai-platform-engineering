@@ -108,6 +108,10 @@ export function ModelConfigTab() {
 
   const save = async (role: ModelRole) => {
     const model = drafts[role]?.trim() ?? "";
+    if (!model) {
+      if (docs[role]) await reset(role);
+      return;
+    }
     const result = testResults[role];
     if (!result?.ok || result.model !== model) {
       toast("Test this exact model before saving.", "error");
@@ -182,6 +186,7 @@ export function ModelConfigTab() {
             const result = testResults[role];
             const tested = result?.ok === true && result.model === modelValue.trim();
             const dirty = modelValue.trim() !== (doc?.model ?? "");
+            const canSave = dirty && !isCustom && (!modelValue.trim() || tested);
             return (
               <div key={role} className="rounded-xl border border-border bg-card p-4">
                 <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -205,7 +210,7 @@ export function ModelConfigTab() {
                         {testingRole === role ? <Loader2 className="h-4 w-4 animate-spin" /> : result?.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : result && !result.ok ? <XCircle className="h-4 w-4 text-destructive" /> : null}
                         Test
                       </Button>
-                      <Button size="sm" onClick={() => void save(role)} disabled={!dirty || !tested || busy === role} className="gap-2">
+                      <Button size="sm" onClick={() => void save(role)} disabled={!canSave || busy === role} className="gap-2">
                         <Save className="h-4 w-4" /> Save
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => void reset(role)} disabled={!doc || busy === role} className="gap-2">

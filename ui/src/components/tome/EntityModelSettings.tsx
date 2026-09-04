@@ -112,6 +112,10 @@ export function EntityModelSettings({
 
   const save = async (role: ModelRole) => {
     const model = drafts[role]?.trim() ?? "";
+    if (!model) {
+      if (configs[role]) await clear(role);
+      return;
+    }
     const result = results[role];
     if (!result?.ok || result.model !== model) return;
     setBusy(role);
@@ -166,6 +170,8 @@ export function EntityModelSettings({
         const modelValue = draft === CUSTOM_MODEL_VALUE ? "" : draft;
         const result = results[role];
         const tested = result?.ok === true && result.model === modelValue.trim();
+        const roleDirty = modelValue.trim() !== (config?.model ?? "");
+        const canSave = canEdit && roleDirty && !custom && (!modelValue.trim() || tested);
         return (
           <div key={role} className="rounded-lg border border-border p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -191,7 +197,7 @@ export function EntityModelSettings({
                   <Button size="sm" variant="outline" onClick={() => void test(role)} disabled={!canEdit || !modelValue.trim() || busy === role}>
                     {busy === role ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : result?.ok ? <CheckCircle2 className="mr-1 h-4 w-4 text-emerald-500" /> : result && !result.ok ? <XCircle className="mr-1 h-4 w-4 text-destructive" /> : null} Test
                   </Button>
-                  <Button size="sm" onClick={() => void save(role)} disabled={!canEdit || modelValue.trim() === (config?.model ?? "") || !tested || busy === role}><Save className="mr-1 h-4 w-4" /> Save</Button>
+                  <Button size="sm" onClick={() => void save(role)} disabled={!canSave || busy === role}><Save className="mr-1 h-4 w-4" /> Save</Button>
                   <Button size="sm" variant="outline" onClick={() => void clear(role)} disabled={!canEdit || !config || busy === role}><RotateCcw className="mr-1 h-4 w-4" /> Inherit</Button>
                 </div>
               </div>
