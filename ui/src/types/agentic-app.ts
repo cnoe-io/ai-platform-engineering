@@ -1,4 +1,5 @@
 export type AgenticAppRuntimeKind = "proxied-next-zone";
+export type AgenticAppCasAction = "read" | "use" | "write" | "approve" | "manage";
 
 export interface AgenticAppPolicyAction {
   action: string;
@@ -8,6 +9,8 @@ export interface AgenticAppPolicyAction {
   requiredScopes?: string[];
   method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
   path?: string;
+  /** CAS capability that must be confirmed before scopes are minted. */
+  casAction?: AgenticAppCasAction;
 }
 
 export interface AgenticAppManifest {
@@ -21,6 +24,11 @@ export interface AgenticAppManifest {
     mountPath: string;
     preserveMountPath?: boolean;
     chrome?: "iframe";
+  };
+  /** Optional CAS contract for deployments that authorize app access in OpenFGA. */
+  authorization?: {
+    resourceType: "agentic_app";
+    launchAction: "use";
   };
   surfaces: {
     showInHub: boolean;
