@@ -513,6 +513,86 @@ Proxies key minting to Python `POST /catalog-api-keys`.
 
 Proxies `DELETE /catalog-api-keys/{keyId}` on the Python backend.
 
+### TOME MCP API tokens
+
+#### POST `/api/tome/token`
+
+**Auth:** Browser session only. A TOME API token cannot mint or manage another
+token.
+
+Creates one user-owned token for the TOME connector surface. Minting a new
+token revokes the user's previous active token. The raw token is returned only
+in this response; store it in the connector's `x-caipe-token` API-key field.
+
+**Body (optional):** `{ "expires_in_days": 1..90 }` (default 90).
+
+**Response `200`:** `{ "token", "token_type": "ApiKey", "header_name": "x-caipe-token", "expires_in", "scope": "tome:mcp", "key_id", "expires_at" }`
+
+The token is bound to the minting user's Keycloak subject (`sub`). TOME
+permission checks therefore evaluate the same OpenFGA `user:<sub>` subject as
+browser requests. It is not a Skills token and is rejected by non-TOME API
+routes.
+
+#### GET `/api/tome/token`
+
+**Auth:** Session. Returns token metadata only; never returns the raw token.
+
+#### DELETE `/api/tome/token`
+
+**Auth:** Session. Revokes the current user's active TOME token.
+
+#### GET `/api/tome/mcp/openapi.json`
+
+Returns the OpenAPI document used by API-key connector registration. The
+document advertises the `x-caipe-token` API key used by Connector Studio. The
+runtime also accepts Keycloak bearer JWTs for native MCP clients, but that
+security scheme is intentionally omitted from the Connector Studio document
+until bearer-token registration is supported there. The document includes both
+the primary Streamable HTTP operation and the legacy SSE compatibility routes.
+
+#### TOME REST Connector API
+
+Connector Studio's REST connector flow uses the dedicated REST facade rather
+than the MCP transport. For the minimal connectivity test, the published
+OpenAPI document currently exposes only `GET /version`:
+
+- **API URL:** `/api/tome/connector`
+- **OpenAPI / Swagger URL:** `/api/tome/connector/openapi.json`
+- **Authentication:** user-minted `x-caipe-token` API key
+
+The version endpoint returns `{ "service": "tome", "version": "0.1.0", "status": "ok" }`
+after authenticating the user-minted TOME API key. The existing MCP and legacy
+SSE surfaces remain available for clients that speak MCP directly, but are not
+published by this connector document.
+
+#### Legacy MCP SSE transport
+
+Circuit Builder integrations can use the compatibility transport at the same
+base path:
+
+- `GET /api/tome/mcp/sse` opens the authenticated Server-Sent Events stream.
+- `POST /api/tome/mcp/messages?sessionId=...` sends JSON-RPC messages and
+  receives responses on the SSE stream.
+
+Both endpoints accept the user-minted `x-caipe-token` and preserve the token
+owner's TOME/OpenFGA identity. The header may contain either the raw token or
+`Bearer <token>` for connector clients that apply an API-key prefix. The
+primary `POST /api/tome/mcp` Streamable HTTP transport remains available for
+clients that support it.
+
+#### Legacy MCP SSE transport
+
+Circuit Builder integrations can use the compatibility transport at the same
+base path:
+
+- `GET /api/tome/mcp/sse` opens the authenticated Server-Sent Events stream.
+- `POST /api/tome/mcp/messages?sessionId=...` sends JSON-RPC messages and
+  receives responses on the SSE stream.
+
+Both endpoints accept the user-minted `x-caipe-token` and preserve the token
+owner's TOME/OpenFGA identity. The primary `POST /api/tome/mcp` Streamable HTTP
+transport remains available for clients that support it.
+
 ---
 
 ## Skill hubs (UI Backend API)
@@ -577,6 +657,46 @@ Loads built-in skill templates from `SKILLS_DIR`, or chart `data/skills`, or `ui
 ```
 
 ---
+
+## TOME MCP authentication
+
+### POST `/api/tome/mcp`
+
+**Auth:** Secondary OIDC JWT, Keycloak bearer token, or browser session
+
+The TOME MCP transport accepts the existing CAIPE/Keycloak authentication and,
+when configured, a JWT from a separate OIDC provider. Validation is local:
+TOME caches the configured JWKS, verifies the signature, requires `iss`, `aud`,
+and `exp`, checks `iss` against the configured issuer, and requires at least
+one configured audience.
+
+Configure the secondary OIDC trust anchor with:
+
+```bash
+TOME_MCP_SECONDARY_OIDC_JWKS_URI=https://idp.example.com/oauth2/example/v1/keys
+TOME_MCP_SECONDARY_OIDC_ISSUER=https://idp.example.com/oauth2/example
+TOME_MCP_SECONDARY_OIDC_AUDIENCES=tome-api
+```
+
+These settings are scoped to TOME MCP. A verified OIDC `sub` becomes the
+OpenFGA `user:<sub>` subject, so the corresponding TOME/project relationships
+must exist for that identity. The secondary OIDC access token is not accepted
+as a general-purpose credential on unrelated API routes.
+
+The MCP route forwards verified secondary-provider requests to its existing
+project APIs using a server-generated proof bound to the token. Downstream
+routes verify the proof and revalidate the JWT, preserving the same identity
+and project-level authorization checks. Set `TOME_MCP_INTERNAL_AUTH_SECRET`
+for this proof, or allow it to fall back to the server's `NEXTAUTH_SECRET`.
+
+If secondary-provider validation fails, TOME still attempts the normal Keycloak
+bearer flow, allowing both token issuers to coexist during rollout. Invalid
+tokens ultimately receive `401 Unauthorized`.
+
+For existing deployments, the old `TOME_MCP_CIRCUIT_JWKS_URI`,
+`TOME_MCP_CIRCUIT_ISSUER`, and `TOME_MCP_CIRCUIT_AUDIENCES` names remain
+supported as deprecated aliases. The `TOME_MCP_SECONDARY_OIDC_*` names take
+precedence when both are set.
 
 ## Workflow Runs
 

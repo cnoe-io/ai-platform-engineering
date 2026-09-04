@@ -95,6 +95,14 @@ agent smoke test.
 Internal agent callbacks fail closed when `TOME_AGENT_TOKEN` is missing or
 does not match. Do not expose `/api/tome/api/internal/*` through public ingress.
 
+The UI can mint a separate, user-owned API token for the public TOME MCP
+connector. `POST /api/tome/token` requires the user's browser session and
+returns the raw token once. The token is accepted only on the TOME MCP and
+TOME backing routes through the `x-caipe-token` header, is stored as a scrypt
+digest in MongoDB, and maps back to the minting user's Keycloak `sub` for
+OpenFGA checks. Set `TOME_API_KEY_PEPPER` to add a deployment-specific secret
+pepper; changing it invalidates existing TOME API tokens.
+
 On upgrade, Tome lazily replaces legacy slug-keyed OpenFGA tuples with
 immutable Project-ID objects. A duplicate legacy authorization object is
 withheld until an administrator resolves the duplicate records by `_id`; new

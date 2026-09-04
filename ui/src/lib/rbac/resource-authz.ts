@@ -40,7 +40,7 @@ export interface ResourceAuthzSession {
    * matches the relationships those callers are granted in OpenFGA.
    */
   isServiceAccount?: boolean;
-  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
+  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key' | 'tome_api_key';
 }
 
 export interface ResourcePermissionOptions {

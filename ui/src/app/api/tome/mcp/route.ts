@@ -3,11 +3,10 @@
 //
 //   POST /api/tome/mcp   { jsonrpc, id, method, params }
 //
-// Auth: standard caipe-ui auth (`getAuthFromBearerOrSession`) - a session
-// cookie, an OAuth/PKCE-issued Keycloak access token (the path the Tome
-// header's "Connect" dialog now sets up for all three clients), or a static
-// *local skills API token* minted at POST /api/skills/token for other bearer-
-// token integrations. Every tool re-enters the existing authenticated
+// Auth: TOME-scoped dual auth - a session cookie, an OAuth/PKCE-issued Keycloak
+// access token, a user-minted Tome-scoped API key sent as `x-caipe-token`, or a
+// secondary OIDC JWT validated against configured JWKS. Every tool re-enters
+// the existing authenticated
 // `/api/...` routes with the caller's credentials forwarded, so per-user RBAC
 // is identical to the web UI - this route adds no new data path, only an MCP
 // shell over the routes that already exist.
@@ -18,7 +17,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { getTomeAuthFromBearerOrSession } from "@/lib/tome/auth";
+import { TOME_MCP_OIDC_PROOF_HEADER } from "@/lib/tome/oidc-jwt";
 import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import { isTomeServerEnabled } from "@/lib/tome/guard";
 
@@ -84,8 +84,12 @@ function forwardHeaders(request: NextRequest): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   const auth = request.headers.get("Authorization");
   const cookie = request.headers.get("cookie");
+  const tomeApiKey = request.headers.get("x-caipe-token");
+  const oidcProof = request.headers.get(TOME_MCP_OIDC_PROOF_HEADER);
   if (auth) h.Authorization = auth;
   if (cookie) h.cookie = cookie;
+  if (tomeApiKey) h["X-Caipe-Token"] = tomeApiKey;
+  if (oidcProof) h[TOME_MCP_OIDC_PROOF_HEADER] = oidcProof;
   return h;
 }
 
@@ -1322,6 +1326,17 @@ const TOOLS: ToolDef[] = [
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 
+/** Shared tool registry for the REST connector facade. The facade exposes the
+ * same operations as ordinary OpenAPI-described HTTP endpoints, while this
+ * MCP route remains the canonical implementation of the tool behavior. */
+export function getTomeMcpTools(): readonly ToolDef[] {
+  return TOOLS;
+}
+
+export function getTomeMcpTool(name: string): ToolDef | undefined {
+  return TOOLS_BY_NAME.get(name);
+}
+
 // --- JSON-RPC dispatch ------------------------------------------------------
 
 async function dispatch(request: NextRequest, rpc: RpcRequest, fwd: Forward) {
@@ -1370,11 +1385,14 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  // Authenticate the transport. Bearer (skills API token, or a Keycloak access
-  // token from the OAuth/PKCE flow) or session cookie.
+  // Authenticate the transport. This supports a session cookie, a Keycloak
+  // bearer JWT, or a user-minted Tome API key.
   try {
-    const { session } = await getAuthFromBearerOrSession(request);
+    const { session } = await getTomeAuthFromBearerOrSession(request);
     requireInteractiveTomePrincipal(session);
+    if ("tomeOidcProof" in session && session.tomeOidcProof) {
+      request.headers.set(TOME_MCP_OIDC_PROOF_HEADER, session.tomeOidcProof);
+    }
   } catch {
     // Point clients at our RFC 9728 metadata so they can discover the
     // authorization server and run the OAuth flow (Claude Code et al.). Behind

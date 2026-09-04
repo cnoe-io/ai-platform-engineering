@@ -107,6 +107,32 @@ describe("Tome MCP authentication challenge", () => {
     );
   });
 
+  it("allows a user-owned TOME API-key principal to list tools", async () => {
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      user: { email: "viewer@example.test", name: "Viewer" },
+      session: {
+        principalType: "tome_api_key",
+        sub: "viewer-subject",
+        authScopes: ["tome:mcp"],
+      },
+    });
+    const response = await POST(
+      new NextRequest("http://caipe-ui:3000/api/tome/mcp", {
+        method: "POST",
+        headers: { "x-caipe-token": "tome_redacted.secret" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/list" }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.result.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "tome_list_projects" }),
+      ]),
+    );
+  });
+
   it("includes explicit auto-ingest state in project list results", async () => {
     mockGetAuthFromBearerOrSession.mockResolvedValue({
       user: { email: "viewer@example.test" },

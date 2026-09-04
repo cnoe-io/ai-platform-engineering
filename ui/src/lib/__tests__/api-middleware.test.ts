@@ -36,6 +36,11 @@ jest.mock('@/lib/catalog-api-keys', () => ({
   verifyCatalogApiKey: jest.fn().mockResolvedValue(null),
 }));
 
+const mockVerifyTomeApiKey = jest.fn().mockResolvedValue(null);
+jest.mock('@/lib/tome-api-keys', () => ({
+  verifyTomeApiKey: (...args: unknown[]) => mockVerifyTomeApiKey(...args),
+}));
+
 const mockGetConfig = jest.fn((key: string) => key === 'ssoEnabled');
 jest.mock('@/lib/config', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...args),
@@ -66,12 +71,59 @@ beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
   mockAuditWrite.mockClear();
   mockVerifyCatalogApiKey.mockReset().mockResolvedValue(null);
+  mockVerifyTomeApiKey.mockReset().mockResolvedValue(null);
   mockValidateLocalSkillsJWT.mockReset().mockResolvedValue(null);
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
   delete process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
 });
 
 describe('getAuthFromBearerOrSession scoped credentials', () => {
+  it('binds a valid Tome API key to its owning user on Tome MCP paths', async () => {
+    mockVerifyTomeApiKey.mockResolvedValue({
+      sub: 'tome-owner-sub',
+      email: 'owner@example.test',
+      name: 'Tome Owner',
+    });
+    const request = new Request('http://test.com/api/tome/mcp', {
+      headers: { 'X-Caipe-Token': 'tome_key.secret' },
+    }) as unknown as NextRequest;
+
+    const result = await getAuthFromBearerOrSession(request);
+
+    expect(mockVerifyTomeApiKey).toHaveBeenCalledWith('tome_key.secret');
+    expect(result).toMatchObject({
+      user: { email: 'owner@example.test', name: 'Tome Owner', role: 'user' },
+      session: {
+        sub: 'tome-owner-sub',
+        principalType: 'tome_api_key',
+        authScopes: ['tome:mcp'],
+      },
+    });
+  });
+
+  it('rejects a Tome API key on unrelated APIs', async () => {
+    const request = new Request('http://test.com/api/skills', {
+      headers: { 'X-Caipe-Token': 'tome_key.secret' },
+    }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(request)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'TOME_API_KEY_NOT_ALLOWED',
+    });
+    expect(mockVerifyTomeApiKey).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid Tome API key on the MCP endpoint', async () => {
+    const request = new Request('http://test.com/api/tome/mcp', {
+      headers: { 'X-Caipe-Token': 'tome_invalid.secret' },
+    }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(request)).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOME_API_KEY_INVALID',
+    });
+  });
+
   it('rejects an invalid catalog API key', async () => {
     const request = new Request('http://test.com/api/skills', {
       headers: { 'X-Caipe-Catalog-Key': 'sk_invalid.secret' },

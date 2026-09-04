@@ -17,8 +17,15 @@ import {
   validateBearerJWT,
   validateLocalSkillsJWT,
 } from '@/lib/jwt-validation';
+import {
+  buildTomeOidcAuth,
+  isValidTomeOidcProof,
+  TOME_MCP_OIDC_PROOF_HEADER,
+  validateTomeSecondaryOidcJWT,
+} from '@/lib/tome/oidc-jwt';
 import { verifyCatalogApiKey } from '@/lib/catalog-api-keys';
 import { isSkillsApiKeyActive } from '@/lib/skills-api-keys';
+import { verifyTomeApiKey } from '@/lib/tome-api-keys';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
@@ -154,7 +161,7 @@ type SessionAuthSession = {
   isAuthorized?: boolean;
   isServiceAccount?: boolean;
   org?: string;
-  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
+  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key' | 'tome_api_key';
   role?: string;
   sub?: string;
   user?: {
@@ -597,6 +604,47 @@ export async function getAuthFromBearerOrSession(
 
   const pathname = new URL(request.url).pathname.replace(/\/+$/, '') || '/';
   const isCatalogRead = request.method.toUpperCase() === 'GET' && pathname === '/api/skills';
+  const isTomeApiKeyPath =
+    pathname === '/api/tome/mcp' ||
+    pathname.startsWith('/api/tome/') ||
+    pathname === '/api/projects' ||
+    pathname.startsWith('/api/projects/');
+
+  // TOME connector keys are deliberately path-scoped. The MCP wrapper
+  // forwards requests to the existing project/Tome routes, so those backing
+  // paths are included; unrelated platform APIs never accept this header.
+  const tomeApiKey = request.headers.get('X-Caipe-Token')?.trim();
+  if (tomeApiKey) {
+    if (!isTomeApiKeyPath) {
+      throw new ApiError(
+        'Tome API keys are only authorized for Tome APIs.',
+        403,
+        'TOME_API_KEY_NOT_ALLOWED',
+        'pdp_denied',
+        'contact_admin',
+      );
+    }
+    const identity = await verifyTomeApiKey(tomeApiKey);
+    if (!identity) {
+      throw new ApiError(
+        'The Tome API token is invalid, expired, or revoked.',
+        401,
+        'TOME_API_KEY_INVALID',
+        'bearer_invalid',
+        'sign_in',
+      );
+    }
+    return {
+      user: { email: identity.email, name: identity.name, role: 'user' },
+      session: {
+        role: 'user',
+        sub: identity.sub,
+        principalType: 'tome_api_key',
+        authScopes: ['tome:mcp'],
+        user: { email: identity.email, name: identity.name },
+      },
+    };
+  }
 
   // Path 0: Catalog API key (database-verified, read-only skills access)
   if (catalogKey) {
@@ -634,6 +682,20 @@ export async function getAuthFromBearerOrSession(
   // Path 1: Bearer JWT
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
+
+    // TOME's MCP handler adds a server-generated proof when it has already
+    // validated a secondary OIDC JWT. The proof is bound to this exact token,
+    // so a caller cannot opt into the secondary trust anchor on unrelated
+    // routes.
+    const oidcProof = request.headers.get(TOME_MCP_OIDC_PROOF_HEADER);
+    if (isValidTomeOidcProof(token, oidcProof)) {
+      try {
+        const identity = await validateTomeSecondaryOidcJWT(token);
+        return buildTomeOidcAuth(token, identity);
+      } catch (err) {
+        throw classifyBearerError(err);
+      }
+    }
 
     // Try local skills API token first (fast HS256, no network)
     let localIdentity: Awaited<ReturnType<typeof validateLocalSkillsJWT>>;

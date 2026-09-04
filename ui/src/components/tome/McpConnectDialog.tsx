@@ -22,9 +22,9 @@ import { buildMcpRemoteOAuthArgs } from "@/lib/tome/mcpb/manifest";
  * protected-resource metadata and dynamically register a public PKCE client.
  * GitHub Copilot and Cursor use their native remote-server configuration.
  * Claude Desktop uses a local bridge configured through its Developer settings
- * because enterprise accounts can restrict custom Web connectors. Every option
- * uses the same OAuth discovery and public-PKCE flow; none requires a static
- * client registration or bearer key.
+ * because enterprise accounts can restrict custom Web connectors. Native
+ * clients use OAuth; Connector Studio and other API-key clients can use a
+ * user-minted, Tome-scoped token.
  */
 
 const VERIFICATION_PROMPT = [
@@ -107,13 +107,57 @@ function openCodeCommand(endpoint: string): string {
   ].join("\n");
 }
 
+function connectorStudioConfig(endpoint: string, token: string): string {
+  return JSON.stringify(
+    {
+      api_base_url: endpoint,
+      api_specification_url: `${endpoint}/openapi.json`,
+      security: {
+        type: "apiKey",
+        header_name: "x-caipe-token",
+        value: token,
+      },
+    },
+    null,
+    2,
+  );
+}
+
 export function McpConnectDialog({
   initialOpen = false,
 }: {
   initialOpen?: boolean;
 }) {
   const [open, setOpen] = useState(initialOpen);
+  const [tomeToken, setTomeToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [mintingToken, setMintingToken] = useState(false);
   const endpoint = `${typeof window !== "undefined" ? window.location.origin : ""}/api/tome/mcp`;
+
+  async function mintTomeToken() {
+    setMintingToken(true);
+    setTokenError(null);
+    try {
+      const response = await fetch("/api/tome/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ expires_in_days: 90 }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        token?: string;
+        error?: string;
+      } | null;
+      if (!response.ok || !body?.token) {
+        throw new Error(body?.error || `Token request failed (${response.status})`);
+      }
+      setTomeToken(body.token);
+    } catch (error) {
+      setTokenError(error instanceof Error ? error.message : "Could not mint a Tome token");
+    } finally {
+      setMintingToken(false);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -137,10 +181,38 @@ export function McpConnectDialog({
             Use these TOME projects from Codex, GitHub Copilot, Claude, Cursor,
             or OpenCode. Native clients connect over Streamable HTTP; Claude
             Desktop uses a local bridge. Every option signs in via OAuth.
+            Connector Studio can use a Tome-scoped API token.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-5">
+          <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+            <div>
+              <p className="text-sm font-medium">Connector Studio / API-key access</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mint a TOME-only token for Connector Studio. It inherits your
+                TOME permissions, expires after 90 days, and is shown only once.
+                Minting a replacement revokes your previous token.
+              </p>
+            </div>
+            <Button type="button" size="sm" onClick={mintTomeToken} disabled={mintingToken}>
+              {mintingToken ? "Minting…" : tomeToken ? "Mint replacement token" : "Mint Tome API token"}
+            </Button>
+            {tokenError && <p className="text-xs text-destructive">{tokenError}</p>}
+            {tomeToken && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                  Copy this token now. It cannot be displayed again.
+                </p>
+                <ConfigBlock text={tomeToken} copyLabel="Copy token" />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <InstructionBlock title="API key header name" text="x-caipe-token" />
+                  <InstructionBlock title="Connector configuration" text={connectorStudioConfig(endpoint, tomeToken)} copyLabel="Copy config" />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Client config */}
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium">Client configuration</label>

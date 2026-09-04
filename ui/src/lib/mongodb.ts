@@ -219,6 +219,11 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'skills_api_keys', { jti: 1 }, { unique: true }),
     safeCreateIndex(db, 'skills_api_keys', { user_email: 1, status: 1 }),
 
+    // TOME MCP API keys — key lookup on every connector request and active-key
+    // replacement/status operations per Keycloak subject.
+    safeCreateIndex(db, 'tome_api_keys', { key_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'tome_api_keys', { owner_user_id: 1, status: 1 }),
+
     // Conversations collection
     safeCreateIndex(db, 'conversations', { owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { created_at: -1 }),

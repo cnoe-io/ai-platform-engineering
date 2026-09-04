@@ -42,6 +42,7 @@ services:
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
+      - TOME_API_KEY_PEPPER=${TOME_API_KEY_PEPPER:-}
       - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
       - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET}
       - TOME_AUTO_INGEST_ENABLED=${TOME_AUTO_INGEST_ENABLED:-true}

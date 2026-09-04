@@ -2,9 +2,10 @@
  * @jest-environment jsdom
  *
  * McpConnectDialog — OAuth client setup:
- *  1. Client configuration is available without generating an API key.
- *  2. Native Streamable HTTP and the enterprise Desktop bridge are available.
- *  3. Every client has a connection check and a shared read-only test prompt.
+ *  1. Client configuration is available without generating a token.
+ *  2. A separate TOME-only token can be minted for API-key clients.
+ *  3. Native Streamable HTTP and the enterprise Desktop bridge are available.
+ *  4. Every client has a connection check and a shared read-only test prompt.
  */
 
 import React from "react";
@@ -17,16 +18,14 @@ afterEach(() => {
 });
 
 describe("McpConnectDialog", () => {
-  it("shows OAuth client configuration without generating an API key", () => {
+  it("shows OAuth client configuration and a separate TOME token action", () => {
     render(<McpConnectDialog initialOpen />);
 
     expect(screen.getByText("Client configuration")).toBeInTheDocument();
     expect(
       screen.getByText(/native clients connect over streamable http/i),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /generate|regenerate/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mint tome api token/i })).toBeInTheDocument();
     expect(screen.getByText(/codex mcp add tome --url/)).toBeInTheDocument();
     expect(screen.queryByText(/--oauth-client-id/)).not.toBeInTheDocument();
   });
