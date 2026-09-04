@@ -24,6 +24,10 @@ describe("External Apps deployment config", () => {
         expect.objectContaining({
           manifest: expect.objectContaining({
             id: "example-app",
+            authorization: {
+              resourceType: "agentic_app",
+              launchAction: "use",
+            },
             access: expect.objectContaining({ tokenScopes: ["example-app:read"] }),
           }),
           installation: expect.objectContaining({
@@ -194,6 +198,9 @@ function validConfig(): string {
           origin: http://example-app.example.svc
           mountPath: /apps/example-app
           chrome: iframe
+        authorization:
+          resourceType: agentic_app
+          launchAction: use
         surfaces:
           showInHub: true
           navOrder: 50
@@ -203,6 +210,7 @@ function validConfig(): string {
           policyActions:
             - action: proxy:GET
               defaultEffect: allow
+              casAction: read
         health:
           endpoint: /health
   installations:
