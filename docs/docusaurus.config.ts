@@ -33,7 +33,7 @@ const legacyMigrationSlugs = [
   ...Array.from({length: 8}, (_, i) => `migration-0.4.${i}-to-0.4.${i + 1}`),
 ];
 
-const currentReleaseSlugs = ['release-0.4.0', 'release-0.5.0', 'release-0.6.0'];
+const currentReleaseSlugs = ['release-0.4.0', 'release-0.5.0', 'release-0.6.0', 'release-1.0.0'];
 
 // Keyed by the surviving post; the values are slugs that no longer resolve to a page. A
 // current slug must never appear in its own list, or it would redirect to itself.
