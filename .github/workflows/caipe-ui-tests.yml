@@ -344,6 +344,9 @@ jobs:
           # This public setting is compiled into the client bundle, so set it
           # while building as well as when serving the app below.
           NEXT_PUBLIC_SSO_ENABLED: 'true'
+          # The mocked production server still initializes NextAuth. This is
+          # an ephemeral CI-only signing key, not a deployment secret.
+          NEXTAUTH_SECRET: 'ci-only-nextauth-secret-for-mocked-rbac-regression-tests'
           # The specs mock every API, so no real database is contacted. But the
           # home page gates shared-conversation / insights UI on server-side
           # storage mode (getStorageMode reads MONGODB_URI + MONGODB_DATABASE at
@@ -358,6 +361,9 @@ jobs:
         env:
           WORKFLOWS_ENABLED: 'true'
           NEXT_PUBLIC_SSO_ENABLED: 'true'
+          # Keep the production server bootable when the test stack enables
+          # NextAuth's production configuration. This key is CI-only.
+          NEXTAUTH_SECRET: 'ci-only-nextauth-secret-for-mocked-rbac-regression-tests'
           MONGODB_URI: 'mongodb://mock:27017'
           MONGODB_DATABASE: 'mock'
         run: |
