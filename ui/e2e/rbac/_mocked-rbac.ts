@@ -1,5 +1,6 @@
 // assisted-by Codex Codex-sonnet-4-6
 
+import { encode } from "next-auth/jwt";
 import { type Page, type Route } from "@playwright/test";
 
 export const MOCK_RBAC_EMAIL = "non-manager@caipe.local";
@@ -98,6 +99,37 @@ export async function installMockedRbacApp(page: Page, options: MockedRbacOption
   const session = mockSessionBody({ ...options, isAdmin });
   const gates = { ...DEFAULT_ADMIN_GATES, ...(options.gates ?? {}) };
   const handlers = options.handlers ?? [];
+
+  // The mocked API session is not visible to the server-rendered app layout.
+  // Install a lightweight NextAuth JWT as well so production-mode SSR can
+  // pass the authentication boundary without contacting a real IdP or MongoDB.
+  if (process.env.NEXTAUTH_SECRET) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const token = await encode({
+      secret: process.env.NEXTAUTH_SECRET,
+      maxAge: 60 * 60,
+      token: {
+        name: session.user.name,
+        email: session.user.email,
+        role: session.role,
+        isAuthorized: session.isAuthorized,
+        canViewAdmin: session.canViewAdmin,
+        canAccessDynamicAgents: session.canAccessDynamicAgents,
+        accessToken: session.accessToken,
+        expiresAt: nowSeconds + 60 * 60,
+      },
+    });
+    const baseUrl = process.env.CAIPE_UI_BASE_URL ?? "http://localhost:3000";
+    await page.context().addCookies([{
+      name: "next-auth.session-token",
+      value: token,
+      url: baseUrl,
+      httpOnly: true,
+      secure: new URL(baseUrl).protocol === "https:",
+      sameSite: "Lax",
+      expires: nowSeconds + 60 * 60,
+    }]);
+  }
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
