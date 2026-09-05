@@ -16,6 +16,7 @@ import type { AutonomousTask } from "@/components/autonomous/types";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getErrorMessage } from "@/lib/error-utils";
+import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
@@ -174,6 +175,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [conversationView, setConversationView] = useState<ConversationViewId>("chat");
   const [webhookTasks, setWebhookTasks] = useState<AutonomousTask[]>([]);
   const { toast } = useToast();
+  const scheduledTabEnabled = getConfig("schedulerEnabled");
+  const autonomousTabEnabled = getConfig("autonomousAgentsEnabled");
 
   // Agent name lookup for dynamic agent conversations
   const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
@@ -248,7 +251,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   useEffect(() => {
     let cancelled = false;
     const ownerEmail = session?.user?.email?.trim().toLowerCase();
-    if (activeTab !== "chat" || !ownerEmail) {
+    if (activeTab !== "chat" || !ownerEmail || !autonomousTabEnabled) {
       setWebhookTasks([]);
       return;
     }
@@ -274,7 +277,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     return () => {
       cancelled = true;
     };
-  }, [activeTab, session?.user?.email]);
+  }, [activeTab, autonomousTabEnabled, session?.user?.email]);
 
   // Handle mouse move for resizing
   useEffect(() => {
@@ -465,12 +468,18 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
   const conversationTabs: Array<{ id: ConversationViewId; label: string; count?: number }> = [
     { id: "chat", label: "Chat" },
-    { id: "scheduled", label: "Scheduled", count: scheduledConversations.length },
-    {
-      id: "autonomous",
-      label: "Autonomous",
-      count: autonomousConversations.length + webhookTasks.length,
-    },
+    ...(scheduledTabEnabled
+      ? [{ id: "scheduled" as const, label: "Scheduled", count: scheduledConversations.length }]
+      : []),
+    ...(autonomousTabEnabled
+      ? [
+          {
+            id: "autonomous" as const,
+            label: "Autonomous",
+            count: autonomousConversations.length + webhookTasks.length,
+          },
+        ]
+      : []),
   ];
 
   return (

@@ -142,6 +142,16 @@ jest.mock('@/lib/storage-config', () => ({
   getStorageModeDisplay: () => 'MongoDB',
 }))
 
+let mockSchedulerEnabled = true
+let mockAutonomousAgentsEnabled = true
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => {
+    if (key === 'schedulerEnabled') return mockSchedulerEnabled
+    if (key === 'autonomousAgentsEnabled') return mockAutonomousAgentsEnabled
+    return undefined
+  },
+}))
+
 jest.mock('@/lib/utils', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   formatDate: () => 'Jan 1, 2026',
@@ -248,6 +258,8 @@ describe('Sidebar — Live Status Indicator', () => {
     ) as unknown as typeof fetch
     mockConversations = []
     mockActiveConversationId = null
+    mockSchedulerEnabled = true
+    mockAutonomousAgentsEnabled = true
     mockIsConversationStreaming.mockImplementation(() => false)
     mockHasUnviewedMessages.mockImplementation(() => false)
     mockIsConversationInputRequired.mockImplementation(() => false)
@@ -599,6 +611,17 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(scheduled).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByText('Nightly report')).toBeInTheDocument()
       expect(screen.queryByText('Review alerts')).not.toBeInTheDocument()
+    })
+
+    it('hides scheduled and autonomous tabs when their features are disabled', () => {
+      mockSchedulerEnabled = false
+      mockAutonomousAgentsEnabled = false
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: /Scheduled/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: /Autonomous/i })).not.toBeInTheDocument()
     })
 
     it('shows the current user webhook tasks in the autonomous view', async () => {
