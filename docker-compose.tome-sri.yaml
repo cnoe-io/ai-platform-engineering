@@ -57,6 +57,11 @@ services:
       - GITHUB_TICKET_REPO=${GITHUB_TICKET_REPO:-cisco-eti/ai-platform-engineering-mirror}
       - REPORT_PROBLEM_GITHUB_TOKEN=${REPORT_PROBLEM_GITHUB_TOKEN}
     volumes:
+      # Keep the standalone environment's app/MCP/agent catalog under source
+      # control. A gitignored app-config.local.yaml is not copied into release
+      # worktrees and Docker otherwise creates a directory at the bind source,
+      # causing startup reconciliation to abort before Agentic Apps are seeded.
+      - ./config/app-config.tome-sri.yaml:/app/config/app-config.yaml:ro
       - ./config/projects-onboarding.tome-sri.yaml:/app/config/projects-onboarding.yaml:ro
 
   keycloak:
