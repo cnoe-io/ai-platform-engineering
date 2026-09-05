@@ -446,7 +446,7 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.queryByText('Important Team 2 Meeting Prep')).not.toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: /Scheduled Runs/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /Scheduled/i }))
       expect(screen.getByText('Important Team 2 Meeting Prep')).toBeInTheDocument()
       expect(screen.queryByText('sched_ec7107dfab744ddd')).not.toBeInTheDocument()
     })
@@ -460,7 +460,7 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
-      fireEvent.click(screen.getByRole('button', { name: /Scheduled Runs/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /Scheduled/i }))
       expect(screen.getByText('sched_ec7107dfab744ddd')).toBeInTheDocument()
     })
 
@@ -476,7 +476,7 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.queryByText('Review open pull requests')).not.toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: /Autonomous Runs/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /Autonomous/i }))
       const badge = screen.getByText('Review open pull requests')
       expect(badge).toHaveClass(
         'border-violet-500/30',
@@ -499,11 +499,11 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
-      fireEvent.click(screen.getByRole('button', { name: /Autonomous Runs/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /Autonomous/i }))
       expect(screen.getByText('Legacy task title')).toHaveClass('border-violet-500/30')
     })
 
-    it('separates run conversations into collapsed sections above History', () => {
+    it('switches between chat, scheduled, and autonomous conversation views', () => {
       mockConversations = [
         makeConv('conv-normal', 'Normal Chat'),
         makeConv('conv-scheduled', 'Scheduled Chat', {
@@ -518,29 +518,32 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
-      const autonomous = screen.getByRole('button', { name: /Autonomous Runs/i })
-      const scheduled = screen.getByRole('button', { name: /Scheduled Runs/i })
-      const history = screen.getByTestId('conversation-section-history')
+      const chat = screen.getByRole('tab', { name: 'Chat' })
+      const autonomous = screen.getByRole('tab', { name: /Autonomous/i })
+      const scheduled = screen.getByRole('tab', { name: /Scheduled/i })
 
-      expect(autonomous).toHaveAttribute('aria-expanded', 'false')
-      expect(scheduled).toHaveAttribute('aria-expanded', 'false')
+      expect(chat).toHaveAttribute('aria-selected', 'true')
+      expect(autonomous).toHaveAttribute('aria-selected', 'false')
+      expect(scheduled).toHaveAttribute('aria-selected', 'false')
+      expect(scheduled).toHaveAccessibleName('Scheduled (1)')
+      expect(autonomous).toHaveAccessibleName('Autonomous (1)')
       expect(screen.queryByText('Review alerts')).not.toBeInTheDocument()
       expect(screen.queryByText('Nightly report')).not.toBeInTheDocument()
       expect(screen.getByText('Normal Chat')).toBeInTheDocument()
-      expect(
-        autonomous.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
-      expect(
-        scheduled.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
 
       fireEvent.click(autonomous)
-      expect(autonomous).toHaveAttribute('aria-expanded', 'true')
+      expect(autonomous).toHaveAttribute('aria-selected', 'true')
+      expect(screen.queryByTestId('conversation-section-history')).not.toBeInTheDocument()
       expect(screen.getByText('Review alerts')).toBeInTheDocument()
       expect(screen.queryByText('Nightly report')).not.toBeInTheDocument()
+
+      fireEvent.click(scheduled)
+      expect(scheduled).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByText('Nightly report')).toBeInTheDocument()
+      expect(screen.queryByText('Review alerts')).not.toBeInTheDocument()
     })
 
-    it('groups the current user webhook tasks in a nested collapsed section', async () => {
+    it('shows the current user webhook tasks in the autonomous view', async () => {
       mockLoadConversationsFromServer.mockResolvedValueOnce(undefined)
       mockListAutonomousTasks.mockResolvedValue([
         {
@@ -567,16 +570,14 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
-      const autonomous = await screen.findByRole('button', { name: /Autonomous Runs/i })
+      const autonomous = await screen.findByRole('tab', { name: /Autonomous/i })
       expect(mockListAutonomousTasks).toHaveBeenCalledTimes(1)
       fireEvent.click(autonomous)
 
-      const webhookRuns = screen.getByRole('button', { name: /Webhook Runs/i })
-      expect(webhookRuns).toHaveAttribute('aria-expanded', 'false')
-      expect(screen.queryByText('Daily branch summary')).not.toBeInTheDocument()
-
-      fireEvent.click(webhookRuns)
       expect(await screen.findByText('Daily branch summary')).toBeInTheDocument()
+      const webhookSection = screen.getByTestId('conversation-section-webhook')
+      expect(webhookSection).toBeInTheDocument()
+      expect(webhookSection.querySelector('button')).toBeNull()
       expect(screen.queryByText('Other owner hook')).not.toBeInTheDocument()
 
       fireEvent.click(screen.getByTestId('webhook-task-daily-branch-summary-41a9'))
