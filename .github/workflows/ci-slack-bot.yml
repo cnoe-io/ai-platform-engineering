@@ -1,5 +1,5 @@
 name: "[CI] Slack Bot Build and Push"
-description: "Build and push Slack Bot Docker image"
+# description: "Build and push Slack Bot Docker image"
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - 'ai_platform_engineering/integrations/slack_bot/**'
+      - 'build/Dockerfile.slack-bot'
   workflow_dispatch:
     inputs:
       tag_version:
@@ -58,6 +59,7 @@ jobs:
           filters: |
             slack_bot:
               - 'ai_platform_engineering/integrations/slack_bot/**'
+              - 'build/Dockerfile.slack-bot'
 
       - name: Set Outputs
         id: set-outputs

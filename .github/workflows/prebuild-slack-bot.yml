@@ -1,5 +1,5 @@
 name: "[Prebuild] Slack Bot Docker Build and Push"
-description: "Build and push Slack Bot Docker image for prebuild branches"
+# description: "Build and push Slack Bot Docker image for prebuild branches"
 
 on:
   pull_request:
@@ -9,6 +9,7 @@ on:
       - '.github/actions/prebuild-status/**'
       - '.github/actions/publish-prebuild-manifest/**'
       - 'ai_platform_engineering/integrations/slack_bot/**'
+      - 'build/Dockerfile.slack-bot'
   workflow_call:
     inputs:
       pr_number:

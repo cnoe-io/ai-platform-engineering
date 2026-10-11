@@ -163,6 +163,7 @@ jobs:
               ],
               slack_bot: [
                 'ai_platform_engineering/integrations/slack_bot/**',
+                'build/Dockerfile.slack-bot',
               ],
               webex_bot: [
                 'ai_platform_engineering/integrations/webex_bot/**',
