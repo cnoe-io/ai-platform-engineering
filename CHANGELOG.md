@@ -1,3 +1,9 @@
+## 1.3.0-rc.8 (2026-10-11)
+
+### Fix
+
+- **ui**: upgrade vulnerable npm dependency overrides (#2917)
+
 ## 1.3.0-rc.7 (2026-10-11)
 
 ### Feat
