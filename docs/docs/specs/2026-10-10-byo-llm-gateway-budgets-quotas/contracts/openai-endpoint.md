@@ -20,7 +20,7 @@ sequenceDiagram
 
 ## Request
 
-- **Transport**: HTTPS (in-cluster HTTP only behind network policy).
+- **Transport**: for production, use HTTPS with certificate and hostname verification, or service-mesh mTLS configured to authenticate the destination and prevent plaintext fallback. Plain HTTP is supported for local development and isolated testing. Without transport encryption, bearer credentials, prompts and responses are exposed to anyone able to observe the traffic. Network policy restricts connectivity but does not encrypt traffic. Transport policy remains operator-controlled; CAIPE does not require TLS to enable gateway routing.
 - **Paths**: `POST /v1/chat/completions` (streaming SSE, tool calls), `GET /v1/models`, `POST /v1/embeddings`.
 - **Auth ②**: `Authorization: Bearer <gateway JWT>` (`LLM_GATEWAY_AUTH=jwt`), or `Bearer <per-agent gateway key>` (`LLM_GATEWAY_AUTH=key`). See [routing-backend-contract.md](./routing-backend-contract.md).
 - **Body**: OpenAI chat-completions schema. `model` = `llm_models.model_id`.
