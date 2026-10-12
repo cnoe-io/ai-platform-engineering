@@ -2602,7 +2602,7 @@ export function ChatPanel({
         </div>
       ) : !isAutonomousHistory && (
       <div className="border-t border-border bg-background shrink-0">
-        <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
+        <div className="max-w-7xl mx-auto px-3 py-3 space-y-2 sm:px-4">
           {/* Queued Messages Display */}
           {queuedMessages.length > 0 && (
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
@@ -2836,7 +2836,8 @@ export function ChatPanel({
               {/* Staged attachment previews (above the input row). */}
               <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
 
-              <div className="relative z-20 flex items-end gap-3">
+              {/* The chat pane can narrow independently of the viewport; keep metadata in flow. */}
+              <div className="relative z-20 flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 px-1">
                 <AnimatePresence initial={false} mode="wait">
                   {effortStatus && (
                     <motion.span
@@ -2844,7 +2845,7 @@ export function ChatPanel({
                       role="status"
                       aria-live="polite"
                       className={cn(
-                        "absolute left-3 right-64 top-0 truncate text-[11px] font-medium max-sm:right-44",
+                        "min-w-0 flex-1 basis-48 text-[11px] font-medium leading-snug",
                         effortStatus.tone === "error"
                           ? "text-destructive"
                           : effortStatus.tone === "warning"
@@ -2860,6 +2861,31 @@ export function ChatPanel({
                     </motion.span>
                   )}
                 </AnimatePresence>
+                <span
+                  className="ml-auto flex min-w-0 max-w-full items-center gap-1 text-[10px] font-medium text-muted-foreground"
+                  title={`${agent?.model?.id || "Model"} · ${reasoningEffort}`}
+                  data-testid="composer-model-effort"
+                >
+                  <span className="min-w-0 truncate">{agent?.model?.id || "Model"}</span>
+                  <span className="shrink-0" aria-hidden="true">·</span>
+                  <span
+                    className={cn("shrink-0 text-foreground/80", reasoningEffort === "max" && "font-bold")}
+                    style={reasoningEffort === "max"
+                      ? {
+                          background: `linear-gradient(90deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
+                          backgroundClip: "text",
+                          color: "transparent",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                        }
+                      : undefined}
+                  >
+                    {reasoningEffort}
+                  </span>
+                </span>
+              </div>
+
+              <div className="relative z-20 flex min-w-0 items-end gap-2">
                 <TextareaAutosize
                   ref={inputRef}
                   aria-label="Message"
@@ -2870,36 +2896,13 @@ export function ChatPanel({
                   placeholder={
                     isThisConversationStreaming
                       ? `Type to queue another message${queuedMessages.length > 0 ? ` (${queuedMessages.length} queued)` : ""}, or Cmd+Enter to send now...`
-                      : `Ask anything, or type / to see commands, skills, and agents...`
+                      : "Ask anything, or / for commands..."
                   }
-                  className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                  className="min-w-0 flex-1 bg-transparent resize-none outline-none px-1 py-2.5 text-sm"
                   minRows={1}
                   maxRows={10}
                 />
-                <div className="relative flex shrink-0 items-center gap-2 pt-5">
-                  <span
-                    className="absolute right-0 top-0 flex max-w-56 items-center gap-1 whitespace-nowrap text-[10px] font-medium text-muted-foreground max-sm:max-w-40"
-                    title={`${agent?.model?.id || "Model"} · ${reasoningEffort}`}
-                    data-testid="composer-model-effort"
-                  >
-                    <span className="truncate">{agent?.model?.id || "Model"}</span>
-                    <span aria-hidden="true">·</span>
-                    <span
-                      className={cn("text-foreground/80", reasoningEffort === "max" && "font-bold")}
-                      style={reasoningEffort === "max"
-                        ? {
-                            background: `linear-gradient(90deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
-                            backgroundClip: "text",
-                            color: "transparent",
-                            WebkitBackgroundClip: "text",
-                            WebkitTextFillColor: "transparent",
-                          }
-                        : undefined}
-                    >
-                      {reasoningEffort}
-                    </span>
-                  </span>
-
+                <div className="flex shrink-0 items-center gap-2">
                   {/* Attach files */}
                   <div className="shrink-0">
                     <Button
@@ -2941,13 +2944,13 @@ export function ChatPanel({
             </div>
           </div>
 
-          <div className="relative flex min-h-6 items-center justify-center">
-            <p className="px-28 text-center text-xs text-muted-foreground max-sm:px-0 max-sm:pr-24">
+          <div className="flex min-h-6 flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            <p className="min-w-0 flex-1 basis-64 text-center text-xs leading-relaxed text-muted-foreground">
               {getConfig('appName')} can make mistakes. Verify important info.
               {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
             </p>
             {showContextUsage && contextUsage && (
-              <div className="absolute right-0">
+              <div className="shrink-0">
                 <ContextUsageIndicator usage={contextUsage} />
               </div>
             )}
