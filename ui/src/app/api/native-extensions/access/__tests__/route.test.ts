@@ -4,11 +4,13 @@
 jest.mock("@/native-extensions/access", () => ({
   canEnterNativeExtension: jest.fn(),
 }));
+jest.mock("@/lib/agentic-apps/config", () => ({ getConfiguredAgenticApp: (id: string) => ({ installation: { visible: id !== "internal" } }) }));
 jest.mock("@/native-extensions/manifests.generated", () => ({
   installedNativeExtensionManifests: [
     { id: "allowed", navigation: { href: "/allowed" } },
     { id: "denied", navigation: { href: "/denied" } },
     { id: "hidden", navigation: undefined },
+    { id: "internal", navigation: { href: "/internal" } },
   ],
 }));
 

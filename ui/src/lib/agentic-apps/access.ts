@@ -8,7 +8,7 @@ export type AgenticAppUserContext = {
 export function canLaunchAgenticApp(
   app: ConfiguredAgenticApp,
   user: AgenticAppUserContext,
-  { requireVisible = true }: { requireVisible?: boolean } = {},
+  { requireVisible = false }: { requireVisible?: boolean } = {},
 ): boolean {
   const { installation, manifest } = app;
   if (!installation.installed || !installation.enabled || (requireVisible && !installation.visible)) {

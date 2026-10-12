@@ -1,6 +1,9 @@
 import type { ComponentType } from "react";
 import type Link from "next/link";
 
+export type { AgenticAppManifest, AgenticAppUiProfile, AgenticAppAuthMode, AgenticAppPolicyAction } from "./agentic-app-manifest.mjs";
+export { validateAgenticAppManifest, validateAgenticAppOwnership } from "./agentic-app-manifest.mjs";
+
 export interface NativeExtensionBreadcrumb {
   label: string;
   href?: string;

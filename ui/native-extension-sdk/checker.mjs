@@ -1,30 +1,14 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { nativeUiDescriptor, validateAgenticAppManifest } from "./agentic-app-manifest.mjs";
+import { RESERVED_HOST_PATHS, RESERVED_API_PATHS } from "./reserved-paths.mjs";
 
 export const CONTRACT_VERSION = "1.1";
-export const CHECKER_VERSION = "1.1.2";
+export const CHECKER_VERSION = "1.2.0";
 export const MAX_ENTRY_BYTES = 64 * 1024;
 export const MAX_JAVASCRIPT_BYTES = 2 * 1024 * 1024;
 const ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const RESERVED_HOST_PATHS = [
-  "/", "/api", "/_next", "/native-extensions", "/admin", "/agent-builder",
-  "/apps", "/autonomous", "/chat", "/credentials", "/dynamic-agents",
-  "/insights", "/knowledge-bases", "/login", "/logout", "/schedules",
-  "/settings", "/skills", "/unauthorized", "/workflows",
-];
-export const RESERVED_API_PATHS = [
-  "/api/_test", "/api/access", "/api/admin", "/api/agentic-apps", "/api/ai",
-  "/api/audit", "/api/auth", "/api/authz", "/api/autonomous",
-  "/api/catalog-api-keys", "/api/changelog", "/api/chat", "/api/config",
-  "/api/credentials", "/api/dynamic-agents", "/api/feedback", "/api/files",
-  "/api/health", "/api/integrations", "/api/internal", "/api/llm-models",
-  "/api/mcp-servers", "/api/native-extensions", "/api/notifications",
-  "/api/platform", "/api/policies", "/api/publication-requests", "/api/rag",
-  "/api/rbac", "/api/release-notes", "/api/remote-agents", "/api/review-configs",
-  "/api/schedules", "/api/settings", "/api/skill-hubs", "/api/skill-templates",
-  "/api/skills", "/api/user", "/api/users", "/api/v1", "/api/version",
-  "/api/workflow-configs", "/api/workflow-runs",
-];
+export { RESERVED_API_PATHS } from "./reserved-paths.mjs";
 const PEERS = ["next", "next-auth", "next-themes", "react", "react-dom"];
 
 export function ownsPath(root, candidate) {
@@ -49,6 +33,12 @@ function validPath(path) {
 }
 
 export function validateManifest(moduleName, manifest) {
+  if (manifest?.apiVersion === "2.0") {
+    const app = validateAgenticAppManifest(manifest);
+    const profile = app.ui.profiles.find((candidate) => candidate.mode === "native-package");
+    if (!profile || (moduleName.startsWith("@") && profile.package !== moduleName)) throw new Error(`${moduleName}: native package binding mismatch`);
+    manifest = nativeUiDescriptor(app);
+  }
   const fail = (reason) => { throw new Error(`${moduleName}: ${reason}`); };
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("manifest must be an object");
   if (!ID.test(manifest.id ?? "")) fail("invalid extension id");

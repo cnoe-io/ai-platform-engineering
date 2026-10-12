@@ -10,6 +10,8 @@ export async function canEnterNativeExtension(extensionId: string): Promise<bool
   const app = getConfiguredAgenticApp(extensionId);
   const extension = nativeExtensionById(extensionId);
   if (!app || !extension || app.manifest.auth.mode !== extension.auth.mode) return false;
+  const profile = app.manifest.ui.profiles.find((candidate) => candidate.id === app.installation.selectedUiProfile);
+  if (profile && profile.mode !== "native-package") return false;
   const session = await getServerSession(authOptions);
   if (!session) return false;
   return canLaunchAgenticApp(

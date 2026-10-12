@@ -1,10 +1,20 @@
 import fs from "node:fs";
 import { load as loadYaml } from "js-yaml";
+import {
+  normalizeLegacyAgenticAppManifest,
+  validateAgenticAppManifest,
+  validateAgenticAppOwnership,
+} from "../../../native-extension-sdk/agentic-app-manifest.mjs";
+import {
+  installedAgenticAppManifests,
+  installedLegacyNativeExtensionIds,
+} from "@/native-extensions/manifests.generated";
 
 import type {
   AgenticAppAuthMode,
   AgenticAppInstallation,
   AgenticAppManifest,
+  LegacyAgenticAppManifest,
   AgenticAppPolicyAction,
   ConfiguredAgenticApp,
 } from "@/types/agentic-app";
@@ -31,6 +41,9 @@ type RawInstallation = {
   runtime_mount_path?: unknown;
   runtime_origin_override?: unknown;
   access_overrides?: unknown;
+  selected_ui_profile?: unknown;
+  app_version?: unknown;
+  bindings?: unknown;
 };
 
 export function isAgenticAppsEnabled(): boolean {
@@ -57,24 +70,38 @@ export function loadConfiguredAgenticApps(
     throw new Error(`External Apps config does not exist: ${configPath}`);
   }
 
-  const root = asRecord(loadYaml(fs.readFileSync(configPath, "utf8")), "config");
+  const root = asRecord(
+    loadYaml(fs.readFileSync(configPath, "utf8")),
+    "config",
+  );
   const section = asRecord(root.agentic_apps, "agentic_apps");
-  const rawPackages = asArray(section.packages, "agentic_apps.packages");
+  const rawPackages = asArray(section.packages ?? [], "agentic_apps.packages");
   const rawInstallations = asArray(
     section.installations,
     "agentic_apps.installations",
   );
 
-  const packages = new Map<string, AgenticAppManifest>();
+  const compiled = new Map(
+    (installedAgenticAppManifests ?? []).map((manifest) => [
+      manifest.id,
+      manifest,
+    ]),
+  );
+  const packages = new Map<string, AgenticAppManifest>(compiled);
+  const configuredPackages = new Set<string>();
   rawPackages.forEach((entry, index) => {
-    const raw = asRecord(entry, `agentic_apps.packages[${index}]`) as RawPackage;
+    const raw = asRecord(
+      entry,
+      `agentic_apps.packages[${index}]`,
+    ) as RawPackage;
     const packageId = requiredString(
       raw.package_id,
       `agentic_apps.packages[${index}].package_id`,
     );
-    if (packages.has(packageId)) {
+    if (configuredPackages.has(packageId)) {
       throw new Error(`Duplicate External App package_id: ${packageId}`);
     }
+    configuredPackages.add(packageId);
     const manifest = parseManifest(
       raw.manifest,
       `agentic_apps.packages[${index}].manifest`,
@@ -84,14 +111,45 @@ export function loadConfiguredAgenticApps(
         `External App package "${packageId}" must use the same manifest id`,
       );
     }
-    packages.set(packageId, manifest);
+    const native = compiled.get(packageId);
+    if (native) {
+      const legacy = asRecord(raw.manifest, "manifest").apiVersion === "1.0";
+      if (
+        !legacy ||
+        !(installedLegacyNativeExtensionIds ?? []).includes(packageId)
+      )
+        throw new Error(
+          `${packageId}: compiled application manifest must come from its pinned package; configure only the installation`,
+        );
+      if (native.auth.mode !== manifest.auth.mode)
+        throw new Error(
+          `${packageId}: native extension auth mode does not match deployment`,
+        );
+      packages.set(packageId, {
+        ...manifest,
+        version: native.version,
+        ui: {
+          ...native.ui,
+          profiles: [...native.ui.profiles, ...manifest.ui.profiles],
+        },
+        api: native.api,
+        provides: native.provides,
+        consumes: native.consumes,
+        requestedPermissions: native.requestedPermissions,
+      });
+    } else {
+      packages.set(packageId, manifest);
+    }
   });
 
   const apps: ConfiguredAgenticApp[] = rawInstallations.map((entry, index) => {
     const path = `agentic_apps.installations[${index}]`;
     const raw = asRecord(entry, path) as RawInstallation;
     const appId = requiredAppId(raw.app_id, `${path}.app_id`);
-    const packageId = requiredString(raw.package_id, `${path}.package_id`);
+    const packageId =
+      raw.package_id === undefined
+        ? appId
+        : requiredString(raw.package_id, `${path}.package_id`);
     const manifest = packages.get(packageId);
     if (!manifest) {
       throw new Error(
@@ -108,6 +166,19 @@ export function loadConfiguredAgenticApps(
       installed: optionalBoolean(raw.installed, true, `${path}.installed`),
       enabled: optionalBoolean(raw.enabled, true, `${path}.enabled`),
       visible: optionalBoolean(raw.visible, true, `${path}.visible`),
+      selectedUiProfile:
+        raw.selected_ui_profile === undefined
+          ? manifest.ui.profiles[0]?.id
+          : requiredString(
+              raw.selected_ui_profile,
+              `${path}.selected_ui_profile`,
+            ),
+      ...(raw.app_version !== undefined
+        ? { appVersion: requiredString(raw.app_version, `${path}.app_version`) }
+        : {}),
+      ...(raw.bindings !== undefined
+        ? { bindings: parseBindings(raw.bindings, `${path}.bindings`) }
+        : {}),
       ...(raw.runtime_mount_path !== undefined
         ? {
             runtimeMountPath: requiredMountPath(
@@ -133,6 +204,50 @@ export function loadConfiguredAgenticApps(
           }
         : {}),
     };
+    if (installation.appVersion && installation.appVersion !== manifest.version)
+      throw new Error(
+        `${path}: app_version does not match the declared artifact`,
+      );
+    if (
+      manifest.ui.profiles.length > 1 &&
+      raw.selected_ui_profile === undefined &&
+      !(installedLegacyNativeExtensionIds ?? []).includes(appId)
+    )
+      throw new Error(
+        `${path}: select an explicit UI profile for a multi-profile application`,
+      );
+    if (
+      installation.bindings?.runtimeOrigin &&
+      installation.runtimeOriginOverride &&
+      installation.bindings.runtimeOrigin !== installation.runtimeOriginOverride
+    )
+      throw new Error(`${path}: runtime origin bindings disagree`);
+    const profile = manifest.ui.profiles.find(
+      (candidate) => candidate.id === installation.selectedUiProfile,
+    );
+    if (
+      (installation.selectedUiProfile && !profile) ||
+      (manifest.ui.profiles.length && !profile)
+    )
+      throw new Error(`${path}: selected UI profile is not declared`);
+    if (
+      profile?.mode !== "native-package" &&
+      manifest.consumes.platformApis.some(
+        (api) => api.required && api.id.startsWith("host."),
+      )
+    )
+      throw new Error(
+        `${path}: selected UI profile does not support required host SDK capabilities`,
+      );
+    if (
+      installation.installed &&
+      installation.enabled &&
+      profile?.mode === "native-package" &&
+      !compiled.has(appId)
+    )
+      throw new Error(
+        `${path}: native package is not compiled into this image`,
+      );
     return { manifest, installation };
   });
 
@@ -140,43 +255,94 @@ export function loadConfiguredAgenticApps(
   const mountPaths = new Map<string, string>();
   for (const app of apps) {
     if (appIds.has(app.installation.appId)) {
-      throw new Error(`Duplicate External App installation: ${app.installation.appId}`);
+      throw new Error(
+        `Duplicate External App installation: ${app.installation.appId}`,
+      );
     }
     appIds.add(app.installation.appId);
-    const mountPath = app.installation.runtimeMountPath ?? app.manifest.runtime.mountPath;
+    const mountPath =
+      app.installation.runtimeMountPath ?? app.manifest.runtime?.mountPath;
     const expectedMountPath = `/apps/${app.installation.appId}`;
-    if (mountPath !== expectedMountPath) {
+    if (mountPath !== undefined && mountPath !== expectedMountPath) {
       throw new Error(
         `External App "${app.installation.appId}" must use mount path "${expectedMountPath}"`,
       );
     }
-    const owner = mountPaths.get(mountPath);
+    const owner = mountPath ? mountPaths.get(mountPath) : undefined;
     if (owner) {
       throw new Error(
         `External App mount path "${mountPath}" is used by both "${owner}" and "${app.installation.appId}"`,
       );
     }
-    mountPaths.set(mountPath, app.installation.appId);
-    const origin = app.installation.runtimeOriginOverride ?? app.manifest.runtime.origin;
-    if (app.installation.installed && app.installation.enabled && !origin) {
+    if (mountPath) mountPaths.set(mountPath, app.installation.appId);
+    const origin =
+      app.installation.bindings?.runtimeOrigin ??
+      app.installation.runtimeOriginOverride ??
+      app.manifest.runtime?.origin;
+    if (
+      app.manifest.runtime &&
+      app.installation.installed &&
+      app.installation.enabled &&
+      !origin
+    ) {
       throw new Error(
         `External App "${app.installation.appId}" requires a runtime origin when enabled`,
       );
     }
   }
 
+  validateAgenticAppOwnership(
+    apps.map((app) => {
+      const profile = app.manifest.ui.profiles.find(
+        (candidate) => candidate.id === app.installation.selectedUiProfile,
+      );
+      return {
+        ...app.manifest,
+        ui: {
+          ...app.manifest.ui,
+          routes:
+            profile?.mode === "iframe"
+              ? [{ id: "home", path: `/apps/${app.manifest.id}` }]
+              : app.manifest.ui.routes,
+          slots:
+            profile?.mode === "native-package" ? app.manifest.ui.slots : [],
+        },
+      };
+    }),
+  );
+
   return apps.sort((left, right) => {
-    const leftOrder = left.manifest.surfaces.navOrder ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = right.manifest.surfaces.navOrder ?? Number.MAX_SAFE_INTEGER;
-    return leftOrder - rightOrder || left.manifest.displayName.localeCompare(right.manifest.displayName);
+    const leftOrder =
+      left.manifest.surfaces.navOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder =
+      right.manifest.surfaces.navOrder ?? Number.MAX_SAFE_INTEGER;
+    return (
+      leftOrder - rightOrder ||
+      left.manifest.displayName.localeCompare(right.manifest.displayName)
+    );
   });
 }
 
-export function getConfiguredAgenticApp(appId: string): ConfiguredAgenticApp | null {
-  return loadConfiguredAgenticApps().find((app) => app.installation.appId === appId) ?? null;
+export function getConfiguredAgenticApp(
+  appId: string,
+): ConfiguredAgenticApp | null {
+  return (
+    loadConfiguredAgenticApps().find(
+      (app) => app.installation.appId === appId,
+    ) ?? null
+  );
 }
 
 function parseManifest(value: unknown, path: string): AgenticAppManifest {
+  const raw = asRecord(value, path);
+  if (raw.apiVersion === "2.0") return validateAgenticAppManifest(raw);
+  return normalizeLegacyAgenticAppManifest(parseLegacyManifest(value, path));
+}
+
+function parseLegacyManifest(
+  value: unknown,
+  path: string,
+): LegacyAgenticAppManifest {
   const raw = asRecord(value, path);
   const id = requiredAppId(raw.id, `${path}.id`);
   if (raw.apiVersion !== "1.0") {
@@ -203,15 +369,15 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
     throw new Error(`${path}.runtime.chrome must be "iframe" when set`);
   }
 
-  const authRaw = raw.auth === undefined
-    ? undefined
-    : asRecord(raw.auth, `${path}.auth`);
+  const authRaw =
+    raw.auth === undefined ? undefined : asRecord(raw.auth, `${path}.auth`);
   if (authRaw) {
     assertKnownKeys(authRaw, ["mode"], `${path}.auth`);
   }
-  const authMode = authRaw?.mode === undefined
-    ? "app-scoped-token"
-    : requiredString(authRaw.mode, `${path}.auth.mode`);
+  const authMode =
+    authRaw?.mode === undefined
+      ? "app-scoped-token"
+      : requiredString(authRaw.mode, `${path}.auth.mode`);
   if (!AUTH_MODES.has(authMode as AgenticAppAuthMode)) {
     throw new Error(
       `${path}.auth.mode must be "app-scoped-token" or "forward-user-access-token"`,
@@ -243,7 +409,9 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
     parsePolicyAction(entry, `${path}.access.policyActions[${index}]`),
   );
   if (policyActions.length === 0) {
-    throw new Error(`${path}.access.policyActions must declare at least one action`);
+    throw new Error(
+      `${path}.access.policyActions must declare at least one action`,
+    );
   }
   const declaredScopes = new Set(tokenScopes);
   for (const policy of policyActions) {
@@ -257,12 +425,14 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
     }
   }
 
-  const catalogRaw = raw.catalog === undefined
-    ? undefined
-    : asRecord(raw.catalog, `${path}.catalog`);
-  const healthRaw = raw.health === undefined
-    ? undefined
-    : asRecord(raw.health, `${path}.health`);
+  const catalogRaw =
+    raw.catalog === undefined
+      ? undefined
+      : asRecord(raw.catalog, `${path}.catalog`);
+  const healthRaw =
+    raw.health === undefined
+      ? undefined
+      : asRecord(raw.health, `${path}.health`);
 
   return {
     id,
@@ -272,9 +442,17 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
     auth: { mode: authMode as AgenticAppAuthMode },
     runtime: {
       kind: "proxied-next-zone",
-      mountPath: requiredMountPath(runtimeRaw.mountPath, `${path}.runtime.mountPath`),
+      mountPath: requiredMountPath(
+        runtimeRaw.mountPath,
+        `${path}.runtime.mountPath`,
+      ),
       ...(runtimeRaw.origin !== undefined
-        ? { origin: requiredHttpOrigin(runtimeRaw.origin, `${path}.runtime.origin`) }
+        ? {
+            origin: requiredHttpOrigin(
+              runtimeRaw.origin,
+              `${path}.runtime.origin`,
+            ),
+          }
         : {}),
       ...(runtimeRaw.preserveMountPath !== undefined
         ? {
@@ -302,7 +480,12 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
         `${path}.surfaces.showInHub`,
       ),
       ...(surfacesRaw.navOrder !== undefined
-        ? { navOrder: requiredNumber(surfacesRaw.navOrder, `${path}.surfaces.navOrder`) }
+        ? {
+            navOrder: requiredNumber(
+              surfacesRaw.navOrder,
+              `${path}.surfaces.navOrder`,
+            ),
+          }
         : {}),
       ...(surfacesRaw.homeEligible !== undefined
         ? {
@@ -330,9 +513,17 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
     ...(healthRaw
       ? {
           health: {
-            endpoint: requiredAbsolutePath(healthRaw.endpoint, `${path}.health.endpoint`),
+            endpoint: requiredAbsolutePath(
+              healthRaw.endpoint,
+              `${path}.health.endpoint`,
+            ),
             ...(healthRaw.timeoutMs !== undefined
-              ? { timeoutMs: requiredNumber(healthRaw.timeoutMs, `${path}.health.timeoutMs`) }
+              ? {
+                  timeoutMs: requiredNumber(
+                    healthRaw.timeoutMs,
+                    `${path}.health.timeoutMs`,
+                  ),
+                }
               : {}),
           },
         }
@@ -359,7 +550,9 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
                 }
               : {}),
             ...(catalogRaw.icon !== undefined
-              ? { icon: requiredString(catalogRaw.icon, `${path}.catalog.icon`) }
+              ? {
+                  icon: requiredString(catalogRaw.icon, `${path}.catalog.icon`),
+                }
               : {}),
             ...(catalogRaw.supportUrl !== undefined
               ? {
@@ -376,7 +569,10 @@ function parseManifest(value: unknown, path: string): AgenticAppManifest {
   };
 }
 
-function parsePolicyAction(value: unknown, path: string): AgenticAppPolicyAction {
+function parsePolicyAction(
+  value: unknown,
+  path: string,
+): AgenticAppPolicyAction {
   const raw = asRecord(value, path);
   assertKnownKeys(
     raw,
@@ -391,14 +587,17 @@ function parsePolicyAction(value: unknown, path: string): AgenticAppPolicyAction
     ],
     path,
   );
-  const method = raw.method === undefined
-    ? undefined
-    : requiredString(raw.method, `${path}.method`).toUpperCase();
+  const method =
+    raw.method === undefined
+      ? undefined
+      : requiredString(raw.method, `${path}.method`).toUpperCase();
   if (method && !HTTP_METHODS.has(method)) {
     throw new Error(`${path}.method is not supported`);
   }
   if ((raw.method === undefined) !== (raw.path === undefined)) {
-    throw new Error(`${path}.method and ${path}.path must be declared together`);
+    throw new Error(
+      `${path}.method and ${path}.path must be declared together`,
+    );
   }
   const defaultEffect = raw.defaultEffect ?? "deny";
   if (defaultEffect !== "allow" && defaultEffect !== "deny") {
@@ -440,7 +639,45 @@ function parseAccessOverrides(
   const roles = raw.requiredRoles ?? raw.required_roles;
   return {
     ...(roles !== undefined
-      ? { requiredRoles: requiredStringArray(roles, `${path}.requiredRoles`, true) }
+      ? {
+          requiredRoles: requiredStringArray(
+            roles,
+            `${path}.requiredRoles`,
+            true,
+          ),
+        }
+      : {}),
+  };
+}
+
+function parseBindings(
+  value: unknown,
+  path: string,
+): NonNullable<AgenticAppInstallation["bindings"]> {
+  const raw = asRecord(value, path);
+  assertKnownKeys(raw, ["runtimeOrigin", "resources"], path);
+  const resources =
+    raw.resources === undefined
+      ? undefined
+      : asRecord(raw.resources, `${path}.resources`);
+  return {
+    ...(raw.runtimeOrigin !== undefined
+      ? {
+          runtimeOrigin: requiredHttpOrigin(
+            raw.runtimeOrigin,
+            `${path}.runtimeOrigin`,
+          ),
+        }
+      : {}),
+    ...(resources
+      ? {
+          resources: Object.fromEntries(
+            Object.entries(resources).map(([key, value]) => [
+              requiredAppId(key, `${path}.resources key`),
+              requiredString(value, `${path}.resources.${key}`),
+            ]),
+          ),
+        }
       : {}),
   };
 }
@@ -517,9 +754,13 @@ function requiredStringArray(
   allowEmpty = false,
 ): string[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
-    throw new Error(`${path} must be ${allowEmpty ? "an" : "a non-empty"} array`);
+    throw new Error(
+      `${path} must be ${allowEmpty ? "an" : "a non-empty"} array`,
+    );
   }
-  return value.map((entry, index) => requiredString(entry, `${path}[${index}]`));
+  return value.map((entry, index) =>
+    requiredString(entry, `${path}[${index}]`),
+  );
 }
 
 function requiredAbsolutePath(value: unknown, path: string): string {
@@ -551,11 +792,11 @@ function requiredHttpOrigin(
     throw new Error(`${path} must be an absolute HTTP(S) URL`);
   }
   if (
-    !["http:", "https:"].includes(parsed.protocol)
-    || parsed.username
-    || parsed.password
-    || (!allowPath && parsed.pathname !== "/")
-    || (!allowPath && (parsed.search || parsed.hash))
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    (!allowPath && parsed.pathname !== "/") ||
+    (!allowPath && (parsed.search || parsed.hash))
   ) {
     throw new Error(`${path} must be an HTTP(S) origin without credentials`);
   }

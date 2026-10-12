@@ -53,7 +53,7 @@ test("rejects API mounts that overlap CAIPE routes and keeps reservations in syn
       /API mounts/,
     );
   }
-  assert.equal(validateManifest("owned-api", { ...example, api: { ...example.api, mounts: ["/api/tome"] } }).id, "example-app");
+  assert.equal(validateManifest("owned-api", { ...example, api: { ...example.api, mounts: ["/api/example-owned"] } }).id, "example-app");
 
   const apiRoot = join(dirname(fileURLToPath(import.meta.url)), "../../src/app/api");
   const routeRoots = new Set();

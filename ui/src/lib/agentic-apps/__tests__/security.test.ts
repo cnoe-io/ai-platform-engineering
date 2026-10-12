@@ -11,9 +11,10 @@ import {
 import { mintAgenticAppToken, verifyAgenticAppToken } from "../tokens";
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
 import { createWeatherJwtVerifier } from "../../../../examples/external-apps/weather/auth.mjs";
+import { normalizeLegacyAgenticAppManifest } from "../../../../native-extension-sdk/agentic-app-manifest.mjs";
 
 const app: ConfiguredAgenticApp = {
-  manifest: {
+  manifest: normalizeLegacyAgenticAppManifest({
     id: "example-app",
     displayName: "Example App",
     description: "Example",
@@ -33,7 +34,7 @@ const app: ConfiguredAgenticApp = {
         { action: "create", method: "POST", path: "/api/items", defaultEffect: "allow", requiredScopes: ["example-app:run"] },
       ],
     },
-  },
+  }),
   installation: {
     appId: "example-app",
     packageId: "example-app",
@@ -190,11 +191,11 @@ describe("External Apps security contracts", () => {
     ).toBe("http://example-app.example.svc/api/items/with%20space?limit=2");
   });
 
-  it("allows a hidden native app only when visibility is explicitly bypassed, while retaining role checks", () => {
+  it("separates catalog visibility from launch authorization for every UI profile", () => {
     const hiddenApp = { ...app, installation: { ...app.installation, visible: false } };
-    expect(canLaunchAgenticApp(hiddenApp, { role: "user" })).toBe(false);
-    expect(canLaunchAgenticApp(hiddenApp, { role: "user" }, { requireVisible: false })).toBe(true);
-    expect(canLaunchAgenticApp(hiddenApp, { role: "viewer" }, { requireVisible: false })).toBe(false);
+    expect(canLaunchAgenticApp(hiddenApp, { role: "user" })).toBe(true);
+    expect(canLaunchAgenticApp(hiddenApp, { role: "user" }, { requireVisible: true })).toBe(false);
+    expect(canLaunchAgenticApp(hiddenApp, { role: "viewer" })).toBe(false);
   });
 
   it("preserves the mount path and trailing slash for apps using a base path", () => {

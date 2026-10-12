@@ -280,6 +280,13 @@ publisher trust boundary.
 
 ## Current authorization scope
 
+New declarations use [AgenticAppManifest 2.0](./agentic-app-manifest.md), shared
+with native UI packages. Existing hosted v1.0 manifests are normalized through
+a compatibility adapter. Installation visibility controls catalog/navigation;
+authorized hidden apps can now launch through direct lookup. Role and request
+policy checks remain enforced. Permission requests and capability references
+are metadata; they do not create CAS grants or provision agents/tools.
+
 This first forward-port provides deployment flags, OIDC identity continuity,
 role launch gates, per-route policy, app-bound tokens, and the protected
 runtime proxy. It does not create `agentic_app` objects in OpenFGA and does not

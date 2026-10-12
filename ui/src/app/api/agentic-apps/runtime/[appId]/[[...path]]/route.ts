@@ -105,7 +105,6 @@ async function proxyAgenticAppRequest(
     !canLaunchAgenticApp(
       app,
       agenticAppUserContextFromSession(session, auth.user.role),
-      { requireVisible: !nativeExtension },
     )
   ) {
     return Response.json({ error: "app_unauthorized" }, { status: 403 });
@@ -131,7 +130,7 @@ async function proxyAgenticAppRequest(
     );
   }
 
-  const maxRequestBodyBytes = app.manifest.runtime.maxRequestBodyBytes
+  const maxRequestBodyBytes = app.manifest.runtime?.maxRequestBodyBytes
     ?? DEFAULT_AGENTIC_APP_MAX_REQUEST_BODY_BYTES;
   const declaredContentLength = parseContentLength(
     request.headers.get("content-length"),

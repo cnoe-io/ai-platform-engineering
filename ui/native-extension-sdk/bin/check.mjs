@@ -10,9 +10,12 @@ import {
 } from "../checker.mjs";
 
 const packageRoot = resolve(process.argv[2] ?? ".");
-const manifest = JSON.parse(readFileSync(join(packageRoot, "manifest.json"), "utf8"));
-validateManifest(packageRoot, manifest);
+const declaration = JSON.parse(readFileSync(join(packageRoot, "manifest.json"), "utf8"));
+const manifest = validateManifest(packageRoot, declaration);
 const pkg = validatePackage(packageRoot, manifest);
+if (declaration.apiVersion === "2.0" && (declaration.version !== pkg.version || !declaration.ui.profiles.some((profile) => profile.mode === "native-package" && profile.package === pkg.name))) {
+  throw new Error(`${pkg.name}: application version/package must match the artifact`);
+}
 for (const field of [".", "./manifest", "./styles.css"]) {
   const target = pkg.exports[field];
   if (!target.startsWith("./") || !existsSync(join(packageRoot, target))) {

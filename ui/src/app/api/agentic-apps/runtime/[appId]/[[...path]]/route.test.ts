@@ -3,6 +3,7 @@
 import { NextRequest } from "next/server";
 
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
+import { normalizeLegacyAgenticAppManifest } from "../../../../../../../native-extension-sdk/agentic-app-manifest.mjs";
 
 const mockGetAuthenticatedUser = jest.fn();
 const mockGetConfiguredAgenticApp = jest.fn();
@@ -26,7 +27,7 @@ const MockApiError = jest.requireMock("@/lib/api-middleware").ApiError as new (
 ) => Error & { statusCode: number };
 
 const configuredApp: ConfiguredAgenticApp = {
-  manifest: {
+  manifest: normalizeLegacyAgenticAppManifest({
     id: "example-app",
     displayName: "Example App",
     description: "Example",
@@ -49,7 +50,7 @@ const configuredApp: ConfiguredAgenticApp = {
         },
       ],
     },
-  },
+  }),
   installation: {
     appId: "example-app",
     packageId: "example-app",
@@ -191,6 +192,19 @@ describe("External App runtime route", () => {
     );
     expect(response.status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it("permits hidden app API access while still enforcing caller role and request policy", async () => {
+    const hidden = { ...configuredApp, installation: { ...configuredApp.installation, visible: false } };
+    mockGetConfiguredAgenticApp.mockReturnValue(hidden);
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response("ok"));
+    const request = () => new NextRequest("https://host.example.test/api/agentic-apps/runtime/example-app");
+    const context = { params: Promise.resolve({ appId: "example-app", path: [] }) };
+    expect((await GET(request(), context)).status).toBe(200);
+    mockGetAuthenticatedUser.mockResolvedValueOnce({ user: { role: "viewer" }, session: { sub: "test-user", role: "viewer" } });
+    expect((await GET(request(), context)).status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
   });
 

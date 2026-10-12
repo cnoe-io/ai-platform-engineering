@@ -10,11 +10,14 @@ the feature code and release history stay in the team's repository.
 
 Use this mode only for reviewed, trusted code. A native package shares the
 CAIPE document, React runtime, browser storage, and same-origin privileges.
-Use an External App iframe when those privileges are not appropriate.
+The current same-origin External App iframe also shares browser privileges.
+Use an isolated origin/sandbox profile when those privileges are inappropriate.
 
 ## Package contract
 
-Each package exports a component and a JSON manifest:
+New packages use [AgenticAppManifest 2.0](./agentic-app-manifest.md), with a
+native UI profile and the same installation model as hosted apps. Existing
+packages can retain the following native v1.1 descriptor as a compatibility input:
 
 ```json
 {
@@ -58,10 +61,13 @@ The package must expose `.` for its ESM entry, `./manifest` for the JSON
 manifest, and `./styles.css` for scoped styles. React, React DOM, Next.js,
 NextAuth, and next-themes must remain peer dependencies so the host supplies
 one copy.
-The package may not export a server entry or run install-time code. Its entry
-must be compiled browser JavaScript beginning with `"use client"`; the checker
-rejects server-only imports. App APIs, MCP endpoints, ingestion, and agents
-remain separately deployed services.
+The package may not export a server entry. Its entry must be compiled client
+JavaScript beginning with `"use client"`; the checker rejects declared server
+exports, listed server-only import patterns, and start/postinstall hooks.
+These checks do not prove that dependencies or arbitrary code are safe.
+Next.js can prerender Client Components, so this is not a browser-only execution
+boundary. App APIs, MCP endpoints, ingestion, and agents remain separately
+deployed services.
 
 `navigation` is optional. An app with owned routes but no navigation item can
 be opened only through an authorized deep link or another host surface. A
@@ -72,7 +78,8 @@ installed packages.
 For a non-advertised internal app, the Agentic App installation may set
 `visible: false`: the native route/slot and gateway still enforce installed,
 enabled, session, role, and API policy checks, while the public app catalog
-remains hidden. This visibility exception applies only to compiled native apps.
+and left navigation remain hidden. The same visibility/access distinction now
+applies to hosted iframe apps.
 
 ## Build and routing
 
@@ -82,7 +89,7 @@ remains hidden. This visibility exception applies only to compiled native apps.
    `node ui/scripts/check-native-extension.mjs <package-directory>`.
    It verifies the manifest, export targets, contract version, and shared
    runtime peer dependencies. Publisher CI should run the same checker against
-   each supported CAIPE host release. Checker `1.1.2` also enforces a 64 KiB
+   each supported CAIPE host release. Checker `1.2.0` also enforces a 64 KiB
    entry budget, a 2 MiB compiled-JavaScript budget, and rejects document-wide
    CSS selectors. These are uncompressed publisher gates, not network latency
    estimates. Apps can lazy-load editor and visualization chunks.
