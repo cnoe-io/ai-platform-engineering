@@ -82,7 +82,7 @@ remains hidden. This visibility exception applies only to compiled native apps.
    `node ui/scripts/check-native-extension.mjs <package-directory>`.
    It verifies the manifest, export targets, contract version, and shared
    runtime peer dependencies. Publisher CI should run the same checker against
-   each supported CAIPE host release. Checker `1.1.1` also enforces a 64 KiB
+   each supported CAIPE host release. Checker `1.1.2` also enforces a 64 KiB
    entry budget, a 2 MiB compiled-JavaScript budget, and rejects document-wide
    CSS selectors. These are uncompressed publisher gates, not network latency
    estimates. Apps can lazy-load editor and visualization chunks.

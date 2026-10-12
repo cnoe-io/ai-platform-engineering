@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tailwindSourceForEntry } from "./native-extension-source.mjs";
 import {
   validateBuiltArtifact,
   validateInstalledPin,
@@ -23,6 +24,7 @@ const manifests = modules.map((moduleName) => {
     throw new Error(`Invalid native extension module name: ${moduleName}`);
   }
   const manifestPath = require.resolve(`${moduleName}/manifest`);
+  const entryPath = require.resolve(moduleName);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   validateManifest(moduleName, manifest);
   const packageRoot = dirname(manifestPath);
@@ -30,7 +32,7 @@ const manifests = modules.map((moduleName) => {
   validateBuiltArtifact(packageRoot, pkg);
   if (pkg.name !== moduleName) throw new Error(`${moduleName}: installed package name mismatch`);
   validateInstalledPin(uiRoot, moduleName, pkg.version);
-  return { moduleName, manifest };
+  return { moduleName, manifest, entryPath };
 });
 
 validateOwnership(manifests);
@@ -57,5 +59,5 @@ writeFileSync(
 
 writeFileSync(
   join(outputRoot, "styles.generated.css"),
-  `${manifests.map(({ moduleName }) => `@import ${JSON.stringify(`${moduleName}/styles.css`)};\n@source ${JSON.stringify(`../../node_modules/${moduleName}/dist`)};`).join("\n")}\n`,
+  `${manifests.map(({ moduleName, entryPath }) => `@import ${JSON.stringify(`${moduleName}/styles.css`)};\n@source ${JSON.stringify(tailwindSourceForEntry(join(outputRoot, "styles.generated.css"), entryPath))};`).join("\n")}\n`,
 );

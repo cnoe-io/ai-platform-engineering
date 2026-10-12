@@ -1,1 +1,1 @@
-export { CHECKER_VERSION, CONTRACT_VERSION } from "./checker.mjs";
+export { CHECKER_VERSION, CONTRACT_VERSION, RESERVED_API_PATHS } from "./checker.mjs";

@@ -12,10 +12,27 @@ const RESERVED_HOST_PATHS = [
   "/insights", "/knowledge-bases", "/login", "/logout", "/schedules",
   "/settings", "/skills", "/unauthorized", "/workflows",
 ];
+export const RESERVED_API_PATHS = [
+  "/api/_test", "/api/access", "/api/admin", "/api/agentic-apps", "/api/ai",
+  "/api/audit", "/api/auth", "/api/authz", "/api/autonomous",
+  "/api/catalog-api-keys", "/api/changelog", "/api/chat", "/api/config",
+  "/api/credentials", "/api/dynamic-agents", "/api/feedback", "/api/files",
+  "/api/health", "/api/integrations", "/api/internal", "/api/llm-models",
+  "/api/mcp-servers", "/api/native-extensions", "/api/notifications",
+  "/api/platform", "/api/policies", "/api/publication-requests", "/api/rag",
+  "/api/rbac", "/api/release-notes", "/api/remote-agents", "/api/review-configs",
+  "/api/schedules", "/api/settings", "/api/skill-hubs", "/api/skill-templates",
+  "/api/skills", "/api/user", "/api/users", "/api/v1", "/api/version",
+  "/api/workflow-configs", "/api/workflow-runs",
+];
 const PEERS = ["next", "next-auth", "next-themes", "react", "react-dom"];
 
 export function ownsPath(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function pathsOverlap(left, right) {
+  return ownsPath(left, right) || ownsPath(right, left);
 }
 
 function validPath(path) {
@@ -72,7 +89,7 @@ export function validateManifest(moduleName, manifest) {
   const api = manifest.api;
   if (!api || api.appId !== manifest.id || api.basePath !== `/api/agentic-apps/runtime/${manifest.id}`
     || !Array.isArray(api.mounts) || api.mounts.some((path) => !validPath(path) || !path.startsWith("/api/")
-      || ownsPath("/api/agentic-apps", path) || ownsPath("/api/auth", path))) {
+      || RESERVED_API_PATHS.some((reserved) => pathsOverlap(reserved, path)))) {
     fail("api must declare an authenticated gateway and valid API mounts");
   }
   if (new Set(api.mounts).size !== api.mounts.length) fail("duplicate API mount");
@@ -99,7 +116,7 @@ export function validateOwnership(entries) {
     for (let right = left + 1; right < claims.length; right += 1) {
       const a = claims[left];
       const b = claims[right];
-      if (a.kind === b.kind && (a.kind === "slot" ? a.path === b.path : ownsPath(a.path, b.path) || ownsPath(b.path, a.path))) {
+      if (a.kind === b.kind && (a.kind === "slot" ? a.path === b.path : pathsOverlap(a.path, b.path))) {
         throw new Error(`${a.moduleName} and ${b.moduleName} overlap at ${a.path} / ${b.path}`);
       }
     }
@@ -187,7 +204,7 @@ export function validateInstalledPin(uiRoot, packageName, installedVersion) {
     || !entry || entry.version !== installedVersion || !entry.integrity) {
     throw new Error(`${packageName}: install must be recorded with version and integrity in package-lock.json`);
   }
-  if (spec !== installedVersion && !/^file:[^\s]+\.tgz$/.test(spec)) {
+  if (spec !== installedVersion && !/^file:(?:\.\/)?native-extension-artifacts\/[A-Za-z0-9@._+-]+\.tgz$/.test(spec)) {
     throw new Error(`${packageName}: dependency must pin an exact version or a local tarball`);
   }
 }

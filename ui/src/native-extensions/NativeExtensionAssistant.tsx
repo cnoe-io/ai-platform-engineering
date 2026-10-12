@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle, Plus, X } from "lucide-react";
 
 import { useChatStore } from "@/store/chat-store";
@@ -29,6 +29,8 @@ export function NativeExtensionAssistant({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const startingConversation = useRef(false);
+  const autoStartAttempted = useRef(false);
 
   useEffect(() => {
     if (!open || agent) return;
@@ -61,7 +63,9 @@ export function NativeExtensionAssistant({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  const startConversation = async () => {
+  const startConversation = useCallback(async () => {
+    if (!agent || startingConversation.current) return;
+    startingConversation.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -70,9 +74,17 @@ export function NativeExtensionAssistant({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not start a conversation.");
     } finally {
+      startingConversation.current = false;
       setLoading(false);
     }
-  };
+  }, [agent, assistant.agentId]);
+
+  useEffect(() => {
+    if (open && agent && !conversationId && !loading && !autoStartAttempted.current) {
+      autoStartAttempted.current = true;
+      void startConversation();
+    }
+  }, [agent, conversationId, loading, open, startConversation]);
 
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-3">
@@ -93,6 +105,7 @@ export function NativeExtensionAssistant({
               aria-label="Start new assistant chat"
               title="New chat"
               onClick={() => void startConversation()}
+              disabled={!agent || loading}
               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
@@ -129,7 +142,6 @@ export function NativeExtensionAssistant({
         aria-label={open ? "Close assistant" : assistant.label}
         aria-expanded={open}
         onClick={() => {
-          if (!open && !conversationId && !loading) void startConversation();
           setOpen((current) => !current);
         }}
         className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

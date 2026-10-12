@@ -57,5 +57,6 @@ describe("NativeExtensionAssistant", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ask Example" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("access was denied");
     expect(screen.queryByTestId("agent-chat")).not.toBeInTheDocument();
+    expect(createConversation).not.toHaveBeenCalled();
   });
 });

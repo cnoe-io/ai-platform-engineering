@@ -1,4 +1,10 @@
-import { isSafeHostHref } from "../navigation";
+import { filterAccessibleNativeNavigation, isSafeHostHref } from "../navigation";
+import type { NativeExtensionManifest } from "../types";
+
+const manifest = (id: string, navigation = true) => ({
+  id,
+  navigation: navigation ? { href: `/${id}`, label: id, placement: "after-chat" as const } : undefined,
+}) as NativeExtensionManifest;
 
 describe("native extension host navigation", () => {
   it("accepts same-origin paths and query strings", () => {
@@ -10,5 +16,18 @@ describe("native extension host navigation", () => {
     expect(isSafeHostHref("//example.test")).toBe(false);
     expect(isSafeHostHref("/\\example.test")).toBe(false);
     expect(isSafeHostHref("/example\nother")).toBe(false);
+  });
+});
+
+describe("filterAccessibleNativeNavigation", () => {
+  it("only exposes configured navigation for extensions authorized for the user", () => {
+    expect(filterAccessibleNativeNavigation(
+      [manifest("allowed"), manifest("denied"), manifest("no-nav", false)],
+      new Set(["allowed", "denied"]),
+    ).map((item) => item.id)).toEqual(["allowed", "denied"]);
+  });
+
+  it("fails closed while authorization has not loaded", () => {
+    expect(filterAccessibleNativeNavigation([manifest("example")], new Set())).toEqual([]);
   });
 });
