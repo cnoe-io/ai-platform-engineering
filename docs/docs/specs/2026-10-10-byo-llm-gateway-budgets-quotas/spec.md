@@ -59,7 +59,7 @@ Details: [data plane](./contracts/openai-endpoint.md), [gateway conformance](./c
 ### Session 2026-10-05
 
 - Q: Ship a gateway or BYO? → **BYO only.** CAIPE defines contracts ①–⑤.
-- Q: Where do models come from? → **`llm_models` stays the catalogue.** Gateway models are synced into it. Existing `model_id` values keep working.
+- Q: Where do models come from? → **`llm_models` stays the catalogue.** Entries come from configuration, the LLM Models UI, or gateway sync where the adapter supports `models.list`. Existing `model_id` values keep working.
 - Q: Which budget dimensions? → **User, agent and team.**
 - Q: Which team pays when a user is in several teams? → **The agent's owning team** (`owner_team_slug`). A per-user limit applies on top.
 - Q: How does the gateway trust who is calling? → **A short-lived JWT.**
@@ -85,24 +85,24 @@ Details: [data plane](./contracts/openai-endpoint.md), [gateway conformance](./c
 
 ```mermaid
 flowchart LR
-  a["Configure gateway"] --> b["Sync models"] --> c["Set limits"] --> d["Watch usage"] -.-> e["Swap gateway"]
+  a["Configure gateway"] --> b["Populate model catalogue"] --> c["Set limits"] --> d["Watch usage"] -.-> e["Swap gateway"]
 ```
 
 1. Sets the gateway endpoint, auth mode and adapter type (`litellm` · `agentgateway` · `kong` · `agentrouter` · `none`). The credential comes through the existing secret strategies.
-2. Syncs `/v1/models` into `llm_models`. Model IDs match the existing ones, so agents need no edits.
+2. Syncs gateway models into `llm_models` when the adapter declares `models.list`; otherwise maintains model entries through application configuration or the LLM Models UI. Model IDs must match gateway aliases; retaining existing IDs avoids agent edits.
 3. Sets default and per-team, per-agent and per-user limits in the Admin UI. Controls the adapter can't support are hidden.
-4. Views usage and spend, read live from the gateway.
+4. Views usage and spend, read live from the gateway where the adapter declares `usage.read`.
 5. Approves or rejects quota-increase requests.
 6. Swaps gateways by changing the endpoint and adapter. Agents are untouched.
-7. With adapter `none`, manages limits in the gateway's own UI. CAIPE still attributes usage and maps errors.
+7. With adapter `none`, manages gateway identities, credentials and limits externally and maintains CAIPE's model catalogue through configuration or the LLM Models UI. Gateway routing remains enabled by `LLM_GATEWAY_ENABLED`; CAIPE still sends attribution and maps errors. See the [adapter contract](./contracts/gateway-adapter.md).
 
 **Acceptance**:
 - Given a configured gateway, when the admin turns on `LLM_GATEWAY_ENABLED`, every migrated call path routes through the gateway with no agent edits.
-- Given a team limit, when the team's agents exceed it, further calls are rejected and the admin sees the spend.
+- Given a team limit, when the team's agents exceed it, further calls are rejected; the admin sees spend in CAIPE where `usage.read` is supported, otherwise in the gateway.
 
 ### J2 — Agent author: pick a model, request a budget (P2)
 
-1. Picks a model from the synced, OpenFGA-filtered `llm_models` list (unchanged UI).
+1. Picks a model from the OpenFGA-filtered `llm_models` catalogue (unchanged UI).
 2. The agent's owning team is charged. There is nothing to configure.
 3. Optionally requests an agent-specific budget, within the team's limit.
 
@@ -181,7 +181,7 @@ flowchart LR
 - **FR-013**: An unreachable or misconfigured gateway MUST fail closed with a clear error. No silent fallback.
 
 ### Control plane ⑤
-- **FR-014**: The UI backend MUST talk to the gateway through an adapter exposing `capabilities`, `list_models`, `ensure_principal`, `set_limit` and `get_usage`. The UI MUST hide what the adapter doesn't support.
+- **FR-014**: The UI backend MUST perform gateway management operations through an adapter exposing `capabilities`, `list_models`, `ensure_principal`, `set_limit` and `get_usage`. The UI MUST hide what the adapter doesn't support.
 - **FR-015**: Limits and usage MUST live only in the gateway. CAIPE MUST NOT keep a copy.
 - **FR-016**: Quota-increase requests MUST be stored in CAIPE (Mongo `llm_quota_requests`) and approved through the admin UI.
 
@@ -195,7 +195,7 @@ flowchart LR
 - **Gateway**: an operator-run, OpenAI-compatible LLM gateway.
 - **Gateway token**: a short-lived JWT identifying user, agent, owning team and organization.
 - **Agent scope**: one Keycloak client scope per agent carrying `agent_id` and `team_id`.
-- **LLM model** (`llm_models`): the catalogue entry an agent selects; gateway models are synced in.
+- **LLM model** (`llm_models`): the persisted catalogue entry an agent selects; populated through configuration, the LLM Models UI, or gateway sync with `models.list`.
 - **Limit**: a budget or quota for one principal (user, agent or team), stored in the gateway.
 - **Quota request**: a user or author request for more budget, stored in CAIPE.
 - **Adapter**: the per-gateway control-plane implementation with declared capabilities.

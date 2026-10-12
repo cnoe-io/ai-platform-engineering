@@ -30,10 +30,10 @@ flowchart LR
 | `OPENAI_COMPATIBLE_BASE_URL` | — | Gateway endpoint (from `llm_wrapper`). |
 | `LLM_GATEWAY_AUTH` | `jwt` | `jwt` (gateway token) · `key` (per-agent gateway key). A gateway property, independent of the adapter. |
 | `LLM_GATEWAY_AUDIENCE` | `llm-gateway` | `aud` of gateway tokens. The gateway must expect the same value. |
-| `LLM_GATEWAY_ADAPTER` | `none` | `litellm` · `agentgateway` · `kong` · `agentrouter` · `none` |
+| `LLM_GATEWAY_ADAPTER` | `none` | Gateway management integration: `litellm` · `agentgateway` · `kong` · `agentrouter` · `none`. `none` disables management integration, not gateway routing (see [adapter contract](./contracts/gateway-adapter.md)). |
 | `LLM_GATEWAY_DEFAULT_TEAM` | `platform` | Team charged for agents without `owner_team_slug`. Provisioned at startup. |
 | `LLM_GATEWAY_BUDGET_SIGNAL` | named adapter default; unset for `none` | Gateway-limit recognition rule (research Decision 10). Required for budget-error conformance with adapter `none`. |
-| Adapter admin credential | — | Through the existing secret strategies. Only needed by the UI backend. |
+| Adapter admin credential | — | Through the existing secret strategies. Only needed by the UI backend for management integration; not required for `none`. |
 
 Direct-provider configuration and credentials must remain available for disabled mode; configuring a gateway endpoint alone does not enable routing.
 
@@ -46,6 +46,7 @@ Direct-provider configuration and credentials must remain available for disabled
 | `source` | new | `seed` · `admin` · `gateway` |
 | `gateway_synced_at` | new | Time of the last `list_models` sync. |
 
+- **Persistence**: model catalogue entries persist in MongoDB. Entries come from application configuration, the LLM Models UI, or gateway sync when the adapter declares `models.list`. Without that capability, administrators maintain entries through the existing configuration or UI and ensure model IDs match gateway aliases. Model sync is not required for inference.
 - **Rule**: when `LLM_GATEWAY_ENABLED=true`, `build_chat_model` uses the `openai-compatible` provider with `model_id`, whatever `provider` the caller passes.
 
 ## 3. Gateway token (JWT, not stored)
@@ -98,11 +99,11 @@ Direct-provider configuration and credentials must remain available for disabled
 
 ## 6. Adapter capabilities (not stored)
 
-Capabilities describe the gateway's **admin API** only. Auth mode is `LLM_GATEWAY_AUTH`.
+Capabilities describe CAIPE's supported **gateway management operations**, including model discovery. Auth mode is `LLM_GATEWAY_AUTH`; inference routing is controlled by `LLM_GATEWAY_ENABLED`.
 
 | Capability | Meaning |
 |---|---|
-| `models.list` | can sync `/v1/models` |
+| `models.list` | can fetch gateway models and persist them in `llm_models`; exposing `/v1/models` alone does not enable CAIPE sync |
 | `principals.ensure` | must pre-create a user, agent or team before first use |
 | `limits.user` / `limits.agent` / `limits.team` | can set a limit per dimension |
 | `limits.budget_usd` / `limits.tokens` / `limits.rpm` | supported limit types |

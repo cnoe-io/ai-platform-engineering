@@ -1,6 +1,17 @@
 # Contract ⑤: Gateway Adapter (control plane)
 
-The UI backend talks to the gateway's admin API only through this interface. One implementation per gateway. The UI renders only what `capabilities()` declares.
+The UI backend manages the gateway only through this interface. The UI renders only what `capabilities()` declares.
+
+- `LLM_GATEWAY_ADAPTER` selects CAIPE's management integration for the configured gateway. Named adapters translate supported operations into that gateway's APIs or configuration mechanisms.
+- `LLM_GATEWAY_ENABLED` controls inference routing separately. Selecting `none` does not bypass the gateway.
+
+| Behavior | Named adapter | `none` |
+|---|---|---|
+| Gateway inference when enabled | Configured gateway endpoint | Configured gateway endpoint |
+| Model catalogue sync | Available with `models.list` | Unavailable; use configuration or the LLM Models UI |
+| Gateway principal/key provisioning | Automated where supported | Operator-managed |
+| Gateway budget configuration | Available through supported limit capabilities | Operator-managed |
+| Gateway usage display in CAIPE | Available with `usage.read` | Unavailable through the adapter |
 
 ```mermaid
 flowchart LR
@@ -9,7 +20,7 @@ flowchart LR
   ad --> ag["agentgateway<br/>policy config"]
   ad --> k["kong<br/>Admin API / decK"]
   ad --> ar["agentrouter<br/>Kubernetes CRDs, Prometheus usage"]
-  ad --> n["none<br/>observe only"]
+  ad --> n["none<br/>no management integration"]
 ```
 
 | Operation | Input | Output | Used by |
@@ -27,5 +38,5 @@ flowchart LR
 - **Unsupported → `NotSupported`**: the UI hides the control. It never fails silently.
 - **Credentials**: the adapter's admin credential is held only by the UI backend, through the existing secret strategies.
 - **Authorization**: every adapter route is gated by OpenFGA (org or team admin for writes; self, team or agent viewers for reads).
-- **`none` adapter**: all writes are `NotSupported`; `capabilities()` is empty. Data-plane contracts ①–④ still apply with either auth mode. Key auth uses keys provisioned in the gateway by the operator and saved in CAIPE's credentials store; `keys.issue` is not required.
+- **`none` adapter**: `capabilities()` is empty; management operations return `NotSupported`. CAIPE hides adapter-backed sync, provisioning, limits and usage controls. Existing model catalogue management remains available. Operators configure required gateway identities, credentials and limits externally. Data-plane contracts ①–④ still apply with either auth mode. Key auth uses keys provisioned in the gateway by the operator and saved in CAIPE's credentials store; `keys.issue` is not required.
 - **Budget-signal rule**: named adapters ship documented rules that distinguish gateway limits from provider errors; adapter `none` requires operator configuration. Rules are used by the data plane ([openai-endpoint.md](./openai-endpoint.md)).

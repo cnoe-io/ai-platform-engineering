@@ -42,7 +42,7 @@ Depends on #1753 (JWT-only identity in dynamic agents) and S1. Complete identity
 - [ ] **T303** AgentGateway adapter.
 - [ ] **T304** Kong adapter.
 - [ ] **T305** AgentRouter adapter (optional): models listed; limits through Kubernetes CRDs or `none`; usage from Prometheus.
-- [ ] **T306** `llm_models` gateway sync.
+- [ ] **T306** Implement gateway model sync gated by `models.list`, persisting catalogue entries in `llm_models`. Verify that `none` hides sync while configuration/admin-created entries remain usable for gateway inference.
 - [ ] **T307** Automate gateway principal provisioning through `ensure_principal` where supported, including the default team and first-use onboarding; replace phase 1 manual preparation for these gateways.
 - [ ] **T308** Admin UI: limits per user, agent and team; live usage.
 

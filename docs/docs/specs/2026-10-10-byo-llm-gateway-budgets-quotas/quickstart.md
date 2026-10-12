@@ -22,7 +22,9 @@ Set these environment variables on dynamic agents and the UI backend. The Helm v
 | `LLM_GATEWAY_AUDIENCE` | `llm-gateway` |
 | `LLM_GATEWAY_ADAPTER` | `litellm` · `agentgateway` · `kong` · `agentrouter` · `none` |
 
-- The adapter admin credential goes through the existing secret strategies, never in values.
+- `LLM_GATEWAY_ADAPTER` selects management integration; `none` does not disable gateway routing. See the [adapter comparison](./contracts/gateway-adapter.md).
+- The adapter admin credential is needed only for management integration and goes through the existing secret strategies, never in values. Inference credentials remain required with `none`.
+- With `none`, prepare required gateway identities and limits externally and provision inference credentials for the selected auth mode.
 
 ## 3. Validate
 
@@ -30,10 +32,11 @@ Keep valid direct-provider configuration and credentials available for the disab
 
 | Check | Expected |
 |---|---|
-| Admin → LLM Models → Sync | Gateway models listed; existing agents unchanged |
+| Adapter supports `models.list`: Admin → LLM Models → Sync | Gateway models persist in `llm_models`; existing model IDs remain usable |
+| Adapter lacks `models.list`, including `none`: configure or add model entries with IDs matching gateway aliases | Sync is hidden; catalogue entries remain selectable subject to permissions |
 | Chat with an agent | Completion succeeds; the gateway logs `sub`, `agent_id`, `team_id` |
 | Call the gateway with no or forged token | 401 |
-| Set a tiny team limit, chat again | "Budget for team … exhausted" message, with a request-increase action |
+| Set a tiny team limit through CAIPE where supported, otherwise in the gateway; chat again | "Budget for team … exhausted" message, with a request-increase action |
 | Autonomous task run | Usage attributed to the task owner, agent and team |
 | Keep the gateway configured and reachable; set `LLM_GATEWAY_ENABLED=false` | Every migrated path completes through its direct provider; zero inference requests reach the gateway |
 
