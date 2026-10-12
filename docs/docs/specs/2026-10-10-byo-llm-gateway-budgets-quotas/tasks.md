@@ -45,6 +45,7 @@ Depends on #1753 (JWT-only identity in dynamic agents) and S1. Complete identity
 - [ ] **T306** Implement gateway model sync gated by `models.list`, persisting catalogue entries in `llm_models`. Verify that `none` hides sync while configuration/admin-created entries remain usable for gateway inference.
 - [ ] **T307** Automate gateway principal provisioning through `ensure_principal` where supported, including the default team and first-use onboarding; replace phase 1 manual preparation for these gateways.
 - [ ] **T308** Admin UI: limits per user, agent and team; live usage.
+  - Verify that cached responses cannot cross users, agents, teams, operations, reporting windows or gateway configurations, including identical IDs across principal types. Verify that a caller whose access has been revoked is denied even when the requested data is cached, and that cache entries expire.
 
 ## Phase 4: RAG
 - [ ] **T401** Embeddings through the gateway (same model id only).

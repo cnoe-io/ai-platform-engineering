@@ -34,9 +34,11 @@ flowchart LR
 ## Rules
 
 - **Idempotent**: every write can be retried safely.
-- **No CAIPE copy**: limits and usage are read live. A short in-memory cache only.
+- **Cache lifetime**: limits and usage remain gateway-owned. CAIPE MAY use a short-lived in-memory cache; entries MUST expire and MUST NOT be persisted in MongoDB.
+- **Cache isolation**: cache limits and usage by gateway/configuration identity, operation, principal type, principal ID and reporting window where applicable. Changing gateway configuration MUST invalidate affected entries or use a separate cache namespace.
 - **Unsupported → `NotSupported`**: the UI hides the control. It never fails silently.
 - **Credentials**: the adapter's admin credential is held only by the UI backend, through the existing secret strategies.
 - **Authorization**: every adapter route is gated by OpenFGA (org or team admin for writes; self, team or agent viewers for reads).
+- **Authorization on every read**: authorize the caller for the requested principal before returning data, including cache hits. A cached result MUST NOT be treated as evidence of permission.
 - **`none` adapter**: `capabilities()` is empty; management operations return `NotSupported`. CAIPE hides adapter-backed sync, provisioning, limits and usage controls. Existing model catalogue management remains available. Operators configure required gateway identities, credentials and limits externally. Data-plane contracts ①–④ still apply with either auth mode. Key auth uses keys provisioned in the gateway by the operator and saved in CAIPE's credentials store; `keys.issue` is not required.
 - **Budget-signal rule**: named adapters ship documented rules that distinguish gateway limits from provider errors; adapter `none` requires operator configuration. Rules are used by the data plane ([openai-endpoint.md](./openai-endpoint.md)).

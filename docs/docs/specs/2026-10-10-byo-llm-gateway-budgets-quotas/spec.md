@@ -182,7 +182,8 @@ flowchart LR
 
 ### Control plane ⑤
 - **FR-014**: The UI backend MUST perform gateway management operations through an adapter exposing `capabilities`, `list_models`, `ensure_principal`, `set_limit` and `get_usage`. The UI MUST hide what the adapter doesn't support.
-- **FR-015**: Limits and usage MUST live only in the gateway. CAIPE MUST NOT keep a copy.
+- **FR-015**: Limits and usage MUST remain gateway-owned. CAIPE MUST NOT persist a copy; a short-lived in-memory cache is permitted under the [adapter cache rules](./contracts/gateway-adapter.md#rules).
+  - Cached gateway limits and usage MUST remain isolated by gateway configuration and principal. Every read, including cache hits, MUST pass authorization for the requested principal.
 - **FR-016**: Quota-increase requests MUST be stored in CAIPE (Mongo `llm_quota_requests`) and approved through the admin UI.
 
 ### Rollout
