@@ -35,6 +35,7 @@ export function NativeExtensionAssistant({
   useEffect(() => {
     if (!open || agent) return;
     const controller = new AbortController();
+    setError(null);
     fetch(`/api/dynamic-agents/agents/${encodeURIComponent(assistant.agentId)}`, {
       signal: controller.signal,
     })

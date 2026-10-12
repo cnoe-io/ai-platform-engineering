@@ -23,8 +23,8 @@ describe("filterAccessibleNativeNavigation", () => {
   it("only exposes configured navigation for extensions authorized for the user", () => {
     expect(filterAccessibleNativeNavigation(
       [manifest("allowed"), manifest("denied"), manifest("no-nav", false)],
-      new Set(["allowed", "denied"]),
-    ).map((item) => item.id)).toEqual(["allowed", "denied"]);
+      new Set(["allowed", "no-nav"]),
+    ).map((item) => item.id)).toEqual(["allowed"]);
   });
 
   it("fails closed while authorization has not loaded", () => {

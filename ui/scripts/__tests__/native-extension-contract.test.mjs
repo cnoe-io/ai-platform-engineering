@@ -56,7 +56,7 @@ test("rejects missing surface, unsafe paths, and undeclared auth", () => {
 });
 
 test("rejects API mounts that overlap CAIPE routes and keeps reservations in sync", () => {
-  for (const mount of ["/api/access", "/api/dynamic-agents/agents", "/api/agentic-apps/runtime/example-app"]) {
+  for (const mount of [...RESERVED_API_PATHS, ...RESERVED_API_PATHS.map((path) => `${path}/example`)]) {
     assert.throws(
       () => validateManifest("reserved-api", { ...example, api: { ...example.api, mounts: [mount] } }),
       /API mounts/,
