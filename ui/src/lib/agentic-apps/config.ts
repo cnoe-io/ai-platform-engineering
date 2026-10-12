@@ -4,7 +4,7 @@ import {
   normalizeLegacyAgenticAppManifest,
   validateAgenticAppManifest,
   validateAgenticAppOwnership,
-} from "../../../native-extension-sdk/agentic-app-manifest.mjs";
+} from "../../../app-sdk/agentic-app-manifest.mjs";
 import {
   installedAgenticAppManifests,
   installedLegacyNativeExtensionIds,

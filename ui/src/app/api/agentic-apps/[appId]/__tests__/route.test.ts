@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { NextRequest } from "next/server";
 
-import { normalizeLegacyAgenticAppManifest } from "../../../../../../native-extension-sdk/agentic-app-manifest.mjs";
+import { normalizeLegacyAgenticAppManifest } from "../../../../../../app-sdk/agentic-app-manifest.mjs";
 
 const mockAuthenticate = jest.fn();
 const mockLookup = jest.fn();

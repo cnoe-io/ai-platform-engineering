@@ -1,6 +1,6 @@
-import type { AgenticAppManifest, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../native-extension-sdk/agentic-app-manifest.mjs";
+import type { AgenticAppManifest, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../app-sdk/agentic-app-manifest.mjs";
 
-export type { AgenticAppManifest, AgenticAppUiProfile, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../native-extension-sdk/agentic-app-manifest.mjs";
+export type { AgenticAppManifest, AgenticAppUiProfile, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../app-sdk/agentic-app-manifest.mjs";
 export type AgenticAppRuntimeKind = "proxied-next-zone";
 
 export const DEFAULT_AGENTIC_APP_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;

@@ -33,7 +33,7 @@ until you have checked the shared locations below.
 | UI component | `ui/src/components/` | `ui/src/components/ui/` and `ui/src/components/shared/`, then an existing component in the same feature area |
 | UI selection control | `ui/src/components/ui/{select,searchable-picker}.tsx` | Follow `docs/docs/ui/selection-controls.md`; reuse a domain picker before adding a base or custom listbox |
 | UI state or browser data | `ui/src/store/` | Existing store and `ui/src/lib/` helpers |
-| Application manifest or native UI package | `ui/native-extension-sdk/agentic-app-manifest.mjs` | Shared `AgenticAppManifest` types/validation, `ui/src/lib/agentic-apps/` installation adapters, and the existing native component ABI |
+| Application manifest or native UI package | `ui/app-sdk/agentic-app-manifest.mjs` | Shared `AgenticAppManifest` types/validation, `ui/src/lib/agentic-apps/` installation adapters, and the existing native component ABI |
 | MCP integration | `ai_platform_engineering/mcp/<provider>/` | `ai_platform_engineering/mcp/common/` |
 | Slack or Webex behavior | `ai_platform_engineering/integrations/{slack_bot,webex_bot}/` | The BFF/API contract and shared auth utilities |
 | Dynamic/custom-agent runtime | `ai_platform_engineering/dynamic_agents/` | Its `src/` modules and tests |

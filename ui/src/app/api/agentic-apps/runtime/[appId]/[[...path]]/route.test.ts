@@ -3,7 +3,7 @@
 import { NextRequest } from "next/server";
 
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
-import { normalizeLegacyAgenticAppManifest } from "../../../../../../../native-extension-sdk/agentic-app-manifest.mjs";
+import { normalizeLegacyAgenticAppManifest } from "../../../../../../../app-sdk/agentic-app-manifest.mjs";
 
 const mockGetAuthenticatedUser = jest.fn();
 const mockGetConfiguredAgenticApp = jest.fn();

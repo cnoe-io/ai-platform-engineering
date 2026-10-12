@@ -56,6 +56,10 @@ jobs:
         working-directory: ui
         run: node --test ../scripts/npm/*.test.mjs
 
+      - name: Test App SDK packed artifact and contracts
+        working-directory: ui
+        run: node --test scripts/__tests__/*.test.mjs
+
       - name: Test External App examples
         working-directory: ui
         run: npm run test:external-app-examples

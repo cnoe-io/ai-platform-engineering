@@ -7,7 +7,7 @@ import example from "../../../../examples/agentic-apps/shared/manifest.json";
 import {
   validateAgenticAppManifest,
   normalizeNativeExtensionManifest,
-} from "../../../../native-extension-sdk/agentic-app-manifest.mjs";
+} from "../../../../app-sdk/agentic-app-manifest.mjs";
 import {
   installedAgenticAppManifests,
   installedLegacyNativeExtensionIds,

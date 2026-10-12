@@ -91,13 +91,13 @@ applies to hosted iframe apps.
 
 ## Build and routing
 
-1. Build the package and run the versioned `@caipe/native-extension-sdk`
+1. Build the package and run the versioned `@caipe-io/app-sdk`
    conformance checker against its package directory:
    `caipe-native-check <package-directory>`. The equivalent in-tree command is
    `node ui/scripts/check-native-extension.mjs <package-directory>`.
    It verifies the manifest, export targets, contract version, and shared
    runtime peer dependencies. Publisher CI should run the same checker against
-   each supported CAIPE host release. Checker `2.0.0` also enforces a 64 KiB
+   each supported CAIPE host release. Checker `2.0.0-rc.1` also enforces a 64 KiB
    entry budget, a 2 MiB compiled-JavaScript budget, and rejects document-wide
    CSS selectors. These are uncompressed publisher gates, not network latency
    estimates. Apps can lazy-load editor and visualization chunks.

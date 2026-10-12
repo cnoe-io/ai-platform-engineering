@@ -6,7 +6,7 @@ import { tailwindSourceForEntry } from "./native-extension-source.mjs";
 import {
   normalizeNativeExtensionManifest,
   validateAgenticAppManifest,
-} from "../native-extension-sdk/agentic-app-manifest.mjs";
+} from "../app-sdk/agentic-app-manifest.mjs";
 import {
   validateBuiltArtifact,
   validateInstalledPin,

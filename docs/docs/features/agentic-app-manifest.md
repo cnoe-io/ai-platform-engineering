@@ -9,7 +9,8 @@ of its UI renderer. Native packages and hosted iframe apps use the same identity
 capability references, service policy, and installation model.
 
 This is Phase 1 of the [application-contract proposal](https://github.com/orgs/caipe-io/discussions/2853).
-The native component ABI is **2.0**; SDK/checker **2.0.0** aligns the new
+The native component ABI is **2.0**; `@caipe-io/app-sdk` release candidate
+**2.0.0-rc.1** aligns the new
 publisher and component contracts. Native ABI **1.1** remains an explicit
 compatibility path. This release does not change component props or privileges.
 
@@ -44,7 +45,7 @@ flowchart TD
 | Requested resource/actions | No automatic grants |
 
 The shared types and validator live in
-`ui/native-extension-sdk/agentic-app-manifest.{mjs,d.mts}`. UI code re-exports
+`ui/app-sdk/agentic-app-manifest.{mjs,d.mts}`. UI code re-exports
 the shared `AgenticAppManifest` type from `ui/src/types/agentic-app.ts`.
 `NativeExtensionManifest` remains a compatibility input and a derived view
 for the declared native component ABI; it is not a second mutable app record.
@@ -194,11 +195,11 @@ rebuild. Rollback restores the compatible image and installation configuration.
 ## Publisher and host checks
 
 ```sh
-node ui/native-extension-sdk/bin/check-manifest.mjs ui/examples/agentic-apps/shared/manifest.json
+node ui/app-sdk/bin/check-manifest.mjs ui/examples/agentic-apps/shared/manifest.json
 node ui/scripts/check-native-extension.mjs /path/to/compiled-package
 ```
 
-The published SDK provides `caipe-app-check <manifest.json>` and
+The SDK package provides `caipe-app-check <manifest.json>` and
 `caipe-native-check <package-directory>`. Native package version/name must match
 the shared manifest; package exports, existing artifact budgets, peer
 declarations, and integrity pins remain checked.

@@ -1,13 +1,50 @@
-# CAIPE native extension SDK
+# CAIPE App SDK
 
-Version `2.0.0` aligns native component contract `2.0` with the shared
+Package `@caipe-io/app-sdk@2.0.0-rc.1` supports native component contract `2.0` and the shared
 `AgenticAppManifest` API version `2.0`. Native `1.1` is explicitly retained
 for compatibility; a legacy module is never silently relabeled as `2.0`.
 The checker is intentionally
-dependency-free at runtime; the type declarations use the host's React and
-Next.js peer dependencies.
+dependency-free at runtime and does not install or constrain a consumer's frameworks.
+Native component types require the compatible host-provided React and Next.js
+dependencies. The native application package, not this validation SDK, declares
+the host framework peers checked by `caipe-native-check` and the final host build.
+The current reference host uses Next.js `16.3.8` and React `19.2.8`; publishers
+must run integration checks against each supported host release.
 
-Publisher CI can install a pinned SDK tarball from a supported CAIPE release
+## Install and validate
+
+After registry publication:
+
+```bash
+npm install --save-dev --save-exact @caipe-io/app-sdk@2.0.0-rc.1
+npx caipe-app-check ./manifest.json
+npx caipe-native-check ./unpacked-app-package
+```
+
+Framework-neutral consumers import types and validators from
+`@caipe-io/app-sdk/manifest-contract`. Native component publishers import the
+host interface types from `@caipe-io/app-sdk`.
+
+## Release
+
+- SDK versions are independent of host image and application package versions.
+- This release candidate is not a stable release; manifest and component ABI stay `2.0`.
+- `publishConfig` defaults to public npm access and the `next` dist-tag.
+- Maintainers must have publishing access to the npm `@caipe-io` scope.
+- Check the packed artifact with `node --test ui/scripts/__tests__/app-sdk-package.test.mjs`
+  from the repository root before publication.
+- From `ui/app-sdk`, run `npm pack --dry-run`, then `npm publish --access public --tag next`.
+- An authorized maintainer can bootstrap publication with `npm login`. Never commit tokens.
+- For subsequent releases, configure npm trusted publishing with GitHub OIDC,
+  a protected release environment, and provenance. Do not publish on PR events.
+- Run native artifact and final host integration checks; schema validation alone
+  is not a security certification or a runtime integration test.
+
+Publishing the SDK does not enable runtime loading of native apps. Approved native
+packages are still compiled into the CAIPE host image. Hosted apps can deploy
+independently. Permission declarations do not grant access or provision agents.
+
+Publisher CI can install a pinned SDK version or tarball from a supported CAIPE release
 and run `caipe-native-check ./native-package` after compiling the app. Run the
 same check against each host release the package claims to support. The CLI
 checks manifest ownership syntax, client-only exports, shared peer runtimes,
@@ -17,7 +54,7 @@ when building the final image.
 
 `caipe-app-check ./manifest.json` validates the shared declaration for native,
 hosted, UI-only, and service-only apps. Types and pure validation functions are
-available from `@caipe/native-extension-sdk/manifest-contract`. Capability and
+available from `@caipe-io/app-sdk/manifest-contract`. Capability and
 permission requests are declarations, not registration or grants. Runtime
 origins and selected UI profiles belong to deployment-owned installations.
 

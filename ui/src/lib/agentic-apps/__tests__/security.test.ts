@@ -11,7 +11,7 @@ import {
 import { mintAgenticAppToken, verifyAgenticAppToken } from "../tokens";
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
 import { createWeatherJwtVerifier } from "../../../../examples/external-apps/weather/auth.mjs";
-import { normalizeLegacyAgenticAppManifest } from "../../../../native-extension-sdk/agentic-app-manifest.mjs";
+import { normalizeLegacyAgenticAppManifest } from "../../../../app-sdk/agentic-app-manifest.mjs";
 
 const app: ConfiguredAgenticApp = {
   manifest: normalizeLegacyAgenticAppManifest({

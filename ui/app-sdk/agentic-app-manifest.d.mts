@@ -82,7 +82,7 @@ export function normalizeNativeExtensionManifest(
 ): AgenticAppManifest;
 export function nativeUiDescriptor(
   manifest: AgenticAppManifest,
-): import("./index").NativeExtensionManifest | null;
+): import("./native-manifest.mjs").NativeExtensionManifest | null;
 export function validateAgenticAppOwnership(
   manifests: AgenticAppManifest[],
 ): void;

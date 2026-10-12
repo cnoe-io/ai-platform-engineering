@@ -1,14 +1,14 @@
 import type {
   NativeExtensionManifest,
   NativeExtensionModule,
-} from "../../native-extension-sdk";
+} from "../../app-sdk";
 
 export type {
   NativeExtensionBreadcrumb,
   NativeExtensionManifest,
   NativeExtensionModule,
   NativeExtensionProps,
-} from "../../native-extension-sdk";
+} from "../../app-sdk";
 
 export interface InstalledNativeExtension {
   manifest: NativeExtensionManifest;

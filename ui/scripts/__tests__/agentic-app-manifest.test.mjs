@@ -16,8 +16,8 @@ import {
   normalizeNativeExtensionManifest,
   normalizeLegacyAgenticAppManifest,
   nativeUiDescriptor,
-} from "../../native-extension-sdk/agentic-app-manifest.mjs";
-import { validateManifest } from "../../native-extension-sdk/checker.mjs";
+} from "../../app-sdk/agentic-app-manifest.mjs";
+import { validateManifest } from "../../app-sdk/checker.mjs";
 import { generateNativeExtensions } from "../generate-native-extensions.mjs";
 
 export function exampleManifest() {
