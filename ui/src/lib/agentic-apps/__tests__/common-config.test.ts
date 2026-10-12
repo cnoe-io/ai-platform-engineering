@@ -143,6 +143,7 @@ describe("shared application installation", () => {
         id: "example-app",
         displayName: "Example",
         description: "Example",
+        contractVersion: "1.1",
         hostPaths: ["/example"],
         api: { mounts: ["/api/example"] },
         auth: { mode: "app-scoped-token" },

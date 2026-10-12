@@ -1,5 +1,9 @@
 import type { ComponentType } from "react";
 import type Link from "next/link";
+import type { NativeExtensionContractVersion } from "./contract-version.mjs";
+
+export type { NativeExtensionContractVersion } from "./contract-version.mjs";
+export { CONTRACT_VERSION, CHECKER_VERSION, LEGACY_NATIVE_CONTRACT_VERSION, isSupportedNativeContractVersion } from "./contract-version.mjs";
 
 export type { AgenticAppManifest, AgenticAppUiProfile, AgenticAppAuthMode, AgenticAppPolicyAction } from "./agentic-app-manifest.mjs";
 export { validateAgenticAppManifest, validateAgenticAppOwnership } from "./agentic-app-manifest.mjs";
@@ -13,7 +17,8 @@ export interface NativeExtensionManifest {
   id: string;
   displayName: string;
   description: string;
-  contractVersion: "1.1";
+  /** New publishers use 2.0; 1.1 is retained only for compatibility. */
+  contractVersion: NativeExtensionContractVersion;
   hostPaths: string[];
   slots?: Array<"home">;
   navigation?: {
@@ -48,5 +53,6 @@ export interface NativeExtensionProps {
 
 export interface NativeExtensionModule {
   Component: ComponentType<NativeExtensionProps>;
-  contractVersion: "1.1";
+  /** Must equal the manifest profile's version; new publishers use 2.0. */
+  contractVersion: NativeExtensionContractVersion;
 }

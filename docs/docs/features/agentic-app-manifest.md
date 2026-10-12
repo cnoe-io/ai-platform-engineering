@@ -9,8 +9,9 @@ of its UI renderer. Native packages and hosted iframe apps use the same identity
 capability references, service policy, and installation model.
 
 This is Phase 1 of the [application-contract proposal](https://github.com/orgs/caipe-io/discussions/2853).
-The native component ABI remains **1.1**; SDK/checker **1.2.0** accepts both the
-shared manifest and legacy native descriptors.
+The native component ABI is **2.0**; SDK/checker **2.0.0** aligns the new
+publisher and component contracts. Native ABI **1.1** remains an explicit
+compatibility path. This release does not change component props or privileges.
 
 | Phase | Included here? |
 | --- | --- |
@@ -46,7 +47,7 @@ The shared types and validator live in
 `ui/native-extension-sdk/agentic-app-manifest.{mjs,d.mts}`. UI code re-exports
 the shared `AgenticAppManifest` type from `ui/src/types/agentic-app.ts`.
 `NativeExtensionManifest` remains a compatibility input and a derived view
-for the unchanged native component ABI; it is not a second mutable app record.
+for the declared native component ABI; it is not a second mutable app record.
 
 ## Manifest shape
 
@@ -62,7 +63,7 @@ The full reference manifest is
   "version": "1.0.0",
   "ui": {
     "profiles": [
-      { "id": "native", "mode": "native-package", "package": "@example/native-app", "contractVersion": "1.1" },
+      { "id": "native", "mode": "native-package", "package": "@example/native-app", "contractVersion": "2.0" },
       { "id": "hosted", "mode": "iframe" }
     ],
     "routes": [{ "id": "home", "path": "/example" }],
@@ -173,13 +174,18 @@ native entry point.
 | Existing input | Compatibility behavior |
 | --- | --- |
 | Hosted `apiVersion: "1.0"` | Existing parser validates it, then normalizes to the shared record |
-| Native `contractVersion: "1.1"` | Generator derives a shared record and the unchanged native descriptor |
+| Native `contractVersion: "1.1"` | Generator derives a shared record but preserves the legacy ABI; matching modules remain supported |
+| Shared native profile `contractVersion: "2.0"` | Module export must declare `2.0`; all new reference packages use this version |
 | Legacy native package plus hosted deployment policy | Shared loader joins the legacy service/role policy and compiled native UI |
 | Shared manifest in a compiled native package | Runtime declarations cannot overwrite its policy or identity |
 
 Legacy hosted metadata may lack an app version; migration does not invent one.
 Legacy native deployments retain their default native selection while migrating.
 Their authentication mode must still agree with the compiled package.
+The host never upgrades a component's ABI by rewriting its manifest. Upgrade
+the publisher profile and module export together, then rebuild the pinned host
+image. Schema versions use `2.0`; SDK package releases use semver `2.0.0`.
+An application's package version is independent and need not be `2.0.0`.
 
 Origins/mounts and required roles in existing installation configuration remain
 supported. Updating native metadata still requires a pinned package/image

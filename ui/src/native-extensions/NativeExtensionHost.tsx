@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { isSupportedNativeContractVersion } from "../../native-extension-sdk/contract-version.mjs";
 
 import { HeaderBreadcrumbPortal } from "@/components/layout/HeaderBreadcrumbSlot";
 import { WorkspaceBreadcrumbs } from "@/components/layout/WorkspacePageHeader";
@@ -57,7 +58,11 @@ export function NativeExtensionHost({
     }
   }, [extensionId, pathname, search]);
 
-  if (!extension || extension.module.contractVersion !== extension.manifest.contractVersion) {
+  if (
+    !extension ||
+    !isSupportedNativeContractVersion(extension.module.contractVersion) ||
+    extension.module.contractVersion !== extension.manifest.contractVersion
+  ) {
     return (
       <div className="p-6 text-sm text-destructive">
         Native extension is not installed.

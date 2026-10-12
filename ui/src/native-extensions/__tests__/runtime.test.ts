@@ -4,7 +4,7 @@ jest.mock("../manifests.generated", () => ({
       id: "example-app",
       displayName: "Example App",
       description: "Example native extension",
-      contractVersion: "1.1",
+      contractVersion: "2.0",
       hostPaths: ["/example"],
       navigation: {
         label: "Example",

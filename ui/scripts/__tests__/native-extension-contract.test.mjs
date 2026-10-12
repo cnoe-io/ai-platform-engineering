@@ -11,7 +11,7 @@ const example = {
   id: "example-app",
   displayName: "Example App",
   description: "Example",
-  contractVersion: "1.1",
+  contractVersion: "2.0",
   hostPaths: ["/example"],
   navigation: { label: "Example", href: "/example", placement: "after-chat" },
   api: { appId: "example-app", basePath: "/api/agentic-apps/runtime/example-app", mounts: ["/api/example"] },
@@ -20,6 +20,15 @@ const example = {
 
 test("accepts a routeful advertised app", () => {
   assert.equal(validateManifest("example", example).id, "example-app");
+});
+
+test("accepts the current ABI and explicit legacy ABI, but rejects unknown versions", () => {
+  for (const contractVersion of ["2.0", "1.1"]) {
+    assert.equal(validateManifest("example", { ...example, contractVersion }).contractVersion, contractVersion);
+  }
+  for (const contractVersion of ["1.0", "2.1", "3.0", undefined]) {
+    assert.throws(() => validateManifest("example", { ...example, contractVersion }), /contractVersion/);
+  }
 });
 
 test("accepts an internal route without navigation", () => {

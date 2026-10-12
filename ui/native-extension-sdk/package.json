@@ -1,18 +1,19 @@
 {
   "name": "@caipe/native-extension-sdk",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Types and conformance checks for trusted CAIPE native UI packages",
   "type": "module",
   "license": "Apache-2.0",
-  "files": ["index.d.ts", "index.mjs", "checker.mjs", "agentic-app-manifest.mjs", "agentic-app-manifest.d.mts", "reserved-paths.mjs", "bin"],
+  "files": ["index.d.ts", "index.mjs", "checker.mjs", "contract-version.mjs", "contract-version.d.mts", "agentic-app-manifest.mjs", "agentic-app-manifest.d.mts", "reserved-paths.mjs", "bin"],
   "exports": {
     ".": { "types": "./index.d.ts", "default": "./index.mjs" },
     "./checker": "./checker.mjs",
+    "./contract-version": { "types": "./contract-version.d.mts", "default": "./contract-version.mjs" },
     "./manifest-contract": { "types": "./agentic-app-manifest.d.mts", "default": "./agentic-app-manifest.mjs" }
   },
   "bin": { "caipe-native-check": "./bin/check.mjs", "caipe-app-check": "./bin/check-manifest.mjs" },
   "peerDependencies": {
-    "next": "^16.3.4",
+    "next": "16.3.8",
     "react": "19.2.8"
   }
 }

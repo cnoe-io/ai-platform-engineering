@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "ui": {
     "profiles": [
-      { "id": "native", "mode": "native-package", "package": "@example/native-app", "contractVersion": "1.1" },
+      { "id": "native", "mode": "native-package", "package": "@example/native-app", "contractVersion": "2.0" },
       { "id": "hosted", "mode": "iframe" }
     ],
     "routes": [{ "id": "home", "path": "/example" }],

@@ -1,7 +1,8 @@
 # CAIPE native extension SDK
 
-Version `1.2.0` checks native component contract `1.1` packages and the shared
-`AgenticAppManifest` API version `2.0`. Legacy native descriptors remain supported.
+Version `2.0.0` aligns native component contract `2.0` with the shared
+`AgenticAppManifest` API version `2.0`. Native `1.1` is explicitly retained
+for compatibility; a legacy module is never silently relabeled as `2.0`.
 The checker is intentionally
 dependency-free at runtime; the type declarations use the host's React and
 Next.js peer dependencies.
@@ -21,8 +22,8 @@ permission requests are declarations, not registration or grants. Runtime
 origins and selected UI profiles belong to deployment-owned installations.
 
 New native packages publish the full shared manifest and do not repeat their
-policy in the runtime catalog. The generator derives the legacy UI descriptor
-for the unchanged component ABI. See `docs/docs/features/agentic-app-manifest.md`
+policy in the runtime catalog. The generator derives a UI descriptor retaining
+the native profile's declared component ABI. See `docs/docs/features/agentic-app-manifest.md`
 and `ui/examples/agentic-apps/shared/manifest.json` for the reference contract.
 
 An optional `assistant` claim (`agentId`, `label`, `name`) lets the host render
@@ -31,5 +32,10 @@ through its RBAC-protected API and sends bounded route context with turns. The
 app must seed the agent and its MCP server separately; the native package does
 not receive credentials or create agents at runtime.
 
-Contract additions keep the `1.1` interface compatible; a breaking interface
-change requires a new contract version and a matching SDK major version.
+The `2.0` release retains the existing component props and trust model; the
+aligned numbering is not a new rendering engine, sandbox, or permission grant.
+New packages must declare `2.0` in both their native profile and module export.
+The host rejects mismatches and unknown versions before mounting a component.
+The browser-safe `./contract-version` export exposes the supported versions.
+A breaking interface change requires a new contract version and a matching
+SDK major version. App package versions remain independently versioned.

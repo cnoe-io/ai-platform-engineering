@@ -16,8 +16,9 @@ Use an isolated origin/sandbox profile when those privileges are inappropriate.
 ## Package contract
 
 New packages use [AgenticAppManifest 2.0](./agentic-app-manifest.md), with a
-native UI profile and the same installation model as hosted apps. Existing
-packages can retain the following native v1.1 descriptor as a compatibility input:
+native UI profile declaring `contractVersion: "2.0"` and the same installation
+model as hosted apps. Existing packages can retain the following native v1.1
+descriptor as an explicit compatibility input; it is not the new-publisher format:
 
 ```json
 {
@@ -41,6 +42,8 @@ packages can retain the following native v1.1 descriptor as a compatibility inpu
 }
 ```
 
+New publisher modules declare the same `2.0` version as their native profile:
+
 ```ts
 export interface NativeExtensionProps {
   apiBasePath: string;
@@ -52,10 +55,15 @@ export interface NativeExtensionProps {
 }
 
 export default {
-  contractVersion: "1.1",
+  contractVersion: "2.0",
   Component,
 };
 ```
+
+Legacy descriptors must instead pair with a `1.1` module. The host rejects
+unknown versions or a descriptor/module mismatch. The 2.0 release retains
+the same props and browser trust boundary; aligned versioning does not add
+isolation or grants.
 
 The package must expose `.` for its ESM entry, `./manifest` for the JSON
 manifest, and `./styles.css` for scoped styles. React, React DOM, Next.js,
@@ -89,7 +97,7 @@ applies to hosted iframe apps.
    `node ui/scripts/check-native-extension.mjs <package-directory>`.
    It verifies the manifest, export targets, contract version, and shared
    runtime peer dependencies. Publisher CI should run the same checker against
-   each supported CAIPE host release. Checker `1.2.0` also enforces a 64 KiB
+   each supported CAIPE host release. Checker `2.0.0` also enforces a 64 KiB
    entry budget, a 2 MiB compiled-JavaScript budget, and rejects document-wide
    CSS selectors. These are uncompressed publisher gates, not network latency
    estimates. Apps can lazy-load editor and visualization chunks.

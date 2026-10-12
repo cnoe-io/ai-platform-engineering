@@ -33,7 +33,7 @@ export function exampleManifest() {
           id: "native",
           mode: "native-package",
           package: "@example/native-app",
-          contractVersion: "1.1",
+          contractVersion: "2.0",
         },
       ],
       routes: [{ id: "home", path: "/example" }],
@@ -55,17 +55,25 @@ export function exampleManifest() {
   };
 }
 
-test("one manifest projects onto the unchanged native component contract", () => {
+test("one manifest projects onto the aligned 2.0 native component contract", () => {
   const common = validateAgenticAppManifest(exampleManifest());
   const ui = validateManifest("@example/native-app", common);
   assert.equal(ui.navigation.href, "/example");
-  assert.equal(ui.contractVersion, "1.1");
+  assert.equal(ui.contractVersion, "2.0");
   assert.equal(common.access.requiredRoles[0], "user");
   assert.deepEqual(
     common.requestedPermissions,
     exampleManifest().requestedPermissions,
   );
   assert.equal(common.grants, undefined);
+});
+
+test("preserves legacy ABI declarations instead of silently relabeling modules", () => {
+  const legacy = exampleManifest();
+  legacy.ui.profiles[0].contractVersion = "1.1";
+  assert.equal(nativeUiDescriptor(validateAgenticAppManifest(legacy)).contractVersion, "1.1");
+  legacy.ui.profiles[0].contractVersion = "3.0";
+  assert.throws(() => validateAgenticAppManifest(legacy), /contractVersion/);
 });
 
 test("native and iframe profiles share service and capability identity", () => {
@@ -113,6 +121,7 @@ test("legacy native navigation preserves subroutes while normalizing identity", 
     "1.0.0",
   );
   validateAgenticAppManifest(common);
+  assert.equal(common.ui.profiles[0].contractVersion, "1.1");
   assert.equal(nativeUiDescriptor(common).navigation.href, "/example/details");
 });
 
@@ -260,7 +269,7 @@ test("the build registry is generated from one pinned application declaration", 
     );
     writeFileSync(
       join(pkgRoot, "index.mjs"),
-      '"use client"; export default { contractVersion: "1.1", Component: () => null };',
+      '"use client"; export default { contractVersion: "2.0", Component: () => null };',
     );
     writeFileSync(join(pkgRoot, "styles.css"), ".example-app {color: inherit}");
     generateNativeExtensions(root, [packageName]);
@@ -274,7 +283,7 @@ test("the build registry is generated from one pinned application declaration", 
       registry,
       /installedLegacyNativeExtensionIds: string\[\] = \[\]/,
     );
-    assert.match(registry, /"contractVersion": "1.1"/);
+    assert.match(registry, /"contractVersion": "2.0"/);
     const declaration = exampleManifest();
     declaration.version = "2.0.0";
     writeFileSync(join(pkgRoot, "manifest.json"), JSON.stringify(declaration));

@@ -3,6 +3,11 @@ import {
   RESERVED_API_PATHS,
   pathsOverlap,
 } from "./reserved-paths.mjs";
+import {
+  CONTRACT_VERSION,
+  LEGACY_NATIVE_CONTRACT_VERSION,
+  isSupportedNativeContractVersion,
+} from "./contract-version.mjs";
 
 const ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PACKAGE = /^(?:@[a-z0-9-]+\/)?[a-z0-9-]+$/;
@@ -126,10 +131,10 @@ export function validateAgenticAppManifest(value) {
     if (profile.mode === "native-package") {
       if (
         !PACKAGE.test(profile.package ?? "") ||
-        profile.contractVersion !== "1.1"
+        !isSupportedNativeContractVersion(profile.contractVersion)
       )
         throw new Error(
-          "native profile requires a package and contractVersion 1.1",
+          `native profile requires a package and contractVersion ${CONTRACT_VERSION} (legacy ${LEGACY_NATIVE_CONTRACT_VERSION} is also supported)`,
         );
     } else if (
       profile.mode !== "iframe" ||
@@ -402,8 +407,13 @@ export function normalizeLegacyAgenticAppManifest(legacy) {
   };
 }
 
-/** Native v1.1 is a UI descriptor, retained as a compatibility input. */
+/** Preserve the declared component ABI when adapting a standalone UI descriptor. */
 export function normalizeNativeExtensionManifest(legacy, packageName, version) {
+  const contractVersion =
+    legacy.contractVersion ?? LEGACY_NATIVE_CONTRACT_VERSION;
+  if (!isSupportedNativeContractVersion(contractVersion)) {
+    throw new Error("unsupported native component contract version");
+  }
   return {
     id: legacy.id,
     displayName: legacy.displayName,
@@ -416,7 +426,7 @@ export function normalizeNativeExtensionManifest(legacy, packageName, version) {
           id: "native",
           mode: "native-package",
           package: packageName,
-          contractVersion: "1.1",
+          contractVersion,
         },
       ],
       routes: legacy.hostPaths.map((path, index) => ({

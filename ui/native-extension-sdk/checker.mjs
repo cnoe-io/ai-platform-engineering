@@ -2,9 +2,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { nativeUiDescriptor, validateAgenticAppManifest } from "./agentic-app-manifest.mjs";
 import { RESERVED_HOST_PATHS, RESERVED_API_PATHS } from "./reserved-paths.mjs";
+import { CONTRACT_VERSION, LEGACY_NATIVE_CONTRACT_VERSION, isSupportedNativeContractVersion } from "./contract-version.mjs";
 
-export const CONTRACT_VERSION = "1.1";
-export const CHECKER_VERSION = "1.2.0";
+export { CONTRACT_VERSION, CHECKER_VERSION } from "./contract-version.mjs";
 export const MAX_ENTRY_BYTES = 64 * 1024;
 export const MAX_JAVASCRIPT_BYTES = 2 * 1024 * 1024;
 const ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -42,7 +42,7 @@ export function validateManifest(moduleName, manifest) {
   const fail = (reason) => { throw new Error(`${moduleName}: ${reason}`); };
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("manifest must be an object");
   if (!ID.test(manifest.id ?? "")) fail("invalid extension id");
-  if (manifest.contractVersion !== CONTRACT_VERSION) fail(`contractVersion must be ${CONTRACT_VERSION}`);
+  if (!isSupportedNativeContractVersion(manifest.contractVersion)) fail(`contractVersion must be ${CONTRACT_VERSION} (legacy ${LEGACY_NATIVE_CONTRACT_VERSION} is also supported)`);
   if (typeof manifest.displayName !== "string" || !manifest.displayName.trim()) fail("displayName is required");
   if (typeof manifest.description !== "string") fail("description is required");
 
@@ -134,7 +134,7 @@ export function validatePackage(packageRoot, manifest) {
       throw new Error(`${pkg.name}: ${peer} must be a peer, not a dependency`);
     }
   }
-  if (manifest.contractVersion !== CONTRACT_VERSION) throw new Error(`${pkg.name}: incompatible contract version`);
+  if (!isSupportedNativeContractVersion(manifest.contractVersion)) throw new Error(`${pkg.name}: incompatible contract version`);
   return pkg;
 }
 

@@ -1,3 +1,5 @@
+import type { NativeExtensionContractVersion } from "./contract-version.mjs";
+
 export type AgenticAppAuthMode =
   | "app-scoped-token"
   | "forward-user-access-token";
@@ -14,7 +16,7 @@ export interface AgenticAppUiProfile {
   id: string;
   mode: "native-package" | "iframe";
   package?: string;
-  contractVersion?: "1.1";
+  contractVersion?: NativeExtensionContractVersion;
 }
 export interface AgenticAppManifest {
   id: string;
