@@ -123,7 +123,7 @@ The architecture is designed to scale from Level 1 (Tab Complete) to Level 7 (Ba
 
 Agents reach models through any OpenAI-compatible gateway (LiteLLM, AgentGateway, Kong, AgentRouter, …) using the `openai-compatible` provider in `llm_wrapper`. CAIPE ships no gateway; it fixes the contracts. See `docs/docs/specs/2026-10-10-byo-llm-gateway-budgets-quotas/`.
 
-- **Identity**: every call carries a short-lived JWT naming the user, agent and owning team. The gateway enforces limits per user, agent and team. The agent's owning team pays.
+- **Identity**: `LLM_GATEWAY_AUTH=jwt` (default) uses a short-lived JWT identifying the user, agent and owning team, with verified limits per user, agent and team. `LLM_GATEWAY_AUTH=key` uses a per-agent gateway key bound to the agent and team; user attribution is unverified and per-user limits are best-effort. The agent's owning team pays in both modes.
 - **Authorization**: OpenFGA decides who may use which agent and model; dynamic agents check it once per turn.
 - **State**: limits and usage live in the gateway only. The model catalogue stays in `llm_models`.
 - **Control plane**: a capability-flagged adapter in the UI backend (`litellm` · `agentgateway` · `kong` · `agentrouter` · `none`).

@@ -47,7 +47,7 @@ flowchart TD
 | # | Contract | Owner |
 |---|---|---|
 | ① | Wire: OpenAI `/v1/chat/completions`, `/v1/models`, `/v1/embeddings` | gateway |
-| ② | Identity: short-lived JWT `{sub, agent_id, team_id, org}` | CAIPE issues, gateway verifies |
+| ② | Identity: `LLM_GATEWAY_AUTH=jwt` (default) uses a short-lived JWT `{sub, act, agent_id, team_id, org}`; `key` uses a per-agent gateway key with verified agent/team bindings, unverified user attribution and best-effort per-user limits | CAIPE issues JWTs or supplies provisioned gateway keys; gateway verifies credentials |
 | ③ | Attribution: OpenAI `user` field, `x-caipe-*` context headers, OTel GenAI | CAIPE sends |
 | ④ | Errors: budget/quota rejections → one CAIPE error type | CAIPE maps |
 | ⑤ | Control plane: capability-flagged adapter (models, limits, usage) | CAIPE UI backend |
