@@ -9,8 +9,8 @@
 
 ## Design criteria (from #2874)
 - [x] Plug-and-play: any OpenAI-compatible gateway; swap needs no agent change (FR-001, FR-002, SC-001)
-- [x] Budgets per user, agent and team, enforced by the gateway (FR-004, contract ②)
-- [x] AuthN: verifiable caller, no provider or shared admin keys in agents (FR-004–FR-007)
+- [x] Budgets: JWT mode enforces user, agent and team limits; key mode enforces agent and team limits, with best-effort per-user limits (FR-004, FR-005, contract ②)
+- [x] AuthN: JWT mode verifies user, agent and team identity; key mode verifies agent/team bindings but leaves user attribution unverified. Neither mode uses provider or shared admin keys in agents (FR-004–FR-007)
 - [x] AuthZ: OpenFGA governs agent and model access (FR-010)
 - [x] Journeys include first-use onboarding (J1–J4, research Decision 6)
 - [x] Data: one source of truth each, no drifting copies (research Decision 8, FR-015)
