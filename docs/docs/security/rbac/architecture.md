@@ -1718,9 +1718,10 @@ logic in OpenFGA tuples and audited ReBAC change sets.
 - `JwtAuthMiddleware` validates supplied bearer tokens and binds the current
   request token for downstream tools. `DA_REQUIRE_BEARER` controls rejection of
   requests without a bearer; health, metrics and CORS preflight remain public.
-- `get_current_user` (an alias of `get_user_context`) always requires the
-  gateway's identity and authorization metadata, including in debug mode.
-  It does not fetch userinfo or derive product admin from Keycloak roles.
+- `get_current_user` (an alias of `get_user_context`) requires the gateway's
+  `X-User-Context` header and an `email` field, including in debug mode.
+  Authorization fields are optional pass-through values or use their model
+  defaults. It does not fetch userinfo or derive product admin from Keycloak roles.
 
 Agent execution also requires the CAS agent-use decision described below.
 

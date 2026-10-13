@@ -96,7 +96,7 @@ def test_browser_login_checks_state_issuer_and_pkce(monkeypatch: pytest.MonkeyPa
                                                  metadata: dict[str, str], capsys: pytest.CaptureFixture[str]) -> None:
     thread: threading.Thread | None = None
     browser_params: dict[str, list[str]] = {}
-    errors: list[BaseException] = []
+    errors: list[Exception] = []
 
     def browser(url: str) -> None:
         nonlocal thread, browser_params
@@ -112,7 +112,7 @@ def test_browser_login_checks_state_issuer_and_pkce(monkeypatch: pytest.MonkeyPa
                 values = {"state": browser_params["state"][0], "iss": args.issuer, "code": "test-code"}
                 with urllib.request.urlopen(redirect + "?" + urllib.parse.urlencode(values), timeout=2) as response:
                     assert response.status == 200
-            except BaseException as exc:
+            except Exception as exc:
                 errors.append(exc)
 
         thread = threading.Thread(target=callback)
