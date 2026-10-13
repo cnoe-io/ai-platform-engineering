@@ -359,14 +359,20 @@ uv run pytest --cov=dynamic_agents --cov-report=html
 
 ## Docker
 
+When using the local Compose Keycloak service, join its network so the
+`keycloak` hostname resolves. The issuer must match the browser-facing URL
+in the token.
+
 ```bash
 # Build
 docker build -t dynamic-agents .
 
 # Run
-docker run -p 8001:8001 \
+COMPOSE_NETWORK=$(docker inspect keycloak --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}')
+docker run --network "$COMPOSE_NETWORK" -p 8001:8001 \
   -e MONGODB_URI=mongodb://host.docker.internal:27017 \
   -e KEYCLOAK_URL=http://keycloak:7080 \
+  -e OIDC_ISSUER=http://localhost:7080/realms/caipe \
   -e ANTHROPIC_API_KEY=your-key \
   dynamic-agents
 ```
