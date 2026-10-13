@@ -71,7 +71,9 @@ the same props and browser trust boundary; aligned versioning does not add
 isolation or grants.
 
 The package must expose `.` for its ESM entry, `./manifest` for the JSON
-manifest, and `./styles.css` for scoped styles. React, React DOM, Next.js,
+manifest, and `./styles.css` for scoped styles. The manifest export may target
+a nested built file such as `./dist/manifest.json`; publisher and host checks
+use that export, not a separate root-level declaration. React, React DOM, Next.js,
 NextAuth, and next-themes must remain peer dependencies so the host supplies
 one copy.
 The package may not export a server entry. Its entry must be compiled client
@@ -104,7 +106,9 @@ applies to hosted iframe apps.
    runtime peer dependencies. Publisher CI should run the same checker against
    each supported CAIPE host release. Checker `2.0.0-rc.1` also enforces a 64 KiB
    entry budget, a 2 MiB compiled-JavaScript budget, and rejects document-wide
-   CSS selectors. These are uncompressed publisher gates, not network latency
+   CSS selectors, including selector-list members inside nested rule blocks.
+   Class-scoped descendant universal selectors remain supported. These are
+   conformance checks, not complete CSS containment. These are uncompressed publisher gates, not network latency
    estimates. Apps can lazy-load editor and visualization chunks.
 2. Install a reviewed package at an **exact version** in the derived CAIPE image,
    or install its immutable `.tgz` artifact. Commit the resulting `package-lock.json`

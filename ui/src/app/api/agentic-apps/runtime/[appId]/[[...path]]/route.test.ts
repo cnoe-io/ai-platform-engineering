@@ -3,7 +3,8 @@
 import { NextRequest } from "next/server";
 
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
-import { normalizeLegacyAgenticAppManifest } from "../../../../../../../app-sdk/agentic-app-manifest.mjs";
+import { normalizeLegacyAgenticAppManifest, validateAgenticAppManifest } from "../../../../../../../app-sdk/agentic-app-manifest.mjs";
+import exampleManifest from "../../../../../../../examples/agentic-apps/shared/manifest.json";
 
 const mockGetAuthenticatedUser = jest.fn();
 const mockGetConfiguredAgenticApp = jest.fn();
@@ -118,6 +119,44 @@ describe("External App runtime route", () => {
     expect(response.headers.get("x-frame-options")).toBeNull();
 
     fetchMock.mockRestore();
+  });
+
+  it("fails closed when an operational native API mount has no service origin", async () => {
+    const manifest = validateAgenticAppManifest({
+      ...exampleManifest,
+      ui: { ...exampleManifest.ui, profiles: exampleManifest.ui.profiles.filter((profile) => profile.mode === "native-package") },
+      runtime: undefined,
+    });
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({ manifest, installation: configuredApp.installation });
+    const upstream = jest.spyOn(global, "fetch");
+    try {
+      const response = await GET(new NextRequest("https://host.example/api/agentic-apps/runtime/example-app/api/items"), {
+        params: Promise.resolve({ appId: "example-app", path: ["api", "items"] }),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "app_runtime_unavailable" });
+      expect(upstream).not.toHaveBeenCalled();
+    } finally { upstream.mockRestore(); }
+  });
+
+  it("proxies a native API mount without runtime metadata when its service origin is bound", async () => {
+    const manifest = validateAgenticAppManifest({
+      ...exampleManifest,
+      ui: { ...exampleManifest.ui, profiles: exampleManifest.ui.profiles.filter((profile) => profile.mode === "native-package") },
+      runtime: undefined,
+    });
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({
+      manifest,
+      installation: { ...configuredApp.installation, bindings: { runtimeOrigin: "https://runtime.example.test" } },
+    });
+    const upstream = jest.spyOn(global, "fetch").mockResolvedValueOnce(new Response('{"ok":true}'));
+    try {
+      const response = await GET(new NextRequest("https://host.example/api/agentic-apps/runtime/example-app/api/items"), {
+        params: Promise.resolve({ appId: "example-app", path: ["api", "items"] }),
+      });
+      expect(response.status).toBe(200);
+      expect(upstream.mock.calls[0][0].toString()).toBe("https://runtime.example.test/api/items");
+    } finally { upstream.mockRestore(); }
   });
 
   it("forwards the server-side user access token for trusted apps", async () => {

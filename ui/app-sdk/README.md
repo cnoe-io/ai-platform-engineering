@@ -66,6 +66,8 @@ New native packages publish the full shared manifest and do not repeat their
 policy in the runtime catalog. The generator derives a UI descriptor retaining
 the native profile's declared component contract. See `docs/docs/features/agentic-app-manifest.md`
 and `ui/examples/agentic-apps/shared/manifest.json` for the reference contract.
+Both the publisher CLI and host generator read the `./manifest` export;
+the JSON may be at the package root or in a compiled directory such as `dist/`.
 
 An optional `assistant` claim (`agentId`, `label`, `name`) lets the host render
 its own floating chat for a config-driven agent. The host fetches the agent

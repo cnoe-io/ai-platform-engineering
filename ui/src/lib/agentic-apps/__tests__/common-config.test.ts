@@ -249,6 +249,20 @@ describe("shared application installation", () => {
     expect(agenticAppEntryHref(configuredApp)).toBe("/example");
   });
 
+  it("requires a service origin for enabled native API mounts even without runtime metadata", () => {
+    const app = {
+      ...example,
+      ui: { ...example.ui, profiles: example.ui.profiles.filter((profile) => profile.mode === "native-package") },
+      runtime: undefined,
+    };
+    installedAgenticAppManifests.push(validateAgenticAppManifest(app));
+    expect(() => configured(undefined, {})).toThrow(/requires a runtime origin/);
+    const [bound] = configured(undefined, { bindings: { runtimeOrigin: "https://runtime.example.test" } });
+    expect(bound.installation.bindings.runtimeOrigin).toBe("https://runtime.example.test");
+    expect(configured(undefined, { enabled: false })[0].installation.enabled).toBe(false);
+    expect(configured(undefined, { installed: false })[0].installation.installed).toBe(false);
+  });
+
   it("keeps permission requests declarative and hidden apps protected", () => {
     installedAgenticAppManifests.push(validateAgenticAppManifest(example));
     const [app] = configured(undefined, {

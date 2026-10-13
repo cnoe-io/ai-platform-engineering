@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tailwindSourceForEntry } from "./native-extension-source.mjs";
@@ -13,6 +13,8 @@ import {
   validateManifest,
   validateOwnership,
   validatePackage,
+  readPackageManifest,
+  resolveNativePackageRoot,
 } from "./native-extension-contract.mjs";
 
 export function generateNativeExtensions(
@@ -29,11 +31,10 @@ export function generateNativeExtensions(
     if (!/^(?:@[a-z0-9-]+\/)?[a-z0-9-]+$/.test(moduleName)) {
       throw new Error(`Invalid native extension module name: ${moduleName}`);
     }
-    const manifestPath = require.resolve(`${moduleName}/manifest`);
     const entryPath = require.resolve(moduleName);
-    const declaration = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const packageRoot = resolveNativePackageRoot(entryPath, moduleName);
+    const declaration = readPackageManifest(packageRoot);
     const manifest = validateManifest(moduleName, declaration);
-    const packageRoot = dirname(manifestPath);
     const pkg = validatePackage(packageRoot, manifest);
     validateBuiltArtifact(packageRoot, pkg);
     if (pkg.name !== moduleName)

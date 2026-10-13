@@ -171,6 +171,9 @@ native entry point.
 - UI-only native app: omit `runtime`, keep only its native profile, and use empty
   `api.mounts`, `access.tokenScopes`, and `access.policyActions`. No dummy backend
   origin is required.
+- Native app with proxy API mounts: an installed, enabled app must have an
+  approved service-origin binding even if `runtime` metadata is omitted.
+  The gateway fails closed when no service origin is available.
 - Service-only app: use empty `ui.profiles` and `ui.routes`, no navigation/slot,
   and `surfaces.showInHub: false`. A runtime is optional; when declared, its
   authenticated gateway still requires service policy and an origin binding.

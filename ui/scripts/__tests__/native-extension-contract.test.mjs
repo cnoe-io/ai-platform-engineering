@@ -130,8 +130,19 @@ test("rejects server imports, global CSS, and oversized entry bundles", () => {
     writeFileSync(entry, '"use client";\nimport { cookies } from "next/headers";');
     assert.throws(() => validateBuiltArtifact(root, pkg), /server-only module/);
     writeFileSync(entry, '"use client";\nexport default {};\n');
-    writeFileSync(css, 'body { margin: 0; }');
-    assert.throws(() => validateBuiltArtifact(root, pkg), /unscoped document selector/);
+    for (const selector of [
+      'body { margin: 0; }',
+      '* { display: none; }',
+      '.example, body { display: none; }',
+      '@layer base { body { display: none; } }',
+      '@media (min-width: 1px) { @supports (display: grid) { .example, html { display: none; } } }',
+      '.example, :root { --foreground: red; }',
+    ]) {
+      writeFileSync(css, selector);
+      assert.throws(() => validateBuiltArtifact(root, pkg), /unscoped document selector/, selector);
+    }
+    writeFileSync(css, '@layer components { .example-app, .example-app[data-value=","] { color: red; content: "body {"; } .example-app { & > * { color: blue; } } } @keyframes example-spin { from { opacity: 0; } 50%, to { opacity: 1; } }');
+    assert.equal(validateBuiltArtifact(root, pkg).entryBytes > 0, true);
     writeFileSync(css, '.example-app { color: red; }');
     writeFileSync(entry, `"use client";\n${" ".repeat(65 * 1024)}`);
     assert.throws(() => validateBuiltArtifact(root, pkg), /entry exceeds/);

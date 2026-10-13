@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   mkdtempSync,
@@ -9,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   validateAgenticAppManifest,
@@ -54,6 +56,41 @@ export function exampleManifest() {
     ],
   };
 }
+
+test("publisher and host use the exported nested manifest, not a root decoy", () => {
+  const root = mkdtempSync(join(tmpdir(), "nested-native-manifest-"));
+  try {
+    const packageName = "@example/native-app";
+    const packageRoot = join(root, "node_modules", "@example", "native-app");
+    mkdirSync(join(packageRoot, "dist", "client"), { recursive: true });
+    const app = exampleManifest();
+    const pkg = {
+      name: packageName, version: app.version,
+      exports: { ".": "./dist/client/index.mjs", "./manifest": "./dist/manifest.json", "./styles.css": "./dist/styles.css" },
+      peerDependencies: { next: "*", "next-auth": "*", "next-themes": "*", react: "*", "react-dom": "*" },
+    };
+    writeFileSync(join(packageRoot, "package.json"), JSON.stringify(pkg));
+    writeFileSync(join(packageRoot, "dist", "manifest.json"), JSON.stringify(app));
+    writeFileSync(join(packageRoot, "manifest.json"), JSON.stringify({ id: "ignored-root-decoy" }));
+    writeFileSync(join(packageRoot, "dist", "client", "index.mjs"), '"use client";\nexport default {};');
+    writeFileSync(join(packageRoot, "dist", "styles.css"), ".example-app { color: red; }");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies: { [packageName]: app.version } }));
+    writeFileSync(join(root, "package-lock.json"), JSON.stringify({ packages: {
+      "": { dependencies: { [packageName]: app.version } },
+      [`node_modules/${packageName}`]: { version: app.version, integrity: "sha512-example" },
+    } }));
+    const cli = fileURLToPath(new URL("../../app-sdk/bin/check.mjs", import.meta.url));
+    assert.match(execFileSync(process.execPath, [cli, packageRoot], { encoding: "utf8" }), /conforms/);
+    generateNativeExtensions(root, [packageName]);
+    assert.match(readFileSync(join(root, "src", "native-extensions", "manifests.generated.ts"), "utf8"), /example-app/);
+    assert.doesNotMatch(readFileSync(join(root, "src", "native-extensions", "manifests.generated.ts"), "utf8"), /ignored-root-decoy/);
+    writeFileSync(join(packageRoot, "dist", "manifest.json"), JSON.stringify({ ...app, version: "2.0.0" }));
+    assert.throws(() => execFileSync(process.execPath, [cli, packageRoot], { stdio: "pipe" }), /application version\/package/);
+    assert.throws(() => generateNativeExtensions(root, [packageName]), /application version\/package/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("one manifest projects onto the aligned 2.0 native component contract", () => {
   const common = validateAgenticAppManifest(exampleManifest());

@@ -16,6 +16,7 @@ import {
   buildAgenticAppPublicPath,
   buildAgenticAppTargetUrl,
   rewriteAgenticAppResponseLocation,
+  resolveAgenticAppOrigin,
 } from "@/lib/agentic-apps/runtime";
 import { mintAgenticAppToken } from "@/lib/agentic-apps/tokens";
 import { ApiError, getAuthenticatedUser } from "@/lib/api-middleware";
@@ -128,6 +129,10 @@ async function proxyAgenticAppRequest(
       },
       { status: 403 },
     );
+  }
+
+  if (!resolveAgenticAppOrigin(app)) {
+    return Response.json({ error: "app_runtime_unavailable" }, { status: 503 });
   }
 
   const maxRequestBodyBytes = app.manifest.runtime?.maxRequestBodyBytes

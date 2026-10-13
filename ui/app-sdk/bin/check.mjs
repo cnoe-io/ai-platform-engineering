@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
   CHECKER_VERSION,
+  readPackageManifest,
   validateBuiltArtifact,
   validateManifest,
   validatePackage,
 } from "../checker.mjs";
 
 const packageRoot = resolve(process.argv[2] ?? ".");
-const declaration = JSON.parse(readFileSync(join(packageRoot, "manifest.json"), "utf8"));
+const declaration = readPackageManifest(packageRoot);
 const manifest = validateManifest(packageRoot, declaration);
 const pkg = validatePackage(packageRoot, manifest);
 if (declaration.apiVersion === "2.0" && (declaration.version !== pkg.version || !declaration.ui.profiles.some((profile) => profile.mode === "native-package" && profile.package === pkg.name))) {
