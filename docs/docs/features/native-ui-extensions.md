@@ -4,6 +4,11 @@ title: Trusted native UI extensions
 
 # Trusted native UI extensions
 
+Native UI extensions implement the native component interface of the
+**CAIPE App Contract**. The shared application declaration uses
+`AgenticAppManifest`; the component interface defines the module exports and
+host-supplied props. Both new-publisher versions are `2.0`.
+
 Native UI extensions let first-party teams ship a React surface in the CAIPE
 shell without an iframe. They are installed while building a CAIPE image, but
 the feature code and release history stay in the team's repository.

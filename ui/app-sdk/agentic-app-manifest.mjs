@@ -407,7 +407,7 @@ export function normalizeLegacyAgenticAppManifest(legacy) {
   };
 }
 
-/** Preserve the declared component ABI when adapting a standalone UI descriptor. */
+/** Preserve the declared component contract when adapting a standalone UI descriptor. */
 export function normalizeNativeExtensionManifest(legacy, packageName, version) {
   const contractVersion =
     legacy.contractVersion ?? LEGACY_NATIVE_CONTRACT_VERSION;
@@ -452,7 +452,7 @@ export function normalizeNativeExtensionManifest(legacy, packageName, version) {
   };
 }
 
-/** Project the shared record onto the unchanged native component ABI. */
+/** Project the shared record onto the unchanged native component interface. */
 export function nativeUiDescriptor(app) {
   const profile = app.ui.profiles.find(
     (candidate) => candidate.mode === "native-package",

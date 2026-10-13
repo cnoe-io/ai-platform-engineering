@@ -51,13 +51,13 @@ describe("NativeExtensionHost", () => {
     expect(container.querySelector("[data-native-extension='example-app']")).not.toBeNull();
   });
 
-  it("does not mount mismatched ABI declarations", () => {
+  it("does not mount mismatched CAIPE App Contract declarations", () => {
     installedNativeExtensions[0].module.contractVersion = "1.1";
     render(<NativeExtensionHost extensionId="example-app" slot />);
     expect(screen.getByText("Native extension is not installed.")).toBeInTheDocument();
   });
 
-  it("rejects unknown ABIs even when the manifest and module agree", () => {
+  it("rejects unknown CAIPE App Contract versions even when the manifest and module agree", () => {
     Object.assign(installedNativeExtensions[0].manifest, { contractVersion: "3.0" });
     Object.assign(installedNativeExtensions[0].module, { contractVersion: "3.0" });
     render(<NativeExtensionHost extensionId="example-app" slot />);

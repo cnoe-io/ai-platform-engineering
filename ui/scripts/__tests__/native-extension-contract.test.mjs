@@ -22,7 +22,7 @@ test("accepts a routeful advertised app", () => {
   assert.equal(validateManifest("example", example).id, "example-app");
 });
 
-test("accepts the current ABI and explicit legacy ABI, but rejects unknown versions", () => {
+test("accepts the current and explicit legacy CAIPE App Contract versions, but rejects unknown versions", () => {
   for (const contractVersion of ["2.0", "1.1"]) {
     assert.equal(validateManifest("example", { ...example, contractVersion }).contractVersion, contractVersion);
   }

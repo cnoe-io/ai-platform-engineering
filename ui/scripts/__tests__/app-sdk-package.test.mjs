@@ -66,8 +66,8 @@ test("packed app SDK installs without frameworks and exposes its types, validato
       import { validateAgenticAppManifest, nativeUiDescriptor } from "@caipe-io/app-sdk/manifest-contract";
       import type { AgenticAppManifest } from "@caipe-io/app-sdk/manifest-contract";
       const app: AgenticAppManifest = validateAgenticAppManifest({});
-      const abi: "2.0" | "1.1" | undefined = nativeUiDescriptor(app)?.contractVersion;
-      void abi;
+      const contractVersion: "2.0" | "1.1" | undefined = nativeUiDescriptor(app)?.contractVersion;
+      void contractVersion;
     `);
     writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({
       compilerOptions: { noEmit: true, strict: true, module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", types: [] },

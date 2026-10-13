@@ -68,7 +68,7 @@ test("one manifest projects onto the aligned 2.0 native component contract", () 
   assert.equal(common.grants, undefined);
 });
 
-test("preserves legacy ABI declarations instead of silently relabeling modules", () => {
+test("preserves legacy CAIPE App Contract declarations instead of silently relabeling modules", () => {
   const legacy = exampleManifest();
   legacy.ui.profiles[0].contractVersion = "1.1";
   assert.equal(nativeUiDescriptor(validateAgenticAppManifest(legacy)).contractVersion, "1.1");

@@ -1,5 +1,9 @@
 # CAIPE App SDK
 
+The **CAIPE App Contract** covers the shared application manifest and the
+rendering-profile interfaces. The SDK supplies its types and conformance checks;
+neither the contract nor its version checks provide a security sandbox.
+
 Package `@caipe-io/app-sdk@2.0.0-rc.1` supports native component contract `2.0` and the shared
 `AgenticAppManifest` API version `2.0`. Native `1.1` is explicitly retained
 for compatibility; a legacy module is never silently relabeled as `2.0`.
@@ -28,7 +32,7 @@ host interface types from `@caipe-io/app-sdk`.
 ## Release
 
 - SDK versions are independent of host image and application package versions.
-- This release candidate is not a stable release; manifest and component ABI stay `2.0`.
+- This release candidate is not a stable release; the CAIPE App Contract's manifest and native component versions stay `2.0`.
 - `publishConfig` defaults to public npm access and the `next` dist-tag.
 - Maintainers must have publishing access to the npm `@caipe-io` scope.
 - Check the packed artifact with `node --test ui/scripts/__tests__/app-sdk-package.test.mjs`
@@ -60,7 +64,7 @@ origins and selected UI profiles belong to deployment-owned installations.
 
 New native packages publish the full shared manifest and do not repeat their
 policy in the runtime catalog. The generator derives a UI descriptor retaining
-the native profile's declared component ABI. See `docs/docs/features/agentic-app-manifest.md`
+the native profile's declared component contract. See `docs/docs/features/agentic-app-manifest.md`
 and `ui/examples/agentic-apps/shared/manifest.json` for the reference contract.
 
 An optional `assistant` claim (`agentId`, `label`, `name`) lets the host render
