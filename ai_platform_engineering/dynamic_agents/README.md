@@ -438,8 +438,9 @@ dynamic_agents/
   The backend probe repeats this check using the validated caller JWT; context flags do not grant access.
 - Parent agent execution requires CAS `use` permission. Selected remote entries define its callable tools.
   The remote agent or its gateway enforces its own policies with the configured credential.
-- Existing developer authentication (`DEBUG=true`) and UI dev login are unchanged.
-  Their removal is reviewed separately in PR #2904; this feature has no dependency on it.
+- `DEBUG` controls diagnostics/reload and never creates an administrator identity.
+  Use the [Keycloak developer workflow](../../deploy/keycloak/README.md#developer-authentication)
+  for local login; its Compose override disables anonymous authentication and RBAC bypass flags.
 - A2A credentials are sent only to the registered origin. Agent Cards that advertise
   another origin are rejected; register the externally reachable gateway origin instead.
 - HTTPS is required by default. For private/local Docker examples, set

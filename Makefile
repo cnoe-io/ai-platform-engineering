@@ -44,7 +44,8 @@ DEV_AUTH_COMPOSE = docker compose --env-file .env -f docker-compose.dev.yaml -f 
 
 dev-auth-up: ## Start local Keycloak, provision test accounts, then start the authenticated UI/runtime
 	@$(DOCKER_COMPOSE_BUILD_ENV) $(DEV_AUTH_COMPOSE) up -d --build keycloak keycloak-init openfga-init caipe-mongodb
-	@$(DEV_AUTH_COMPOSE) wait keycloak-init openfga-init
+	@$(DEV_AUTH_COMPOSE) wait keycloak-init
+	@$(DEV_AUTH_COMPOSE) wait openfga-init
 	@python3 scripts/dev_auth.py $(DEV_AUTH_ARGS) users
 	@$(DOCKER_COMPOSE_BUILD_ENV) $(DEV_AUTH_COMPOSE) up -d --build caipe-ui dynamic-agents
 	@echo "Sign in at http://localhost:3000 or run make dev-login."

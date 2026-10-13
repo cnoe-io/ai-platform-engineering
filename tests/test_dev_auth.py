@@ -96,20 +96,24 @@ def test_browser_login_checks_state_issuer_and_pkce(monkeypatch: pytest.MonkeyPa
                                                  metadata: dict[str, str], capsys: pytest.CaptureFixture[str]) -> None:
     thread: threading.Thread | None = None
     browser_params: dict[str, list[str]] = {}
+    errors: list[BaseException] = []
 
     def browser(url: str) -> None:
         nonlocal thread, browser_params
         browser_params = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
 
         def callback() -> None:
-            redirect = browser_params["redirect_uri"][0]
-            for values in ({"state": "wrong-state"}, {"state": browser_params["state"][0], "iss": "wrong-issuer"}):
-                with pytest.raises(urllib.error.HTTPError) as error:
-                    urllib.request.urlopen(redirect + "?" + urllib.parse.urlencode(values), timeout=2)
-                assert error.value.code == 400
-            values = {"state": browser_params["state"][0], "iss": args.issuer, "code": "test-code"}
-            with urllib.request.urlopen(redirect + "?" + urllib.parse.urlencode(values), timeout=2) as response:
-                assert response.status == 200
+            try:
+                redirect = browser_params["redirect_uri"][0]
+                for values in ({"state": "wrong-state"}, {"state": browser_params["state"][0], "iss": "wrong-issuer"}):
+                    with pytest.raises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(redirect + "?" + urllib.parse.urlencode(values), timeout=2)
+                    assert error.value.code == 400
+                values = {"state": browser_params["state"][0], "iss": args.issuer, "code": "test-code"}
+                with urllib.request.urlopen(redirect + "?" + urllib.parse.urlencode(values), timeout=2) as response:
+                    assert response.status == 200
+            except BaseException as exc:
+                errors.append(exc)
 
         thread = threading.Thread(target=callback)
         thread.start()
@@ -131,6 +135,9 @@ def test_browser_login_checks_state_issuer_and_pkce(monkeypatch: pytest.MonkeyPa
     auth.login(args, metadata)
     assert thread
     thread.join(3)
+    assert not thread.is_alive(), "Browser callback did not finish"
+    if errors:
+        raise errors[0]
     output = capsys.readouterr()
     assert "private-access" not in output.out + output.err
     assert "private-refresh" not in output.out + output.err
