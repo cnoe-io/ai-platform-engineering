@@ -190,4 +190,21 @@ describe("External App runtime route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     fetchMock.mockRestore();
   });
+
+  it.each([
+    ["Accept: text/html without Fetch Metadata", { accept: "text/html" }],
+    ["Sec-Fetch-Dest: document", { "sec-fetch-dest": "document" }],
+  ])("redirects an unauthenticated document navigation to a relative login URL (%s)", async (_name, headers) => {
+    mockGetAuthenticatedUser.mockRejectedValueOnce(new MockApiError("Unauthorized"));
+
+    const response = await GET(
+      new NextRequest("https://0.0.0.0:3000/apps/example-app/reports?tab=1", { headers }),
+      { params: Promise.resolve({ appId: "example-app", path: ["reports"] }) },
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "/login?callbackUrl=%2Fapps%2Fexample-app%2Freports%3Ftab%3D1",
+    );
+  });
 });

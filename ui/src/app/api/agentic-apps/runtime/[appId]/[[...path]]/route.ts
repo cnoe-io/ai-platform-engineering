@@ -293,7 +293,13 @@ function isDocumentNavigation(request: Request): boolean {
 
 function redirectToLogin(request: Request): Response {
   const requestUrl = new URL(request.url);
-  const loginUrl = new URL("/login", requestUrl);
-  loginUrl.searchParams.set("callbackUrl", `${requestUrl.pathname}${requestUrl.search}`);
-  return Response.redirect(loginUrl, 307);
+  const query = new URLSearchParams({
+    callbackUrl: `${requestUrl.pathname}${requestUrl.search}`,
+  });
+  // Relative on purpose: behind an ingress `request.url` is the pod's internal
+  // listen address (e.g. https://0.0.0.0:3000), which must never reach the client.
+  return new Response(null, {
+    status: 307,
+    headers: { location: `/login?${query}` },
+  });
 }
