@@ -3,6 +3,8 @@
 import { NextRequest } from "next/server";
 
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
+import { normalizeLegacyAgenticAppManifest, validateAgenticAppManifest } from "../../../../../../../app-sdk/agentic-app-manifest.mjs";
+import exampleManifest from "../../../../../../../examples/agentic-apps/shared/manifest.json";
 
 const mockGetAuthenticatedUser = jest.fn();
 const mockGetConfiguredAgenticApp = jest.fn();
@@ -26,11 +28,12 @@ const MockApiError = jest.requireMock("@/lib/api-middleware").ApiError as new (
 ) => Error & { statusCode: number };
 
 const configuredApp: ConfiguredAgenticApp = {
-  manifest: {
+  manifest: normalizeLegacyAgenticAppManifest({
     id: "example-app",
     displayName: "Example App",
     description: "Example",
     apiVersion: "1.0",
+    auth: { mode: "app-scoped-token" },
     runtime: {
       kind: "proxied-next-zone",
       origin: "http://example-app.example.svc",
@@ -48,7 +51,7 @@ const configuredApp: ConfiguredAgenticApp = {
         },
       ],
     },
-  },
+  }),
   installation: {
     appId: "example-app",
     packageId: "example-app",
@@ -95,6 +98,7 @@ describe("External App runtime route", () => {
           "keep-alive": "timeout=5",
           "sec-fetch-dest": "iframe",
           "x-example-app-position": "admin",
+          "x-caipe-roles": "admin",
           "x-untrusted-hop": "remove-me",
         },
       }),
@@ -111,8 +115,135 @@ describe("External App runtime route", () => {
     expect(headers.get("keep-alive")).toBeNull();
     expect(headers.get("x-untrusted-hop")).toBeNull();
     expect(headers.get("x-example-app-position")).toBeNull();
+    expect(headers.get("x-caipe-roles")).toBe("user");
     expect(response.headers.get("x-frame-options")).toBeNull();
 
+    fetchMock.mockRestore();
+  });
+
+  it("fails closed when an operational native API mount has no service origin", async () => {
+    const manifest = validateAgenticAppManifest({
+      ...exampleManifest,
+      ui: { ...exampleManifest.ui, profiles: exampleManifest.ui.profiles.filter((profile) => profile.mode === "native-package") },
+      runtime: undefined,
+    });
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({ manifest, installation: configuredApp.installation });
+    const upstream = jest.spyOn(global, "fetch");
+    try {
+      const response = await GET(new NextRequest("https://host.example/api/agentic-apps/runtime/example-app/api/items"), {
+        params: Promise.resolve({ appId: "example-app", path: ["api", "items"] }),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "app_runtime_unavailable" });
+      expect(upstream).not.toHaveBeenCalled();
+    } finally { upstream.mockRestore(); }
+  });
+
+  it("proxies a native API mount without runtime metadata when its service origin is bound", async () => {
+    const manifest = validateAgenticAppManifest({
+      ...exampleManifest,
+      ui: { ...exampleManifest.ui, profiles: exampleManifest.ui.profiles.filter((profile) => profile.mode === "native-package") },
+      runtime: undefined,
+    });
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({
+      manifest,
+      installation: { ...configuredApp.installation, bindings: { runtimeOrigin: "https://runtime.example.test" } },
+    });
+    const upstream = jest.spyOn(global, "fetch").mockResolvedValueOnce(new Response('{"ok":true}'));
+    try {
+      const response = await GET(new NextRequest("https://host.example/api/agentic-apps/runtime/example-app/api/items"), {
+        params: Promise.resolve({ appId: "example-app", path: ["api", "items"] }),
+      });
+      expect(response.status).toBe(200);
+      expect(upstream.mock.calls[0][0].toString()).toBe("https://runtime.example.test/api/items");
+    } finally { upstream.mockRestore(); }
+  });
+
+  it("forwards the server-side user access token for trusted apps", async () => {
+    mockGetAuthenticatedUser.mockResolvedValueOnce({
+      user: { email: "test-user@example.com", name: "Test User", role: "user" },
+      session: {
+        sub: "stable-subject",
+        role: "user",
+        accessToken: "keycloak-user-access-token",
+      },
+    });
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({
+      ...configuredApp,
+      manifest: {
+        ...configuredApp.manifest,
+        auth: { mode: "forward-user-access-token" },
+      },
+    } satisfies ConfiguredAgenticApp);
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true })),
+    );
+
+    const response = await GET(
+      new NextRequest("https://host.example/api/agentic-apps/runtime/example-app/api/items", {
+        headers: {
+          authorization: "Bearer caller-controlled-token",
+          cookie: "untrusted=session",
+          "x-caipe-auth-mode": "app-scoped-token",
+        },
+      }),
+      { params: Promise.resolve({ appId: "example-app", path: ["api", "items"] }) },
+    );
+
+    expect(response.status).toBe(200);
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get("authorization")).toBe("Bearer keycloak-user-access-token");
+    expect(headers.get("x-caipe-auth-mode")).toBe("forward-user-access-token");
+    expect(headers.get("cookie")).toBeNull();
+    fetchMock.mockRestore();
+  });
+
+  it("fails closed when a trusted app session has no user access token", async () => {
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({
+      ...configuredApp,
+      manifest: {
+        ...configuredApp.manifest,
+        auth: { mode: "forward-user-access-token" },
+      },
+    } satisfies ConfiguredAgenticApp);
+    const fetchMock = jest.spyOn(global, "fetch");
+
+    const response = await GET(
+      new NextRequest("https://host.example/api/agentic-apps/runtime/example-app"),
+      { params: Promise.resolve({ appId: "example-app", path: [] }) },
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "user_access_token_required" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it("does not proxy a disabled installation", async () => {
+    mockGetConfiguredAgenticApp.mockReturnValueOnce({
+      ...configuredApp,
+      installation: { ...configuredApp.installation, enabled: false },
+    });
+    const fetchMock = jest.spyOn(global, "fetch");
+    const response = await GET(
+      new NextRequest("https://host.example/api/agentic-apps/runtime/example-app"),
+      { params: Promise.resolve({ appId: "example-app", path: [] }) },
+    );
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it("permits hidden app API access while still enforcing caller role and request policy", async () => {
+    const hidden = { ...configuredApp, installation: { ...configuredApp.installation, visible: false } };
+    mockGetConfiguredAgenticApp.mockReturnValue(hidden);
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response("ok"));
+    const request = () => new NextRequest("https://host.example.test/api/agentic-apps/runtime/example-app");
+    const context = { params: Promise.resolve({ appId: "example-app", path: [] }) };
+    expect((await GET(request(), context)).status).toBe(200);
+    mockGetAuthenticatedUser.mockResolvedValueOnce({ user: { role: "viewer" }, session: { sub: "test-user", role: "viewer" } });
+    expect((await GET(request(), context)).status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
   });
 

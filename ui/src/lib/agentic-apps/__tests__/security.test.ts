@@ -11,13 +11,15 @@ import {
 import { mintAgenticAppToken, verifyAgenticAppToken } from "../tokens";
 import type { ConfiguredAgenticApp } from "@/types/agentic-app";
 import { createWeatherJwtVerifier } from "../../../../examples/external-apps/weather/auth.mjs";
+import { normalizeLegacyAgenticAppManifest } from "../../../../app-sdk/agentic-app-manifest.mjs";
 
 const app: ConfiguredAgenticApp = {
-  manifest: {
+  manifest: normalizeLegacyAgenticAppManifest({
     id: "example-app",
     displayName: "Example App",
     description: "Example",
     apiVersion: "1.0",
+    auth: { mode: "app-scoped-token" },
     runtime: {
       kind: "proxied-next-zone",
       origin: "http://example-app.example.svc",
@@ -32,7 +34,7 @@ const app: ConfiguredAgenticApp = {
         { action: "create", method: "POST", path: "/api/items", defaultEffect: "allow", requiredScopes: ["example-app:run"] },
       ],
     },
-  },
+  }),
   installation: {
     appId: "example-app",
     packageId: "example-app",
@@ -187,6 +189,13 @@ describe("External Apps security contracts", () => {
     expect(
       buildAgenticAppTargetUrl(app, ["api", "items", "with space"], "https://host.example/apps?limit=2").toString(),
     ).toBe("http://example-app.example.svc/api/items/with%20space?limit=2");
+  });
+
+  it("separates catalog visibility from launch authorization for every UI profile", () => {
+    const hiddenApp = { ...app, installation: { ...app.installation, visible: false } };
+    expect(canLaunchAgenticApp(hiddenApp, { role: "user" })).toBe(true);
+    expect(canLaunchAgenticApp(hiddenApp, { role: "user" }, { requireVisible: true })).toBe(false);
+    expect(canLaunchAgenticApp(hiddenApp, { role: "viewer" })).toBe(false);
   });
 
   it("preserves the mount path and trailing slash for apps using a base path", () => {
