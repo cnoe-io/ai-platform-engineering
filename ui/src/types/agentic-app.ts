@@ -1,23 +1,20 @@
+import type { AgenticAppManifest, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../app-sdk/agentic-app-manifest.mjs";
+
+export type { AgenticAppManifest, AgenticAppUiProfile, AgenticAppAuthMode, AgenticAppPolicyAction } from "../../app-sdk/agentic-app-manifest.mjs";
 export type AgenticAppRuntimeKind = "proxied-next-zone";
 
 export const DEFAULT_AGENTIC_APP_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 export const MAX_AGENTIC_APP_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
 
-export interface AgenticAppPolicyAction {
-  action: string;
-  description?: string;
-  defaultEffect?: "allow" | "deny";
-  reasonCode?: string;
-  requiredScopes?: string[];
-  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
-  path?: string;
-}
-
-export interface AgenticAppManifest {
+/** Compatibility input for existing hosted deployments. */
+export interface LegacyAgenticAppManifest {
   id: string;
   displayName: string;
   description: string;
   apiVersion: "1.0";
+  auth: {
+    mode: AgenticAppAuthMode;
+  };
   runtime: {
     kind: AgenticAppRuntimeKind;
     origin?: string;
@@ -54,6 +51,12 @@ export interface AgenticAppInstallation {
   installed: boolean;
   enabled: boolean;
   visible: boolean;
+  selectedUiProfile?: string;
+  appVersion?: string;
+  bindings?: {
+    runtimeOrigin?: string;
+    resources?: Record<string, string>;
+  };
   runtimeMountPath?: string;
   runtimeOriginOverride?: string;
   accessOverrides?: {
@@ -75,4 +78,6 @@ export interface PublicAgenticApp {
   blockedReasons: string[];
   categories: string[];
   capabilities: string[];
+  uiMode?: "native-package" | "iframe";
+  hostPaths?: string[];
 }

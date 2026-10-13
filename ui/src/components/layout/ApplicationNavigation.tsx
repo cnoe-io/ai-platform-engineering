@@ -45,11 +45,14 @@ import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { KNOWLEDGE_NAV_ITEMS } from "@/components/rag/KnowledgeSidebar";
 import { PERSONAL_SETTINGS_ROUTES } from "@/components/settings/settings-routes";
 import { config,getLogoFilterClass } from "@/lib/config";
+import { installedNativeExtensionManifests } from "@/native-extensions/manifests.generated";
+import { filterAccessibleNativeNavigation } from "@/native-extensions/navigation";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
 import { motion,useReducedMotion } from "framer-motion";
 import {
   Bot,
+  BookOpen,
   CalendarClock,
   ChevronDown,
   Database,
@@ -85,6 +88,14 @@ interface ApplicationNavigationItem {
 function activeAreaForPath(pathname: string | null): string | null {
   if (pathname === "/") return "home";
   if (pathname?.startsWith("/chat")) return "chat";
+  const nativeExtension = pathname
+    ? installedNativeExtensionManifests.find((manifest) =>
+        manifest.hostPaths.some(
+          (path) => pathname === path || pathname.startsWith(`${path}/`),
+        ),
+      )
+    : undefined;
+  if (nativeExtension) return `native-${nativeExtension.id}`;
   if (pathname?.startsWith("/projects")) return "projects";
   if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
   if (pathname?.startsWith("/credentials")) return "credentials";
@@ -161,7 +172,8 @@ function ApplicationNavigationContents({
   const pathname = usePathname();
   const hydrated = useHydrated();
   const shouldReduceMotion = useReducedMotion();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const [accessibleNativeExtensionIds, setAccessibleNativeExtensionIds] = React.useState<Set<string>>(() => new Set());
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
   const { gates: adminGates,loading: adminGatesLoading } = useAdminTabGates();
@@ -171,6 +183,27 @@ function ApplicationNavigationContents({
     orgAdminBypass: knowledgeAdminBypass,
   } = useKbTabGates();
   const applicationNavigation = useApplicationNavigation();
+
+  React.useEffect(() => {
+    if (sessionStatus !== "authenticated") {
+      setAccessibleNativeExtensionIds(new Set());
+      return;
+    }
+    const controller = new AbortController();
+    fetch("/api/native-extensions/access", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load native extension access");
+        const payload: { ids?: unknown } = await response.json();
+        if (!Array.isArray(payload.ids) || payload.ids.some((id) => typeof id !== "string")) {
+          throw new Error("Invalid native extension access response");
+        }
+        setAccessibleNativeExtensionIds(new Set(payload.ids));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAccessibleNativeExtensionIds(new Set());
+      });
+    return () => controller.abort();
+  }, [sessionStatus]);
   const {
     activeConversationId,
     conversations,
@@ -193,6 +226,20 @@ function ApplicationNavigationContents({
     knowledgeGates.has_any_kb === false &&
     !knowledgeHasExplicitCapability;
   const activeArea = activeAreaForPath(pathname);
+  const nativeNavigationItems: ApplicationNavigationItem[] =
+    filterAccessibleNativeNavigation(installedNativeExtensionManifests, accessibleNativeExtensionIds).map((manifest) => ({
+      key: `native-${manifest.id}`,
+      href: manifest.navigation!.href,
+      label: manifest.navigation!.label,
+      icon:
+        manifest.navigation!.icon === "book-open" ? BookOpen : LayoutGrid,
+    }));
+  const projectsClaimedByExtension = installedNativeExtensionManifests.some(
+    (manifest) =>
+      manifest.hostPaths.some(
+        (path) => path === "/projects" || path.startsWith("/projects/"),
+      ),
+  );
   const registeredContextualNavigation =
     applicationNavigation?.registration?.areaKey === activeArea
       ? applicationNavigation.registration.content
@@ -224,7 +271,8 @@ function ApplicationNavigationContents({
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
     { key: "chat",href: chatHref,label: "Chat",icon: MessageCircle },
-    config.projectsEnabled && {
+    ...nativeNavigationItems,
+    config.projectsEnabled && !projectsClaimedByExtension && {
       key: "projects",
       href: "/projects",
       label: "Projects",

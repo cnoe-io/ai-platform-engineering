@@ -1,3 +1,16 @@
+## 1.3.0-rc.9 (2026-10-13)
+
+### Feat
+
+- **ui**: add shared AgenticAppManifest and native UI contract (#2852)
+
+### Fix
+
+- **ui**: redirect unauthenticated app navigations to a relative login URL (#2923)
+- **security**: upgrade runtime uv to patched Rustls (#2921)
+- **security**: scan releases after publication (#2920)
+- **security**: patch RSA verification and glob nesting vulnerabilities (#2918)
+
 ## 1.3.0-rc.8 (2026-10-11)
 
 ### Fix

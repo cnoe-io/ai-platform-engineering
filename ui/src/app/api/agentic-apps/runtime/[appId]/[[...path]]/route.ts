@@ -16,10 +16,13 @@ import {
   buildAgenticAppPublicPath,
   buildAgenticAppTargetUrl,
   rewriteAgenticAppResponseLocation,
+  resolveAgenticAppOrigin,
 } from "@/lib/agentic-apps/runtime";
 import { mintAgenticAppToken } from "@/lib/agentic-apps/tokens";
 import { ApiError, getAuthenticatedUser } from "@/lib/api-middleware";
 import { DEFAULT_AGENTIC_APP_MAX_REQUEST_BODY_BYTES } from "@/types/agentic-app";
+import type { AgenticAppAuthMode } from "@/types/agentic-app";
+import { nativeExtensionById } from "@/native-extensions/runtime";
 
 const BLOCKED_RESPONSE_HEADERS = new Set([
   "connection",
@@ -94,7 +97,10 @@ async function proxyAgenticAppRequest(
   if (!app || !app.installation.installed || !app.installation.enabled) {
     return Response.json({ error: "app_not_found" }, { status: 404 });
   }
-
+  const nativeExtension = nativeExtensionById(appId);
+  if (nativeExtension && nativeExtension.auth.mode !== app.manifest.auth.mode) {
+    return Response.json({ error: "native_extension_auth_mismatch" }, { status: 500 });
+  }
   const session = auth.session as Record<string, unknown>;
   if (
     !canLaunchAgenticApp(
@@ -125,7 +131,11 @@ async function proxyAgenticAppRequest(
     );
   }
 
-  const maxRequestBodyBytes = app.manifest.runtime.maxRequestBodyBytes
+  if (!resolveAgenticAppOrigin(app)) {
+    return Response.json({ error: "app_runtime_unavailable" }, { status: 503 });
+  }
+
+  const maxRequestBodyBytes = app.manifest.runtime?.maxRequestBodyBytes
     ?? DEFAULT_AGENTIC_APP_MAX_REQUEST_BODY_BYTES;
   const declaredContentLength = parseContentLength(
     request.headers.get("content-length"),
@@ -144,15 +154,29 @@ async function proxyAgenticAppRequest(
 
   const decisionId = randomUUID();
   const correlationId = request.headers.get("x-correlation-id") ?? randomUUID();
-  const appToken = await mintAgenticAppToken({
-    appId,
-    subject,
-    name: auth.user.name,
-    email: auth.user.email,
-    scopes,
-    decisionId,
-    correlationId,
-  });
+  const authMode = app.manifest.auth.mode;
+  let bearerToken: string;
+  if (authMode === "forward-user-access-token") {
+    const userAccessToken = readUserAccessToken(session);
+    if (!userAccessToken) {
+      return Response.json(
+        { error: "user_access_token_required" },
+        { status: 401 },
+      );
+    }
+    bearerToken = userAccessToken;
+  } else {
+    const appToken = await mintAgenticAppToken({
+      appId,
+      subject,
+      name: auth.user.name,
+      email: auth.user.email,
+      scopes,
+      decisionId,
+      correlationId,
+    });
+    bearerToken = appToken.token;
+  }
   const target = buildAgenticAppTargetUrl(app, path, request.url);
   const body = shouldForwardBody(request.method)
     ? await request.arrayBuffer()
@@ -168,7 +192,8 @@ async function proxyAgenticAppRequest(
       headers: buildForwardHeaders({
         request,
         appId,
-        appToken: appToken.token,
+        bearerToken,
+        authMode,
         subject,
         roles: deriveRoles(session, auth.user.role),
         decisionId,
@@ -202,7 +227,8 @@ async function proxyAgenticAppRequest(
 function buildForwardHeaders(input: {
   request: Request;
   appId: string;
-  appToken: string;
+  bearerToken: string;
+  authMode: AgenticAppAuthMode;
   subject: string;
   roles: string[];
   decisionId: string;
@@ -223,8 +249,9 @@ function buildForwardHeaders(input: {
       headers.set(key, value);
     }
   });
-  headers.set("authorization", `Bearer ${input.appToken}`);
+  headers.set("authorization", `Bearer ${input.bearerToken}`);
   headers.set("x-caipe-app-id", input.appId);
+  headers.set("x-caipe-auth-mode", input.authMode);
   headers.set("x-caipe-user", input.subject);
   headers.set("x-caipe-roles", input.roles.join(","));
   headers.set("x-caipe-decision-id", input.decisionId);
@@ -232,6 +259,11 @@ function buildForwardHeaders(input: {
   headers.set("x-caipe-surface", "hosted");
   headers.set("x-forwarded-prefix", buildAgenticAppPublicPath(input.appId));
   return headers;
+}
+
+function readUserAccessToken(session: Record<string, unknown>): string | null {
+  const token = session.accessToken;
+  return typeof token === "string" && token.trim() ? token.trim() : null;
 }
 
 function filterResponseHeaders(source: Headers): Headers {
