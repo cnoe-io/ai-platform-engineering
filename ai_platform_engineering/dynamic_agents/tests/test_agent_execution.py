@@ -123,6 +123,20 @@ def environment(monkeypatch):
     cache.persistent.side_effect = managed
     cache.ephemeral.side_effect = managed
     mongo = MagicMock(get_agent_mcp_servers=MagicMock(return_value=[]))
+    # These admission/lifetime tests isolate storage; real durable producers and
+    # cross-worker replay are exercised in test_native_run_continuity_mongodb.
+    async def start(**kwargs):
+        return SimpleNamespace(run_id="example-run", turn_id=kwargs["turn_id"], protocol=kwargs["protocol"],
+                               producer=kwargs["producer"])
+
+    async def subscribe(run, after=0):
+        async for frame in run.producer():
+            yield frame
+
+    mongo._native_run_coordinator = SimpleNamespace(
+        start=start, subscribe=subscribe, cancel=AsyncMock(return_value=False),
+        repository=SimpleNamespace(retire_session=AsyncMock(return_value=0)),
+    )
     saved = MagicMock(return_value=None)
     admit = MagicMock(side_effect=lambda mongo, agent, session, **kwargs: agent)
     monkeypatch.setattr(execution, "native_session_run", lease)
@@ -229,6 +243,7 @@ async def test_cache_restart_preserves_real_admitted_storage_and_resume_snapshot
     mongo._db = {
         SESSION_BINDINGS_COLLECTION: collection, "workflow_checkpoints": checkpoints, "workflow_checkpoints_writes": writes,
     }
+    mongo._native_run_coordinator = env.mongo._native_run_coordinator
     mongo.get_agent_mcp_servers = MagicMock(return_value=[])
     monkeypatch.setattr(execution, "get_native_binding", get_native_binding)
     monkeypatch.setattr(execution, "resolve_native_binding", resolve_native_binding)
@@ -395,8 +410,9 @@ async def test_interrupt_poll_borrows_read_only_without_reserving_an_execution_t
 async def test_rewind_keeps_runtime_borrow_and_write_ownership_for_the_operation(environment):
     env = environment
 
-    async def rewind(*args):
+    async def rewind(*args, before_mutation):
         assert env.state.leased and env.state.borrowed == 1
+        await before_mutation()
         return "checkpoint"
 
     env.runtime.rewind_before_turn.side_effect = rewind

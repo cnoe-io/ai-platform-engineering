@@ -10,6 +10,7 @@ from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig
 from dynamic_agents.routes import chat
 from dynamic_agents.services.agent_execution import InvocationResult
 from dynamic_agents.services.session_runs import SessionRunBusyError
+from dynamic_agents.services.stream_encoders import get_encoder
 
 
 def _agent() -> DynamicAgentConfig:
@@ -32,7 +33,15 @@ async def test_stream_routes_preserve_turn_envelope(monkeypatch, resume, protoco
         calls.append((turn, encoder))
         yield "data: preserved\n\n"
 
-    service = SimpleNamespace(stream=stream)
+    async def start_run(turn, selected_protocol, *, producer):
+        return SimpleNamespace(run_id="run", turn_id=turn.turn_id, protocol=selected_protocol,
+                               producer=lambda: producer(turn, get_encoder(selected_protocol)))
+
+    async def run_events(run):
+        async for frame in run.producer():
+            yield frame
+
+    service = SimpleNamespace(stream=stream, start_run=start_run, run_events=run_events)
     factory = MagicMock(return_value=service)
     monkeypatch.setattr(chat, "AgentExecutionService", factory)
     monkeypatch.setattr(chat, "require_agent_use_permission", AsyncMock())
@@ -40,7 +49,7 @@ async def test_stream_routes_preserve_turn_envelope(monkeypatch, resume, protoco
         request = chat.ResumeStreamRequest(
             agent_id=agent.id, conversation_id="native-thread", protocol=protocol,
             resume_data='{"type":"tool_approval","decision":"edit"}',
-            client_context=context, trace_id="trace",
+            client_context=context, trace_id="trace", turn_id="resume-turn",
         )
         response = await chat.chat_resume_stream(request, user, mongo)
     else:
@@ -50,14 +59,16 @@ async def test_stream_routes_preserve_turn_envelope(monkeypatch, resume, protoco
         )
         response = await chat.chat_start_stream(request, user, mongo)
     assert [frame async for frame in response.body_iterator] == ["data: preserved\n\n"]
-    factory.assert_called_once_with(mongo)
+    assert factory.call_count == 2
+    assert all(call.args == (mongo,) for call in factory.call_args_list)
     turn, encoder = calls[0]
     assert turn.agent == agent and turn.user == user
     assert turn.session_id == "native-thread" and turn.trace_id == "trace"
     assert turn.client_context == context
-    assert encoder.__class__ is chat.get_encoder(protocol).__class__
+    assert encoder.__class__ is get_encoder(protocol).__class__
+    assert response.headers["X-CAIPE-Protocol"] == protocol
     if resume:
-        assert turn.resume_data == request.resume_data and turn.message is None
+        assert turn.resume_data == request.resume_data and turn.message is None and turn.turn_id == "resume-turn"
     else:
         assert turn.message == "hello" and turn.files == files and turn.turn_id == "turn"
 

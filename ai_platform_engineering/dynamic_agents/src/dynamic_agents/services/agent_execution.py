@@ -8,22 +8,38 @@ are owned here rather than by the transport or HTTP routes.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+import hashlib
+import json
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
+from uuid import uuid4
 
+from dynamic_agents.auth.authz import current_subject_reference, require_conversation_read_permission
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import ClientContext, DynamicAgentConfig, InputFile, UserContext
 from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.mongo import MongoDBService
 from dynamic_agents.services.native_acp import cancel_native_acp, native_acp_stream, native_acp_turn
+from dynamic_agents.services.native_run_coordinator import (
+    NativeRunCoordinator,
+    mark_native_run_admitted,
+    mark_native_run_released,
+)
+from dynamic_agents.services.native_run_repository import (
+    NativeExecutionRun,
+    NativeRunBusyError,
+    NativeRunRepository,
+    NativeRunStorageError,
+)
 from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
 from dynamic_agents.services.session_bindings import get_native_binding, resolve_native_binding
 from dynamic_agents.services.session_runs import (
+    SessionRunBusyError,
     await_session_operation,
     native_session_run,
     request_native_session_cancel,
@@ -82,6 +98,60 @@ class AgentExecutionService:
         if mongo is not None:
             self.cache.set_mongo_service(mongo)
 
+    @property
+    def coordinator(self) -> NativeRunCoordinator:
+        """One task owner per process/database, never one owner per HTTP caller."""
+        if self.mongo is None:
+            raise NativeRunStorageError("Durable streaming requires the canonical database")
+        return get_native_run_coordinator(self.mongo)
+
+    @staticmethod
+    def _owner(user: UserContext) -> str:
+        return current_subject_reference() or f"email:{user.email.strip().lower()}"
+
+    async def start_run(
+        self, turn: ExecutionTurn, protocol: str,
+        *, producer: Callable[[ExecutionTurn, StreamEncoder[str]], AsyncIterator[str]] | None = None,
+    ) -> NativeExecutionRun:
+        """Admit one durable request; a retry attaches instead of repeating tools."""
+        turn = replace(turn, turn_id=turn.turn_id or str(uuid4()))
+        encoder = get_encoder(protocol)
+        payload = {
+            "agent": turn.agent.model_dump(mode="json", by_alias=True),
+            "message": turn.message, "resume_data": turn.resume_data,
+            "files": [file.model_dump(mode="json") for file in turn.files or []],
+            "client_context": turn.client_context.model_dump(mode="json") if turn.client_context else None,
+            "protocol": protocol,
+        }
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        dispatch = producer or self.stream
+        return await self.coordinator.start(
+            owner_subject=self._owner(turn.user), agent_id=turn.agent.id, session_id=turn.session_id,
+            turn_id=turn.turn_id, fingerprint=fingerprint, protocol=protocol,
+            producer=lambda: dispatch(turn, encoder), outcome=encoder.get_outcome,
+        )
+
+    async def get_run_status(
+        self, agent_id: str, session_id: str, user: UserContext, *, run_id: str | None = None,
+    ) -> NativeExecutionRun | None:
+        """Authorize the original owner or a CAS-authorized conversation reader."""
+        repository = self.coordinator.repository
+        if run_id is None:
+            run = await repository.latest(owner_subject=None, agent_id=agent_id, session_id=session_id)
+        else:
+            run = await repository.get(run_id, owner_subject=None, agent_id=agent_id, session_id=session_id)
+        if run is not None and run.owner_subject != self._owner(user):
+            await require_conversation_read_permission(session_id)
+        return run
+
+    async def run_events(
+        self, run: NativeExecutionRun, after: int = 0,
+    ) -> AsyncGenerator[str, None]:
+        """Subscribe only after get_run_status has authorized the run resource."""
+        async with aclosing(self.coordinator.subscribe(run, after)) as frames:
+            async for frame in frames:
+                yield frame
+
     async def _saved_agent(self, agent_id: str, session_id: str) -> DynamicAgentConfig | None:
         if self.mongo is None or not agent_id:
             return None
@@ -93,14 +163,21 @@ class AgentExecutionService:
     ) -> AsyncGenerator[DynamicAgentConfig | None, None]:
         """Guard execution and state mutations before resolving their binding."""
         async with AsyncExitStack() as stack:
+            lease_id = None
             if self.mongo is not None and agent_id:
-                await stack.enter_async_context(native_session_run(self.mongo, agent_id, session_id))
-            if execute:
-                await stack.enter_async_context(native_acp_turn(agent_id, session_id))
-            # Reads follow the lease so another worker cannot update the snapshot
-            # between resolving storage coordinates and mutating its state.
-            saved = await self._saved_agent(agent_id, session_id) if not execute else None
-            yield saved
+                lease_id = await stack.enter_async_context(native_session_run(self.mongo, agent_id, session_id))
+            try:
+                if execute:
+                    if lease_id is not None:
+                        await mark_native_run_admitted(lease_id)
+                    await stack.enter_async_context(native_acp_turn(agent_id, session_id))
+                # Reads follow the lease so another worker cannot update the snapshot
+                # between resolving storage coordinates and mutating its state.
+                saved = await self._saved_agent(agent_id, session_id) if not execute else None
+                yield saved
+            finally:
+                if execute:
+                    await mark_native_run_released()
 
     @asynccontextmanager
     async def _runtime(
@@ -182,13 +259,17 @@ class AgentExecutionService:
     ) -> str:
         async with self._session(agent.id, session_id) as saved:
             async with self._state_runtime(saved or agent, session_id, user) as runtime:
-                return await runtime.rewind_before_turn(session_id, turn_id, message_content, content_occurrence)
+                return await runtime.rewind_before_turn(
+                    session_id, turn_id, message_content, content_occurrence,
+                    before_mutation=lambda: self._retire_replay(agent.id, session_id),
+                )
 
     async def clear(self, agent_id: str, session_id: str) -> ClearResult:
         if self.mongo is None or self.mongo._db is None:
             raise RuntimeError("Database not connected")
         async with self._session(agent_id, session_id) as saved:
             storage = resolve_runtime_storage(saved, session_id, self.settings, agent_id=agent_id)
+            await self._retire_replay(agent_id, session_id)
             db = self.mongo._db
             checkpoints = await await_session_operation(db[storage.checkpoint_collection].delete_many, {"thread_id": session_id})
             writes = await await_session_operation(db[storage.checkpoint_writes_collection].delete_many, {"thread_id": session_id})
@@ -196,12 +277,36 @@ class AgentExecutionService:
             files = await await_session_operation(store.delete_by_namespace, storage.fs_namespace) if agent_id else 0
         return ClearResult(checkpoints.deleted_count, writes.deleted_count, files)
 
+    async def _retire_replay(self, agent_id: str, session_id: str) -> None:
+        if self.mongo is None or not agent_id:
+            return
+        try:
+            await self.coordinator.repository.retire_session(agent_id, session_id)
+        except NativeRunBusyError as exc:
+            raise SessionRunBusyError(str(exc)) from exc
+
     async def restart(self, agent_id: str, session_id: str) -> bool:
         async with self._session(agent_id, session_id):
             return await self.cache.invalidate(agent_id, session_id)
 
-    async def cancel(self, agent_id: str, session_id: str) -> bool:
-        cancelled = cancel_native_acp(agent_id, session_id)
+    async def cancel(self, agent_id: str, session_id: str, *, turn_id: str | None = None) -> bool:
+        if turn_id is not None:
+            # A delayed browser Stop must target its submitted turn, even if a
+            # newer request has since acquired this conversation's native lease.
+            return await self.coordinator.cancel(agent_id, session_id, turn_id=turn_id)
+        cancelled = False
+        if self.mongo is not None and self.mongo._db is not None:
+            cancelled = await self.coordinator.cancel(agent_id, session_id)
+        cancelled = cancel_native_acp(agent_id, session_id) or cancelled
         if self.mongo is not None:
             cancelled = await asyncio.to_thread(request_native_session_cancel, self.mongo, agent_id, session_id) or cancelled
         return cancelled or self.cache.cancel_stream(agent_id, session_id)
+
+
+def get_native_run_coordinator(mongo: MongoDBService) -> NativeRunCoordinator:
+    """Retain detached workers with the canonical Mongo service's lifetime."""
+    coordinator = getattr(mongo, "_native_run_coordinator", None)
+    if coordinator is None:
+        coordinator = NativeRunCoordinator(NativeRunRepository(mongo))
+        mongo._native_run_coordinator = coordinator
+    return coordinator

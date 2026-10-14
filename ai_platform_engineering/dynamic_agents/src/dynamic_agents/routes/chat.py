@@ -4,7 +4,7 @@ import logging
 from contextlib import aclosing
 from typing import Any, AsyncGenerator, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -20,12 +20,19 @@ from dynamic_agents.services.llm_clients import LLMConfigError
 from dynamic_agents.services.mcp_client import is_tool_scope_subset
 from dynamic_agents.services.model_capabilities import supports_reasoning_effort
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.native_run_repository import (
+    NativeReplayUnavailableError,
+    NativeRunBusyError,
+    NativeRunConflictError,
+    NativeRunStorageError,
+)
 from dynamic_agents.services.runtime_cache import (
     RuntimeCapacityError,
     RuntimeInitError,
 )
 from dynamic_agents.services.session_runs import SessionRunBusyError
-from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
+from dynamic_agents.services.stream_encoders import StreamEncoder
+from dynamic_agents.services.stream_encoders.events import RunError
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +163,7 @@ class ResumeStreamRequest(BaseModel):
     agent_id: str
     conversation_id: str
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
+    turn_id: str | None = Field(None, description="Stable identity for this human-input submission and its retries.")
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
     client_context: ClientContext | None = None
@@ -248,7 +256,7 @@ async def _generate_sse_events(
 
     except (RuntimeCapacityError, SessionRunBusyError) as e:
         logger.warning(f"Agent runtime at capacity: {e}")
-        for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
+        for frame in encoder.encode_event(RunError(message="This agent is at capacity right now. Please try again in a moment.")):
             yield frame
     except RuntimeInitError as e:
         # If init failed because of a config problem (no LLM provider/model,
@@ -261,18 +269,52 @@ async def _generate_sse_events(
             logger.warning(
                 f"Agent '{agent_config.name}' has no usable LLM config: {cause}"
             )
-            for frame in encoder.on_run_error(str(cause)):
+            for frame in encoder.encode_event(RunError(message=str(cause))):
                 yield frame
         else:
             logger.exception(
                 f"Runtime init failed for agent '{agent_config.name}'"
             )
-            for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
+            for frame in encoder.encode_event(RunError(message=GENERIC_AGENT_ERROR)):
                 yield frame
     except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
+        for frame in encoder.encode_event(RunError(message=GENERIC_AGENT_ERROR)):
             yield frame
+
+
+def _run_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (NativeRunBusyError, NativeRunConflictError)):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, NativeReplayUnavailableError):
+        return HTTPException(status_code=410, detail=str(exc))
+    logger.exception("Native run storage is unavailable")
+    return HTTPException(status_code=503, detail="Durable agent execution is unavailable. Please retry later.")
+
+
+async def _durable_stream_response(
+    turn: ExecutionTurn, protocol: str, mongo: MongoDBService,
+) -> StreamingResponse:
+    service = AgentExecutionService(mongo)
+
+    def producer(admitted: ExecutionTurn, encoder: StreamEncoder[str]) -> AsyncGenerator[str, None]:
+        return _generate_sse_events(
+            agent_config=admitted.agent, message=admitted.message,
+            session_id=admitted.session_id, user=admitted.user, encoder=encoder,
+            trace_id=admitted.trace_id, mongo=mongo, client_context=admitted.client_context,
+            files=admitted.files, turn_id=admitted.turn_id, resume_data=admitted.resume_data,
+        )
+
+    try:
+        run = await service.start_run(turn, protocol, producer=producer)
+    except (NativeRunBusyError, NativeRunConflictError, NativeRunStorageError) as exc:
+        raise _run_http_error(exc) from exc
+    return StreamingResponse(
+        service.run_events(run), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": run.turn_id, "X-CAIPE-Protocol": run.protocol,
+        },
+    )
 
 
 @router.post("/stream/start")
@@ -329,27 +371,12 @@ async def chat_start_stream(
         f"trace_id={request.trace_id or 'auto'}"
     )
 
-    encoder = get_encoder(request.protocol)
-
-    return StreamingResponse(
-        _generate_sse_events(
-            agent_config=agent,
-            message=request.message,
-            session_id=request.conversation_id,
-            user=user,
-            encoder=encoder,
-            trace_id=request.trace_id,
-            mongo=mongo,
-            client_context=request.client_context,
-            files=request.files,
-            turn_id=request.turn_id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        },
+    return await _durable_stream_response(
+        ExecutionTurn(
+            agent=agent, message=request.message, session_id=request.conversation_id, user=user,
+            trace_id=request.trace_id, client_context=request.client_context,
+            files=request.files, turn_id=request.turn_id,
+        ), request.protocol, mongo,
     )
 
 
@@ -399,25 +426,71 @@ async def chat_resume_stream(
         f"trace_id={request.trace_id or 'auto'}"
     )
 
-    encoder = get_encoder(request.protocol)
+    return await _durable_stream_response(
+        ExecutionTurn(
+            agent=agent, session_id=request.conversation_id, user=user,
+            resume_data=request.resume_data, turn_id=request.turn_id,
+            trace_id=request.trace_id, client_context=request.client_context,
+        ), request.protocol, mongo,
+    )
 
+
+@router.get("/runs")
+async def latest_chat_run(
+    agent_id: str, conversation_id: str,
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    """Discover an authorized session's latest run, including detached completion."""
+    await require_agent_use_permission(agent_id)
+    try:
+        run = await AgentExecutionService(mongo).get_run_status(agent_id, conversation_id, user)
+    except (NativeRunStorageError, NativeReplayUnavailableError) as exc:
+        raise _run_http_error(exc) from exc
+    return {"run": run.public() if run is not None else None}
+
+
+@router.get("/runs/{run_id}")
+async def chat_run_status(
+    run_id: str, agent_id: str, conversation_id: str,
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    await require_agent_use_permission(agent_id)
+    try:
+        run = await AgentExecutionService(mongo).get_run_status(agent_id, conversation_id, user, run_id=run_id)
+    except (NativeRunStorageError, NativeReplayUnavailableError) as exc:
+        raise _run_http_error(exc) from exc
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found for this agent session")
+    return {"run": run.public()}
+
+
+@router.get("/runs/{run_id}/stream")
+async def replay_chat_run(
+    run_id: str, agent_id: str, conversation_id: str, after: int = Query(0, ge=0),
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> StreamingResponse:
+    """Replay persisted protocol frames after a cursor without rerunning a turn."""
+    await require_agent_use_permission(agent_id)
+    service = AgentExecutionService(mongo)
+    try:
+        run = await service.get_run_status(agent_id, conversation_id, user, run_id=run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found for this agent session")
+        # Validate the cursor before committing an SSE success response. A gap
+        # must be explicit rather than returning an incomplete successful turn.
+        await service.coordinator.repository.replay(
+            run.run_id, after, owner_subject=run.owner_subject,
+            agent_id=agent_id, session_id=conversation_id,
+        )
+    except (NativeRunStorageError, NativeReplayUnavailableError) as exc:
+        raise _run_http_error(exc) from exc
     return StreamingResponse(
-        _generate_sse_events(
-            agent_config=agent,
-            message=None,
-            session_id=request.conversation_id,
-            user=user,
-            resume_data=request.resume_data,
-            encoder=encoder,
-            trace_id=request.trace_id,
-            mongo=mongo,
-            client_context=request.client_context,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        service.run_events(run, after), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": run.turn_id, "X-CAIPE-Protocol": run.protocol,
         },
     )
 
@@ -528,6 +601,7 @@ class CancelStreamRequest(BaseModel):
 
     agent_id: str
     conversation_id: str
+    turn_id: str | None = Field(None, description="Cancel only this submitted turn, including delayed admission.")
 
 
 @router.post("/stream/cancel")
@@ -552,7 +626,14 @@ async def cancel_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    cancelled = await AgentExecutionService(mongo).cancel(request.agent_id, request.conversation_id)
+    try:
+        service = AgentExecutionService(mongo)
+        if request.turn_id is None:
+            cancelled = await service.cancel(request.agent_id, request.conversation_id)
+        else:
+            cancelled = await service.cancel(request.agent_id, request.conversation_id, turn_id=request.turn_id)
+    except NativeRunStorageError as exc:
+        raise _run_http_error(exc) from exc
 
     logger.info(f"[cancel] Cancel result: agent={agent.name}, user={user.email}, cancelled={cancelled}")
 

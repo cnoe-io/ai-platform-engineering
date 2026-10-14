@@ -22,22 +22,25 @@ from typing import Any
 
 import pytest
 
+from dynamic_agents.services.stream_encoders.custom_sse import CustomStreamEncoder
+
 chat = importlib.import_module("dynamic_agents.routes.chat")
 llm_clients = importlib.import_module("dynamic_agents.services.llm_clients")
 runtime_cache = importlib.import_module("dynamic_agents.services.runtime_cache")
 
 
-class _CapturingEncoder:
+class _CapturingEncoder(CustomStreamEncoder):
     """Minimal StreamEncoder stand-in. Captures the messages passed to
     on_run_error so the test can assert what reached the wire.
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.errors: list[str] = []
 
-    def on_run_error(self, message: str):
+    def on_run_error(self, message: str, code: str | None = None):
         self.errors.append(message)
-        yield f"data: error:{message}\n\n"
+        return [f"data: error:{message}\n\n"]
 
 
 class _AgentConfigStub:
@@ -102,6 +105,7 @@ async def test_llm_config_error_surfaces_actionable_message(monkeypatch):
     assert chat.GENERIC_AGENT_ERROR not in msg
     # And one SSE frame was emitted with the same text.
     assert any("LLM_PROVIDER" in f for f in frames)
+    assert encoder.get_outcome() == "failed"
 
 
 @pytest.mark.asyncio

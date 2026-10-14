@@ -141,7 +141,7 @@ async def _release_owned_lease(mongo: MongoDBService, agent_id: str, session_id:
 @asynccontextmanager
 async def native_session_run(
     mongo: MongoDBService, agent_id: str, session_id: str,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[str, None]:
     """Reserve before binding/config admission and release only this worker's lease."""
     owner = asyncio.current_task()
     if owner is None:
@@ -156,7 +156,7 @@ async def native_session_run(
         raise
     watcher = asyncio.create_task(_watch_owner(mongo, agent_id, session_id, lease_id, owner))
     try:
-        yield
+        yield lease_id
     finally:
         watcher.cancel()
         with suppress(asyncio.CancelledError):

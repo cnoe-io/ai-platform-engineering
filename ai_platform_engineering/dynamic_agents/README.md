@@ -95,8 +95,11 @@ This is the native-runtime stage of the
 [metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877), related
 to the gateway and session foundation in the
 [Harness Engine discussion](https://github.com/orgs/caipe-io/discussions/2405).
-Remote transports, discovery, detached execution and sandbox runtimes are not
-implemented. See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
+Streaming execution now belongs to the service, with canonical MongoDB run and
+event records, cursor reconnect and browser reload recovery. Stable turn IDs
+prevent duplicate execution on transport retries. Worker loss is explicitly
+interrupted rather than automatically retried. Remote transports, discovery and
+sandbox runtimes remain later integrations. See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
 for session ownership and filesystem/network boundaries.
 
 The initial prebuild supports DeepAgents; it does not yet expose Claude SDK,
@@ -307,6 +310,9 @@ For a private deployment alias, configure both sides of discovery:
 |----------|--------|------|-------------|
 | `/api/v1/chat/stream` | POST | User | Stream chat response (SSE) |
 | `/api/v1/chat/invoke` | POST | User | Non-streaming chat (simple integrations) |
+| `/api/v1/chat/runs` | GET | User | Read latest authorized run for an agent/conversation |
+| `/api/v1/chat/runs/{run_id}` | GET | User | Read an authorized run outcome |
+| `/api/v1/chat/runs/{run_id}/stream` | GET | User | Replay persisted frames after a sequence cursor |
 | `/api/v1/chat/restart-runtime` | POST | User | Restart agent runtime (reconnect MCP servers) |
 
 ### Autonomous Manual Follow-ups

@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1839,6 +1839,7 @@ class AgentRuntime:
         turn_id: str,
         message_content: str,
         content_occurrence: int,
+        *, before_mutation: Callable[[], Awaitable[None]] | None = None,
     ) -> str:
         """Fork the conversation from the checkpoint immediately before a user turn."""
         if not self._initialized:
@@ -1896,6 +1897,8 @@ class AgentRuntime:
         if rewind_snapshot is None:
             raise ValueError("Unable to find a checkpoint before the selected message")
 
+        if before_mutation is not None:
+            await before_mutation()
         fork_config = await self._graph.aupdate_state(
             rewind_snapshot.config,
             None,

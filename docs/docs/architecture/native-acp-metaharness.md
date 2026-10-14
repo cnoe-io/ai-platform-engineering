@@ -21,13 +21,13 @@ not advertise Claude SDK, Bedrock AgentCore or Codex execution.
 |---|---|---|
 | Agent interaction | Every native start, resume and invoke uses the serialized ACP boundary. | Other SDK/provider runtimes implement the same logical agent interaction and advertise only qualified capabilities. |
 | Execution placement | Shared DeepAgents/LangGraph runtime with existing native tools and logical files. | Provider-managed execution or an isolated environment when a harness requires shell commands and a real workspace. |
-| Session durability | Retain current IDs, native checkpoints, logical files, pending approvals and CAIPE history ownership. | Provider transcript restoration, detached execution and cursor-based event replay need their own acceptance tests. |
+| Session durability | Retain native state and CAIPE history ownership, detach streaming execution from browser connections and persist a replayable run journal. | Qualify provider-native session restoration through the same lifecycle. |
 | Agent UI | Keep current chat, agent configuration and workflow behavior. | Reuse compatible identity/configuration UI from the gateway work without showing unsupported runtime choices. |
 
 The [gateway implementation PR](https://github.com/caipe-io/ai-platform-engineering/pull/2401)
 contains useful provider session handling, Claude transcript persistence, agent
-identity/configuration UI and detached-run/event replay work. These pieces can
-be integrated behind the canonical ACP path. Its existing provider routing and
+identity/configuration UI and detached-run/event replay work. This phase adapts
+its service-owned execution and cursor journal behind the canonical ACP path. Its existing provider routing and
 session locks should not become a second execution path or a second database.
 The native phase establishes the interaction boundary while preserving current
 native features; the gateway draft's provider adapters still need qualification
@@ -45,6 +45,9 @@ decisions.
 flowchart TB
   Clients[CAIPE clients] -->|Existing chat API| Routes[Dynamic Agents routes]
   Routes --> Execution[Agent execution service]
+  Routes -->|Start or subscribe| Journal[Run coordinator and replay]
+  Journal -->|Service-owned turn| Execution
+  Journal -->|Run status and sequenced events| DB
   Execution --> Client[Native ACP client]
   Client -->|JSON-RPC| Agent[Logical ACP agent]
   Agent --> Runtime[DeepAgents runtime]
@@ -59,7 +62,7 @@ agent and converts native progress back into the caller's existing stream.
 
 | Boundary | Behavior in this implementation |
 |---|---|
-| Browser, bots and automation | Keep existing chat endpoints and AG-UI or custom SSE responses. No UI change is required. |
+| Browser, bots and automation | Keep existing chat endpoints and AG-UI or custom SSE frames. The browser adds cursor reconnect and reload recovery; workflows retain their invoke contract. |
 | ACP client and logical agent | Use the pinned `agent-client-protocol` Python SDK 0.12.1, released schema 1.19 and wire protocol 1. |
 | Native feature preservation | Negotiate `caipe.io/native-acp` metadata and acknowledged `_caipe/event` requests carrying validated native stream events. Trace, turn and human-input resume context retain their runtime behavior. |
 | Execution | Use the current agent runtime and MCP integrations; subagents remain native in-process delegation. |
@@ -97,8 +100,9 @@ pluggability.
 The [Harness Engine discussion](https://github.com/orgs/caipe-io/discussions/2405)
 describes a wider gateway and session-management foundation. This first stage
 establishes the native ACP boundary and durable bindings while retaining the
-current runtime. It does not introduce the proposal's remote runtime routing or
-detached execution.
+current runtime. It now also adopts service-owned streaming and durable cursor
+replay. Remote runtime routing and provider session restoration remain separate
+integrations.
 
 ## Sessions and the canonical database
 
@@ -115,7 +119,7 @@ or store caller tokens and MCP credentials.
 | Native runtime state | LangGraph continues to use the existing checkpoint collections and thread IDs. DeepAgents files retain their existing storage namespace. |
 | Interactive conversation messages and progress | The browser still writes the existing CAIPE conversation records through the BFF. |
 | Workflow and automation history | Existing services keep their current history-writing responsibilities and execution-context mapping. |
-| Active streaming and execution | Remain in the owning worker. Persisted bindings and leases do not provide detached-run reattachment or automatic recovery of a crashed run. |
+| Streaming run lifecycle and replay | `native_acp_execution_runs` stores request identity, native lease association and outcome; `native_acp_execution_events` stores sequenced stream frames in canonical MongoDB. The service owns execution and clients subscribe independently. |
 
 Normal interactive conversation IDs and automated execution-context IDs keep
 their existing relationship to LangGraph `thread_id`. New ACP bindings must not
@@ -131,8 +135,9 @@ identities, tokens and tool credentials are not stored in either ACP collection.
 
 Workers need synchronized clocks. If a lease expires, another worker can
 admit a later request using the existing native checkpoint. Expiry does not
-automatically restart the previous run, replay lost stream events, or provide
-exactly-once external tool effects. A stale worker is not fenced from an
+automatically restart the previous run or provide exactly-once external tool
+effects. The run journal replays already persisted output without calling tools.
+A run whose worker lease disappears or expires becomes explicitly interrupted. A stale worker is not fenced from an
 external service by this MongoDB lease. Ephemeral `/invoke` uses transient
 turn coordination while retaining its existing nonpersistent history behavior.
 
@@ -213,9 +218,67 @@ on every PR run. Local runs may set `NATIVE_ACP_TEST_MONGODB_URI`; each test own
 and removes a random test database. The test does not use a deployed application
 database or establish provider/sandbox readiness.
 
-Detached execution, durable stream replay and automatic takeover after a process
-failure are additional capabilities. Keeping current checkpoint/resume behavior
-does not establish those guarantees, and the initial prebuild does not claim them.
+### Reconnect and browser reload
+
+Streaming start and human-input resume admit a service-owned task with a stable
+turn identity. The browser saves the user turn and assistant placeholder through
+the existing conversation writer before starting it. Closing a tab or dropping
+the stream disconnects that subscriber; it does not cancel execution. Explicit
+Stop requests still cancel the native owner and wait for its cleanup.
+
+```mermaid
+sequenceDiagram
+  participant UI as Browser
+  participant Service as Native run coordinator
+  participant Runtime as Logical ACP agent
+  participant DB as Canonical MongoDB
+  UI->>Service: Start a validated turn with a stable turn ID
+  Service->>DB: Reserve request identity
+  Service->>Runtime: Execute under the existing native lease
+  loop Native progress
+    Runtime->>Service: Existing protocol frame
+    Service->>DB: Persist frame, then publish its cursor
+    Service-->>UI: Frame with run ID and sequence
+  end
+  Note over UI,Service: A lost connection leaves execution running
+  UI->>Service: Read status and subscribe after the consumed cursor
+  Service->>DB: Read persisted events
+  Service-->>UI: Replay remaining frames and durable outcome
+```
+
+| Situation | Result |
+|---|---|
+| Temporary network loss | Reconnect to the same run after the last consumed sequence. Never resubmit the prompt to recover output. |
+| Browser reload or detached completion | Locate the run for the saved turn and reconstruct its unfinished assistant message from the journal, then use the existing message upsert. |
+| Clear or rewind native context | Retire prior replay journals under the native session lease so old output or an obsolete approval cannot reappear. The canonical conversation writer keeps its existing history responsibilities. |
+| Retry with the same turn identity | Attach to the original run. Reusing that identity with changed validated input fails with a conflict. |
+| Human-input pause | Persist an awaiting-input outcome. A submitted form or batch approval has its own stable turn identity so retries do not apply it twice. |
+| Worker loss | Keep checkpoints and persisted output, report interruption and do not automatically repeat tools. |
+| Journal gap or unavailable database | Return an explicit replay/storage failure instead of presenting partial output as a complete response. |
+
+Both UI encodings retain their exact persisted message and tool IDs. Every frame
+has a monotonic cursor; a final `CAIPE_RUN_STATUS` control event confirms the
+durable outcome. Reading status or replay requires agent-use and conversation
+read access through the existing authorization boundary. The backend additionally
+checks the original caller identity or canonical conversation-read permission.
+Credentials stay in the running task's memory, never in the journal.
+
+The browser remains the interactive transcript writer. The journal is durable
+execution output for recovery, not another independently authored conversation.
+A minimal `native_acp_deleted_sessions` ledger prevents a request admitted around
+permanent deletion from recreating that session. It retains only the removed
+session ID and deletion timestamp, with no output or credentials. Soft deletion
+keeps the existing archive/restore behavior.
+
+The journal contains agent output and tool results, so apply the same access, backup
+and restoration controls as conversation and checkpoint data.
+
+Journal writes are bounded to 8 MiB per frame, 64 MiB per run and 100,000 frames
+per run. Exceeding a bound produces an explicit failed outcome; it never silently
+truncates a successful turn. Replay uses bounded pages and no subscriber queue.
+No automatic journal expiry is introduced; these collections participate in the
+canonical database's retention and backup policy. This phase does not implement
+automatic recovery of execution after worker loss or exactly-once tool effects.
 
 Remote ACP transport, agent discovery across environments and sandbox policy
 enforcement are later stages. Separate sandboxed runtimes will require enforced

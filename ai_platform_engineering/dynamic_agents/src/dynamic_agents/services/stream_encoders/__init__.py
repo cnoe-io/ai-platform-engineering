@@ -55,6 +55,7 @@ class StreamEncoder(ABC, Generic[OutputT]):
 
     def __init__(self) -> None:
         self._helper = LangGraphStreamHelper()
+        self._outcome: str | None = None
 
     def on_chunk(self, chunk: tuple) -> list[OutputT]:
         """Project LangGraph data once, then format the semantic events."""
@@ -67,18 +68,26 @@ class StreamEncoder(ABC, Generic[OutputT]):
         """Format an already projected event, including ACP-delivered events."""
         self._helper.observe_event(event)
         if isinstance(event, RunStarted):
+            self._outcome = None
             return self.on_run_start(event.run_id, event.thread_id)
         if isinstance(event, StreamEnded):
             return self.on_stream_end()
         if isinstance(event, RunFinished):
+            self._outcome = "completed"
             return self.on_run_finish(event.run_id, event.thread_id)
         if isinstance(event, RunError):
+            self._outcome = "failed"
             return self.on_run_error(event.message, event.code)
         if isinstance(event, WarningEvent):
             return self.on_warning(event.message)
         if isinstance(event, InputRequired):
+            self._outcome = "awaiting_input"
             return self.on_input_required(**event.model_dump(exclude={"kind"}))
         return self._format_event(event)
+
+    def get_outcome(self) -> str | None:
+        """Return the semantic terminal state without inspecting rendered frames."""
+        return self._outcome
 
     def _handle_messages(self, data: Any, namespace: tuple[str, ...]) -> list[OutputT]:
         return self._encode_events(self._helper.message_events(data, namespace))

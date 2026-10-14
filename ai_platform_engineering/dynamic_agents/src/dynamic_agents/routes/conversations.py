@@ -17,6 +17,7 @@ from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_execution import AgentExecutionService
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.native_run_repository import NativeRunStorageError
 from dynamic_agents.services.runtime_cache import RuntimeCapacityError
 from dynamic_agents.services.session_runs import SessionRunBusyError
 
@@ -234,6 +235,8 @@ async def rewind_conversation(
             turn_id=request.turn_id, message_content=request.message_content,
             content_occurrence=request.content_occurrence,
         )
+    except NativeRunStorageError as exc:
+        raise HTTPException(status_code=503, detail="Durable agent state is unavailable. Please retry later.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, RuntimeCapacityError) as exc:
@@ -284,11 +287,19 @@ async def clear_conversation_checkpoints(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    agent_id = conversation.get("agent_id", "")
+    # Canonical UI records bind the agent through participants. Older native
+    # records used agent_id; both must resolve the same checkpoint/journal scope.
+    agent_id = next(
+        (participant["id"] for participant in conversation.get("participants", [])
+         if participant.get("type") == "agent" and participant.get("id")),
+        conversation.get("agent_id", ""),
+    )
     try:
         result = await AgentExecutionService(mongo).clear(agent_id, conversation_id)
     except SessionRunBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except NativeRunStorageError as exc:
+        raise HTTPException(status_code=503, detail="Durable agent state is unavailable. Please retry later.") from exc
 
     # Log the action for audit
     logger.info(
