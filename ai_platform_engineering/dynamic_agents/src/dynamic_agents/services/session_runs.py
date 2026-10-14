@@ -160,6 +160,7 @@ async def native_session_run(
     finally:
         watcher.cancel()
         with suppress(asyncio.CancelledError):
+            # Drain in-flight heartbeats before deleting the lease they can update.
             await watcher
         await _release_owned_lease(mongo, agent_id, session_id, lease_id)
 

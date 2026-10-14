@@ -233,6 +233,39 @@ async def test_checkpointed_resume_preserves_full_payload(resume_data: str) -> N
     assert runtime.calls[1]["session_id"] == "example-session"
 
 
+async def test_prompt_failure_propagates_after_start_and_releases_session(
+    wire_messages: list[dict[str, Any]],
+) -> None:
+    class FailingRuntime(FakeRuntime):
+        async def stream(self, *args: Any, **kwargs: Any) -> Any:
+            try:
+                for event in args[4].on_run_start("example-run", args[1]):
+                    yield event
+                raise ValueError("example private failure detail")
+            finally:
+                self.closed.set()
+
+    runtime = FailingRuntime()
+    stream = native_acp_stream(
+        runtime, message="hello", session_id="example-session", user_email="test-user@example.com",
+        encoder=get_encoder("agui"),
+    )
+    async with asyncio.timeout(5):
+        assert "RUN_STARTED" in await anext(stream)
+        with pytest.raises(RequestError) as raised:
+            await anext(stream)
+
+        assert raised.value.code == -32603
+        assert raised.value.data == {"reason": "Native agent execution failed"}
+        assert "example private failure detail" not in json.dumps(wire_messages)
+        assert runtime.closed.is_set()
+        follow_up = [frame async for frame in native_acp_stream(
+            FakeRuntime(), message="follow up", session_id="example-session", user_email="test-user@example.com",
+            encoder=get_encoder("agui"),
+        )]
+        assert "RUN_FINISHED" in "".join(follow_up)
+
+
 @pytest.mark.parametrize("consumer_close", [False, True], ids=["cancel-request", "disconnect"])
 async def test_cancellation_closes_execution_before_releasing_guard(
     consumer_close: bool, wire_messages: list[dict[str, Any]],
@@ -287,10 +320,11 @@ async def test_request_owner_cancellation_awaits_runtime_cleanup() -> None:
 
     async def consume() -> None:
         async with native_acp_turn("example-agent", "example-session"):
-            async for _frame in native_acp_stream(
+            async for frame in native_acp_stream(
                 runtime, message="hello", session_id="example-session", user_email="test-user@example.com",
                 encoder=get_encoder("agui"),
             ):
+                assert "RUN_STARTED" in frame
                 started.set()
 
     task = asyncio.create_task(consume())

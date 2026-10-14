@@ -305,6 +305,55 @@ async def test_repeated_cancellation_waits_for_database_mutation_before_releasin
     assert collection.rows == {}
 
 
+async def test_repeated_cancellation_drains_heartbeat_before_releasing_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session_runs, "HEARTBEAT_SECONDS", 0.01)
+    started, unblock, completed = Event(), Event(), Event()
+    owned_when_heartbeat_finishes: list[bool] = []
+
+    class SlowHeartbeatCollection(_LeaseCollection):
+        def find_one_and_update(
+            self, query: dict, update: dict, *, upsert: bool = False, return_document: bool,
+        ) -> dict | None:
+            if not upsert and "lease_id" in query:
+                started.set()
+                assert unblock.wait(timeout=5)
+                record = super().find_one_and_update(
+                    query, update, upsert=upsert, return_document=return_document,
+                )
+                owned_when_heartbeat_finishes.append(("primary", "shared-thread") in self.rows)
+                completed.set()
+                return record
+            return super().find_one_and_update(query, update, upsert=upsert, return_document=return_document)
+
+    collection = SlowHeartbeatCollection()
+    entered, release = asyncio.Event(), asyncio.Event()
+    owner = asyncio.create_task(_worker(_mongo(collection), entered, release))
+    try:
+        await entered.wait()
+        assert await asyncio.to_thread(started.wait, 2)
+        owner.cancel()
+        await asyncio.sleep(0)
+        owner.cancel()
+        await asyncio.sleep(0)
+        assert not owner.done()
+        assert ("primary", "shared-thread") in collection.rows
+        with pytest.raises(SessionRunBusyError, match="active turn"):
+            async with native_session_run(_mongo(collection), "primary", "shared-thread"):
+                pytest.fail("Another worker entered before the cancelled heartbeat finished")
+        unblock.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=2)
+    finally:
+        unblock.set()
+        await asyncio.gather(owner, return_exceptions=True)
+
+    assert completed.is_set()
+    assert owned_when_heartbeat_finishes == [True]
+    assert collection.rows == {}
+
+
 async def test_cancelled_acquisition_waits_then_removes_owned_lease() -> None:
     started, unblock = Event(), Event()
 

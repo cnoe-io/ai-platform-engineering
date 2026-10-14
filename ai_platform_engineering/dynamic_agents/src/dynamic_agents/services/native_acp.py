@@ -397,6 +397,7 @@ async def _stream_admitted_turn(
         while (event := await client.events.get()) is not None:
             for frame in encoder.encode_event(event):
                 yield frame
+        # Queue completion does not imply prompt success; retrieve its exception.
         await prompt_task
     finally:
         client.closing.set()
