@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import type { UnifiedAuditEvent } from "@/lib/rbac/types";
 import { ACCESS_DECISION_COLOURS, ACCESS_GATE_LABELS } from "./access-decision-description";
+import { AuditReference } from "./AuditReference";
 
 export function AccessDecisionChain({ event }: { event: UnifiedAuditEvent }) {
   const aggregate = event.count !== undefined || event.batch || event.list_objects;
@@ -9,11 +10,11 @@ export function AccessDecisionChain({ event }: { event: UnifiedAuditEvent }) {
     <section aria-label="Recorded access chain" className="mb-4 space-y-3 rounded-md border p-3 text-sm">
       <h4 className="font-semibold">Recorded access chain</h4>
       <p className="break-words">
-        <span className="text-muted-foreground">Starting principal: </span>{event.subject_ref || "Not recorded"}
-        {event.agent_ref && <> → {event.agent_ref}</>}
-        {event.resource_ref && <> → {event.resource_ref}</>}
+        <span className="text-muted-foreground">Starting principal: </span>{event.subject_ref ? <AuditReference kind="principal" value={event.subject_ref} /> : "Not recorded"}
+        {event.agent_ref && <><span className="text-muted-foreground"> → </span><AuditReference kind="resource" value={event.agent_ref} /></>}
+        {event.resource_ref && <><span className="text-muted-foreground"> → </span><AuditReference kind="resource" value={event.resource_ref} /></>}
       </p>
-      <p><span className="text-muted-foreground">Requested by: </span>{event.actor_ref || "Not recorded"}</p>
+      <p><span className="text-muted-foreground">Requested by: </span>{event.actor_ref ? <AuditReference kind="workload" value={event.actor_ref} /> : "Not recorded"}</p>
       <p className="text-xs text-muted-foreground">This chain starts at CAS. Earlier sign-in or delegation steps are not recorded here.</p>
       {aggregate ? <p>No individual chain is available for this rollup or catalog lookup.</p>
         : !checks?.length ? <p>Full check sequence not recorded. Only the event&apos;s reported outcome and failed check are available.</p>
@@ -33,8 +34,10 @@ export function AccessDecisionChain({ event }: { event: UnifiedAuditEvent }) {
                       <Badge variant="outline" className={ACCESS_DECISION_COLOURS[tone]}>{status}</Badge>
                     </div>
                     <div className="mt-1 break-words font-mono text-xs">
-                      {check.subject_ref} · {check.relation || "verify signed caller-bound context"}
-                      {check.resource_ref && <> · {check.resource_ref}</>}
+                      <AuditReference kind="principal" value={check.subject_ref} />
+                      <span className="text-muted-foreground"> · </span>
+                      <AuditReference kind="action" value={check.relation || "verify signed caller-bound context"} />
+                      {check.resource_ref && <><span className="text-muted-foreground"> · </span><AuditReference kind="resource" value={check.resource_ref} /></>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">Recorded reason: {check.reason}</div>
                   </li>

@@ -30,7 +30,7 @@ describe('UnifiedAuditTab', () => {
   it('shows the recorded gateway check, workload and decision reference in the focused view', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
       records: [{ ts: '2026-10-13T12:00:00Z', type: 'cas_decision', outcome: 'deny', action: 'call',
-        tenant_id: 'default', subject_ref: 'user:test-user', actor_ref: 'workload:agentgateway',
+        tenant_id: 'default', subject_ref: 'user:test-user', subject_display: 'test-user@example.com', actor_ref: 'workload:agentgateway',
         correlation_id: 'request-1', source: 'cas', reason_code: 'NO_CAPABILITY',
         resource_ref: 'tool:example/list', failed_gate: 'caller_tool', decision_id: 'decision-1',
         gateway_operation: 'tools/call', agent_ref: 'agent:example' }], total: 1, page: 1, limit: 30,
@@ -39,10 +39,14 @@ describe('UnifiedAuditTab', () => {
     expect(await screen.findByText('Denied: call tool example/list')).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('type=cas_decision'));
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('subject_ref=user%3Atest-user'));
+    expect(screen.getByLabelText('Principal: user:test-user')).toHaveClass('bg-violet-500/15');
+    expect(screen.getByText('test-user@example.com')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource: tool:example/list')).toHaveClass('bg-cyan-500/10');
+    expect(screen.getByLabelText('Action / relation: call')).toHaveClass('bg-muted/50');
     fireEvent.click(screen.getByText('Denied: call tool example/list'));
     expect(screen.getByText('decision-1')).toBeInTheDocument();
     expect(screen.getAllByText('workload:agentgateway').length).toBeGreaterThan(0);
-    expect(screen.getByText('agent:example')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource: agent:example')).toBeInTheDocument();
     expect(screen.getByText(/does not identify a missing team or grant/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Decision ID'), { target: { value: 'decision-1' } });
     expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).includes('decision_id='))).toBe(false);
@@ -64,6 +68,18 @@ describe('UnifiedAuditTab', () => {
     render(<UnifiedAuditTab isAdmin view="decisions" />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No conclusion can be drawn');
     expect(screen.queryByText('No audit events found for the selected filters.')).not.toBeInTheDocument();
+  });
+
+  it('does not present a lookup email as a recorded canonical principal', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
+      records: [{ ts: '2026-10-13T12:00:00Z', type: 'cas_decision', outcome: 'deny', action: 'call',
+        tenant_id: 'default', subject_display: 'test-user@example.com', correlation_id: 'request-1',
+        source: 'cas', resource_ref: 'tool:example/list' }], total: 1, page: 1, limit: 30,
+    }) });
+    render(<UnifiedAuditTab isAdmin view="decisions" />);
+    expect(await screen.findByText('Principal not recorded')).toBeInTheDocument();
+    expect(screen.getByText('test-user@example.com')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Principal: test-user@example.com')).not.toBeInTheDocument();
   });
 
   it('loads audit events when admin', async () => {

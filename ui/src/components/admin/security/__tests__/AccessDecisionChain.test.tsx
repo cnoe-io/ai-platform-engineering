@@ -45,6 +45,16 @@ it("does not confuse an exact no-match with a final denial when wildcard passes"
   expect(steps[3]).toHaveClass("bg-green-500/10");
 });
 
+it("distinguishes principal, relation and resource roles without treating colour as a verdict", () => {
+  render(<AccessDecisionChain event={event} />);
+  const steps = within(screen.getByRole("list")).getAllByRole("listitem");
+  expect(within(steps[1]).getByLabelText("Principal: agent:example")).toHaveClass("bg-violet-500/15", "font-semibold");
+  expect(within(steps[1]).getByLabelText("Action / relation: can_call")).toHaveClass("bg-muted/50");
+  expect(within(steps[1]).getByLabelText("Resource: tool:example/list")).toHaveClass("bg-cyan-500/10");
+  expect(within(steps[3]).getByLabelText("Principal: service_account:test-service")).toHaveClass("bg-violet-500/15");
+  expect(screen.getByLabelText("Resource: agent:example")).toHaveClass("bg-cyan-500/10");
+});
+
 it("marks an unavailable check amber rather than presenting it as a permission denial", () => {
   const checks = event.gateway_checks!.slice(0, 3).map((check, index) => index === 2 ? { ...check, reason: "AUTHZ_UNAVAILABLE" as const } : check);
   render(<AccessDecisionChain event={{ ...event, reason_code: "AUTHZ_UNAVAILABLE", gateway_checks: checks }} />);

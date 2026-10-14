@@ -36,6 +36,7 @@ import {
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { ACCESS_DECISION_COLOURS, ACCESS_GATE_LABELS, describeAccessDecision } from "./access-decision-description";
 import { AccessDecisionChain } from "./AccessDecisionChain";
+import { AuditReference, type AuditReferenceKind } from "./AuditReference";
 
 interface UnifiedAuditTabProps {
   isAdmin: boolean;
@@ -1323,18 +1324,26 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 	                          {!decisionsView && <td className="px-3 py-2">
 	                            <TypeBadge type={evt.type} />
 	                          </td>}
-	                          <td className="px-3 py-2 text-xs max-w-[220px] truncate" title={decisionsView ? subject : actor}>
-	                            {decisionsView ? subject : actor}
+	                          <td className={`px-3 py-2 text-xs max-w-[220px] ${decisionsView ? "whitespace-normal" : "truncate"}`} title={decisionsView ? subject : actor}>
+	                            {decisionsView ? <>
+	                              {evt.subject_ref ? <AuditReference kind="principal" value={evt.subject_ref} /> : <span className="text-muted-foreground">Principal not recorded</span>}
+	                              {subject !== "unknown" && subject !== evt.subject_ref && <div className="mt-1 text-muted-foreground">{subject}</div>}
+	                            </> : actor}
 	                          </td>
 	                          <td className="px-3 py-2 min-w-[260px]" title={`${evt.action} ${evt.resource_ref || ""}`.trim()}>
 	                            <div className="font-medium text-sm">{story}</div>
 	                            <div className="text-[11px] text-muted-foreground mt-0.5">
-	                              {evt.type === "cas_reconcile"
-	                                ? reconcileRequestSummary(evt)
-	                                : evt.workflow_run_id
-	                                  ? `Workflow run ${evt.workflow_run_id}`
-	                                  : `Resource ${resource.label}`}
-	                              {evt.type !== "cas_reconcile" && evt.action ? ` · Action ${evt.action}` : ""}
+	                              {decisionsView ? <div className="mt-1 flex flex-wrap items-center gap-1">
+	                                <AuditReference kind="resource" value={evt.resource_ref || resource.label} />
+	                                <AuditReference kind="action" value={evt.action} />
+	                              </div> : <>
+	                                {evt.type === "cas_reconcile"
+	                                  ? reconcileRequestSummary(evt)
+	                                  : evt.workflow_run_id
+	                                    ? `Workflow run ${evt.workflow_run_id}`
+	                                    : `Resource ${resource.label}`}
+	                                {evt.type !== "cas_reconcile" && evt.action ? ` · Action ${evt.action}` : ""}
+	                              </>}
 	                            </div>
 	                          </td>
 	                          <td className="px-3 py-2 text-xs max-w-[180px] truncate" title={path}>
@@ -1366,10 +1375,11 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 	                              </div>
 	                              {evt.type === "cas_decision" && <AccessDecisionChain event={evt} />}
 	                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-	                                <DetailField label={decisionsView ? "Checking workload / actor" : "Actor"} value={decisionsView ? evt.actor_display || evt.actor_ref || "Not recorded" : actor} />
+	                                <DetailField label={decisionsView ? "Checking workload / actor" : "Actor"} value={decisionsView ? evt.actor_ref || evt.actor_display || "Not recorded" : actor} referenceKind={decisionsView ? "workload" : undefined} />
 	                                <DetailField
 	                                  label={decisionsView ? "Effective principal" : evt.type === "cas_reconcile" ? "Target" : "Subject"}
-	                                  value={subject}
+	                                  value={decisionsView ? evt.subject_ref || "Not recorded" : subject}
+	                                  referenceKind={decisionsView && evt.subject_ref ? "principal" : undefined}
 	                                />
 	                                <DetailField
 	                                  label="Request"
@@ -1395,7 +1405,8 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
                                 <DetailField label="Checks summarized" value={evt.count?.toString()} />
                                 <DetailField label="Rollup start" value={evt.window_start} />
                                 <DetailField label="Rollup end" value={evt.window_end} />
-                                <DetailField label="Resource Ref" value={evt.resource_ref} />
+                                <DetailField label="Resource Ref" value={evt.resource_ref} referenceKind={decisionsView ? "resource" : undefined} />
+                                {decisionsView && <DetailField label="Action" value={evt.action} referenceKind="action" />}
 	                                <DetailField label="Resource Type" value={evt.resource_type} />
 	                                <DetailField label="Resource ID" value={evt.resource_id} />
 	                                <DetailField label="Workflow Run ID" value={evt.workflow_run_id} />
@@ -1460,16 +1471,18 @@ function DetailField({
   label,
   value,
   mono,
+  referenceKind,
 }: {
   label: string;
   value?: string | null;
   mono?: boolean;
+  referenceKind?: AuditReferenceKind;
 }) {
   if (!value) return null;
   return (
     <div>
       <span className="text-muted-foreground">{label}:</span>{" "}
-      <span className={mono ? "font-mono break-all" : ""}>{value}</span>
+      {referenceKind ? <AuditReference kind={referenceKind} value={value} /> : <span className={mono ? "font-mono break-all" : ""}>{value}</span>}
     </div>
   );
 }

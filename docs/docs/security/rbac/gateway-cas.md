@@ -105,6 +105,8 @@ access decisions** from a user's Access section.
   **Execution context rejected** does not distinguish missing, expired or incorrectly bound context.
 - Colours reinforce the labels: green for passed checks, red for stopping denials/rejections,
   amber for unavailable evaluations, blue for summaries. An intermediate no-match stays neutral.
+- Within each check, purple marks the principal, cyan the target resource, and a neutral
+  chip the action/relation. These are field roles, separate from the permission outcome.
 - Policy wording is a snapshot maintained beside CAS's existing rules, not an executable
   policy language or an OpenFGA proof of the particular team/inherited grant involved.
 - An allowed check does not prove that the downstream tool ran. Even a one-count

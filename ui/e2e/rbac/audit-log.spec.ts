@@ -314,6 +314,9 @@ test.describe("audit log — mocked regression", () => {
     await expect(checks.first()).toHaveClass(/bg-green-500\/10/);
     await expect(checks.last()).toHaveClass(/bg-red-500\/10/);
     await expect(checks.last()).toContainText("Denied");
+    await expect(checks.last().getByLabel("Principal: user:test-user", { exact: true })).toHaveClass(/bg-violet-500\/15/);
+    await expect(checks.last().getByLabel("Resource: tool:example/list", { exact: true })).toHaveClass(/bg-cyan-500\/10/);
+    await expect(checks.last().getByLabel("Action / relation: can_call", { exact: true })).toHaveClass(/bg-muted\/50/);
     await page.getByLabel("Decision ID", { exact: true }).fill("decision-1");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page.getByText("1 event found")).toBeVisible();
