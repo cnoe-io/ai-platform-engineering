@@ -19,14 +19,51 @@ describe('UnifiedAuditTab', () => {
     });
   });
 
-  it('shows admin required message when not admin (fetch still runs before gate)', async () => {
+  it('does not fetch audit data when not admin', () => {
     render(<UnifiedAuditTab isAdmin={false} />);
     expect(
       screen.getByText(/Admin access required to view audit events/i)
     ).toBeInTheDocument();
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalled();
-    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shows the recorded gateway check, workload and decision reference in the focused view', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
+      records: [{ ts: '2026-10-13T12:00:00Z', type: 'cas_decision', outcome: 'deny', action: 'call',
+        tenant_id: 'default', subject_ref: 'user:test-user', actor_ref: 'workload:agentgateway',
+        correlation_id: 'request-1', source: 'cas', reason_code: 'NO_CAPABILITY',
+        resource_ref: 'tool:example/list', failed_gate: 'caller_tool', decision_id: 'decision-1',
+        gateway_operation: 'tools/call', agent_ref: 'agent:example' }], total: 1, page: 1, limit: 30,
+    }) });
+    render(<UnifiedAuditTab isAdmin view="decisions" initialSubjectRef="user:test-user" />);
+    expect(await screen.findByText('Denied: call tool example/list')).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('type=cas_decision'));
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('subject_ref=user%3Atest-user'));
+    fireEvent.click(screen.getByText('Denied: call tool example/list'));
+    expect(screen.getByText('decision-1')).toBeInTheDocument();
+    expect(screen.getAllByText('workload:agentgateway').length).toBeGreaterThan(0);
+    expect(screen.getByText('agent:example')).toBeInTheDocument();
+    expect(screen.getByText(/does not identify a missing team or grant/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Decision ID'), { target: { value: 'decision-1' } });
+    expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).includes('decision_id='))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('decision_id=decision-1')));
+    fireEvent.change(screen.getByLabelText('Correlation ID'), { target: { value: 'request-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('correlation_id=request-1')));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(screen.getByLabelText('Decision ID')).toHaveValue(''));
+    expect(screen.getByLabelText('Audit event type')).toHaveValue('cas_decision');
+    expect(screen.getByLabelText('Audit event type')).toBeDisabled();
+  });
+
+  it('does not present an audit outage as an empty decision history', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
+      records: [], total: 0, page: 1, limit: 30, auditUnavailable: true, warning: 'Audit service unavailable',
+    }) });
+    render(<UnifiedAuditTab isAdmin view="decisions" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No conclusion can be drawn');
+    expect(screen.queryByText('No audit events found for the selected filters.')).not.toBeInTheDocument();
   });
 
   it('loads audit events when admin', async () => {
@@ -406,7 +443,7 @@ describe('UnifiedAuditTab', () => {
 
     fireEvent.click(screen.getByText(/Allowed to manage organization caipe/i));
     expect(await screen.findByText(/What happened:/i)).toBeInTheDocument();
-    expect(screen.getByText(/CAS allowed this request because OpenFGA returned OK/i)).toBeInTheDocument();
+    expect(screen.getByText(/CAS allowed this check.*does not prove that the downstream tool ran/i)).toBeInTheDocument();
   });
 
   it('renders canonical principal display names instead of hashes or raw refs when available', async () => {
