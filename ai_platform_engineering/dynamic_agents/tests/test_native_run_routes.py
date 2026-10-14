@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from urllib.parse import unquote
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -112,6 +113,27 @@ def test_replay_keeps_original_protocol_cursor_and_header_identity(environment: 
         "original-run", 1, owner_subject="example-owner", agent_id="example-agent", session_id="original-thread",
     )
     assert environment.streamed == [(environment.run, 1)] and response.text.startswith("id: original-run:2\n")
+
+
+@pytest.mark.parametrize("turn_id", ["opaque/turn:identifier", "turn-\u03b1", "turn\r\nX-Injected: invalid"])
+@pytest.mark.parametrize("action", ["start", "resume", "replay"])
+def test_opaque_turn_ids_remain_canonical_and_safe_in_response_headers(
+    environment: SimpleNamespace, turn_id: str, action: str,
+) -> None:
+    environment.run.turn_id = turn_id
+    if action == "replay":
+        response = environment.client.get(f"/chat/runs/original-run/stream?{SCOPE}")
+    else:
+        body = {"agent_id": "example-agent", "conversation_id": "original-thread", "turn_id": turn_id}
+        body.update({"resume_data": "{}"} if action == "resume" else {"message": "Original request"})
+        response = environment.client.post(f"/chat/stream/{action}", json=body)
+        assert environment.service.start_run.await_args.args[0].turn_id == turn_id
+    assert response.status_code == 200
+    header = response.headers["x-caipe-turn-id"]
+    assert header.isascii() and "\r" not in header and "\n" not in header
+    assert "x-injected" not in response.headers and unquote(header) == turn_id
+    status = environment.client.get(f"/chat/runs/original-run?{SCOPE}")
+    assert status.json()["run"]["turn_id"] == turn_id
 
 
 @pytest.mark.parametrize("cursor", ["-1", "invalid"])

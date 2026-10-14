@@ -3,6 +3,7 @@
 import logging
 from contextlib import aclosing
 from typing import Any, AsyncGenerator, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -312,7 +313,8 @@ async def _durable_stream_response(
     return StreamingResponse(
         service.run_events(run), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
-            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": run.turn_id, "X-CAIPE-Protocol": run.protocol,
+            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": quote(run.turn_id, safe="-._~"),
+            "X-CAIPE-Protocol": run.protocol,
         },
     )
 
@@ -490,7 +492,8 @@ async def replay_chat_run(
     return StreamingResponse(
         service.run_events(run, after), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
-            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": run.turn_id, "X-CAIPE-Protocol": run.protocol,
+            "X-CAIPE-Run-Id": run.run_id, "X-CAIPE-Turn-Id": quote(run.turn_id, safe="-._~"),
+            "X-CAIPE-Protocol": run.protocol,
         },
     )
 

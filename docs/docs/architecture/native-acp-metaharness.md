@@ -256,6 +256,10 @@ sequenceDiagram
 | Worker loss | Keep checkpoints and persisted output, report interruption and do not automatically repeat tools. |
 | Journal gap or unavailable database | Return an explicit replay/storage failure instead of presenting partial output as a complete response. |
 
+Run and turn identities in JSON retain their original values. The optional
+`X-CAIPE-Turn-Id` response header percent-encodes opaque IDs so Unicode or control
+characters cannot invalidate an admitted stream. UUID turn IDs are unchanged.
+
 Both UI encodings retain their exact persisted message and tool IDs. Every frame
 has a monotonic cursor; a final `CAIPE_RUN_STATUS` control event confirms the
 durable outcome. Reading status or replay requires agent-use and conversation
