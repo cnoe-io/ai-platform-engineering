@@ -178,7 +178,7 @@ export function DiscoveryCacheControls({
       const params = new URLSearchParams({ refresh: "1", limit: "1", ...refreshQuery });
       const res = await fetch(`${route}?${params.toString()}`);
       // 200 OK = fresh snapshot built. 503 = the connector isn't
-      // configured (e.g. no SLACK_BOT_TOKEN), which is "not an error"
+      // configured on its bot service, which is "not an error"
       // from the admin's POV — there's just nothing to refresh. We
       // treat both as success so the UI message reads sensibly.
       const okish = res.ok || res.status === 503;

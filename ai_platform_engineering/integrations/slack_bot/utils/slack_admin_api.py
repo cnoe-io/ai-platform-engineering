@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import jwt
 import requests
@@ -20,6 +20,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 
 from .config_models import AgentBinding, Config
+from .slack_directory import DIRECTORY_SCOPE, SlackDirectoryError, SlackDirectoryService
 from .slack_agent_routes import (
     DEFAULT_OPENFGA_HTTP,
     SlackAgentRouteResolver,
@@ -155,6 +156,7 @@ class SlackBotAdminService:
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
         self._last_sync: dict[str, Any] | None = None
+        self.directory = SlackDirectoryService(request_get=request_get, collection_factory=self._collection)
 
     def _get_client(self) -> Optional[MongoClient]:
         uri = os.environ.get("MONGODB_URI", "").strip()
@@ -542,6 +544,29 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         path = urlparse(self.path).path
+        directory_endpoints = {
+            "/admin/slack/directory/channels": (self.service.directory.channels, {"q", "limit", "cursor", "refresh", "member_only"}),
+            "/admin/slack/directory/users": (self.service.directory.users, {"q", "limit", "kind", "refresh"}),
+            "/admin/slack/directory/emoji": (self.service.directory.emoji, {"q", "limit", "refresh"}),
+            "/admin/slack/directory/status": (None, set()),
+        }
+        if path in directory_endpoints:
+            if not self._authorize(scope_env="SLACK_ADMIN_DIRECTORY_SCOPE", default_scope=DIRECTORY_SCOPE):
+                return
+            handler, allowed = directory_endpoints[path]
+            try:
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=True, max_num_fields=10)
+            except ValueError:
+                self._write_json({"error": "invalid_directory_parameters"}, status=400)
+                return
+            if any(key not in allowed or len(values) != 1 or len(values[0]) > 512 for key, values in query.items()):
+                self._write_json({"error": "invalid_directory_parameters"}, status=400)
+                return
+            try:
+                self._write_json(handler({key: values[0] for key, values in query.items()}) if handler else self.service.directory.status())
+            except SlackDirectoryError as exc:
+                self._write_json({"error": str(exc)}, status=exc.status)
+            return
         if path not in {"/admin/slack/routes/status", "/admin/slack/routes/config-defaults"}:
             self._write_json({"error": "not_found"}, status=404)
             return
@@ -620,14 +645,14 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         return
 
-    def _authorize(self, *, scope_env: str) -> bool:
+    def _authorize(self, *, scope_env: str, default_scope: str = "") -> bool:
         header = self.headers.get("Authorization", "")
         token = header.removeprefix("Bearer ").strip()
         if not token:
             self._write_json({"error": "missing_bearer"}, status=401)
             return False
         try:
-            required_scope = os.environ.get(scope_env, "").strip() or None
+            required_scope = os.environ.get(scope_env, default_scope).strip() or default_scope or None
             self.validator.validate(token, required_scope=required_scope)
             return True
         except SlackAdminAuthError as exc:

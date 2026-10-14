@@ -727,6 +727,25 @@ _ensure_caipe_ui_slack_admin_client_credentials() {
     return 0
   fi
 
+  # A default client scope makes the directory grant available to the BFF's
+  # client_credentials tokens without broadening another client's access.
+  local DIRECTORY_SCOPE_ID
+  DIRECTORY_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" \
+    | python3 -c 'import json,sys; print(next((s["id"] for s in json.load(sys.stdin) if s.get("name") == "slack:directory:read"), ""))')
+  if [ -z "${DIRECTORY_SCOPE_ID}" ]; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/client-scopes" \
+      -d '{"name":"slack:directory:read","protocol":"openid-connect","attributes":{"include.in.token.scope":"true","display.on.consent.screen":"false"}}' >/dev/null
+    DIRECTORY_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" \
+      | python3 -c 'import json,sys; print(next((s["id"] for s in json.load(sys.stdin) if s.get("name") == "slack:directory:read"), ""))')
+  fi
+  if [ -z "${DIRECTORY_SCOPE_ID}" ]; then
+    echo "[init-idp] Failed to reconcile Slack directory client scope."
+    return 1
+  fi
+  curl -sf -X PUT -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/default-client-scopes/${DIRECTORY_SCOPE_ID}" >/dev/null
+
   local UPDATED_UI_CLIENT_JSON
   UPDATED_UI_CLIENT_JSON=$(printf '%s' "${UI_CLIENT_JSON}" | \
     SLACK_ADMIN_AUDIENCE="${SLACK_ADMIN_AUDIENCE}" \
@@ -741,6 +760,9 @@ client["serviceAccountsEnabled"] = True
 client["publicClient"] = False
 client["bearerOnly"] = False
 client.setdefault("protocol", "openid-connect")
+scopes = client.setdefault("defaultClientScopes", [])
+if "slack:directory:read" not in scopes:
+    scopes.append("slack:directory:read")
 
 mapper_name = os.environ["AUDIENCE_MAPPER_NAME"]
 audience = os.environ["SLACK_ADMIN_AUDIENCE"]

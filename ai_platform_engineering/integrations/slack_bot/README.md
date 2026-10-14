@@ -58,3 +58,15 @@ not construct a Bolt app, call the platform API, retry, sleep, or exit the proce
 - Put domain behavior tests beside the owning extracted module.
 - Keep application-boundary tests limited to construction, registration, and startup ordering.
 - Preserve Slack-visible text, routing precedence, retry behavior, authorization denials, and audit calls with characterization tests.
+
+## UI directory API
+
+- The UI BFF calls authenticated `GET /admin/slack/directory/{channels,users,emoji,status}` on the bot admin port. Browser authorization stays in the UI.
+- The bot owns all Slack Web API requests for these UI features. Configure Slack bot/app/signing credentials on the bot deployment only; remove them from UI secrets and ConfigMaps. The UI Helm chart rejects provider credential entries in `config` and `externalSecrets.data`; operators must also remove stale provider keys from any separately managed `existingSecret`.
+- Service tokens must match the configured issuer, audience and allowed UI client, and include `slack:directory:read`. Keycloak's init script reconciles this default scope on the UI client. Re-run the init/reconcile job when upgrading an existing realm.
+- Fixed query parameters are limited to search, paging, refresh and user kind; these endpoints cannot forward arbitrary Slack methods, URLs or tokens.
+- Users and emoji refresh in the background every 24 hours. Searches serve the last complete snapshot while refreshing. Failed or truncated walks retain the previous snapshot; lookup results exclude email/search-only fields.
+- Channel discovery remains restricted to bot-member channels. `platform_config.slack_discovery_cache_ttl_minutes` takes precedence over `SLACK_DISCOVERY_CACHE_TTL_MINUTES` (default 60); zero disables caching. The bot reads this configuration from its existing MongoDB connection.
+- HTTP 429 cooldowns honor the full Slack `Retry-After` value. The UI proxy has a 20-second deadline; a directory refresh can continue independently of that request.
+
+For Compose, the production UI explicitly allowlists its supported environment settings instead of inheriting the shared `.env` file. The default first-install profiles do not require the Slack bot.
