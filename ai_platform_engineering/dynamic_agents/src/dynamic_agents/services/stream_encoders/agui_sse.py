@@ -31,6 +31,7 @@ from dynamic_agents.services.stream_encoders.events import (
     StreamEvent,
     TextDelta,
     ToolCompleted,
+    ToolOutput,
     ToolStarted,
     UpdatesBoundary,
 )
@@ -270,6 +271,15 @@ class AGUIStreamEncoder(StreamEncoder[str]):
                 "type": "TOOL_CALL_END", "toolCallId": event.tool_call_id, "timestamp": _ts(),
             }))
             return frames
+        if isinstance(event, ToolOutput):
+            return [_sse_frame("CUSTOM", {
+                "type": "CUSTOM", "name": "TOOL_OUTPUT",
+                "value": {
+                    "type": "tool_output", "tool_call_id": event.tool_call_id,
+                    "result": event.result, "namespace": list(event.namespace),
+                },
+                "timestamp": _ts(),
+            })]
         if isinstance(event, ContextUsage):
             return [_sse_frame("CUSTOM", {
                 "type": "CUSTOM", "name": "CONTEXT_USAGE",

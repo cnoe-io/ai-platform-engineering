@@ -1,5 +1,7 @@
 """Contract tests for durable native session admission and checkpoint identity."""
 
+import hashlib
+import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -160,6 +162,34 @@ def test_resume_after_repository_recreation_uses_last_admitted_snapshot() -> Non
     assert collection.rows[("primary", "step-attempt")]["revision"] == 2
 
 
+def test_legacy_snapshot_without_new_remote_agent_field_survives_upgrade_and_resume() -> None:
+    collection = _AtomicCollection()
+    mongo = _mongo(collection)
+    first = resolve_native_binding(mongo, _agent(backend=_workflow_backend()), "existing-thread")
+    row = collection.rows[("primary", "existing-thread")]
+    # This field was added to the configuration model after native ACP session
+    # records were first persisted. The original digest covers stored JSON.
+    row["effective_config"].pop("allowed_remote_agents")
+    row["config_version"] = hashlib.sha256(json.dumps(
+        row["effective_config"], sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest()
+    legacy = deepcopy(row)
+
+    assert get_native_binding(_mongo(collection), "primary", "existing-thread") == first
+    assert row == legacy
+    resumed = resolve_native_binding(
+        _mongo(collection), _agent(allowed_remote_agents=["new-remote"], system_prompt="New definition."),
+        "existing-thread", resume=True,
+    )
+    normalized = collection.rows[("primary", "existing-thread")]
+    assert resumed == first
+    assert normalized["effective_config"]["allowed_remote_agents"] == []
+    assert normalized["revision"] == 2 and normalized["config_version"] != legacy["config_version"]
+    assert normalized["session_id"] == normalized["native_session_id"] == "existing-thread"
+    assert normalized["persistence"] == legacy["persistence"]
+    assert get_native_binding(_mongo(collection), "primary", "existing-thread") == first
+
+
 @pytest.mark.parametrize("saved,current,expected", [
     ({"primary": True}, {"primary": ["read"]}, {"primary": ["read"]}),
     ({"primary": ["read", "write"]}, {"primary": ["read", "new"]}, {"primary": ["read"]}),
@@ -214,6 +244,38 @@ def test_resume_never_restores_revoked_grants_from_a_later_broader_definition() 
 
     assert restored == narrowed
     assert collection.rows[("primary", "step-attempt")]["revision"] == 2
+
+
+@pytest.mark.parametrize("saved,current,expected", [
+    (["primary-remote", "secondary-remote"], ["secondary-remote", "new-remote"], ["secondary-remote"]),
+    (["primary-remote", "secondary-remote"], ["secondary-remote", "primary-remote"], ["primary-remote", "secondary-remote"]),
+    (["primary-remote"], [], []),
+    ([], ["new-remote"], []),
+])
+def test_resume_only_narrows_remote_agent_grants_and_persists_revocation(
+    saved: list[str], current: list[str], expected: list[str],
+) -> None:
+    collection = _AtomicCollection()
+    mongo = _mongo(collection)
+    first = resolve_native_binding(mongo, _agent(
+        allowed_remote_agents=saved, backend=_workflow_backend(), system_prompt="Admitted instructions.",
+    ), "step-attempt")
+    resumed = resolve_native_binding(
+        mongo, _agent(allowed_remote_agents=current, system_prompt="Updated instructions."),
+        "step-attempt", resume=True,
+    )
+    assert resumed == first.model_copy(update={"allowed_remote_agents": expected}, deep=True)
+    row = collection.rows[("primary", "step-attempt")]
+    assert row["effective_config"]["allowed_remote_agents"] == expected
+    assert row["revision"] == (2 if saved != expected else 1)
+    # A later registry definition granting more peers cannot expand the same
+    # pending turn's previously narrowed admission, including after eviction.
+    restored = resolve_native_binding(
+        _mongo(collection), _agent(allowed_remote_agents=[*saved, "new-remote"]), "step-attempt", resume=True,
+    )
+    assert restored == resumed
+    assert get_native_binding(_mongo(collection), "primary", "step-attempt") == resumed
+    assert collection.rows[("primary", "step-attempt")]["revision"] == row["revision"]
 
 
 def test_competing_resume_narrowing_uses_the_existing_revision_guard() -> None:

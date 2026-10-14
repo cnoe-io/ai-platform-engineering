@@ -58,9 +58,13 @@ class _StoredBinding(BaseModel):
     updated_at: datetime
 
 
-def _config_version(agent: DynamicAgentConfig) -> str:
-    encoded = json.dumps(agent.model_dump(mode="json", by_alias=True), sort_keys=True, separators=(",", ":"))
+def _snapshot_version(configuration: dict) -> str:
+    encoded = json.dumps(configuration, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _config_version(agent: DynamicAgentConfig) -> str:
+    return _snapshot_version(agent.model_dump(mode="json", by_alias=True))
 
 
 def _persistence_coordinates(agent: DynamicAgentConfig, settings: Settings) -> _PersistenceCoordinates:
@@ -85,7 +89,9 @@ def _validate_binding(record: dict, agent_id: str, session_id: str, settings: Se
         or binding.effective_config.id != agent_id
         or binding.session_id != session_id
         or binding.native_session_id != session_id
-        or binding.config_version != _config_version(binding.effective_config)
+        # Verify the stored bytes' logical JSON, before model defaults are added.
+        # New optional fields must not invalidate an earlier admitted snapshot.
+        or binding.config_version != _snapshot_version(record["effective_config"])
     ):
         raise SessionBindingError("Native ACP session binding identity or configuration digest does not match")
     if binding.persistence != _persistence_coordinates(binding.effective_config, settings):
@@ -155,6 +161,10 @@ def resolve_native_binding(
         if resume:
             admitted = binding.effective_config.model_copy(update={
                 "allowed_tools": intersect_allowed_tools(binding.effective_config.allowed_tools, agent.allowed_tools),
+                "allowed_remote_agents": [
+                    agent_id for agent_id in binding.effective_config.allowed_remote_agents
+                    if agent_id in agent.allowed_remote_agents
+                ],
             }, deep=True)
         else:
             admitted = agent.model_copy(update={"backend": binding.effective_config.backend}, deep=True)

@@ -45,6 +45,15 @@ class ToolCompleted(_Event):
     namespace: tuple[str, ...] = ()
 
 
+class ToolOutput(_Event):
+    """A running delegation tool's replacement output snapshot."""
+
+    kind: Literal["tool_output"] = "tool_output"
+    tool_call_id: str
+    result: str
+    namespace: tuple[str, ...] = ()
+
+
 class ContextUsage(_Event):
     kind: Literal["context_usage"] = "context_usage"
     value: dict[str, Any]
@@ -86,7 +95,7 @@ class InputRequired(_Event):
 
 
 StreamEvent = Annotated[
-    RunStarted | TextDelta | UpdatesBoundary | ToolStarted | ToolCompleted | ContextUsage
+    RunStarted | TextDelta | UpdatesBoundary | ToolStarted | ToolCompleted | ToolOutput | ContextUsage
     | StreamEnded | RunFinished | RunError | WarningEvent | InputRequired,
     Field(discriminator="kind"),
 ]

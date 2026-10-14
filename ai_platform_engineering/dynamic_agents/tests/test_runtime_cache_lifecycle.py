@@ -1,6 +1,7 @@
 """Pool-owned initialization and expiry never destroy another caller's runtime."""
 
 import asyncio
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -250,3 +251,168 @@ async def test_failed_partial_initialization_releases_resources(cancelled: bool)
     with pytest.raises(asyncio.CancelledError if cancelled else RuntimeInitError):
         await cache._initialize_runtime(runtime)
     runtime.cleanup.assert_awaited_once()
+
+
+@pytest.mark.parametrize("cancel_caller", [False, True], ids=["validated-borrow", "cancelled-validation"])
+async def test_blocking_registry_validation_finishes_before_runtime_invalidation(cancel_caller: bool) -> None:
+    agent, cache = _agent(), AgentRuntimeCache()
+    runtime = _runtime(agent)
+    key = cache._make_key(agent.id, "thread-1")
+    cache._cache[key] = runtime
+    entered, admitted, mutation_started, validation_finished = (asyncio.Event() for _ in range(4))
+    validation_release, borrow_release = Event(), asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def validate(*args: object, **kwargs: object) -> bool:
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            assert validation_release.wait(timeout=5)
+            return False
+        finally:
+            loop.call_soon_threadsafe(validation_finished.set)
+
+    runtime.is_stale = validate
+
+    async def borrower() -> None:
+        async with cache.borrow(agent, [], "thread-1") as selected:
+            assert selected is runtime and validation_finished.is_set()
+            admitted.set()
+            await borrow_release.wait()
+
+    async def invalidate() -> bool:
+        mutation_started.set()
+        return await cache.invalidate(agent.id, "thread-1")
+
+    caller = asyncio.create_task(borrower())
+    mutator = None
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        if cancel_caller:
+            caller.cancel()
+        mutator = asyncio.create_task(invalidate())
+        await asyncio.wait_for(mutation_started.wait(), timeout=2)
+        await asyncio.sleep(0)
+        assert not mutator.done()
+        runtime.cleanup.assert_not_awaited()
+        validation_release.set()
+        if cancel_caller:
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(caller, timeout=2)
+            assert validation_finished.is_set()
+            assert await asyncio.wait_for(mutator, timeout=2)
+        else:
+            await asyncio.wait_for(admitted.wait(), timeout=2)
+            with pytest.raises(RuntimeCapacityError):
+                await asyncio.wait_for(mutator, timeout=2)
+            runtime.cleanup.assert_not_awaited()
+            borrow_release.set()
+            await asyncio.wait_for(caller, timeout=2)
+            assert await cache.invalidate(agent.id, "thread-1")
+        runtime.cleanup.assert_awaited_once()
+        assert cache._borrowers == {} and key not in cache._cache and cache._key_guards == {}
+    finally:
+        validation_release.set()
+        borrow_release.set()
+        for task in (caller, mutator):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(*(task for task in (caller, mutator) if task is not None), return_exceptions=True)
+
+
+async def test_slow_registry_validation_does_not_block_unrelated_admission_sweep_or_lru() -> None:
+    agent, cache = _agent(), AgentRuntimeCache(ttl_seconds=10, max_size=2)
+    validating_runtime = _runtime(agent)
+    key = cache._make_key(agent.id, "validating-thread")
+    cache._cache[key] = validating_runtime
+    entered, admitted, borrow_release = (asyncio.Event() for _ in range(3))
+    validation_release = Event()
+    loop = asyncio.get_running_loop()
+
+    def validate(*args: object, **kwargs: object) -> bool:
+        loop.call_soon_threadsafe(entered.set)
+        assert validation_release.wait(timeout=5)
+        return False
+
+    validating_runtime.is_stale = validate
+
+    async def borrower() -> None:
+        async with cache.borrow(agent, [], "validating-thread") as selected:
+            assert selected is validating_runtime
+            admitted.set()
+            await borrow_release.wait()
+
+    expired, evicted, selected = (_runtime(agent) for _ in range(3))
+    cache._create_runtime = AsyncMock(side_effect=[expired, evicted, selected])
+    caller = asyncio.create_task(borrower())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        assert await asyncio.wait_for(cache.get_or_create(agent, [], "expired-thread"), timeout=1) is expired
+        expired.idle_seconds = 20
+        await asyncio.wait_for(cache._cleanup_expired(), timeout=1)
+        expired.cleanup.assert_awaited_once()
+        assert await asyncio.wait_for(cache.get_or_create(agent, [], "evicted-thread"), timeout=1) is evicted
+        assert await asyncio.wait_for(cache.get_or_create(agent, [], "selected-thread"), timeout=1) is selected
+        evicted.cleanup.assert_awaited_once()
+        assert cache._cache[key] is validating_runtime
+        validating_runtime.cleanup.assert_not_awaited()
+        assert not admitted.is_set()
+        validation_release.set()
+        await asyncio.wait_for(admitted.wait(), timeout=2)
+        borrow_release.set()
+        await asyncio.wait_for(caller, timeout=2)
+        assert cache._borrowers == {} and cache._pending == {} and cache._key_guards == {}
+    finally:
+        validation_release.set()
+        borrow_release.set()
+        if not caller.done():
+            caller.cancel()
+        await asyncio.gather(caller, return_exceptions=True)
+
+
+async def test_clear_drains_cancelled_registry_validation_and_reopens_new_admission() -> None:
+    agent, cache = _agent(), AgentRuntimeCache()
+    original, replacement = _runtime(agent), _runtime(agent)
+    cache._cache[cache._make_key(agent.id, "original-thread")] = original
+    entered, validation_finished = asyncio.Event(), asyncio.Event()
+    validation_release = Event()
+    loop = asyncio.get_running_loop()
+
+    def validate(*args: object, **kwargs: object) -> bool:
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            assert validation_release.wait(timeout=5)
+            return False
+        finally:
+            loop.call_soon_threadsafe(validation_finished.set)
+
+    original.is_stale = validate
+    cache._create_runtime = AsyncMock(return_value=replacement)
+    caller = asyncio.create_task(cache.get_or_create(agent, [], "original-thread"))
+    clearing = following = None
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        caller.cancel()
+        clearing = asyncio.create_task(cache.clear())
+        await asyncio.sleep(0)
+        assert cache._clearing
+        following = asyncio.create_task(cache.get_or_create(agent, [], "next-thread"))
+        await asyncio.sleep(0)
+        assert not clearing.done() and not following.done()
+        original.cleanup.assert_not_awaited()
+        cache._create_runtime.assert_not_awaited()
+        validation_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(caller, timeout=2)
+        await asyncio.wait_for(clearing, timeout=2)
+        assert validation_finished.is_set()
+        assert await asyncio.wait_for(following, timeout=2) is replacement
+        original.cleanup.assert_awaited_once()
+        replacement.cleanup.assert_not_awaited()
+        assert not cache._clearing and cache._key_guards == {} and cache._pending == {}
+        assert list(cache._cache.values()) == [replacement]
+    finally:
+        validation_release.set()
+        for task in (caller, clearing, following):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(*(task for task in (caller, clearing, following) if task is not None), return_exceptions=True)

@@ -44,6 +44,7 @@ from dynamic_agents.services.stream_encoders.events import (
     StreamEvent,
     TextDelta,
     ToolCompleted,
+    ToolOutput,
     ToolStarted,
 )
 from dynamic_agents.services.stream_encoders.semantic import SemanticStreamEncoder
@@ -240,6 +241,11 @@ class _NativeAgent:
                 session_update="tool_call_update", tool_call_id=event.tool_call_id,
                 status="failed" if event.error else "completed", raw_output=event.content or None,
                 field_meta=metadata,
+            )
+        elif isinstance(event, ToolOutput):
+            update = ToolCallProgress(
+                session_update="tool_call_update", tool_call_id=event.tool_call_id,
+                status="in_progress", raw_output=event.result, field_meta=metadata,
             )
         if update is not None:
             await self.connection.session_update(self.session_id, update)

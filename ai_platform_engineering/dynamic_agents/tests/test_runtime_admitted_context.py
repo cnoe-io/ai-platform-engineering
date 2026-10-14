@@ -1,6 +1,6 @@
 """Cached native tools and prompts must match the current admitted request."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,6 +20,8 @@ def _runtime() -> AgentRuntime:
     runtime._user = UserContext(email="caller@example.com")
     runtime._client_context = ClientContext(source="webui")
     runtime._auth_bearer = "first-token"
+    runtime._mongo_service = None
+    runtime._remote_agent_versions = {}
     return runtime
 
 
@@ -68,3 +70,34 @@ async def test_token_refresh_preserves_omitted_resume_presentation_context() -> 
         current_user_token.reset(token)
     assert cache._create_runtime.await_args.args[-1] == runtime._client_context
     runtime.cleanup.assert_awaited_once()
+
+
+@pytest.mark.parametrize("versions,entries,stale", [
+    ({"example-remote": "revision-1", "example-child": "revision-1"}, [
+        {"_id": "example-remote", "updated_at": "revision-1"},
+        {"_id": "example-child", "updated_at": "revision-1"},
+    ], False),
+    ({"example-remote": "revision-1", "example-child": "revision-1"}, [
+        {"_id": "example-remote", "updated_at": "revision-1"},
+        {"_id": "example-child", "updated_at": "revision-2"},
+    ], True),
+    ({"example-remote": "revision-1"}, [], True),
+    ({"example-remote": None}, [{"_id": "example-remote", "updated_at": "revision-1"}], True),
+])
+def test_remote_registry_changes_revalidate_parent_and_subagent_bindings(
+    versions: dict[str, str | None], entries: list[dict[str, str]], stale: bool,
+) -> None:
+    runtime = _runtime()
+    runtime._remote_agent_versions = versions
+    runtime._mongo_service = MagicMock(get_remote_agents_by_ids=MagicMock(return_value=entries))
+    token = current_user_token.set("first-token")
+    try:
+        assert runtime.is_stale(
+            runtime.config, [], user=runtime._user, client_context=runtime._client_context,
+        ) is stale
+    finally:
+        current_user_token.reset(token)
+    runtime._mongo_service.get_remote_agents_by_ids.assert_called_once_with(list(versions))
+    assert runtime._user.email == "caller@example.com"
+    assert runtime._client_context.source == "webui"
+    assert runtime._auth_bearer == "first-token"

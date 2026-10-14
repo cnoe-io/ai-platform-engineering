@@ -26,6 +26,7 @@ from dynamic_agents.services.stream_encoders.events import (
     StreamEvent,
     TextDelta,
     ToolCompleted,
+    ToolOutput,
     ToolStarted,
 )
 from dynamic_agents.services.stream_encoders.langgraph_helpers import truncate_tool_result
@@ -126,6 +127,11 @@ class CustomStreamEncoder(StreamEncoder[str]):
             elif event.content:
                 payload["result"] = truncate_tool_result(event.content)
             return [_sse_frame("tool_end", payload)]
+        if isinstance(event, ToolOutput):
+            return [_sse_frame("tool_output", {
+                "type": "tool_output", "tool_call_id": event.tool_call_id,
+                "result": event.result, "namespace": list(event.namespace),
+            })]
         if isinstance(event, ContextUsage):
             return [_sse_frame(CONTEXT_USAGE_EVENT, {**event.value, "namespace": list(event.namespace)})]
         return []

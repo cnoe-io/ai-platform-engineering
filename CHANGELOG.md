@@ -1,3 +1,46 @@
+## 1.3.0-rc.9 (2026-10-13)
+
+### Feat
+
+- **ui**: add shared AgenticAppManifest and native UI contract (#2852)
+
+### Fix
+
+- **ui**: redirect unauthenticated app navigations to a relative login URL (#2923)
+- **security**: upgrade runtime uv to patched Rustls (#2921)
+- **security**: scan releases after publication (#2920)
+- **security**: patch RSA verification and glob nesting vulnerabilities (#2918)
+
+## 1.3.0-rc.8 (2026-10-11)
+
+### Fix
+
+- **ui**: upgrade vulnerable npm dependency overrides (#2917)
+
+## 1.3.0-rc.7 (2026-10-11)
+
+### Feat
+
+- **dynamic-agents**: integrate remote agents as tool calls via A2A protocol (#2373)
+- **openfga-bridge**: log agent_context_kind per tools/call decision (#2907)
+- **sharepoint-mcp**: support pdf/pptx metadata and streaming through http routes (#2903)
+- **victorops**: expose computed current on-call users (#2872)
+
+### Fix
+
+- **deps**: update MongoDB persistence and urllib3 security pins (#2916)
+- **docs**: upgrade vulnerable documentation dependencies (#2915)
+- **security**: scope scans to release revisions and validate namespaces (#2642)
+- **e2e**: stop closing the OAuth relay popup before its message arrives (#2794)
+- **ui**: remove unsafe agentgateway repair action (#2302)
+- **sharepoint-mcp**: expose folder document versions for incremental ingest (#2911)
+- **ui**: send source in ticket-client clientContext to prevent 422
+- **slack-ingestor**: detect lookback_days changes on reload, not just first sync (#2833)
+- **mcp**: retry AgentGateway route reconciliation (#2400)
+- **argocd**: filter applications by status (#2689)
+- **audit**: cancel abandoned scans and bound query memory (#2900)
+- **ci**: skip prebuild images for fork pull requests (#2898)
+
 ## 1.3.0-rc.6 (2026-10-06)
 
 ### Fix

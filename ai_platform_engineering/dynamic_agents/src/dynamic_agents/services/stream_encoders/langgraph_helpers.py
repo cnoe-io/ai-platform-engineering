@@ -35,6 +35,7 @@ from dynamic_agents.services.stream_encoders.events import (
     StreamEvent,
     TextDelta,
     ToolCompleted,
+    ToolOutput,
     ToolStarted,
     UpdatesBoundary,
 )
@@ -166,6 +167,8 @@ class LangGraphStreamHelper:
         return events
 
     def custom_events(self, data: Any, namespace: tuple[str, ...]) -> list[StreamEvent]:
+        if isinstance(data, dict) and data.get("type") == "tool_output":
+            return [ToolOutput(tool_call_id=data["tool_call_id"], result=data["result"], namespace=namespace)]
         if not isinstance(data, dict) or data.get("type") != CONTEXT_USAGE_EVENT:
             return []
         return [ContextUsage(value={key: value for key, value in data.items() if key != "type"}, namespace=namespace)]

@@ -46,6 +46,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         app.installation.installed
         && app.installation.enabled
         && app.installation.visible
+        && app.manifest.ui.profiles.length > 0
         && app.manifest.surfaces.showInHub,
     )
     .map((app) => buildPublicAgenticApp(app, canLaunchAgenticApp(app, userContext)));

@@ -89,6 +89,7 @@ from dynamic_agents.services.model_capabilities import (
     ModelCapabilities,
     get_model_capabilities,
 )
+from dynamic_agents.services.remote_agent_tool import create_remote_agent_tool
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 from dynamic_agents.services.tracing import TracingManager
@@ -599,6 +600,7 @@ class AgentRuntime:
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
+        self._remote_agent_versions: dict[str, str | None] = {}
         self._user = user
         self._client_context = client_context
         # Spec 102 Phase 8 / T107: prefer the per-request bearer from
@@ -930,6 +932,11 @@ class AgentRuntime:
         if builtin_tools:
             tools = tools + builtin_tools
 
+        # 2b. Add remote A2A agents as delegation tools
+        remote_agent_tools = await self._build_remote_agent_tools()
+        if remote_agent_tools:
+            tools = tools + remote_agent_tools
+
         # 3. Wrap all tools with error handling
         #    Exceptions become LLM-visible "ERROR: ..." strings instead of crashing the agent loop.
         if tools:
@@ -1208,6 +1215,60 @@ class AgentRuntime:
             f"[agent] Agent '{self.config.name}' initialized in {init_duration:.2f}s: "
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
+
+    async def _build_remote_agent_tools(self, config: DynamicAgentConfig | None = None) -> list:
+        """Build tools for a dynamic agent's selected A2A registry entries."""
+        agent_config = config or self.config
+        if not self._mongo_service or not agent_config.allowed_remote_agents:
+            return []
+
+        remote_agents = await asyncio.to_thread(
+            self._mongo_service.get_remote_agents_by_ids, agent_config.allowed_remote_agents
+        )
+        versions = {item["_id"]: item.get("updated_at") for item in remote_agents}
+        self._remote_agent_versions.update({agent_id: versions.get(agent_id) for agent_id in agent_config.allowed_remote_agents})
+        if not remote_agents:
+            return []
+
+        # Build selected tools concurrently. One invalid registry entry must not
+        # hide the other selected tools from this runtime.
+        results = await asyncio.gather(
+            *(
+                create_remote_agent_tool(
+                    a2a_url=remote_agent["endpoint"],
+                    allowed_http_origins=self.settings.remote_a2a_allowed_http_origins,
+                    max_response_bytes=self.settings.remote_a2a_max_response_bytes,
+                    max_output_bytes=self.settings.remote_a2a_max_output_bytes,
+                    name=remote_agent.get("name"),
+                    description=remote_agent.get("description"),
+                    bearer_token=self._auth_bearer,
+                    credential_source=remote_agent.get("credential_source"),
+                    streaming=remote_agent.get("streaming") is True,
+                    credential_api_url=self.settings.credential_api_url,
+                    credential_service_audience=self.settings.credential_service_audience,
+                    timeout=int(
+                        agent_config.remote_agent_timeouts.get(
+                            remote_agent["_id"], remote_agent.get("timeout_seconds", 120)
+                        )
+                    ),
+                )
+                for remote_agent in remote_agents
+            ),
+            return_exceptions=True,
+        )
+
+        tools = []
+        for remote_agent, result in zip(remote_agents, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning("Skipping remote agent %s: %s", remote_agent.get("_id"), result)
+                continue
+            tools.append(result)
+
+        logger.info(
+            f"Agent '{self.config.name}': added {len(tools)} remote agent tools: "
+            f"{[t.name for t in tools]}"
+        )
+        return tools
 
     def _build_builtin_tools(
         self,
@@ -1515,14 +1576,18 @@ class AgentRuntime:
                     )
                 tools.extend(mcp_tools)
 
-        # 2. Add built-in tools based on subagent's config
+        # 2. Add only the remote A2A agents selected on this subagent.
+        remote_tools = await self._build_remote_agent_tools(subagent_config)
+        tools.extend(remote_tools)
+
+        # 3. Add built-in tools based on subagent's config
         client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
         builtin_tool_names = {tool.name for tool in builtin_tools}
         if builtin_tools:
             tools.extend(builtin_tools)
 
-        # 3. Wrap all subagent tools with error handling
+        # 4. Wrap all subagent tools with error handling
         if tools:
             tools = wrap_tools_with_error_handling(tools, agent_name=subagent_config.name)
 
@@ -1591,16 +1656,24 @@ class AgentRuntime:
         """Rebuild when admitted configuration or caller context changes.
 
         Overrides can change without updated_at changing. Tools and rendered
-        prompts also capture the caller and bearer during initialization.
+        prompts capture the caller and bearer during initialization. Remote
+        registry changes also invalidate parent and subagent tool bindings.
         """
         bearer = current_user_token.get() or ((user.obo_jwt or user.access_token) if user else None)
-        return (
+        if (
             agent_config != self.config
             or mcp_servers != self.mcp_servers
             or user != self._user
             or client_context != self._client_context
             or bearer != self._auth_bearer
-        )
+        ):
+            return True
+        if self._mongo_service and self._remote_agent_versions:
+            entries = self._mongo_service.get_remote_agents_by_ids(list(self._remote_agent_versions))
+            versions = {entry["_id"]: entry.get("updated_at") for entry in entries}
+            if any(versions.get(agent_id) != version for agent_id, version in self._remote_agent_versions.items()):
+                return True
+        return False
 
     # ─────────────────────────────────────────────────────────────────────
     # Streaming / Resume / Interrupt

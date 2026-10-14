@@ -7,8 +7,37 @@ sidebar_position: 9
 The first implementation of the [CAIPE metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877)
 establishes one Agent Client Protocol (ACP) execution path for native Dynamic
 Agents. Streaming, human-input resume and invoke all cross this boundary.
-Default and custom agents remain logical agents in the shared service;
+Default, SRE and custom agents remain logical agents in the shared service;
 DeepAgents and LangGraph still execute them.
+
+## Initial phase and later runtimes
+
+This phase makes the existing SDK runtime use ACP by default. Changing the
+interaction boundary does not replace the model SDK, make an agent remote, or
+require sandboxing. The prebuild covers the current DeepAgents runtime; it does
+not advertise Claude SDK, Bedrock AgentCore or Codex execution.
+
+| Area | Initial phase | Later integration |
+|---|---|---|
+| Agent interaction | Every native start, resume and invoke uses the serialized ACP boundary. | Other SDK/provider runtimes implement the same logical agent interaction and advertise only qualified capabilities. |
+| Execution placement | Shared DeepAgents/LangGraph runtime with existing native tools and logical files. | Provider-managed execution or an isolated environment when a harness requires shell commands and a real workspace. |
+| Session durability | Retain current IDs, native checkpoints, logical files, pending approvals and CAIPE history ownership. | Provider transcript restoration, detached execution and cursor-based event replay need their own acceptance tests. |
+| Agent UI | Keep current chat, agent configuration and workflow behavior. | Reuse compatible identity/configuration UI from the gateway work without showing unsupported runtime choices. |
+
+The [gateway implementation PR](https://github.com/caipe-io/ai-platform-engineering/pull/2401)
+contains useful provider session handling, Claude transcript persistence, agent
+identity/configuration UI and detached-run/event replay work. These pieces can
+be integrated behind the canonical ACP path. Its existing provider routing and
+session locks should not become a second execution path or a second database.
+The native phase establishes the interaction boundary while preserving current
+native features; the gateway draft's provider adapters still need qualification
+for attachments, human-input resume and complete tool/reasoning events.
+
+Bedrock AgentCore integration does not depend on a local sandbox implementation:
+it uses a provider-managed runtime. A Claude SDK integration needs an explicit
+CAIPE logical tool/filesystem profile; an ordinary SDK working directory is not
+that profile. Runtime choice, ACP interaction and sandbox placement are separate
+decisions.
 
 ## Execution path
 
@@ -112,13 +141,18 @@ existing prompt, model and reasoning edits continue to work. The first
 admitted backend/checkpoint/filesystem binding remains fixed. Human-input
 resume restores the last admitted configuration after runtime-cache eviction,
 including workflow overrides. Resume intersects its saved tool scope with the
-current validated definition so removing or narrowing tools takes effect
+current validated definition so removing or narrowing MCP tools and selected
+remote-agent tools takes effect
 without expanding the saved scope. Configuration snapshots have the same
 sensitivity as agent definitions and need the same database access controls.
 They are not a redaction layer for sensitive values placed in prompts or
 middleware configuration. Changing the database, checkpoint collection or
 file-store coordinates of an existing binding fails admission rather than
 silently pointing the session at different state; migrate that state first.
+Snapshot integrity is checked against the stored configuration before new
+optional model defaults are applied. Adding a configuration field must not make
+a previously valid session unreadable; the next admission records the current
+normalized configuration while retaining the same native state.
 
 Configure the UI and Dynamic Agents to use the same `MONGODB_URI` and
 `MONGODB_DATABASE`. Include the new ACP collections and native checkpoint/file
@@ -148,6 +182,40 @@ DeepAgents retains its logical filesystem, backed by its existing checkpoint or
 MongoDB file store. The ACP wrapper does not grant access to the host filesystem
 or create a per-agent sandbox. Existing tool-level network controls still apply;
 ACP itself does not enforce an operating-system network policy.
+
+Future SDK agents in the shared service must use that same simulated filesystem
+contract. Their agent-visible file operations need to use the session-scoped
+logical store, with built-in host file and shell tools disabled. SDK-private
+transcript scratch, if required by a provider, is distinct from the filesystem
+available to agent tools. A remote provider must enforce its approved tool/file
+profile at the runtime or a trusted broker; ACP negotiation alone cannot impose
+those restrictions on remote code.
+
+## Durability and compatibility acceptance
+
+Preserving current durable behavior is an acceptance gate for this migration.
+ACP session creation must not create a new CAIPE conversation, rename the native
+thread, replay stored messages as new turns, or discard an outstanding approval.
+
+| Existing behavior | Required verification |
+|---|---|
+| A conversation created before ACP | Its original checkpoint, turn IDs, CAIPE transcript rows and logical files remain available on its first ACP turn. |
+| Cache eviction or a new worker | Reconstruct the native graph from MongoDB with the admitted storage binding and continue the same thread. |
+| Pending human input | Restore both form input and batched edit/reject tool approvals from pre-ACP and ACP checkpoints, then resume without duplicating the turn. |
+| Conversation management | Rewind, restart and clear use the admitted checkpoint/file coordinates and leave other sessions intact. |
+| Current tool integrations | Preserve subagent, attachment and remote-tool progress events across serialized ACP and both existing UI stream formats. |
+| Caller and workflow contracts | Retain authorization, refreshed credentials, narrowed tool scope, explicit cancellation and persistent/ephemeral invocation behavior. |
+
+`tests/test_native_acp_mongodb.py` runs migration, reconstruction and approval
+cases against an isolated real MongoDB, using a deterministic graph instead of
+model calls. The Dynamic Agents CI job supplies MongoDB so these checks execute
+on every PR run. Local runs may set `NATIVE_ACP_TEST_MONGODB_URI`; each test owns
+and removes a random test database. The test does not use a deployed application
+database or establish provider/sandbox readiness.
+
+Detached execution, durable stream replay and automatic takeover after a process
+failure are additional capabilities. Keeping current checkpoint/resume behavior
+does not establish those guarantees, and the initial prebuild does not claim them.
 
 Remote ACP transport, agent discovery across environments and sandbox policy
 enforcement are later stages. Separate sandboxed runtimes will require enforced
