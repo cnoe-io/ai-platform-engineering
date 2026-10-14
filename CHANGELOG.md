@@ -1,3 +1,10 @@
+## 1.3.0-rc.10 (2026-10-14)
+
+### Feat
+
+- **charts**: support deployment-owned OpenFGA models (#2940)
+- **auth**: require authenticated development with local Keycloak (#2906)
+
 ## 1.3.0-rc.9 (2026-10-13)
 
 ### Feat
