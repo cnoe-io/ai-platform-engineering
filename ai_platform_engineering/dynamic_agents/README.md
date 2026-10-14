@@ -91,9 +91,11 @@ DYNAMIC_AGENTS_COLLECTION=dynamic_agents
 MCP_SERVERS_COLLECTION=mcp_servers
 
 # Authentication
-# In production, the Next.js gateway injects X-User-Context headers.
-# For local development, set DEBUG=true to bypass auth with a dev admin user.
-DEBUG=true
+# Use Keycloak for local development and production.
+KEYCLOAK_URL=http://localhost:7080
+KEYCLOAK_REALM=caipe
+# Set OIDC_ISSUER when the browser-facing issuer differs from KEYCLOAK_URL.
+DEBUG=false
 
 # LLM Provider (configure at least one)
 # For Anthropic:
@@ -148,7 +150,7 @@ The API documentation is available at:
 | `HOST` | Server bind address | `0.0.0.0` |
 | `PORT` | Server port | `8001` |
 | `METRICS_PORT` | Dedicated port for `/metrics` (0 = same as `PORT`) | `0` |
-| `DEBUG` | Enable debug mode / hot reload / dev auth bypass | `false` |
+| `DEBUG` | Enable debug mode / hot reload | `false` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |
 | `DYNAMIC_AGENTS_COLLECTION` | Agents collection name | `dynamic_agents` |
@@ -357,14 +359,20 @@ uv run pytest --cov=dynamic_agents --cov-report=html
 
 ## Docker
 
+When using the local Compose Keycloak service, join its network so the
+`keycloak` hostname resolves. The issuer must match the browser-facing URL
+in the token.
+
 ```bash
 # Build
 docker build -t dynamic-agents .
 
 # Run
-docker run -p 8001:8001 \
+COMPOSE_NETWORK=$(docker inspect keycloak --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}')
+docker run --network "$COMPOSE_NETWORK" -p 8001:8001 \
   -e MONGODB_URI=mongodb://host.docker.internal:27017 \
-  -e DEBUG=true \
+  -e KEYCLOAK_URL=http://keycloak:7080 \
+  -e OIDC_ISSUER=http://localhost:7080/realms/caipe \
   -e ANTHROPIC_API_KEY=your-key \
   dynamic-agents
 ```
@@ -436,8 +444,9 @@ dynamic_agents/
   The backend probe repeats this check using the validated caller JWT; context flags do not grant access.
 - Parent agent execution requires CAS `use` permission. Selected remote entries define its callable tools.
   The remote agent or its gateway enforces its own policies with the configured credential.
-- Existing developer authentication (`DEBUG=true`) and UI dev login are unchanged.
-  Their removal is reviewed separately in PR #2904; this feature has no dependency on it.
+- `DEBUG` controls diagnostics/reload and never creates an administrator identity.
+  Use the [Keycloak developer workflow](../../deploy/keycloak/README.md#developer-authentication)
+  for local login; its Compose override disables anonymous authentication and RBAC bypass flags.
 - A2A credentials are sent only to the registered origin. Agent Cards that advertise
   another origin are rejected; register the externally reachable gateway origin instead.
 - HTTPS is required by default. For private/local Docker examples, set

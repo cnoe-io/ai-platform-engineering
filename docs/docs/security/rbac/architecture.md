@@ -1718,9 +1718,10 @@ logic in OpenFGA tuples and audited ReBAC change sets.
 - `JwtAuthMiddleware` validates supplied bearer tokens and binds the current
   request token for downstream tools. `DA_REQUIRE_BEARER` controls rejection of
   requests without a bearer; health, metrics and CORS preflight remain public.
-- `get_current_user` (an alias of `get_user_context`) reads the gateway's
-  identity and authorization metadata outside debug mode. It does not
-  fetch userinfo or derive product admin from Keycloak roles.
+- `get_current_user` (an alias of `get_user_context`) requires the gateway's
+  `X-User-Context` header and an `email` field, including in debug mode.
+  Authorization fields are optional pass-through values or use their model
+  defaults. It does not fetch userinfo or derive product admin from Keycloak roles.
 
 Agent execution also requires the CAS agent-use decision described below.
 
@@ -1750,8 +1751,7 @@ and its subject to `/api/authz/v1/decisions` for `manage` on
   Authenticated authors can list names and capabilities; endpoint and credential
   references are returned only with management permission.
 - No additional shared secret or context signature is required for A2A.
-- Existing developer login is preserved. Its removal is reviewed separately in
-  PR #2904; this feature has no dependency on that PR.
+- `DEBUG=true` does not create a developer identity or grant administrator access.
 
 ### Agent-Level Authorization (CAS Execution Gate)
 
@@ -1845,7 +1845,7 @@ allowlist and the enforcement graph use the same wildcard semantics.
 
 | Variable                          | Default                                         | Security note                                                                                                                                                                                  |
 | --------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEBUG` | `false` | Existing dev identity fallback in `get_user_context`; JWT middleware enforcement is configured separately. |
+| `DEBUG` | `false` | Controls diagnostics and reload; `get_user_context` still requires gateway identity metadata, and bearer enforcement is configured separately. |
 | `REMOTE_A2A_ALLOWED_HTTP_ORIGINS` | `[]` | Exact trusted HTTP origins for local/private A2A deployments; other endpoints require HTTPS. |
 | `OIDC_ISSUER`                     | —                                               | Validated against `iss` claim; tokens from other issuers are rejected                                                                                                                          |
 | `OIDC_CLIENT_ID`                  | —                                               | Identifies the Web UI client used by browser-facing flows. Dynamic Agents audience validation uses `KEYCLOAK_AUDIENCE` / `OIDC_AUDIENCE`.                                                      |
