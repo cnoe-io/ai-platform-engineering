@@ -203,7 +203,7 @@ export function validateAgenticAppManifest(value) {
   if (ui.assistant !== undefined) {
     const assistant = record(
       ui.assistant,
-      ["agentId", "label", "name"],
+      ["agentId", "label", "name", "streamPath"],
       "ui.assistant",
     );
     identifier(assistant.agentId, "ui.assistant.agentId");
@@ -212,6 +212,11 @@ export function validateAgenticAppManifest(value) {
       string(assistant.name, "ui.assistant.name").length > 80
     )
       throw new Error("assistant label/name is too long");
+    if (assistant.streamPath !== undefined) {
+      pathValue(assistant.streamPath, "ui.assistant.streamPath");
+      if (!assistant.streamPath.startsWith("/api/") || !app.runtime)
+        throw new Error("assistant streamPath requires an app runtime API path");
+    }
   }
   record(app.auth, ["mode"], "auth");
   if (

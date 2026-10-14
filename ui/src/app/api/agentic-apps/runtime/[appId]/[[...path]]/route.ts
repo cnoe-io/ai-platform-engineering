@@ -201,6 +201,7 @@ async function proxyAgenticAppRequest(
       }),
       ...(body ? { body } : {}),
       redirect: "manual",
+      signal: request.signal,
     });
   } catch {
     return Response.json({ error: "upstream_unavailable" }, { status: 502 });

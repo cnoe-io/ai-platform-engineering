@@ -35,7 +35,7 @@ export interface AgenticAppManifest {
       placement: "after-chat";
       icon?: "book-open" | "layout-grid";
     };
-    assistant?: { agentId: string; label: string; name: string };
+    assistant?: { agentId: string; label: string; name: string; streamPath?: string };
   };
   api: { mounts: string[] };
   auth: { mode: AgenticAppAuthMode };
