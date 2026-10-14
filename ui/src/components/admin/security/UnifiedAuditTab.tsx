@@ -34,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
-import { ACCESS_GATE_LABELS, describeAccessDecision } from "./access-decision-description";
+import { ACCESS_DECISION_COLOURS, ACCESS_GATE_LABELS, describeAccessDecision } from "./access-decision-description";
 import { AccessDecisionChain } from "./AccessDecisionChain";
 
 interface UnifiedAuditTabProps {
@@ -1341,7 +1341,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 	                            {path}
 	                          </td>
 	                          <td className="px-3 py-2">
-	                            {decisionsView ? <Badge variant="outline" className={evt.reason_code === "AUTHZ_UNAVAILABLE" ? "text-amber-600 dark:text-amber-400" : evt.outcome === "allow" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>{description?.label ?? evt.outcome}</Badge> : <OutcomeBadge outcome={evt.outcome} />}
+	                            {decisionsView ? <Badge variant="outline" className={ACCESS_DECISION_COLOURS[description?.tone ?? "neutral"]}>{description?.label ?? evt.outcome}</Badge> : <OutcomeBadge outcome={evt.outcome} />}
 	                          </td>
 	                          {!decisionsView && <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground max-w-[150px] truncate" title={displaySource(evt.source)}>
 	                            {displaySource(evt.source)}
@@ -1359,7 +1359,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
                         {isExpanded && (
 	                          <tr className="border-t bg-muted/20">
 	                            <td colSpan={decisionsView ? 6 : 9} className="px-6 py-4">
-	                              <div className="mb-4 rounded-md border border-border/60 bg-background/60 p-3">
+	                              <div className={`mb-4 rounded-md border border-l-4 p-3 ${decisionsView && description ? ACCESS_DECISION_COLOURS[description.tone] : "border-border/60 bg-background/60"}`}>
 	                                <div className="text-xs text-muted-foreground mb-1">What happened:</div>
 	                                <div className="text-sm font-medium">{story}</div>
 	                                <div className="text-xs text-muted-foreground mt-1">{description?.explanation ?? reasonPhrase(evt)}</div>

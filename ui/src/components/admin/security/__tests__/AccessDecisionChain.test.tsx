@@ -23,8 +23,12 @@ it("shows the starting entity, captured rule and ordered checks without inventin
   const steps = within(screen.getByRole("list")).getAllByRole("listitem");
   expect(steps).toHaveLength(4);
   expect(steps[1]).toHaveTextContent("agent:example · can_call · tool:example/list");
+  expect(steps[1]).toHaveClass("bg-green-500/10", "text-foreground");
   expect(steps[2]).toHaveTextContent("No match");
+  expect(steps[2]).toHaveClass("bg-muted/30");
   expect(steps[3]).toHaveTextContent("tool:example/*");
+  expect(steps[3]).toHaveTextContent("Denied");
+  expect(steps[3]).toHaveClass("bg-red-500/10", "text-foreground");
   expect(screen.getByText(/Stopped at Caller/)).toBeInTheDocument();
   expect(screen.getByText(/does not identify the particular team/)).toBeInTheDocument();
 });
@@ -34,6 +38,24 @@ it("does not confuse an exact no-match with a final denial when wildcard passes"
   render(<AccessDecisionChain event={{ ...event, outcome: "allow", failed_gate: undefined, gateway_checks: checks }} />);
   expect(screen.getByText("All required checks passed.")).toBeInTheDocument();
   expect(screen.getByText(/alternatives.*not the final request verdict/)).toBeInTheDocument();
+  const steps = within(screen.getByRole("list")).getAllByRole("listitem");
+  expect(steps[2]).toHaveTextContent("No match");
+  expect(steps[2]).not.toHaveClass("bg-red-500/10");
+  expect(steps[3]).toHaveTextContent("Passed");
+  expect(steps[3]).toHaveClass("bg-green-500/10");
+});
+
+it("marks an unavailable check amber rather than presenting it as a permission denial", () => {
+  const checks = event.gateway_checks!.slice(0, 3).map((check, index) => index === 2 ? { ...check, reason: "AUTHZ_UNAVAILABLE" as const } : check);
+  render(<AccessDecisionChain event={{ ...event, reason_code: "AUTHZ_UNAVAILABLE", gateway_checks: checks }} />);
+  const step = screen.getByText("Unavailable").closest("li");
+  expect(step).toHaveClass("bg-amber-500/10", "text-foreground");
+  expect(step).not.toHaveClass("bg-red-500/10");
+});
+
+it("marks context rejection red with an explicit text label", () => {
+  render(<AccessDecisionChain event={{ ...event, failed_gate: "context", gateway_checks: [{ gate: "context", subject_ref: event.subject_ref!, decision: "DENY", reason: "NO_CAPABILITY" }] }} />);
+  expect(screen.getByText("Rejected").closest("li")).toHaveClass("bg-red-500/10", "text-foreground");
 });
 
 it("does not present a sample chain as evidence for an aggregate, even count one", () => {

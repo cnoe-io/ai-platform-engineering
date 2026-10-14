@@ -295,19 +295,25 @@ test.describe("audit log — mocked regression", () => {
     };
     await installMockedRbacApp(page, { isAdmin: true, handlers: [makeAuditConfigHandler({ backend: "service", readsAvailable: true, storageBackend: "s3", storageLabel: "Storage: audit-service → S3" }), makeAuditEventsHandler([
       base,
-      { ...base, correlation_id: "request-2", decision_id: "decision-2", reason_code: "AUTHZ_UNAVAILABLE" },
+      { ...base, correlation_id: "request-2", decision_id: "decision-2", reason_code: "AUTHZ_UNAVAILABLE", gateway_checks: base.gateway_checks!.map((check, index) => index === 4 ? { ...check, reason: "AUTHZ_UNAVAILABLE" } : check) },
       { ...base, correlation_id: "rollup:example", decision_id: undefined, failed_gate: undefined, outcome: "allow", reason_code: "OK", count: 1 },
     ], queries)] });
     await page.goto("/admin/security/audit?auditTab=decisions&subject_ref=user%3Atest-user");
     await expect(page.getByText("3 events found")).toBeVisible();
     await expect(page.getByText("Authorization unavailable: call tool example/list")).toBeVisible();
     await expect(page.getByText("Allowed (rollup): call tool example/list")).toBeVisible();
+    await expect(page.getByText("Authorization unavailable", { exact: true })).toHaveClass(/bg-amber-500\/10/);
+    await expect(page.getByText("Allowed (rollup)", { exact: true })).toHaveClass(/bg-sky-500\/10/);
     await page.getByText("Denied: call tool example/list").click();
     await expect(page.getByText("decision-1", { exact: true })).toBeVisible();
     await expect(page.getByText(/does not identify a missing team or grant/)).toBeVisible();
     await expect(page.getByText(/Starting principal:/).locator("..")).toHaveText(/user:test-user → agent:example → tool:example\/list/);
     await expect(page.getByText(/Rule at the time:/).locator("..")).toContainText("AND");
     await expect(page.getByText(/Stopped at Caller/)).toBeVisible();
+    const checks = page.getByRole("region", { name: "Recorded access chain" }).getByRole("listitem");
+    await expect(checks.first()).toHaveClass(/bg-green-500\/10/);
+    await expect(checks.last()).toHaveClass(/bg-red-500\/10/);
+    await expect(checks.last()).toContainText("Denied");
     await page.getByLabel("Decision ID", { exact: true }).fill("decision-1");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page.getByText("1 event found")).toBeVisible();
@@ -317,6 +323,16 @@ test.describe("audit log — mocked regression", () => {
     await page.screenshot({ path: testInfo.outputPath("access-decisions-preview.png"), fullPage: true });
     await page.getByText(/does not identify a missing team or grant/).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("access-decisions-detail.png") });
+    const chain = page.getByRole("region", { name: "Recorded access chain" });
+    await chain.screenshot({ path: testInfo.outputPath("access-decisions-chain-dark.png") });
+    const darkText = await checks.first().evaluate((element) => getComputedStyle(element).color);
+    await page.evaluate(() => localStorage.setItem("theme", "light"));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await page.getByText("Denied: call tool example/list").click();
+    expect(await checks.first().evaluate((element) => getComputedStyle(element).color)).not.toBe(darkText);
+    await expect(checks.last()).toContainText("Denied");
+    await chain.screenshot({ path: testInfo.outputPath("access-decisions-chain-light.png") });
   });
 
   test("audit reader sends preset and custom time resolution filters to audit service", async ({

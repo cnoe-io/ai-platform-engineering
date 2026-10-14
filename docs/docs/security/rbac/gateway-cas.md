@@ -103,6 +103,10 @@ access decisions** from a user's Access section.
   a sequence and rollups are explicitly incomplete; even a one-count rollup has no chain.
 - **Authorization unavailable** is a blocked evaluation, not proof of missing permission.
   **Execution context rejected** does not distinguish missing, expired or incorrectly bound context.
+- Colours reinforce the labels: green for passed checks, red for stopping denials/rejections,
+  amber for unavailable evaluations, blue for summaries. An intermediate no-match stays neutral.
+- Policy wording is a snapshot maintained beside CAS's existing rules, not an executable
+  policy language or an OpenFGA proof of the particular team/inherited grant involved.
 - An allowed check does not prove that the downstream tool ran. Even a one-count
   allow rollup is not an individual request receipt. Catalog lookups are not blocked attempts.
 - This is historical, best-effort producer evidence, not a current permission check.

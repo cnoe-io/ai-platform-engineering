@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { UnifiedAuditEvent } from "@/lib/rbac/types";
-import { ACCESS_GATE_LABELS } from "./access-decision-description";
+import { ACCESS_DECISION_COLOURS, ACCESS_GATE_LABELS } from "./access-decision-description";
 
 export function AccessDecisionChain({ event }: { event: UnifiedAuditEvent }) {
   const aggregate = event.count !== undefined || event.batch || event.list_objects;
@@ -21,13 +21,16 @@ export function AccessDecisionChain({ event }: { event: UnifiedAuditEvent }) {
             {event.gateway_policy && <p><span className="font-medium">Rule at the time: </span>{event.gateway_policy}</p>}
             <ol className="space-y-2">
               {checks.map((check, index) => {
+                const stoppingDenial = event.outcome === "deny" && event.failed_gate === check.gate && index === checks.length - 1;
                 const status = check.reason === "AUTHZ_UNAVAILABLE" ? "Unavailable" : check.decision === "ALLOW" ? "Passed"
-                  : check.gate === "context" ? "Rejected" : "No match";
+                  : check.gate === "context" ? "Rejected" : stoppingDenial ? "Denied" : "No match";
+                const tone = check.reason === "AUTHZ_UNAVAILABLE" ? "warning" : check.decision === "ALLOW" ? "positive"
+                  : check.gate === "context" || stoppingDenial ? "negative" : "neutral";
                 return (
-                  <li key={index} className="rounded border p-2">
+                  <li key={index} className={`rounded border border-l-4 p-2 ${ACCESS_DECISION_COLOURS[tone]}`}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{index + 1}. {ACCESS_GATE_LABELS[check.gate]}</span>
-                      <Badge variant="outline">{status}</Badge>
+                      <Badge variant="outline" className={ACCESS_DECISION_COLOURS[tone]}>{status}</Badge>
                     </div>
                     <div className="mt-1 break-words font-mono text-xs">
                       {check.subject_ref} · {check.relation || "verify signed caller-bound context"}
