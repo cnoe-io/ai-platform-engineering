@@ -785,6 +785,28 @@ if mapper is None:
 else:
     mapper.update(mapper_payload)
 
+service_role_mapper = {
+    "name": "slack-directory-service-roles",
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-usermodel-client-role-mapper",
+    "consentRequired": False,
+    "config": {
+        "usermodel.clientRoleMapping.clientId": client["clientId"],
+        "claim.name": "slack_bot_admin_roles",
+        "jsonType.label": "String",
+        "multivalued": "true",
+        "access.token.claim": "true",
+        "introspection.token.claim": "true",
+        "id.token.claim": "false",
+        "userinfo.token.claim": "false",
+    },
+}
+existing_service_mapper = next((item for item in mappers if item.get("name") == service_role_mapper["name"]), None)
+if existing_service_mapper is None:
+    mappers.append(service_role_mapper)
+else:
+    existing_service_mapper.update(service_role_mapper)
+
 json.dump(client, sys.stdout)
 ' 2>/dev/null)
 
@@ -793,11 +815,39 @@ json.dump(client, sys.stdout)
     return 0
   fi
 
-  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+  if ! curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
     "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" \
-    -d "${UPDATED_UI_CLIENT_JSON}" && \
-    echo "[init-idp]   ${BFF_CLIENT_ID} service account and ${AUDIENCE_MAPPER_NAME} mapper are ready." || \
-    echo "[init-idp]   WARNING: failed to update ${BFF_CLIENT_ID} for Slack bot admin client_credentials."
+    -d "${UPDATED_UI_CLIENT_JSON}"; then
+    echo "[init-idp] Failed to update ${BFF_CLIENT_ID} for Slack bot admin client_credentials."
+    return 1
+  fi
+
+  # The shared UI client also issues browser tokens. Only its service-account
+  # user receives this role, so browser audience/scope claims cannot authorize directory calls.
+  local DIRECTORY_ROLE_JSON SERVICE_ACCOUNT_ID
+  DIRECTORY_ROLE_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/roles/slack-directory-service" || true)
+  if [ -z "${DIRECTORY_ROLE_JSON}" ]; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/roles" \
+      -d '{"name":"slack-directory-service","description":"BFF service-account access to Slack directory endpoints"}' >/dev/null || return 1
+    DIRECTORY_ROLE_JSON=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/roles/slack-directory-service") || return 1
+  fi
+  SERVICE_ACCOUNT_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/service-account-user" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') || return 1
+  if [ -z "${SERVICE_ACCOUNT_ID}" ]; then
+    echo "[init-idp] Failed to resolve the Slack directory BFF service account."
+    return 1
+  fi
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/users/${SERVICE_ACCOUNT_ID}/role-mappings/clients/${UI_CLIENT_UUID}" \
+    -d "[${DIRECTORY_ROLE_JSON}]" >/dev/null || return 1
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/scope-mappings/clients/${UI_CLIENT_UUID}" \
+    -d "[${DIRECTORY_ROLE_JSON}]" >/dev/null || return 1
+  echo "[init-idp]   ${BFF_CLIENT_ID} service account, audience and directory role are ready."
 }
 
 _ensure_caipe_ui_slack_admin_client_credentials

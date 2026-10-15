@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any
 
+import jwt
 import pytest
 import requests
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from ai_platform_engineering.integrations.slack_bot.utils.slack_admin_api import (
     SlackAdminAuthError,
@@ -195,11 +198,11 @@ def test_missing_credentials_status_and_lookup(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_directory_http_requires_service_scope_and_rejects_forwarding(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[str] = []
+    seen: list[tuple[str, bool]] = []
 
     class Validator:
-        def validate(self, token: str, *, required_scope: str | None = None) -> None:
-            seen.append(str(required_scope))
+        def validate(self, token: str, *, required_scope: str | None = None, require_directory_service: bool = False) -> None:
+            seen.append((str(required_scope), require_directory_service))
             if token != "example-service-token":
                 raise SlackAdminAuthError("invalid token")
 
@@ -220,7 +223,7 @@ def test_directory_http_requires_service_scope_and_rejects_forwarding(monkeypatc
         assert requests.get(url, headers=headers, timeout=2).json()["users"] == []
         assert requests.get(url, params={"url": "https://example.com"}, headers=headers, timeout=2).status_code == 400
         assert requests.get(url + "?" + "&".join(f"q={i}" for i in range(11)), headers=headers, timeout=2).status_code == 400
-        assert set(seen) == {"slack:directory:read"}
+        assert set(seen) == {("slack:directory:read", True)}
     finally:
         server.shutdown()
         server.server_close()
@@ -247,3 +250,27 @@ def test_jwt_scope_and_client_allowlist(monkeypatch: pytest.MonkeyPatch) -> None
     claims["azp"] = "another-client"
     with pytest.raises(SlackAdminAuthError, match="not allowed"):
         validator.validate("token", required_scope="slack:directory:read")
+
+
+@pytest.mark.parametrize("roles", [None, [], "slack-directory-service", ["unrelated-role"]])
+def test_directory_rejects_signed_user_tokens_with_matching_client_audience_and_scope(
+    monkeypatch: pytest.MonkeyPatch, roles: object
+) -> None:
+    monkeypatch.delenv("SLACK_ADMIN_DEV_AUTH_ENABLED", raising=False)
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    issuer = "https://auth.example.com/realms/example"
+    validator = SlackAdminTokenValidator(issuer=issuer, audience="example-bot-admin", jwks_url="https://auth.example.com/certs", allowed_client_ids=["example-ui"])
+    validator._jwks_client = SimpleNamespace(get_signing_key_from_jwt=lambda _token: SimpleNamespace(key=private_key.public_key()))
+    claims = {
+        "iss": issuer, "aud": "example-bot-admin", "azp": "example-ui",
+        "sub": "example-user", "scope": "slack:directory:read", "exp": int(time.time()) + 60,
+        "slack_bot_admin_roles": roles,
+    }
+    token = jwt.encode(claims, private_key, algorithm="RS256")
+    with pytest.raises(SlackAdminAuthError, match="service-account role"):
+        validator.validate(token, required_scope="slack:directory:read", require_directory_service=True)
+
+    claims["sub"] = "example-service-account"
+    claims["slack_bot_admin_roles"] = ["slack-directory-service"]
+    service_token = jwt.encode(claims, private_key, algorithm="RS256")
+    assert validator.validate(service_token, required_scope="slack:directory:read", require_directory_service=True).subject == "example-service-account"

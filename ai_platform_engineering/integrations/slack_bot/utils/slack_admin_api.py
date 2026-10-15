@@ -30,6 +30,7 @@ from .slack_agent_routes import (
 )
 
 logger = logging.getLogger("caipe.slack_bot.slack_admin_api")
+DIRECTORY_SERVICE_ROLE = "slack-directory-service"
 
 CollectionFactory = Callable[[str], Optional[Collection[Any]]]
 OpenFgaWriter = Callable[[dict[str, str]], None]
@@ -101,7 +102,9 @@ class SlackAdminTokenValidator:
         jwks_url = response.json().get("jwks_uri")
         return str(jwks_url) if jwks_url else None
 
-    def validate(self, token: str, *, required_scope: str | None = None) -> SlackAdminAuthResult:
+    def validate(
+        self, token: str, *, required_scope: str | None = None, require_directory_service: bool = False
+    ) -> SlackAdminAuthResult:
         dev_result = self._validate_dev_token(token, required_scope=required_scope)
         if dev_result is not None:
             return dev_result
@@ -127,6 +130,10 @@ class SlackAdminTokenValidator:
         scopes = str(claims.get("scope") or "").split()
         if required_scope and required_scope not in scopes:
             raise SlackAdminAuthError(f"Slack admin bearer token is missing scope {required_scope}")
+        if require_directory_service:
+            roles = claims.get("slack_bot_admin_roles")
+            if not isinstance(roles, list) or DIRECTORY_SERVICE_ROLE not in roles:
+                raise SlackAdminAuthError("Slack directory requires the BFF service-account role")
 
         return SlackAdminAuthResult(
             client_id=client_id,
@@ -551,7 +558,7 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
             "/admin/slack/directory/status": (None, set()),
         }
         if path in directory_endpoints:
-            if not self._authorize(scope_env="SLACK_ADMIN_DIRECTORY_SCOPE", default_scope=DIRECTORY_SCOPE):
+            if not self._authorize(scope_env="SLACK_ADMIN_DIRECTORY_SCOPE", default_scope=DIRECTORY_SCOPE, require_directory_service=True):
                 return
             handler, allowed = directory_endpoints[path]
             try:
@@ -645,7 +652,7 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         return
 
-    def _authorize(self, *, scope_env: str, default_scope: str = "") -> bool:
+    def _authorize(self, *, scope_env: str, default_scope: str = "", require_directory_service: bool = False) -> bool:
         header = self.headers.get("Authorization", "")
         token = header.removeprefix("Bearer ").strip()
         if not token:
@@ -653,7 +660,7 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
             return False
         try:
             required_scope = os.environ.get(scope_env, default_scope).strip() or default_scope or None
-            self.validator.validate(token, required_scope=required_scope)
+            self.validator.validate(token, required_scope=required_scope, require_directory_service=require_directory_service)
             return True
         except SlackAdminAuthError as exc:
             self._write_json({"error": str(exc)}, status=403)
