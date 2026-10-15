@@ -9,6 +9,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -18,6 +19,7 @@ from pymongo.errors import PyMongoError
 logger = logging.getLogger(__name__)
 DIRECTORY_SCOPE = "slack:directory:read"
 DIRECTORY_TTL_SECONDS = 24 * 60 * 60
+CHANNEL_WAIT_SECONDS = 2.0
 STANDARD_EMOJI = """eyes eye eye_speech_bubble white_check_mark x warning rotating_light fire rocket wave
 raised_hands pray thumbsup +1 thumbsdown -1 clap heart blue_heart green_heart yellow_heart purple_heart
 red_circle large_green_circle large_yellow_circle information_source question grey_question heavy_check_mark
@@ -28,9 +30,18 @@ neutral_face confused sob tada sparkles""".split()
 
 
 class SlackDirectoryError(RuntimeError):
-  def __init__(self, message: str, status: int = 502) -> None:
+  def __init__(self, message: str, status: int = 502, retry_after: int | None = None) -> None:
     super().__init__(message)
     self.status = status
+    self.retry_after = retry_after
+
+
+@dataclass
+class DirectoryProgress:
+  pages_scanned: int = 0
+  members_seen: int = 0
+  active_seen: int = 0
+  updated_at: int = 0
 
 
 @dataclass
@@ -44,6 +55,7 @@ class DirectorySnapshot:
   pages_scanned: int = 0
   members_seen: int = 0
   active_seen: int = 0
+  progress: DirectoryProgress | None = None
 
 
 def _now_ms() -> int:
@@ -137,6 +149,7 @@ class SlackDirectoryService:
     self._collection_factory = collection_factory
     self._lock = threading.RLock()
     self._channel_lock = threading.Lock()
+    self._channel_refreshes: dict[tuple[str, str], Future[DirectorySnapshot]] = {}
     self._entries: dict[tuple[str, str], DirectorySnapshot] = {}
     self._cooldowns: dict[tuple[str, str], float] = {}
     self._ttl_memo: tuple[float, float] | None = None
@@ -186,7 +199,7 @@ class SlackDirectoryService:
       return payload
     raise SlackDirectoryError("Slack request exhausted retries", 429)
 
-  def _load_users(self, token: str, entry: DirectorySnapshot) -> list[dict[str, Any]]:
+  def _load_users(self, token: str, entry: DirectoryProgress) -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     cursor = ""
     for page in range(500):
@@ -206,7 +219,7 @@ class SlackDirectoryService:
         return sorted(rows.values(), key=lambda row: row["label"].casefold())
     raise SlackDirectoryError("Slack user directory exceeded the page limit; previous complete snapshot retained")
 
-  def _load_emoji(self, token: str, _entry: DirectorySnapshot) -> list[dict[str, Any]]:
+  def _load_emoji(self, token: str, _entry: DirectoryProgress) -> list[dict[str, Any]]:
     data = self._call(token, "emoji.list", {"include_categories": "true"})
     rows = {name: {"name": name} for name in STANDARD_EMOJI}
     for category in data.get("categories") or []:
@@ -214,6 +227,8 @@ class SlackDirectoryService:
         if name:
           rows.setdefault(name, {"name": name})
     for name, value in (data.get("emoji") or {}).items():
+      if not isinstance(value, str):
+        raise SlackDirectoryError("Slack returned an invalid emoji value; previous complete snapshot retained")
       rows[name] = {"name": name, **({"alias_for": value[6:]} if value.startswith("alias:") else {"url": value})}
     return sorted(rows.values(), key=lambda row: row["name"].casefold())
 
@@ -225,16 +240,20 @@ class SlackDirectoryService:
         return entry
       entry.refreshing = True
       entry.started_at = entry.updated_at = _now_ms()
-      entry.pages_scanned = entry.members_seen = entry.active_seen = 0
+      progress = DirectoryProgress(updated_at=entry.started_at)
+      entry.progress = progress
 
     def run() -> None:
       try:
         loader = self._load_users if kind == "users" else self._load_emoji
-        rows = loader(token, entry)
+        rows = loader(token, progress)
         with self._lock:
           entry.rows = rows
           entry.fetched_at = entry.updated_at = _now_ms()
           entry.last_error = None
+          entry.pages_scanned = progress.pages_scanned
+          entry.members_seen = progress.members_seen
+          entry.active_seen = len(rows)
       except (SlackDirectoryError, requests.RequestException) as exc:
         logger.warning("Slack directory refresh failed: kind=%s error=%s", kind, exc)
         with self._lock:
@@ -243,6 +262,7 @@ class SlackDirectoryService:
       finally:
         with self._lock:
           entry.refreshing = False
+          entry.progress = None
 
     threading.Thread(target=run, daemon=True, name=f"slack-directory-{kind}").start()
     return entry
@@ -309,7 +329,9 @@ class SlackDirectoryService:
       "last_error": entry.last_error,
     }
     if kind == "users":
-      result.update(active_users_indexed=entry.active_seen or len(entry.rows), pages_scanned=entry.pages_scanned, members_seen=entry.members_seen)
+      result.update(active_users_indexed=len(entry.rows), pages_scanned=entry.pages_scanned, members_seen=entry.members_seen)
+      if entry.progress:
+        result["refresh_progress"] = {"pages_scanned": entry.progress.pages_scanned, "members_seen": entry.progress.members_seen, "active_seen": entry.progress.active_seen}
     return result
 
   def _channel_ttl(self) -> float:
@@ -341,25 +363,17 @@ class SlackDirectoryService:
       entry = self._entries.get(key)
       hit = bool(params.get("refresh") != "1" and ttl > 0 and entry and _now_ms() - entry.fetched_at < ttl * 1000)
       if not hit:
-        rows: dict[str, dict[str, Any]] = {}
-        cursor = ""
-        for _page in range(50):
-          data = self._call(token, "users.conversations", {"limit": "200", "exclude_archived": "true", "types": "public_channel,private_channel", "cursor": cursor})
-          for row in data.get("channels") or []:
-            if row.get("is_archived") or row.get("is_member") is False:
-              continue
-            rows[row["id"]] = {"id": row["id"], "name": row.get("name") or row["id"], "is_private": bool(row.get("is_private")), "is_member": True, "num_members": row.get("num_members", 0)}
-          cursor = (data.get("response_metadata") or {}).get("next_cursor", "")
-          if not cursor:
-            break
-        if cursor:
-          raise SlackDirectoryError("Slack channel directory exceeded the page limit; previous complete snapshot retained")
-        entry = DirectorySnapshot(rows=sorted(rows.values(), key=lambda row: row["name"].casefold()), fetched_at=_now_ms())
-        if ttl > 0:
-          self._entries[key] = entry
-        else:
-          self._entries.pop(key, None)
-      assert entry is not None
+        pending = self._channel_refreshes.get(key)
+        if pending is None:
+          pending = Future()
+          self._channel_refreshes[key] = pending
+          threading.Thread(target=self._refresh_channels, args=(key, token, ttl, pending), daemon=True, name="slack-directory-channels").start()
+    if not hit:
+      try:
+        entry = pending.result(timeout=CHANNEL_WAIT_SECONDS)
+      except FutureTimeoutError as exc:
+        raise SlackDirectoryError("Slack channel directory refresh is still in progress", 503, retry_after=1) from exc
+    assert entry is not None
     q = params.get("q", "").strip().lower()
     cursor = params.get("cursor", "")
     limit = _limit(params, 200, 500)
@@ -379,3 +393,32 @@ class SlackDirectoryService:
       "endpoint": "users.conversations",
       "query": {"q": q, "member_only": True, "limit": limit},
     }
+
+  def _refresh_channels(self, key: tuple[str, str], token: str, ttl: float, pending: Future[DirectorySnapshot]) -> None:
+    try:
+      rows: dict[str, dict[str, Any]] = {}
+      cursor = ""
+      for _page in range(50):
+        data = self._call(token, "users.conversations", {"limit": "200", "exclude_archived": "true", "types": "public_channel,private_channel", "cursor": cursor})
+        for row in data.get("channels") or []:
+          if row.get("is_archived") or row.get("is_member") is False:
+            continue
+          rows[row["id"]] = {"id": row["id"], "name": row.get("name") or row["id"], "is_private": bool(row.get("is_private")), "is_member": True, "num_members": row.get("num_members", 0)}
+        cursor = (data.get("response_metadata") or {}).get("next_cursor", "")
+        if not cursor:
+          break
+      if cursor:
+        raise SlackDirectoryError("Slack channel directory exceeded the page limit; previous complete snapshot retained")
+      entry = DirectorySnapshot(rows=sorted(rows.values(), key=lambda row: row["name"].casefold()), fetched_at=_now_ms())
+      with self._channel_lock:
+        if ttl > 0:
+          self._entries[key] = entry
+        else:
+          self._entries.pop(key, None)
+        pending.set_result(entry)
+        del self._channel_refreshes[key]
+    except Exception as exc:
+      with self._channel_lock:
+        pending.set_exception(exc)
+        if self._channel_refreshes.get(key) is pending:
+          del self._channel_refreshes[key]

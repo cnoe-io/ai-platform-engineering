@@ -102,6 +102,41 @@ def test_partial_failure_retains_last_complete_snapshot() -> None:
   assert service._entries[service._key("users", service._token())].last_error
 
 
+def test_refresh_progress_does_not_replace_complete_snapshot_counts() -> None:
+  refreshing = False
+  next_page = threading.Event()
+  release = threading.Event()
+
+  def request(_url: str, **kwargs: Any) -> Response:
+    if not refreshing:
+      return Response({"ok": True, "members": [{"id": "U1", "name": "complete"}, {"id": "U2", "name": "second"}]})
+    if kwargs["params"].get("cursor"):
+      next_page.set()
+      assert release.wait(timeout=2)
+      return Response({"ok": False, "error": "unavailable"})
+    return Response({"ok": True, "members": [{"id": "U3", "name": "partial"}], "response_metadata": {"next_cursor": "next"}})
+
+  service = SlackDirectoryService(request_get=request)
+  service.users({"q": "complete"})
+  settled(service)
+  refreshing = True
+  service.users({"q": "complete", "refresh": "1"})
+  try:
+    assert next_page.wait(timeout=2)
+    entry = service._entries[service._key("users", service._token())]
+    status = service._status("users", entry)
+    assert status["users_indexed"] == status["active_users_indexed"] == 2
+    assert status["members_seen"] == 2
+    assert status["refresh_progress"] == {"pages_scanned": 1, "members_seen": 1, "active_seen": 1}
+  finally:
+    release.set()
+    settled(service)
+  status = service._status("users", entry)
+  assert status["active_users_indexed"] == status["members_seen"] == 2
+  assert "refresh_progress" not in status
+  assert status["last_error"]
+
+
 @pytest.mark.parametrize("query", ["example", "Example", "EXAMPLE"])
 def test_user_search_is_case_insensitive(query: str) -> None:
   service = SlackDirectoryService(request_get=lambda *_args, **_kwargs: Response({
@@ -148,6 +183,23 @@ def test_emoji_alias_and_standard_fallback() -> None:
   assert {"name": "example", "alias_for": "eyes"} in service.emoji({"q": "example"})["emoji"]
 
 
+@pytest.mark.parametrize("invalid", [None, 42, {}, []])
+def test_malformed_emoji_retains_previous_complete_snapshot(invalid: Any) -> None:
+  responses = iter([Response({"ok": True, "emoji": {"example": "alias:eyes"}}), Response({"ok": True, "emoji": {"partial": "alias:eyes", "invalid": invalid}})])
+  service = SlackDirectoryService(request_get=lambda *_args, **_kwargs: next(responses))
+  service.emoji({})
+  settled(service, "emoji")
+  entry = service._entries[service._key("emoji", service._token())]
+  rows = entry.rows
+  fetched_at = entry.fetched_at
+  service.emoji({"refresh": "1"})
+  settled(service, "emoji")
+  assert entry.rows is rows
+  assert entry.fetched_at == fetched_at
+  assert "invalid emoji value" in str(entry.last_error)
+  assert not any(row["name"] == "partial" for row in entry.rows)
+
+
 def test_channels_member_only_pagination_refresh_and_configured_zero_ttl() -> None:
   calls: list[str] = []
 
@@ -188,6 +240,59 @@ def test_rate_limit_respects_full_retry_after(monkeypatch: pytest.MonkeyPatch) -
   assert slept[0] > 119
 
 
+def test_channel_refresh_waits_are_bounded_and_fresh_hits_bypass_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+  monkeypatch.setattr("ai_platform_engineering.integrations.slack_bot.utils.slack_directory.CHANNEL_WAIT_SECONDS", 0.02)
+  calls: list[str] = []
+  release = threading.Event()
+
+  def request(url: str, **_kwargs: Any) -> Response:
+    calls.append(url)
+    if len(calls) > 1:
+      assert release.wait(timeout=2)
+    return Response({"ok": True, "channels": [{"id": "C1", "name": "example"}]})
+
+  service = SlackDirectoryService(request_get=request)
+  service.channels({})
+  try:
+    for _ in range(2):
+      with pytest.raises(SlackDirectoryError) as error:
+        service.channels({"refresh": "1"})
+      assert error.value.status == 503
+      assert error.value.retry_after == 1
+    assert service.channels({})["cached"] is True
+    assert len(calls) == 2
+  finally:
+    release.set()
+    for thread in threading.enumerate():
+      if thread.name == "slack-directory-channels":
+        thread.join(timeout=2)
+  assert not service._channel_refreshes
+
+
+def test_channel_cold_waiters_share_background_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+  monkeypatch.setattr("ai_platform_engineering.integrations.slack_bot.utils.slack_directory.CHANNEL_WAIT_SECONDS", 0.02)
+  calls: list[str] = []
+  release = threading.Event()
+
+  def request(url: str, **_kwargs: Any) -> Response:
+    calls.append(url)
+    assert release.wait(timeout=2)
+    return Response({"ok": True, "channels": [{"id": "C1", "name": "example"}]})
+
+  service = SlackDirectoryService(request_get=request)
+  try:
+    for _ in range(3):
+      with pytest.raises(SlackDirectoryError, match="in progress"):
+        service.channels({})
+    assert len(calls) == 1
+  finally:
+    release.set()
+    for thread in threading.enumerate():
+      if thread.name == "slack-directory-channels":
+        thread.join(timeout=2)
+  assert service.channels({})["cached"] is True
+
+
 def test_missing_credentials_status_and_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
   monkeypatch.delenv("SLACK_INTEGRATION_BOT_TOKEN")
   service = SlackDirectoryService()
@@ -223,6 +328,13 @@ def test_directory_http_requires_service_scope_and_rejects_forwarding(monkeypatc
         assert requests.get(url, headers=headers, timeout=2).json()["users"] == []
         assert requests.get(url, params={"url": "https://example.com"}, headers=headers, timeout=2).status_code == 400
         assert requests.get(url + "?" + "&".join(f"q={i}" for i in range(11)), headers=headers, timeout=2).status_code == 400
+        def busy(_params: dict[str, str]) -> dict[str, Any]:
+            raise SlackDirectoryError("refresh in progress", 503, retry_after=1)
+
+        monkeypatch.setattr(directory, "channels", busy)
+        response = requests.get(url.replace("/users", "/channels"), headers=headers, timeout=2)
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "1"
         assert set(seen) == {("slack:directory:read", True)}
     finally:
         server.shutdown()
