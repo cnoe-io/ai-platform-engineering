@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 from typing import List, Dict, Optional, Any
-from redis.asyncio import Redis
+from common.mongo_storage import MongoStorage
 from common.ingestor import IngestorBuilder, Client
 from common.ingestor_listener import reload_persisted_datasources, run_ingestor_listener
 from common.models.rag import DataSourceInfo
@@ -26,8 +26,7 @@ from loader import ConfluenceLoader, generate_datasource_id
 logger = get_logger(__name__)
 
 # Redis configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+redis_client = MongoStorage()
 
 # Confluence configuration
 CONFLUENCE_URL = os.environ.get("CONFLUENCE_URL")

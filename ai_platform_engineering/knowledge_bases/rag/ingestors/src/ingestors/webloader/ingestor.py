@@ -13,7 +13,7 @@ import time
 import traceback
 import uuid
 
-from redis.asyncio import Redis
+from common.mongo_storage import MongoStorage
 
 from common.ingestor import IngestorBuilder, Client
 from common.ingestor_listener import (
@@ -33,7 +33,6 @@ from loader.worker_types import CrawlDocuments, CrawlRequest, CrawlStatus
 logger = get_logger(__name__)
 
 # Redis configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Webloader configuration
 MAX_INGESTION_TASKS = int(
@@ -41,7 +40,7 @@ MAX_INGESTION_TASKS = int(
 )  # Max concurrent on-demand ingestion tasks.
 PREVIEW_MAX_ITEMS = max(1, min(int(os.getenv("INGESTOR_PREVIEW_MAX_ITEMS", "100")), 500))
 
-redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+redis_client = MongoStorage()
 
 
 def _get_effective_settings(request: UrlIngestRequest, datasource_id: str) -> tuple[ScrapySettings, list[str]]:

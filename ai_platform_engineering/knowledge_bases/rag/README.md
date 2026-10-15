@@ -1,3 +1,5 @@
+For database settings, the staged Redis cutover, and rollback, see [MongoDB persistence migration](MONGODB_MIGRATION.md).
+
 # 🚀 CAIPE RAG
 
 [![Python](https://img.shields.io/badge/python-3.14-blue?logo=python)](https://www.python.org/)

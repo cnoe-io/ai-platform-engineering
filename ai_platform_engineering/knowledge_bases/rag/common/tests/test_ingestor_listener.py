@@ -124,3 +124,15 @@ def test_reload_persisted_datasources_handles_list_failure() -> None:
 
   assert result == (0, 0)
   reload_handler.assert_not_awaited()
+
+
+def test_periodic_reload_preserves_durable_old_pending_command():
+  client = AsyncMock()
+  client.ingestor_id = "example:primary"
+  client.list_datasources.return_value = [_datasource("primary", last_updated=0)]
+  manager = AsyncMock()
+  manager.get_jobs_by_datasource.return_value = [JobInfo(job_id="primary", status=JobStatus.PENDING, created_at=0, datasource_id="primary")]
+  manager.fail_stale_pending_job.return_value = False
+  handler = AsyncMock()
+  assert asyncio.run(reload_persisted_datasources(client, handler, due_only=False, job_manager=manager)) == (0, 1)
+  handler.assert_not_awaited()
