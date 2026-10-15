@@ -229,8 +229,7 @@ class ServerCache:
         self._load_slots.release()
 
   def _acquire_lease(self, key: str, token: str) -> bool | None:
-    result = self._redis_operation(lambda client: client.set(key, token, nx=True, px=_LEASE_SECONDS * 1000))
-    return None if result is None else bool(result)
+    return self._redis_operation(lambda client: bool(client.set(key, token, nx=True, px=_LEASE_SECONDS * 1000)))
 
   def _renew_lease(self, key: str, token: str) -> bool:
     result = self._redis_operation(
@@ -283,7 +282,7 @@ class ServerCache:
       published = self._wait_for_publish(key, policy)
       if published is not None:
         return CacheResult(published.value, published.state, published.computed_at_ms)
-      return CacheResult(self._load(loader), "miss", self._now_ms())
+      raise TimeoutError("Cache refresh is still in progress")
     owns_lease = Event()
     if lease:
       owns_lease.set()

@@ -46,6 +46,7 @@ const DEFAULT_MAX_ENTRIES = 500;
 const DEFAULT_LOAD_CONCURRENCY = 2;
 const DEFAULT_LOAD_DEADLINE_MS = 5_000;
 const DEFAULT_REDIS_OPERATION_DEADLINE_MS = 1_000;
+const DEFAULT_REFRESH_WAIT_DEADLINE_MS = 20_000;
 const REDIS_COOLDOWN_MS = 30_000;
 const REDIS_LEASE_MS = 15_000;
 const REDIS_POLL_MS = 75;
@@ -70,6 +71,11 @@ let redisUrl: string | undefined;
 let circuitOpenUntil = 0;
 let activeLoads = 0;
 const loadWaiters: Array<{ resolve: () => void; cancelled: boolean }> = [];
+
+function positiveNumberFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
@@ -163,11 +169,12 @@ async function redisOperation<T>(operation: (client: RedisClientType) => Promise
   const client = await getRedis();
   if (!client) return undefined;
   try {
-    const deadline = Number(process.env.CAIPE_CACHE_REDIS_OPERATION_DEADLINE_MS ?? DEFAULT_REDIS_OPERATION_DEADLINE_MS);
-    return await Promise.race([
-      operation(client),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Redis operation deadline exceeded")), deadline)),
-    ]);
+    const deadline = positiveNumberFromEnv("CAIPE_CACHE_REDIS_OPERATION_DEADLINE_MS", DEFAULT_REDIS_OPERATION_DEADLINE_MS);
+    return await new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Redis operation deadline exceeded")), deadline);
+      timer.unref?.();
+      void operation(client).then(resolve, reject).finally(() => clearTimeout(timer));
+    });
   } catch {
     metrics.redisErrors += 1;
     circuitOpenUntil = Date.now() + REDIS_COOLDOWN_MS;
@@ -193,8 +200,8 @@ async function readRedis(key: string, policy: CachePolicy): Promise<CacheResult<
 }
 
 async function acquireLoadSlot(): Promise<void> {
-  const limit = Math.max(1, Number(process.env.CAIPE_CACHE_LOAD_CONCURRENCY ?? DEFAULT_LOAD_CONCURRENCY));
-  const deadline = Date.now() + Number(process.env.CAIPE_CACHE_LOAD_DEADLINE_MS ?? DEFAULT_LOAD_DEADLINE_MS);
+  const limit = positiveNumberFromEnv("CAIPE_CACHE_LOAD_CONCURRENCY", DEFAULT_LOAD_CONCURRENCY);
+  const deadline = Date.now() + positiveNumberFromEnv("CAIPE_CACHE_LOAD_DEADLINE_MS", DEFAULT_LOAD_DEADLINE_MS);
   while (activeLoads >= limit) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error("Cache loader queue deadline exceeded");
@@ -272,7 +279,7 @@ async function renewLease(leaseKey: string, token: string): Promise<boolean> {
 }
 
 async function waitForPublishedValue(key: string, policy: CachePolicy): Promise<CacheResult<unknown> | undefined> {
-  const deadline = Date.now() + Number(process.env.CAIPE_CACHE_LOAD_DEADLINE_MS ?? DEFAULT_LOAD_DEADLINE_MS);
+  const deadline = Date.now() + positiveNumberFromEnv("CAIPE_CACHE_REFRESH_WAIT_DEADLINE_MS", DEFAULT_REFRESH_WAIT_DEADLINE_MS);
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, REDIS_POLL_MS));
     const entry = await readRedis(key, policy);
@@ -334,12 +341,17 @@ export async function getOrLoad<T>(policy: CachePolicy, key: unknown, loader: ()
     const redisAvailable = Boolean(await getRedis());
     if (stale) {
       if (!backgroundRefreshes.has(keyName)) {
-        const refreshPromise = refresh(keyName, policy, loader, redisAvailable)
-          .catch(() => undefined)
-          .finally(() => backgroundRefreshes.delete(keyName));
+        const refreshPromise = refresh(keyName, policy, loader, redisAvailable).finally(() => backgroundRefreshes.delete(keyName));
         backgroundRefreshes.set(keyName, refreshPromise as Promise<CacheResult<unknown>>);
+        void refreshPromise.catch(() => undefined);
       }
       return stale as CacheResult<T>;
+    }
+    const background = backgroundRefreshes.get(keyName);
+    if (background) {
+      metrics.shared += 1;
+      const result = await background;
+      return { ...result, state: "shared" } as CacheResult<T>;
     }
     metrics.misses += 1;
     return refresh(keyName, policy, loader, redisAvailable);
