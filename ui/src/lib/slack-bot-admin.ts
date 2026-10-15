@@ -97,12 +97,15 @@ export async function callSlackBotAdmin<T>(
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(
+    const error = new ApiError(
       typeof payload?.error === "string"
         ? `Slack bot admin request failed: ${payload.error}`
         : `Slack bot admin request failed: ${response.status}`,
-      response.status >= 400 && response.status < 500 ? response.status : 502
+      (response.status >= 400 && response.status < 500) || response.status === 503 ? response.status : 502
     );
+    const retryAfter = response.headers?.get("retry-after");
+    if (retryAfter && /^\d+$/.test(retryAfter)) error.retryAfterSeconds = Number(retryAfter);
+    throw error;
   }
   return payload as T;
 }
