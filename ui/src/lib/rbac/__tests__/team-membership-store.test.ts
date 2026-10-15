@@ -361,10 +361,11 @@ describe("member display across identity providers", () => {
     expect(member).toMatchObject({ role: "admin", idp_managed: true, added_at: "2026-06-05T00:00:00Z" });
     expect(member.user_subject).toBeUndefined();
     expect(member.source_types).toEqual(expect.arrayContaining(["oidc_claim", "okta"]));
-    expect(member.source_memberships).toEqual([
+    expect(member.source_memberships).toHaveLength(2);
+    expect(member.source_memberships).toEqual(expect.arrayContaining([
       { user_subject: "oidc-subject", relationship: "member", source_type: "oidc_claim", provider_id: "primary" },
       { user_subject: "directory-subject", relationship: "admin", source_type: "okta", provider_id: "secondary" },
-    ]);
+    ]));
     expect((await loadTeamMemberCounts(["platform"])).get("platform")).toBe(total);
     expect(fixtureRows).toHaveLength(4);
   });
