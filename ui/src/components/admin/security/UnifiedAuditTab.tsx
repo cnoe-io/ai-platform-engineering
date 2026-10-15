@@ -46,8 +46,11 @@ interface UnifiedAuditTabProps {
 
 interface PaginatedResult {
   records: UnifiedAuditEvent[];
-  total: number;
-  page: number;
+  cursor: string;
+  next_cursor: string | null;
+  since: string;
+  until: string;
+  as_of: string;
   limit: number;
   warning?: string;
   auditUnavailable?: boolean;
@@ -69,6 +72,9 @@ interface AuditStorageConfig {
 
 interface AuditStorageInfo {
   storage: {
+    query_backend?: string;
+    record_count?: number;
+    pending_archive_count?: number;
     backend?: string;
     audit_bytes?: number;
     audit_bytes_human?: string;
@@ -106,14 +112,10 @@ const TIME_WINDOW_OPTIONS = [
   { value: "6h", label: "Last 6 hr", resolution: "hour" },
   { value: "12h", label: "Last 12 hr", resolution: "hour" },
   { value: "24h", label: "Last 24 hr", resolution: "hour" },
+  { value: "48h", label: "Last 48 hr", resolution: "hour" },
   { value: "7d", label: "Last 7 days", resolution: "day" },
 ] as const;
 type TimeWindow = (typeof TIME_WINDOW_OPTIONS)[number]["value"] | "custom";
-
-function timeResolutionForWindow(window: TimeWindow): string {
-  if (window === "custom") return "auto";
-  return TIME_WINDOW_OPTIONS.find((option) => option.value === window)?.resolution ?? "auto";
-}
 
 const TYPE_FILTER_GROUPS: {
   label?: string;
@@ -629,17 +631,17 @@ async function downloadAuditZip({
 }
 
 export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "" }: UnifiedAuditTabProps) {
-  const decisionsView = view === "decisions";
-  const outcomeOptions = decisionsView ? OUTCOME_OPTIONS.filter((option) => ["", "allow", "deny"].includes(option.value)).map((option) =>
+  const [typeFilter, setTypeFilter] = useState(view === "decisions" ? "cas_decision" : "");
+  const decisionsView = typeFilter === "cas_decision";
+  const outcomeOptions = OUTCOME_OPTIONS.map((option) =>
     option.value === "deny" ? { ...option, label: "Blocked", description: "Includes permission denial, rejected context/request, and authorization unavailability. Expand the record for the reason." } : option,
-  ) : OUTCOME_OPTIONS;
+  );
   const [result, setResult] = useState<PaginatedResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-
-  const [typeFilter, setTypeFilter] = useState(decisionsView ? "cas_decision" : "");
+  const pageCursors = useRef<string[]>([]);
   const [outcomeFilter, setOutcomeFilter] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [agentName, setAgentName] = useState("");
@@ -666,18 +668,14 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
   const auditConfigRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestQuery = useRef(0);
 
-  const buildAuditParams = useCallback((p: number, limit: number) => {
+  const buildAuditParams = useCallback((cursor: string | undefined, limit: number) => {
     const params = new URLSearchParams();
-    params.set("page", String(p));
+    if (cursor) params.set("cursor", cursor);
     params.set("limit", String(limit));
-    if (timeWindow === "custom") {
-      params.set("time_resolution", "auto");
-    } else {
+    if (timeWindow !== "custom") {
       params.set("window", timeWindow);
-      params.set("time_resolution", timeResolutionForWindow(timeWindow));
     }
-    if (decisionsView) params.set("type", "cas_decision");
-    else if (typeFilter) params.set("type", typeFilter);
+    if (typeFilter) params.set("type", typeFilter);
     if (outcomeFilter) params.set("outcome", outcomeFilter);
     if (userEmail.trim()) params.set("user_email", userEmail.trim());
     if (agentName.trim()) params.set("agent_name", agentName.trim());
@@ -687,14 +685,14 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     if (timeWindow === "custom" && dateFrom) params.set("from", new Date(dateFrom).toISOString());
     if (timeWindow === "custom" && dateTo) params.set("to", new Date(dateTo).toISOString());
     return params;
-  }, [decisionsView, timeWindow, typeFilter, outcomeFilter, userEmail, agentName, referenceFilters, dateFrom, dateTo]);
+  }, [timeWindow, typeFilter, outcomeFilter, userEmail, agentName, referenceFilters, dateFrom, dateTo]);
 
-  const fetchEvents = useCallback(async (p = 1) => {
+  const fetchEvents = useCallback(async (p = 1, cursor?: string) => {
     const queryId = ++latestQuery.current;
     setLoading(true);
     setError(null);
     try {
-      const params = buildAuditParams(p, 30);
+      const params = buildAuditParams(cursor, 30);
 
       const res = await fetch(`/api/admin/audit-events?${params.toString()}`);
       if (!res.ok) {
@@ -705,6 +703,9 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
       if (queryId !== latestQuery.current) return;
       setResult(data);
       setPage(p);
+      if (!cursor) pageCursors.current = [];
+      pageCursors.current[p - 1] = data.cursor;
+      setExpandedRow(null);
     } catch (err) {
       if (queryId === latestQuery.current) setError(err instanceof Error ? err.message : "Failed to load audit events");
     } finally {
@@ -779,11 +780,12 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     setError(null);
     try {
       const records: UnifiedAuditEvent[] = [];
-      let exportPage = 1;
-      let total = 0;
+      let cursor: string | undefined;
+      let bounds: Pick<PaginatedResult, "since" | "until" | "as_of"> | undefined;
+      const seenCursors = new Set<string>();
 
       while (true) {
-        const params = buildAuditParams(exportPage, 200);
+        const params = buildAuditParams(cursor, 200);
         const res = await fetch(`/api/admin/audit-events?${params.toString()}`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -792,11 +794,13 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 
         const data: PaginatedResult = await res.json();
         if (data.auditUnavailable) throw new Error("Cannot export decision evidence while audit reads are unavailable");
-        total = data.total;
+        bounds ??= { since: data.since, until: data.until, as_of: data.as_of };
         records.push(...data.records);
-
-        if (records.length >= data.total || data.records.length === 0) break;
-        exportPage += 1;
+        if (records.length > 100_000) throw new Error("Export exceeds 100,000 events. Narrow the time range or filters.");
+        if (!data.next_cursor) break;
+        if (seenCursors.has(data.next_cursor)) throw new Error("Audit export cursor did not advance. Please retry.");
+        seenCursors.add(data.next_cursor);
+        cursor = data.next_cursor;
       }
 
       const filters: Record<string, string> = {};
@@ -816,14 +820,14 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 
       const exportedAt = new Date().toISOString();
       await downloadAuditZip({
-        filename: `rbac-audit-log-${formatDownloadTimestamp(exportedAt)}.zip`,
+        filename: `security-audit-log-${formatDownloadTimestamp(exportedAt)}.zip`,
         records,
         manifest: {
           exported_at: exportedAt,
           format: "raw-json-zip",
           files: ["audit-events.json", "manifest.json"],
           filters,
-          total,
+          ...bounds,
           record_count: records.length,
         },
       });
@@ -836,6 +840,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
 
   useEffect(() => {
     if (!isAdmin) return;
+    setResult(null);
     fetchEvents(1);
     return () => { latestQuery.current += 1; };
   }, [isAdmin, fetchEvents]);
@@ -843,25 +848,22 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
   useEffect(() => {
     if (!isAdmin) return;
     fetchAuditConfig().catch(() => undefined);
-    fetchStorageInfo().catch(() => undefined);
     return () => {
       if (auditConfigRetryRef.current) clearTimeout(auditConfigRetryRef.current);
     };
-  }, [isAdmin, fetchAuditConfig, fetchStorageInfo]);
+  }, [isAdmin, fetchAuditConfig]);
 
   useEffect(() => {
     if (autoRefresh) {
       autoRefreshRef.current = setInterval(() => {
-        fetchEvents(page);
+        fetchEvents(1);
         fetchAuditConfig().catch(() => undefined);
       }, 30_000);
     }
     return () => {
       if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
     };
-  }, [autoRefresh, page, fetchEvents, fetchAuditConfig]);
-
-  const totalPages = result ? Math.ceil(result.total / result.limit) : 0;
+  }, [autoRefresh, fetchEvents, fetchAuditConfig]);
 
   const selectedTypeHelp = useMemo(
     () =>
@@ -873,7 +875,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
   const auditStorageWarning = auditConfig?.readsAvailable === false ? auditConfig.readsWarning : undefined;
 
   const handleReset = () => {
-    setTypeFilter(decisionsView ? "cas_decision" : "");
+    setTypeFilter(view === "decisions" ? "cas_decision" : "");
     setOutcomeFilter("");
     setUserEmail("");
     setAgentName("");
@@ -884,8 +886,11 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     setReferenceFilters({ subject_ref: "", resource_ref: "", decision_id: "", correlation_id: "" });
     setDateFrom("");
     setDateTo("");
-    setTimeWindow(decisionsView ? "1h" : "5m");
+    setTimeWindow(view === "decisions" ? "1h" : "5m");
     setPage(1);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("subject_ref");
+    window.history.replaceState(null, "", url);
   };
 
   if (!isAdmin) {
@@ -906,7 +911,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg">{decisionsView ? "Access decisions" : "RBAC Audit Log"}</CardTitle>
+            <CardTitle role="heading" aria-level={3} className="text-lg">Security audit</CardTitle>
             <CardDescription>
               {decisionsView ? "Recorded CAS checks: who attempted what, and which check blocked access." : "Policy changes, access decisions, ReBAC checks, tool use, and delegations in one timeline"}
             </CardDescription>
@@ -955,7 +960,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
               variant="outline"
               size="sm"
               onClick={() => {
-                fetchEvents(page);
+                fetchEvents(1);
                 fetchAuditConfig().catch(() => undefined);
               }}
               className="gap-1.5"
@@ -990,8 +995,11 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
               <div className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Storage Usage</div>
               {storageInfo?.storage ? (
                 <div className="text-sm space-y-0.5">
+                  <div><span className="text-muted-foreground">Queries: </span>{storageInfo.storage.query_backend ?? "—"}</div>
+                  <div><span className="text-muted-foreground">Query records (approx.): </span>{storageInfo.storage.record_count?.toLocaleString() ?? "—"}</div>
+                  <div><span className="text-muted-foreground">Pending archive: </span>{storageInfo.storage.pending_archive_count?.toLocaleString() ?? "—"}</div>
                   <div>
-                    <span className="text-muted-foreground">Backend: </span>
+                    <span className="text-muted-foreground">Archive: </span>
                     <span className="font-medium">{storageInfo.storage.backend ?? "—"}</span>
                   </div>
                   {storageInfo.storage.backend === "local" && (
@@ -1149,14 +1157,13 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
-                Short windows read minute-resolution audit partitions; broader windows read coarser partitions.
+                Filters and time ranges are queried in MongoDB. Each request reads one bounded page; S3 is the archive.
               </TooltipContent>
             </Tooltip>
           </div>
           <div className="flex items-center gap-0.5">
             <Select
               aria-label="Audit event type"
-              disabled={decisionsView}
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm max-w-[220px]"
@@ -1205,19 +1212,12 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
               flatOptions={outcomeOptions}
             />
           </div>
-          {decisionsView ? (
-            <>
-              <Input aria-label="Caller principal" placeholder="user:ID or service_account:ID" value={subjectRef} onChange={(e) => setSubjectRef(e.target.value)} className="h-9 w-64" />
-              <Input aria-label="Resource reference" placeholder="tool:server/tool or agent:ID" value={resourceRef} onChange={(e) => setResourceRef(e.target.value)} className="h-9 w-64" />
-              <Input aria-label="Decision ID" placeholder="Decision ID" value={decisionId} onChange={(e) => setDecisionId(e.target.value)} className="h-9 w-64" />
-              <Input aria-label="Correlation ID" placeholder="Correlation ID" value={correlationId} onChange={(e) => setCorrelationId(e.target.value)} className="h-9 w-64" />
-            </>
-          ) : (
-            <>
-              <Input placeholder="User email..." value={userEmail} onChange={(e) => setUserEmail(e.target.value)} className="h-9 w-48" />
-              <Input placeholder="Agent name..." value={agentName} onChange={(e) => setAgentName(e.target.value)} className="h-9 w-40" />
-            </>
-          )}
+          <Input aria-label="Caller principal" placeholder="user:ID or service_account:ID" value={subjectRef} onChange={(e) => setSubjectRef(e.target.value)} className="h-9 w-64" />
+          <Input aria-label="Resource reference" placeholder="tool:server/tool or agent:ID" value={resourceRef} onChange={(e) => setResourceRef(e.target.value)} className="h-9 w-64" />
+          <Input aria-label="Decision ID" placeholder="Decision ID" value={decisionId} onChange={(e) => setDecisionId(e.target.value)} className="h-9 w-64" />
+          <Input aria-label="Correlation ID" placeholder="Correlation ID" value={correlationId} onChange={(e) => setCorrelationId(e.target.value)} className="h-9 w-64" />
+          <Input placeholder="User email..." value={userEmail} onChange={(e) => setUserEmail(e.target.value)} className="h-9 w-48" />
+          <Input placeholder="Agent name..." value={agentName} onChange={(e) => setAgentName(e.target.value)} className="h-9 w-40" />
           <Input
             type="datetime-local"
             value={dateFrom}
@@ -1245,8 +1245,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
             Clear
           </Button>
           <Button variant="default" size="sm" onClick={() => {
-            if (decisionsView) setReferenceFilters({ subject_ref: subjectRef.trim(), resource_ref: resourceRef.trim(), decision_id: decisionId.trim(), correlation_id: correlationId.trim() });
-            else fetchEvents(1);
+            setReferenceFilters({ subject_ref: subjectRef.trim(), resource_ref: resourceRef.trim(), decision_id: decisionId.trim(), correlation_id: correlationId.trim() });
           }} className="gap-1 h-9">
             <Search className="h-3.5 w-3.5" />
             Search
@@ -1270,7 +1269,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
         {result && (
           <>
             <div className="text-xs text-muted-foreground mb-2">
-              {result.auditUnavailable ? "Audit results unavailable" : `${result.total} event${result.total !== 1 ? "s" : ""} found`}
+              {result.auditUnavailable ? "Audit results unavailable" : `${result.records.length} event${result.records.length !== 1 ? "s" : ""} on this page`}
               {loading && <Loader2 className="inline h-3 w-3 ml-1 animate-spin" />}
             </div>
             <div className="border rounded-md overflow-x-auto">
@@ -1297,7 +1296,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
                     </tr>
                   )}
 	                  {result.records.map((evt) => {
-	                    const rowKey = `${evt.correlation_id}-${evt.ts}`;
+	                    const rowKey = evt.audit_event_id ?? `${evt.correlation_id}-${evt.ts}`;
 	                    const isExpanded = expandedRow === rowKey;
 	                    const resource = getResourceParts(evt);
 	                    const description = evt.type === "cas_decision" ? describeAccessDecision(evt) : undefined;
@@ -1434,25 +1433,27 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
+            {(page > 1 || result.next_cursor) && (
               <div className="flex items-center justify-between mt-4">
                 <span className="text-xs text-muted-foreground">
-                  Page {page} of {totalPages}
+                  Page {page}
                 </span>
                 <div className="flex gap-1">
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={page <= 1}
-                    onClick={() => fetchEvents(page - 1)}
+                    aria-label="Previous audit page"
+                    disabled={loading || page <= 1}
+                    onClick={() => fetchEvents(page - 1, pageCursors.current[page - 2])}
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={page >= totalPages}
-                    onClick={() => fetchEvents(page + 1)}
+                    aria-label="Next audit page"
+                    disabled={loading || !result.next_cursor}
+                    onClick={() => fetchEvents(page + 1, result.next_cursor ?? undefined)}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>

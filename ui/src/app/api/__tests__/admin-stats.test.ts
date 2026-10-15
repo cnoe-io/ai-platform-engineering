@@ -2419,6 +2419,14 @@ describe('GET /api/admin/stats — API Activity', () => {
 describe('GET /api/admin/stats — Direct MCP Activity', () => {
   beforeEach(resetMocks);
 
+  it('marks a bounded cursor result as capped instead of presenting it as complete history', async () => {
+    setupAdminWithCollections();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ records: [], next_cursor: 'more-events' }) });
+    const response = await GET(makeRequest('/api/admin/stats?section=api&range=7d'));
+    const body = await response.json();
+    expect(body.data.api.mcp_activity.range_capped).toBe(true);
+  });
+
   it('queries the audit-service for OK_LOCAL_AGENT_CONTEXT events within the selected range', async () => {
     setupAdminWithCollections();
     mockFetch.mockResolvedValue({

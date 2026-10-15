@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import JSZip from "jszip";
 import type { UnifiedAuditEvent } from "@/lib/rbac/types";
+import { auditPage } from "./_audit-pages";
 
 import {
   fulfillJson,
@@ -54,9 +55,9 @@ function baseAuditRecords(): AuditRecord[] {
       tenant_id: "default",
       subject_hash: "sha256:alice",
       actor_hash: "sha256:alice",
-      subject_display: "alice@caipe.local",
-      actor_display: "alice@caipe.local",
-      user_email: "alice@caipe.local",
+      subject_display: "alice@example.test",
+      actor_display: "alice@example.test",
+      user_email: "alice@example.test",
       action: "discover",
       outcome: "deny",
       reason_code: "NO_CAPABILITY",
@@ -76,9 +77,9 @@ function baseAuditRecords(): AuditRecord[] {
       tenant_id: "default",
       subject_hash: "sha256:admin",
       actor_hash: "sha256:admin",
-      actor_display: "admin@caipe.local",
-      subject_display: "admin@caipe.local",
-      user_email: "admin@caipe.local",
+      actor_display: "admin@example.test",
+      subject_display: "admin@example.test",
+      user_email: "admin@example.test",
       action: "use",
       outcome: "success",
       reason_code: "OK",
@@ -97,9 +98,9 @@ function baseAuditRecords(): AuditRecord[] {
       tenant_id: "default",
       subject_hash: "sha256:bob",
       actor_hash: "sha256:bob",
-      subject_display: "bob@caipe.local",
-      actor_display: "bob@caipe.local",
-      user_email: "bob@caipe.local",
+      subject_display: "bob@example.test",
+      actor_display: "bob@example.test",
+      user_email: "bob@example.test",
       action: "invoke",
       outcome: "success",
       correlation_id: "corr-tool-action",
@@ -138,17 +139,8 @@ function makeAuditEventsHandler(records: AuditRecord[], queries: URL[]): MockRou
     if (path !== "/api/admin/audit-events" || method !== "GET") return false;
 
     queries.push(new URL(url.toString()));
-    const page = Number(url.searchParams.get("page") ?? "1");
-    const limit = Number(url.searchParams.get("limit") ?? "30");
     const filtered = filterAuditRecords(records, url);
-    const start = (page - 1) * limit;
-    await fulfillJson(route, {
-      records: filtered.slice(start, start + limit),
-      total: filtered.length,
-      page,
-      limit,
-      time_resolution: url.searchParams.get("time_resolution") ?? "auto",
-    });
+    await fulfillJson(route, auditPage(filtered, url));
     return true;
   };
 }
@@ -253,12 +245,14 @@ test.describe("audit log — mocked regression", () => {
       handlers: [makeAuditConfigHandler(), makeAuditEventsHandler(baseAuditRecords(), queries)],
     });
 
-    await page.goto("/admin/security/audit?auditTab=rbac", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin/security/audit?auditTab=decisions", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Audit event type").selectOption("");
+    await page.getByLabel("Audit time range").selectOption("5m");
 
-    await expect(page.getByText("RBAC Audit Log", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Security audit", exact: true })).toBeVisible();
     await expect(page.getByText("Storage: S3 s3://caipe-audit/audit")).toBeVisible();
-    await expect(page.getByText("3 events found")).toBeVisible();
-    await expect(page.getByText("alice@caipe.local").first()).toBeVisible();
+    await expect(page.getByText("3 events on this page")).toBeVisible();
+    await expect(page.getByText("alice@example.test").first()).toBeVisible();
     await expect(page.getByText("Denied to discover conversation conv-001")).toBeVisible();
     await expect(page.getByText("Granted use on agent platform-engineer")).toBeVisible();
     await expect(page.getByText("Allowed to invoke MCP tool argocd_list_applications")).toBeVisible();
@@ -266,12 +260,12 @@ test.describe("audit log — mocked regression", () => {
     await page.getByText("Denied to discover conversation conv-001").click();
     await expect(page.getByText(/Correlation ID:\s*corr-denied-conversation/)).toBeVisible();
     await expect(page.getByText(/Decision Path:\s*Openfga/)).toBeVisible();
-    await expect(page.getByText(/Subject:\s*alice@caipe.local/)).toBeVisible();
+    await expect(page.getByText(/Subject:\s*alice@example.test/)).toBeVisible();
 
-    const initialQuery = queries[0];
+    const initialQuery = queries.at(-1)!;
     expect(initialQuery.searchParams.get("window")).toBe("5m");
-    expect(initialQuery.searchParams.get("time_resolution")).toBe("minute");
-    expect(initialQuery.searchParams.get("page")).toBe("1");
+    expect(initialQuery.searchParams.get("time_resolution")).toBeNull();
+    expect(initialQuery.searchParams.get("page")).toBeNull();
     expect(initialQuery.searchParams.get("limit")).toBe("30");
   });
 
@@ -299,7 +293,7 @@ test.describe("audit log — mocked regression", () => {
       { ...base, correlation_id: "rollup:example", decision_id: undefined, failed_gate: undefined, outcome: "allow", reason_code: "OK", count: 1 },
     ], queries)] });
     await page.goto("/admin/security/audit?auditTab=decisions&subject_ref=user%3Atest-user");
-    await expect(page.getByText("3 events found")).toBeVisible();
+    await expect(page.getByText("3 events on this page")).toBeVisible();
     await expect(page.getByText("Authorization unavailable: call tool example/list")).toBeVisible();
     await expect(page.getByText("Allowed (rollup): call tool example/list")).toBeVisible();
     await expect(page.getByText("Authorization unavailable", { exact: true })).toHaveClass(/bg-amber-500\/10/);
@@ -319,10 +313,11 @@ test.describe("audit log — mocked regression", () => {
     await expect(checks.last().getByLabel("Action / relation: can_call", { exact: true })).toHaveClass(/bg-muted\/50/);
     await page.getByLabel("Decision ID", { exact: true }).fill("decision-1");
     await page.getByRole("button", { name: "Search", exact: true }).click();
-    await expect(page.getByText("1 event found")).toBeVisible();
+    await expect(page.getByText("1 event on this page")).toBeVisible();
     expect(queries.at(-1)?.searchParams.get("decision_id")).toBe("decision-1");
     expect(queries.at(-1)?.searchParams.get("subject_ref")).toBe("user:test-user");
     await expect(page.getByText(/Authentication failures before CAS/)).toBeVisible();
+    await page.getByText("Denied: call tool example/list").click();
     await page.screenshot({ path: testInfo.outputPath("access-decisions-preview.png"), fullPage: true });
     await page.getByText(/does not identify a missing team or grant/).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("access-decisions-detail.png") });
@@ -347,22 +342,24 @@ test.describe("audit log — mocked regression", () => {
       handlers: [makeAuditConfigHandler(), makeAuditEventsHandler(baseAuditRecords(), queries)],
     });
 
-    await page.goto("/admin/security/audit?auditTab=rbac", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("3 events found")).toBeVisible();
+    await page.goto("/admin/security/audit?auditTab=decisions", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Audit event type").selectOption("");
+    await page.getByLabel("Audit time range").selectOption("5m");
+    await expect(page.getByText("3 events on this page")).toBeVisible();
 
     await page.getByLabel("Audit time range").selectOption("6h");
     await page.getByLabel("Audit event type").selectOption("cas_decision");
     await page.getByLabel("Audit outcome").selectOption("deny");
-    await page.getByPlaceholder("User email...").fill("alice@caipe.local");
+    await page.getByPlaceholder("User email...").fill("alice@example.test");
     await page.getByRole("button", { name: /^Search$/ }).click();
 
-    await expect(page.getByText("1 event found")).toBeVisible();
+    await expect(page.getByText("1 event on this page")).toBeVisible();
     const presetQuery = queries.at(-1);
     expect(presetQuery?.searchParams.get("window")).toBe("6h");
-    expect(presetQuery?.searchParams.get("time_resolution")).toBe("hour");
+    expect(presetQuery?.searchParams.get("time_resolution")).toBeNull();
     expect(presetQuery?.searchParams.get("type")).toBe("cas_decision");
     expect(presetQuery?.searchParams.get("outcome")).toBe("deny");
-    expect(presetQuery?.searchParams.get("user_email")).toBe("alice@caipe.local");
+    expect(presetQuery?.searchParams.get("user_email")).toBe("alice@example.test");
 
     await page.getByLabel("Audit time range").selectOption("custom");
     await page.locator('input[type="datetime-local"]').first().fill("2026-06-20T08:00");
@@ -371,7 +368,7 @@ test.describe("audit log — mocked regression", () => {
 
     const customQuery = queries.at(-1);
     expect(customQuery?.searchParams.get("window")).toBeNull();
-    expect(customQuery?.searchParams.get("time_resolution")).toBe("auto");
+    expect(customQuery?.searchParams.get("time_resolution")).toBeNull();
     expect(Number.isFinite(Date.parse(customQuery?.searchParams.get("from") ?? ""))).toBe(true);
     expect(Number.isFinite(Date.parse(customQuery?.searchParams.get("to") ?? ""))).toBe(true);
   });
@@ -385,9 +382,9 @@ test.describe("audit log — mocked regression", () => {
       tenant_id: "default",
       subject_hash: `sha256:bulk-${index}`,
       actor_hash: `sha256:bulk-${index}`,
-      actor_display: "bulk-auditor@caipe.local",
-      subject_display: "bulk-auditor@caipe.local",
-      user_email: "bulk-auditor@caipe.local",
+      actor_display: "bulk-auditor@example.test",
+      subject_display: "bulk-auditor@example.test",
+      user_email: "bulk-auditor@example.test",
       action: index % 2 === 0 ? "use" : "read",
       outcome: index % 2 === 0 ? "success" : "allow",
       correlation_id: `corr-bulk-${index}`,
@@ -405,13 +402,15 @@ test.describe("audit log — mocked regression", () => {
       handlers: [makeAuditConfigHandler(), makeAuditEventsHandler(records, queries)],
     });
 
-    await page.goto("/admin/security/audit?auditTab=rbac", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("205 events found")).toBeVisible();
+    await page.goto("/admin/security/audit?auditTab=decisions", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Audit event type").selectOption("");
+    await page.getByLabel("Audit time range").selectOption("5m");
+    await expect(page.getByText("30 events on this page")).toBeVisible();
 
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: /download audit log/i }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/^rbac-audit-log-.*\.zip$/);
+    expect(download.suggestedFilename()).toMatch(/^security-audit-log-.*\.zip$/);
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
@@ -424,12 +423,12 @@ test.describe("audit log — mocked regression", () => {
     expect(auditEvents[204].correlation_id).toBe("corr-bulk-204");
     expect(manifest.format).toBe("raw-json-zip");
     expect(manifest.files).toEqual(["audit-events.json", "manifest.json"]);
-    expect(manifest.total).toBe(205);
+    expect(manifest.record_count).toBe(205);
     expect(manifest.record_count).toBe(205);
     expect(manifest.filters.window).toBe("5m");
 
     const exportQueries = queries.filter((url) => url.searchParams.get("limit") === "200");
-    expect(exportQueries.map((url) => url.searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(exportQueries.map((url) => url.searchParams.get("cursor"))).toEqual([null, "offset:200"]);
   });
 
   test("storage outage badge is non-blocking when cached audit reads still return rows", async ({
@@ -450,12 +449,14 @@ test.describe("audit log — mocked regression", () => {
       ],
     });
 
-    await page.goto("/admin/security/audit?auditTab=rbac", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin/security/audit?auditTab=decisions", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Audit event type").selectOption("");
+    await page.getByLabel("Audit time range").selectOption("5m");
 
     await expect(page.getByText("Storage: audit-service unavailable")).toBeVisible();
-    await expect(page.getByText("1 event found")).toBeVisible();
+    await expect(page.getByText("1 event on this page")).toBeVisible();
     await expect(page.getByText("Denied to discover conversation conv-001")).toBeVisible();
-    expect(queries).toHaveLength(1);
+    expect(queries.at(-1)?.searchParams.get("limit")).toBe("30");
   });
 });
 

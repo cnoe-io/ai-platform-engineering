@@ -6,14 +6,39 @@ import { UnifiedAuditTab } from '../UnifiedAuditTab';
 // assisted-by Codex Codex-sonnet-4-6
 
 describe('UnifiedAuditTab', () => {
+  it('uses pinned cursors for next and previous, and starts a fresh query when filters change', async () => {
+    const requests: URL[] = [];
+    (global.fetch as jest.Mock).mockImplementation(async (input: string) => {
+      const url = new URL(input, 'https://example.test');
+      if (url.pathname !== '/api/admin/audit-events') return { ok: true, json: async () => ({}) };
+      requests.push(url);
+      const cursor = url.searchParams.get('cursor') ?? 'first';
+      return { ok: true, json: async () => ({
+        records: [], cursor, next_cursor: cursor === 'first' ? 'second' : null,
+        since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', limit: 30,
+      }) };
+    });
+    render(<UnifiedAuditTab isAdmin view="decisions" />);
+    await screen.findByText('Page 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Next audit page' }));
+    await screen.findByText('Page 2');
+    expect(requests.at(-1)?.searchParams.get('cursor')).toBe('second');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous audit page' }));
+    await screen.findByText('Page 1');
+    expect(requests.at(-1)?.searchParams.get('cursor')).toBe('first');
+    fireEvent.change(screen.getByLabelText('Audit time range'), { target: { value: '48h' } });
+    await waitFor(() => expect(requests.at(-1)?.searchParams.get('window')).toBe('48h'));
+    expect(requests.at(-1)?.searchParams.has('cursor')).toBe(false);
+    expect(requests.every((url) => url.searchParams.get('limit') === '30' && !url.searchParams.has('page'))).toBe(true);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         records: [],
-        total: 0,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -33,7 +58,7 @@ describe('UnifiedAuditTab', () => {
         tenant_id: 'default', subject_ref: 'user:test-user', subject_display: 'test-user@example.com', actor_ref: 'workload:agentgateway',
         correlation_id: 'request-1', source: 'cas', reason_code: 'NO_CAPABILITY',
         resource_ref: 'tool:example/list', failed_gate: 'caller_tool', decision_id: 'decision-1',
-        gateway_operation: 'tools/call', agent_ref: 'agent:example' }], total: 1, page: 1, limit: 30,
+        gateway_operation: 'tools/call', agent_ref: 'agent:example' }], cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', limit: 30,
     }) });
     render(<UnifiedAuditTab isAdmin view="decisions" initialSubjectRef="user:test-user" />);
     expect(await screen.findByText('Denied: call tool example/list')).toBeInTheDocument();
@@ -58,12 +83,12 @@ describe('UnifiedAuditTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     await waitFor(() => expect(screen.getByLabelText('Decision ID')).toHaveValue(''));
     expect(screen.getByLabelText('Audit event type')).toHaveValue('cas_decision');
-    expect(screen.getByLabelText('Audit event type')).toBeDisabled();
+    expect(screen.getByLabelText('Audit event type')).toBeEnabled();
   });
 
   it('does not present an audit outage as an empty decision history', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
-      records: [], total: 0, page: 1, limit: 30, auditUnavailable: true, warning: 'Audit service unavailable',
+      records: [], cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', limit: 30, auditUnavailable: true, warning: 'Audit service unavailable',
     }) });
     render(<UnifiedAuditTab isAdmin view="decisions" />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No conclusion can be drawn');
@@ -74,7 +99,7 @@ describe('UnifiedAuditTab', () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
       records: [{ ts: '2026-10-13T12:00:00Z', type: 'cas_decision', outcome: 'deny', action: 'call',
         tenant_id: 'default', subject_display: 'test-user@example.com', correlation_id: 'request-1',
-        source: 'cas', resource_ref: 'tool:example/list' }], total: 1, page: 1, limit: 30,
+        source: 'cas', resource_ref: 'tool:example/list' }], cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', limit: 30,
     }) });
     render(<UnifiedAuditTab isAdmin view="decisions" />);
     expect(await screen.findByText('Principal not recorded')).toBeInTheDocument();
@@ -99,8 +124,7 @@ describe('UnifiedAuditTab', () => {
             source: 'bff',
           },
         ],
-        total: 1,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -114,10 +138,10 @@ describe('UnifiedAuditTab', () => {
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("window=5m"),
     );
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("time_resolution=minute"),
-    );
-    expect(await screen.findByText(/RBAC Audit Log/i)).toBeInTheDocument();
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).not.toContain('time_resolution=');
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).not.toContain('page=');
+    expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).includes('/api/admin/audit-storage'))).toBe(false);
+    expect(await screen.findByText(/Security audit/i)).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /^Last 5 min$/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /^All event types$/i })).toBeInTheDocument();
     expect(screen.queryByText(/Default view hides routine admin page-view checks/i)).not.toBeInTheDocument();
@@ -145,8 +169,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [],
-          total: 0,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       });
@@ -175,8 +198,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [],
-          total: 0,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       });
@@ -217,8 +239,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [],
-          total: 0,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       });
@@ -251,8 +272,7 @@ describe('UnifiedAuditTab', () => {
             resource_ref: 'user:alice can_use agent:default',
           },
         ],
-        total: 1,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -285,8 +305,7 @@ describe('UnifiedAuditTab', () => {
               trace_id: '0123456789abcdef0123456789abcdef',
             },
           ],
-          total: 1,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       });
@@ -303,7 +322,7 @@ describe('UnifiedAuditTab', () => {
   it('shows event type and outcome definition help', async () => {
     render(<UnifiedAuditTab isAdmin />);
 
-    await screen.findByText(/RBAC Audit Log/i);
+    await screen.findByText(/Security audit/i);
 
     const typeHelp = screen.getByRole('button', { name: /event type definitions/i });
     fireEvent.click(typeHelp);
@@ -351,8 +370,7 @@ describe('UnifiedAuditTab', () => {
             resource_ref: 'agent:platform-engineer',
           },
         ],
-        total: 2,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -398,8 +416,7 @@ describe('UnifiedAuditTab', () => {
             resource_id: 'openfga_relationship_tuples',
           },
         ],
-        total: 1,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -431,7 +448,7 @@ describe('UnifiedAuditTab', () => {
             action: 'manage',
             tenant_id: 'default',
             subject_hash: 'sha256:9accc8a00ffe8ae4451e81d95686e1f4',
-            user_email: 'sraradhy@cisco.com',
+            user_email: 'operator@example.test',
             correlation_id: 'af9c0e92-3060-46de-bb16-db3e26c4f973',
             source: 'cas',
             component: 'cas',
@@ -443,8 +460,7 @@ describe('UnifiedAuditTab', () => {
             decision_via: 'tuple',
           },
         ],
-        total: 1,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -452,7 +468,7 @@ describe('UnifiedAuditTab', () => {
     render(<UnifiedAuditTab isAdmin />);
 
     expect(await screen.findByText(/Allowed to manage organization caipe/i)).toBeInTheDocument();
-    expect(screen.getByText(/sraradhy@cisco.com/i)).toBeInTheDocument();
+    expect(screen.getByText(/operator@example.test/i)).toBeInTheDocument();
     expect(screen.getByText(/OpenFGA tuple/i)).toBeInTheDocument();
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent?.trim());
     expect(headers.indexOf('Actor')).toBeLessThan(headers.indexOf('Request'));
@@ -488,8 +504,7 @@ describe('UnifiedAuditTab', () => {
             resource_id: 'adbf4d53-cdd2-493c-b613-06f7c25f4709',
           },
         ],
-        total: 1,
-        page: 1,
+        cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         limit: 30,
       }),
     });
@@ -553,8 +568,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [],
-          total: 0,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       },
@@ -562,8 +576,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [],
-          total: 0,
-          page: 1,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 30,
         }),
       },
@@ -571,8 +584,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [pageOneRecord],
-          total: 2,
-          page: 1,
+          cursor: 'first', next_cursor: 'second', since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 200,
         }),
       },
@@ -580,8 +592,7 @@ describe('UnifiedAuditTab', () => {
         ok: true,
         json: async () => ({
           records: [pageTwoRecord],
-          total: 2,
-          page: 2,
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
           limit: 200,
         }),
       },
@@ -612,8 +623,7 @@ describe('UnifiedAuditTab', () => {
           ok: true,
           json: async () => ({
             records: [],
-            total: 0,
-            page: 1,
+            cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
             limit: 30,
           }),
         },
@@ -622,7 +632,7 @@ describe('UnifiedAuditTab', () => {
 
     render(<UnifiedAuditTab isAdmin />);
 
-    await screen.findByText(/RBAC Audit Log/i);
+    await screen.findByText(/Security audit/i);
     fireEvent.change(screen.getAllByRole('combobox')[1], {
       target: { value: 'cas_decision' },
     });
@@ -638,7 +648,7 @@ describe('UnifiedAuditTab', () => {
 
     expect(auditEventUrls[2]).toContain('type=cas_decision');
     expect(auditEventUrls[2]).toContain('limit=200');
-    expect(auditEventUrls[3]).toContain('page=2');
+    expect(auditEventUrls[3]).toContain('cursor=second');
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-0');
 
@@ -654,7 +664,7 @@ describe('UnifiedAuditTab', () => {
     expect(manifest).toMatchObject({
       format: 'raw-json-zip',
       filters: { type: 'cas_decision' },
-      total: 2,
+      as_of: '2026-01-02T00:00:00Z',
       record_count: 2,
     });
     expect(manifest.files).toEqual(['audit-events.json', 'manifest.json']);

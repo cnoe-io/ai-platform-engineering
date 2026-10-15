@@ -12,8 +12,8 @@ export interface AuditConfigResponse {
 function storageLabelFor(backend: string, storageBackend?: string): string {
   if (["off", "disabled", "none"].includes(backend)) return "Storage: disabled";
   if (backend !== "service") return `Storage: ${backend} (unsupported)`;
-  if (storageBackend === "s3") return "Storage: audit-service -> S3";
-  if (storageBackend === "local") return "Storage: audit-service -> local disk";
+  if (storageBackend === "s3") return "Queries: MongoDB · Archive: S3";
+  if (storageBackend === "local") return "Queries: MongoDB · Archive: local disk";
   return "Storage: audit-service";
 }
 
@@ -23,7 +23,9 @@ async function checkAuditService(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1_000);
   try {
-    const response = await fetch(`${serviceUrl.replace(/\/$/, "")}/v1/audit/status`, {
+    // Query readiness is independent of archive health. A slow/unavailable S3
+    // archive must not make readable MongoDB history appear unavailable.
+    const response = await fetch(`${serviceUrl.replace(/\/$/, "")}/readyz`, {
       cache: "no-store",
       signal: controller.signal,
     });

@@ -211,7 +211,7 @@ async function fetchMcpActivityStats(rangeStart: Date, rangeEnd: Date): Promise<
     }
     const body = (await response.json()) as {
       records?: Array<{ ts?: string; subject_ref?: string; count?: number }>;
-      total?: number;
+      next_cursor?: string | null;
     };
     const records = body.records ?? [];
 
@@ -253,7 +253,7 @@ async function fetchMcpActivityStats(rangeStart: Date, rangeEnd: Date): Promise<
       total_events: records.reduce((sum, record) => sum + (typeof record.count === 'number' ? record.count : 1), 0),
       unique_users: uniqueSubjects.size,
       daily,
-      range_capped: rangeCapped,
+      range_capped: rangeCapped || Boolean(body.next_cursor),
     };
   } catch (err) {
     console.warn('Direct MCP Activity: audit-service unavailable', err);

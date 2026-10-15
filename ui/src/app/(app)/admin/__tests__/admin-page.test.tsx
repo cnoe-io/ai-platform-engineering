@@ -1061,8 +1061,7 @@ describe('Admin Dashboard Page', () => {
     });
 
     it.each([
-      ["auditTab=decisions", "Access decisions", "unified-audit-tab"],
-      ["auditTab=rbac", "RBAC", "unified-audit-tab"],
+      ["auditTab=decisions", "Security audit", "unified-audit-tab"],
       ["auditTab=chat", "Chat", "audit-logs-tab"],
       ["auditTab=self-check", "Self-check", "rbac-self-check-tab"],
     ])('selects the Audit %s submenu',async (query,tabLabel,testId) => {
@@ -1183,7 +1182,7 @@ describe('Admin Dashboard Page', () => {
       currentPathname = path;
       currentSearchParams = new URLSearchParams(
         path === "/admin/security/audit"
-          ? "auditTab=rbac"
+          ? "auditTab=decisions"
           : path === "/admin/security/access-operations"
             ? "operationsTab=access-explorer"
             : "",
