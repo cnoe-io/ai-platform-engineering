@@ -7,7 +7,7 @@ import requests
 from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin
 
-from common.ingestor_listener import standalone_ingestion_claim
+from common.ingestor_listener import run_standalone_ingestion
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
@@ -323,9 +323,7 @@ async def sync_argocd_entities(client: Client):
     reload_interval=SYNC_INTERVAL,
     metadata={"argocd_url": SERVER_URL, "filter_projects": FILTER_PROJECTS, "verify_ssl": ARGOCD_VERIFY_SSL, "ignore_fields": IGNORE_FIELD_LIST},
   )
-  async with standalone_ingestion_claim(datasource_info.datasource_id) as acquired:
-    if not acquired:
-      return
+  async def sync_datasource() -> None:
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
 
@@ -486,6 +484,8 @@ async def sync_argocd_entities(client: Client):
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
       logging.error(error_msg, exc_info=True)
       raise
+
+  await run_standalone_ingestion(datasource_info.datasource_id, sync_datasource)
 
 
 if __name__ == "__main__":

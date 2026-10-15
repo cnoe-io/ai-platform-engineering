@@ -17,7 +17,7 @@ from typing import Any, Optional, Type
 
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from common.mongo_storage import MongoStorage, CURRENT_CLAIM, LEASE_SECONDS
+from common.mongo_storage import MongoStorage, CURRENT_CLAIM, LEASE_SECONDS, IngestionLeaseLostError
 
 from common.constants import MIN_RELOAD_INTERVAL, ingestor_request_queue
 from common.ingestor import Client
@@ -45,23 +45,32 @@ async def ingestion_claim(storage: MongoStorage, datasource_id: str | None, job_
     return
   context = CURRENT_CLAIM.set(claim)
   owner = asyncio.current_task()
+  assert owner is not None
+  lease_lost = False
 
   async def heartbeat() -> None:
+    nonlocal lease_lost
     try:
       while True:
         await asyncio.sleep(LEASE_SECONDS / 3)
         if not await storage.renew(claim, command):
+          lease_lost = True
           owner.cancel()
           return
     except asyncio.CancelledError:
       raise
     except Exception:
       logger.exception("Ingestion lease renewal failed")
+      lease_lost = True
       owner.cancel()
 
   heartbeat_task = asyncio.create_task(heartbeat())
   try:
     yield True
+  except asyncio.CancelledError as error:
+    if lease_lost and owner.uncancel() == 0:
+      raise IngestionLeaseLostError("Ingestion lease expired; retry explicitly") from error
+    raise
   finally:
     heartbeat_task.cancel()
     await asyncio.gather(heartbeat_task, return_exceptions=True)
@@ -70,17 +79,30 @@ async def ingestion_claim(storage: MongoStorage, datasource_id: str | None, job_
       await storage.release_datasource(claim)
 
 
-@asynccontextmanager
-async def standalone_ingestion_claim(datasource_id: str) -> AsyncIterator[bool]:
-  """Apply the same datasource lease to deployment-managed connectors."""
+async def run_claimed_ingestion(
+  storage: MongoStorage, datasource_id: str, operation: Callable[[], Awaitable[None]],
+) -> bool:
+  """Confine lease cancellation to one operation, preserving its scheduler."""
+  async def run() -> bool:
+    async with ingestion_claim(storage, datasource_id) as acquired:
+      if acquired:
+        await operation()
+      return acquired
+  return await asyncio.create_task(run())
+
+
+async def run_standalone_ingestion(datasource_id: str, operation: Callable[[], Awaitable[None]]) -> bool:
+  """Apply the shared datasource lease to a deployment-managed sync operation."""
   if os.getenv("RAG_WRITES_PAUSED", "false").lower() == "true":
-    yield False
-    return
+    return False
   storage = MongoStorage()
   try:
     await storage.setup()
-    async with ingestion_claim(storage, datasource_id) as acquired:
-      yield acquired
+    try:
+      return await run_claimed_ingestion(storage, datasource_id, operation)
+    except IngestionLeaseLostError:
+      logger.exception("Datasource ingestion lost its lease: %s", datasource_id)
+      return False
   finally:
     await storage.aclose()
 
@@ -159,12 +181,14 @@ async def reload_persisted_datasources(
           f"Reloading persisted datasource {datasource.datasource_id} "
           f"(interval: {reload_interval}s)"
         )
-        async with ingestion_claim(job_manager.storage, datasource.datasource_id) as acquired:
-          if not acquired:
-            skipped += 1
-            continue
-          await reload_handler(client, job_manager, datasource, None)
+        acquired = await run_claimed_ingestion(
+          job_manager.storage, datasource.datasource_id,
+          lambda: reload_handler(client, job_manager, datasource, None),
+        )
+        if acquired:
           reloaded += 1
+        else:
+          skipped += 1
       except Exception as error:
         logger.error(f"Failed to reload datasource {datasource.datasource_id}: {error}")
         logger.error(traceback.format_exc())
@@ -274,8 +298,15 @@ async def run_ingestor_listener(
           return
         try:
           await coro
-        except BaseException as error:
-          await asyncio.shield(_mark_job_failed(job_manager, job_id, RuntimeError(str(error) or "Ingestor stopped before completion")))
+        except asyncio.CancelledError:
+          try:
+            await asyncio.shield(_mark_job_failed(job_manager, job_id, RuntimeError("Ingestor stopped before the job completed")))
+            await asyncio.shield(redis_client.finish_command(command, failed=True))
+          except Exception as status_error:
+            logger.error(f"Failed to record interrupted command {command['_id']}: {status_error}")
+          raise
+        except Exception as error:
+          await _mark_job_failed(job_manager, job_id, error)
           await redis_client.finish_command(command, failed=True)
           raise
         await redis_client.finish_command(command)
@@ -421,7 +452,10 @@ async def run_ingestor_listener(
               "error": str(error) or error.__class__.__name__,
             },
           )
-        await redis_client.finish_command(result, failed=True)
+        try:
+          await redis_client.finish_command(result, failed=True)
+        except Exception as finish_error:
+          logger.error(f"Failed to finish invalid command on {queue}: {finish_error}")
         request_job_id = request.job_id if request else None
         try:
           await _mark_job_failed(job_manager, request_job_id, error)
