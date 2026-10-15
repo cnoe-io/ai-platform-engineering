@@ -743,8 +743,11 @@ _ensure_caipe_ui_slack_admin_client_credentials() {
     echo "[init-idp] Failed to reconcile Slack directory client scope."
     return 1
   fi
-  curl -sf -X PUT -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/default-client-scopes/${DIRECTORY_SCOPE_ID}" >/dev/null
+  if ! curl -sf -X PUT -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}/default-client-scopes/${DIRECTORY_SCOPE_ID}" >/dev/null; then
+    echo "[init-idp] Failed to bind slack:directory:read to ${BFF_CLIENT_ID}."
+    return 1
+  fi
 
   local UPDATED_UI_CLIENT_JSON
   UPDATED_UI_CLIENT_JSON=$(printf '%s' "${UI_CLIENT_JSON}" | \

@@ -11,8 +11,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any
 
+import pytest
 
-def test_directory_role_reconcile_grants_only_the_service_account() -> None:
+
+@pytest.mark.parametrize("binding_fails", [False, True])
+def test_directory_role_reconcile_grants_only_the_service_account(binding_fails: bool) -> None:
     state: dict[str, Any] = {
         "client": {"id": "example-client-id", "clientId": "example-ui", "protocolMappers": []},
         "role": None,
@@ -40,6 +43,9 @@ def test_directory_role_reconcile_grants_only_the_service_account() -> None:
             self.wfile.write(json.dumps(payload).encode())
 
         def do_PUT(self) -> None:
+            if binding_fails and "/default-client-scopes/" in self.path:
+                self.send_error(500)
+                return
             size = int(self.headers.get("Content-Length", "0"))
             if size:
                 state["client"] = json.loads(self.rfile.read(size))
@@ -76,6 +82,12 @@ def test_directory_role_reconcile_grants_only_the_service_account() -> None:
         }
         for _ in range(2):
             result = subprocess.run(["bash", "-c", command], env=environment, capture_output=True, text=True, timeout=15)
+            if binding_fails:
+                assert result.returncode != 0
+                assert "Failed to bind slack:directory:read" in result.stdout
+                assert not state["assignments"]
+                assert not state["client"].get("serviceAccountsEnabled")
+                return
             assert result.returncode == 0, result.stderr
     finally:
         server.shutdown()
