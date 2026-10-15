@@ -1,6 +1,7 @@
 import net from "node:net";
 
 import { NextRequest, NextResponse } from "next/server";
+import { auditServiceUrl } from "@/lib/audit";
 
 import {
   getInternalA2AUrl,
@@ -99,10 +100,6 @@ function envPort(name: string, defaultPort: number): number {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
-}
-
-function auditServiceUrl(): string {
-  return (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(/\/$/, "");
 }
 
 function isHealthyStatusPayload(payload: unknown): boolean {

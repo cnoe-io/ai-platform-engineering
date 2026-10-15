@@ -2,14 +2,14 @@
 import { createHmac } from "crypto";
 import { NextRequest } from "next/server";
 import { POST, GET, DELETE, HEAD, OPTIONS } from "@/app/api/access/gateway/check/route";
-import { getAuditBackend } from "@/lib/audit";
+import { getAuditClient } from "@/lib/audit";
 import { authorizeGateway, signGatewayContext } from "../index";
 import { verifyGatewayContext } from "../gateway-context";
 import { __resetAdapterStateForTests } from "../engines/openfga";
 import { flushAllowRollups } from "../audit";
 import type { Subject } from "../contract";
 
-jest.mock("@/lib/audit", () => ({ getAuditBackend: jest.fn(() => ({ write: jest.fn() })) }));
+jest.mock("@/lib/audit", () => ({ getAuditClient: jest.fn(() => ({ append: jest.fn() })) }));
 
 const caller: Subject = { type: "user", id: "test-user" };
 const credential = "test-gateway-credential-with-32-characters";
@@ -45,7 +45,7 @@ beforeEach(() => {
   delete process.env.CAIPE_ORG_KEY;
   __resetAdapterStateForTests();
   jest.clearAllMocks();
-  jest.mocked(getAuditBackend).mockReturnValue({ write: writeAudit } as ReturnType<typeof getAuditBackend>);
+  jest.mocked(getAuditClient).mockReturnValue({ append: writeAudit } as ReturnType<typeof getAuditClient>);
   graphCalls.length = 0;
   graphAllows = () => true;
   global.fetch = jest.fn(async (_url, init) => {

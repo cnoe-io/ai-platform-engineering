@@ -5,21 +5,31 @@ Authorization policy and audit delivery are separate: an unavailable audit store
 
 ```mermaid
 flowchart LR
-    P[CAIPE components] -->|Submit events| A[Audit service]
+    subgraph BFF
+      C[CAS · decision owner] -->|append event| Q[One audit client]
+      B[Audit API · audit.view + tenant] -->|queryPage| Q
+    end
+    C <-->|Permission checks| F[OpenFGA]
+    Q -->|POST events / GET page| A
+    subgraph AUDIT[Audit service · separate process]
+      A[Ingest + query API]
+      W[Archive worker]
+    end
     A -->|Persist before acknowledging| M[(MongoDB)]
-    U[Admin · Security audit] --> B[BFF · audit.view gate]
-    B -->|Filters + cursor| A
+    U[Admin · Security audit] --> B
     A -->|Indexed page| M
-    M -. Durable archive backlog .-> W[Archive worker]
+    M -. Durable archive backlog .-> W
     W --> S[(S3 / local archive)]
 ```
 
 - One **Security audit** view replaces the overlapping Access decisions/RBAC views. It starts with CAS decisions; policy changes, authentication and other event types remain available through filters.
 - Each request returns one bounded page. The BFF no longer downloads earlier pages or scans S3 for every click.
+- BFF audit reads and writes use `ui/src/lib/audit/client.ts`, not separate backend/reader factories or route-local event fetches. CAS builds its typed decision, grant and reconciliation events; transport preserves them.
 - Next/Previous retain the query's time range and ingestion cutoff. Refresh starts a new query. ZIP export follows the same cursor contract.
 - A `48h` filter is a viewing window, not retention. Query retention defaults to no expiry; archive retention remains separately configured.
 - An empty result is not proof that an operation never happened. Producer delivery remains best-effort; read outages are shown explicitly.
 - Component provenance and signed caller context are **not** added by this change.
+- The diagram focuses on CAS. Remaining service adoption and retirement of their independent decision writers are tracked under #2884; this is not a claim that all authorization is already centralized.
 - MongoDB capacity is a rollout trade-off, not a free performance guarantee. Producers remain buffered, but sharing the app's MongoDB still shares database resources; high-volume deployments can use a separate instance. Validate load before production.
 
 ## Upgrade requirement

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auditServiceUrl } from "@/lib/audit";
 
 export interface AuditConfigResponse {
   backend: string;
@@ -46,7 +47,7 @@ async function checkAuditService(
 
 export async function GET(): Promise<NextResponse<AuditConfigResponse>> {
   const backend = (process.env.AUDIT_LOG_BACKEND ?? "service").trim().toLowerCase();
-  const serviceUrl = process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010";
+  const serviceUrl = auditServiceUrl();
 
   if (["off", "disabled", "none"].includes(backend)) {
     return NextResponse.json({

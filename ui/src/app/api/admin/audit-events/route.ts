@@ -1,5 +1,6 @@
 import { ApiError, requireRbacPermission, withErrorHandler } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
+import { AuditServiceError, getAuditClient, type AuditQuery } from "@/lib/audit";
 import type { GatewayCheck } from "@/lib/authz";
 import type {
   AuditEventType,
@@ -123,10 +124,6 @@ interface ServiceAccountIdentityDocument {
   client_id?: string;
   name?: string;
   status?: string;
-}
-
-function auditServiceBaseUrl(): string {
-  return (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(/\/$/, "");
 }
 
 function normalizeAuditSource(
@@ -445,32 +442,14 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
 }
 
 async function queryAuditService(
-  params: URLSearchParams,
+  query: AuditQuery,
 ): Promise<{ records: AuditEventDocument[]; cursor?: string; next_cursor: string | null; since?: string; until?: string; as_of?: string; warning?: string }> {
   try {
-    const response = await fetch(`${auditServiceBaseUrl()}/v1/audit/events?${params.toString()}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.status === 400) {
-      throw new ApiError("Invalid audit query or expired cursor; start a new query", 400, "VALIDATION_ERROR");
-    }
-    if (!response.ok) {
-      const warning = `Audit queries unavailable (HTTP ${response.status}); no conclusions can be drawn from these results`;
-      console.warn(`[audit-events] ${warning}`);
-      return { records: [], next_cursor: null, warning };
-    }
-    const body = (await response.json()) as { records: AuditEventDocument[]; cursor: string; next_cursor: string | null; since: string; until: string; as_of: string };
-    if (!Array.isArray(body.records) || !(body.next_cursor === null || typeof body.next_cursor === "string") ||
-        !body.cursor || !body.since || !body.until || !body.as_of) throw new Error("Invalid audit query response");
-    return {
-      records: body.records,
-      next_cursor: body.next_cursor,
-      cursor: body.cursor,
-      since: body.since, until: body.until, as_of: body.as_of,
-    };
+    return await getAuditClient().queryPage<AuditEventDocument>(query);
   } catch (error) {
-    if (error instanceof ApiError) throw error;
+    if (error instanceof AuditServiceError && error.statusCode === 400) {
+      throw new ApiError(error.message, 400, "VALIDATION_ERROR");
+    }
     const warning = "Audit queries unavailable; no conclusions can be drawn from these results";
     console.warn("[audit-events]", warning, error);
     return { records: [], next_cursor: null, warning };
@@ -556,26 +535,26 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     throw new ApiError("`limit` must be between 1 and 200", 400, "VALIDATION_ERROR");
   }
 
-  const serviceParams = new URLSearchParams({ limit: String(limit), window: window.name });
+  const query: AuditQuery = { limit, window: window.name };
   // Preserve relative parameters across pages. The service pins their range
   // and ingestion cutoff in its cursor; computing fresh dates here would drift.
-  if (fromParam) serviceParams.set("since", from.toISOString());
-  if (toParam) serviceParams.set("until", to.toISOString());
+  if (fromParam) query.since = from;
+  if (toParam) query.until = to;
   const cursor = url.searchParams.get("cursor");
-  if (cursor) serviceParams.set("cursor", cursor);
-  if (session.org) serviceParams.set("tenant_id", session.org);
-  if (typeParam) serviceParams.set("type", typeParam);
-  if (agentName) serviceParams.set("agent_name", agentName);
-  if (toolName) serviceParams.set("tool_name", toolName);
-  if (outcomeParam) serviceParams.set("outcome", outcomeParam);
-  if (userEmail) serviceParams.set("user_email", userEmail);
-  if (component) serviceParams.set("component", component);
-  if (correlationId) serviceParams.set("correlation_id", correlationId);
-  if (decisionId) serviceParams.set("decision_id", decisionId);
-  if (subjectRef) serviceParams.set("subject_ref", subjectRef);
-  if (resourceRef) serviceParams.set("resource_ref", resourceRef);
+  if (cursor) query.cursor = cursor;
+  if (session.org) query.tenant_id = session.org;
+  if (typeParam) query.type = typeParam;
+  if (agentName) query.agent_name = agentName;
+  if (toolName) query.tool_name = toolName;
+  if (outcomeParam) query.outcome = outcomeParam;
+  if (userEmail) query.user_email = userEmail;
+  if (component) query.component = component;
+  if (correlationId) query.correlation_id = correlationId;
+  if (decisionId) query.decision_id = decisionId;
+  if (subjectRef) query.subject_ref = subjectRef;
+  if (resourceRef) query.resource_ref = resourceRef;
 
-  const { records: docs, cursor: pageCursor, next_cursor, since, until, as_of, warning } = await queryAuditService(serviceParams);
+  const { records: docs, cursor: pageCursor, next_cursor, since, until, as_of, warning } = await queryAuditService(query);
   const currentPrincipal = currentPrincipalFromSession(session);
   const pageDocs = docs.map((doc) => withReadablePrincipalFields(doc, currentPrincipal));
   const principalDisplays = await loadPrincipalDisplayMap(pageDocs, currentPrincipal);

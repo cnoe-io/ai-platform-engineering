@@ -1,15 +1,21 @@
 # Audit service
 
 MongoDB serves audit queries. Local disk or S3 stores archive batches.
-Producers still submit events to the audit service; the BFF never reads its Mongo collections directly.
+The BFF uses one audit client (`ui/src/lib/audit/client.ts`) for event submission and cursor queries; it never reads the service's Mongo collections directly. CAS owns its event contract and decision evidence. Other service migrations are separate work (#2884).
 
 ```text
-Producers ──POST──► Audit service ──persist──► MongoDB ──then──► 202
-                         │                     │
-Admin UI ◄──BFF◄──cursor page───────────────────┘
-                         │
-                 background archive worker ──► S3 / local disk
+CAS ──append──► BFF audit client ◄──queryPage── BFF audit API ◄── Admin UI
+                       │
+                    POST / GET
+                       ▼
+                 Audit service ◄──► MongoDB
+                       │
+                 background archive ──► S3 / local disk
 ```
+
+- `append(event)` buffers best-effort writes into bounded, single-flight HTTP batches. Failed submissions are logged, not automatically retried; this is not a durable BFF queue.
+- `queryPage(filters)` validates the cursor response and throws a typed 400/503 error, never an empty success on failure. The Security audit route exposes unavailable history explicitly; advisory diagnostics choose their fallback at the caller.
+- CAS retains individual denials, allow rollups, bulk/list summaries, grant and reconciliation events. Historical and non-CAS payloads remain readable; no new producer migration or provenance mechanism is introduced here.
 
 ## Configuration
 

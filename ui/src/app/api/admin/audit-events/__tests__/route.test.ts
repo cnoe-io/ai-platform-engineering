@@ -303,6 +303,7 @@ function mockAuditServiceFetch() {
     return new Response(
       JSON.stringify({
         records: filtered.slice(0, Number.isFinite(limit) ? limit : filtered.length),
+        limit,
         cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
       }),
       { status: 200, headers: { "content-type": "application/json" } },
@@ -380,7 +381,7 @@ describe("GET /api/admin/audit-events", () => {
       gateway_operation: "tools/call", agent_ref: "agent:example", access_token: "must-not-be-returned",
       gateway_policy: "Caller and agent must independently have access.",
       gateway_checks: [{ gate: "caller_tool", subject_ref: "user:test-user", relation: "can_call", resource_ref: "tool:example/list", decision: "DENY", reason: "NO_CAPABILITY", access_token: "nested-token-must-not-be-returned" }],
-    }], cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', })));
+    }], limit: 50, cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', })));
     const { GET } = await import("../route");
     const response = await GET(request("/api/admin/audit-events?type=cas_decision&decision_id=decision-1&correlation_id=request-1&subject_ref=user%3Atest-user&resource_ref=tool%3Aexample%2Flist"));
     const body = await response.json();
@@ -401,7 +402,7 @@ describe("GET /api/admin/audit-events", () => {
   });
 
   it.each([{ value: "invalid" }, { value: [null] }, { value: [{ gate: "unexpected", subject_ref: "user:test-user", decision: "ALLOW", reason: "OK" }] }])("does not render malformed chain evidence %j", async ({ value: gateway_checks }) => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ records: [{ ts: "2026-10-14T12:00:00Z", type: "cas_decision", outcome: "deny", tenant_id: "default", correlation_id: "request-1", gateway_checks }], cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', })));
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ records: [{ ts: "2026-10-14T12:00:00Z", type: "cas_decision", outcome: "deny", tenant_id: "default", correlation_id: "request-1", gateway_checks }], limit: 50, cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', })));
     const { GET } = await import("../route");
     const response = await GET(request("/api/admin/audit-events?type=cas_decision"));
     expect(response.status).toBe(200);
@@ -634,7 +635,7 @@ describe("GET /api/admin/audit-events", () => {
               deletes: 1,
             },
           ],
-          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
+          limit: 50, cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
