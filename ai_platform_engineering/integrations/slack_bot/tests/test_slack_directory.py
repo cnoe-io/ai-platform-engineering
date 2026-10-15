@@ -99,6 +99,18 @@ def test_partial_failure_retains_last_complete_snapshot() -> None:
   assert service._entries[service._key("users", service._token())].last_error
 
 
+@pytest.mark.parametrize("query", ["example", "Example", "EXAMPLE"])
+def test_user_search_is_case_insensitive(query: str) -> None:
+  service = SlackDirectoryService(request_get=lambda *_args, **_kwargs: Response({
+    "ok": True, "members": [{"id": "U1", "name": "example"}],
+  }))
+  service.users({"q": query})
+  settled(service)
+  result = service.users({"q": query})
+  assert [user["id"] for user in result["users"]] == ["U1"]
+  assert result["query"]["q"] == query
+
+
 def test_email_lookup_bot_filter_and_not_found() -> None:
   def request(_url: str, **kwargs: Any) -> Response:
     if kwargs["params"]["email"] == "missing@example.com":

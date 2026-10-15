@@ -277,7 +277,7 @@ class SlackDirectoryService:
       rows = [row for row in rows if row.get("is_bot") or row.get("is_workflow")]
     total = len(rows)
     if q:
-      scored = [(row, _user_score(row, q) if kind == "users" else min(_fuzzy_score(row["name"], q), _fuzzy_score(row.get("alias_for", ""), q))) for row in rows]
+      scored = [(row, _user_score(row, q.lower()) if kind == "users" else min(_fuzzy_score(row["name"], q), _fuzzy_score(row.get("alias_for", ""), q))) for row in rows]
       rows = [row for row, _score in sorted((pair for pair in scored if math.isfinite(pair[1])), key=lambda pair: (pair[1], pair[0].get("label", pair[0].get("name", "")).casefold()))]
     public = [{k: v for k, v in row.items() if k != "search_terms"} for row in rows[:limit]]
     return {kind: public, "total_matches": len(rows), "total_visible": total, "cached": True, "refreshing": refreshing, "fetched_at": fetched_at, "query": query}
