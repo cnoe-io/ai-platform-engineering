@@ -36,6 +36,6 @@ flowchart LR
 
 Deploy the audit service and BFF/UI together. The offset/page/total API is intentionally replaced, not maintained alongside the new one.
 
-Existing history needs a one-off, idempotent archive-to-Mongo backfill. The script defaults to dry-run and never changes source archives. Drain the old collector before cutover and verify the final overlapping migration before resuming traffic. No CAS grant or identity migration is involved.
+Existing history needs a one-off, idempotent archive-to-Mongo backfill as part of the CAS release migration. It lives under `audit_service/scripts/cas_migration/`, defaults to dry-run and is never run automatically by the service. It never changes source archives. Drain the old collector before cutover and verify the final overlapping migration before resuming traffic. No CAS grant or identity migration is involved.
 
 See the [audit-service README](https://github.com/caipe-io/ai-platform-engineering/blob/main/ai_platform_engineering/audit_service/README.md) for API fields, MongoDB/Helm settings, migration commands, recovery behavior and rollback.

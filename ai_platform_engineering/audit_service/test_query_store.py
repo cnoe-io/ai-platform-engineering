@@ -22,7 +22,7 @@ from pymongo.errors import AutoReconnect
 from ai_platform_engineering.audit_service.archive_worker import ArchiveWorker
 from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.main import create_app
-from ai_platform_engineering.audit_service.migrate_query_store import backfill, local_records, s3_records
+from ai_platform_engineering.audit_service.scripts.cas_migration.migrate_query_store import backfill, local_records, s3_records
 from ai_platform_engineering.audit_service.query_store import CursorError, EventConflict, MongoAuditStore
 from ai_platform_engineering.audit_service.storage import AuditQuery, S3AuditStore
 

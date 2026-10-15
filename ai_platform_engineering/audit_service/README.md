@@ -59,15 +59,17 @@ The browser uses `/api/admin/audit-events` with the same cursor fields and its e
 - Producer-side buffers remain best-effort. This does **not** make audit delivery end-to-end lossless, nor does it change authorization decisions when audit delivery fails.
 - Keep the service internal. Its HTTP API has no new authentication mechanism; transport and signed provenance remain separate work.
 
-## One-off migration and coordinated cutover
+## CAS release migration and coordinated cutover
 
 This upgrade intentionally has no old-query compatibility mode. Deploy the matching audit service and BFF/UI together.
+
+`scripts/cas_migration/migrate_query_store.py` is a one-off step in the CAS release migration. Operators run it explicitly during the release cutover; the audit service never runs it on startup or as a background job.
 
 1. Back up MongoDB and inventory the archive source(s). Protect local files from retention cleanup during migration; S3 lifecycle or another writer must not remove objects being scanned. Preserve all archive data.
 2. Run the **new image's migration command** against the existing archive, with MongoDB connection and archive environment settings injected through Secrets. Dry-run reads/validates the archive but does not connect to or modify MongoDB:
 
    ```bash
-   python -m ai_platform_engineering.audit_service.migrate_query_store \
+   python -m ai_platform_engineering.audit_service.scripts.cas_migration.migrate_query_store \
      --since 2026-10-01T00:00:00Z --until 2026-10-15T00:00:00Z
    ```
 

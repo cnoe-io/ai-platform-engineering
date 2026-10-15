@@ -1,4 +1,4 @@
-"""One-off, restartable archive-to-Mongo backfill. Dry-run unless --apply is set."""
+"""CAS release migration: one-off archive-to-Mongo backfill; dry-run unless --apply is set."""
 
 from __future__ import annotations
 
