@@ -909,6 +909,7 @@ class TestPeriodicReload:
 
   @pytest.fixture(autouse=True)
   def _mock_storage(self, monkeypatch):
+    monkeypatch.setattr(ingestor_module, "redis_client", AsyncMock())
     manager = make_job_manager()
     manager.storage = AsyncMock()
     monkeypatch.setattr(ingestor_module, "JobManager", MagicMock(return_value=manager))

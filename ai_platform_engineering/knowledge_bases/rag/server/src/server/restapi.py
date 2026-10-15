@@ -344,6 +344,7 @@ async def app_lifespan(app: FastAPI):
   global ingestor
 
   redis_client = create_storage()
+  await redis_client.setup()
   metadata_storage = MetadataStorage(redis_client=redis_client)
   jobmanager = JobManager(redis_client=redis_client)
 

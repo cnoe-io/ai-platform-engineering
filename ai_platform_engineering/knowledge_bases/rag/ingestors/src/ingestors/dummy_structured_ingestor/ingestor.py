@@ -4,7 +4,7 @@ import logging
 from typing import List
 from pydantic import BaseModel
 
-from common.ingestor_listener import standalone_ingestion_claim
+from common.ingestor_listener import run_standalone_ingestion
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
@@ -55,9 +55,7 @@ async def sync_entities(client: Client):
     reload_interval=SYNC_INTERVAL,
     metadata={"file_path": file_path},
   )
-  async with standalone_ingestion_claim(datasource_info.datasource_id) as acquired:
-    if not acquired:
-      return
+  async def sync_datasource() -> None:
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
 
@@ -86,6 +84,8 @@ async def sync_entities(client: Client):
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=f"Ingestion failed: {e}")
       logging.error(f"StructuredEntity ingestion failed: {e}")
       raise
+
+  await run_standalone_ingestion(datasource_info.datasource_id, sync_datasource)
 
 
 if __name__ == "__main__":
