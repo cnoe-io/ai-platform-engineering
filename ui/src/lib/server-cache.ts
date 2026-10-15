@@ -45,11 +45,13 @@ export type CacheMetrics = {
 const DEFAULT_MAX_ENTRIES = 500;
 const DEFAULT_LOAD_CONCURRENCY = 2;
 const DEFAULT_LOAD_DEADLINE_MS = 5_000;
+const DEFAULT_REDIS_OPERATION_DEADLINE_MS = 1_000;
 const REDIS_COOLDOWN_MS = 30_000;
 const REDIS_LEASE_MS = 15_000;
 const REDIS_POLL_MS = 75;
 const localEntries = new Map<string, LocalEntry>();
 const inFlight = new Map<string, Promise<CacheResult<unknown>>>();
+const backgroundRefreshes = new Map<string, Promise<CacheResult<unknown>>>();
 const metrics: CacheMetrics = {
   hits: 0,
   stale: 0,
@@ -67,7 +69,7 @@ let redisClient: RedisClientType | undefined;
 let redisUrl: string | undefined;
 let circuitOpenUntil = 0;
 let activeLoads = 0;
-const loadWaiters: Array<() => void> = [];
+const loadWaiters: Array<{ resolve: () => void; cancelled: boolean }> = [];
 
 function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
@@ -161,10 +163,16 @@ async function redisOperation<T>(operation: (client: RedisClientType) => Promise
   const client = await getRedis();
   if (!client) return undefined;
   try {
-    return await operation(client);
+    const deadline = Number(process.env.CAIPE_CACHE_REDIS_OPERATION_DEADLINE_MS ?? DEFAULT_REDIS_OPERATION_DEADLINE_MS);
+    return await Promise.race([
+      operation(client),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Redis operation deadline exceeded")), deadline)),
+    ]);
   } catch {
     metrics.redisErrors += 1;
     circuitOpenUntil = Date.now() + REDIS_COOLDOWN_MS;
+    if (redisClient === client) redisClient = undefined;
+    if (client.isOpen) client.destroy();
     return undefined;
   }
 }
@@ -185,17 +193,24 @@ async function readRedis(key: string, policy: CachePolicy): Promise<CacheResult<
 }
 
 async function acquireLoadSlot(): Promise<void> {
-  const limit = Number(process.env.CAIPE_CACHE_LOAD_CONCURRENCY ?? DEFAULT_LOAD_CONCURRENCY);
+  const limit = Math.max(1, Number(process.env.CAIPE_CACHE_LOAD_CONCURRENCY ?? DEFAULT_LOAD_CONCURRENCY));
   const deadline = Date.now() + Number(process.env.CAIPE_CACHE_LOAD_DEADLINE_MS ?? DEFAULT_LOAD_DEADLINE_MS);
   while (activeLoads >= limit) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error("Cache loader queue deadline exceeded");
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Cache loader queue deadline exceeded")), remaining);
-      loadWaiters.push(() => {
+      const waiter = { resolve: () => undefined, cancelled: false };
+      const timer = setTimeout(() => {
+        waiter.cancelled = true;
+        const index = loadWaiters.indexOf(waiter);
+        if (index >= 0) loadWaiters.splice(index, 1);
+        reject(new Error("Cache loader queue deadline exceeded"));
+      }, remaining);
+      waiter.resolve = () => {
         clearTimeout(timer);
         resolve();
-      });
+      };
+      loadWaiters.push(waiter);
     });
   }
   activeLoads += 1;
@@ -203,7 +218,9 @@ async function acquireLoadSlot(): Promise<void> {
 
 function releaseLoadSlot(): void {
   activeLoads -= 1;
-  loadWaiters.shift()?.();
+  let waiter = loadWaiters.shift();
+  while (waiter?.cancelled) waiter = loadWaiters.shift();
+  waiter?.resolve();
 }
 
 async function load<T>(loader: () => Promise<T>): Promise<T> {
@@ -271,7 +288,7 @@ async function refresh<T>(key: string, policy: CachePolicy, loader: () => Promis
   if (lease === false) {
     const published = await waitForPublishedValue(key, policy);
     if (published) return published as CacheResult<T>;
-    return { value: await load(loader), state: "miss", computedAt: Date.now() };
+    throw new Error("Cache refresh is still in progress");
   }
 
   let ownsLease = lease === true;
@@ -316,7 +333,12 @@ export async function getOrLoad<T>(policy: CachePolicy, key: unknown, loader: ()
     const stale = local?.state === "stale" ? local : remote?.state === "stale" ? remote : undefined;
     const redisAvailable = Boolean(await getRedis());
     if (stale) {
-      void refresh(keyName, policy, loader, redisAvailable).catch(() => undefined);
+      if (!backgroundRefreshes.has(keyName)) {
+        const refreshPromise = refresh(keyName, policy, loader, redisAvailable)
+          .catch(() => undefined)
+          .finally(() => backgroundRefreshes.delete(keyName));
+        backgroundRefreshes.set(keyName, refreshPromise as Promise<CacheResult<unknown>>);
+      }
       return stale as CacheResult<T>;
     }
     metrics.misses += 1;
@@ -337,8 +359,9 @@ export function getCacheMetrics(): CacheMetrics {
 export async function resetServerCacheForTests(): Promise<void> {
   localEntries.clear();
   inFlight.clear();
+  backgroundRefreshes.clear();
   activeLoads = 0;
-  loadWaiters.splice(0).forEach((resolve) => resolve());
+  loadWaiters.splice(0).forEach((waiter) => waiter.resolve());
   Object.assign(metrics, {
     hits: 0,
     stale: 0,
