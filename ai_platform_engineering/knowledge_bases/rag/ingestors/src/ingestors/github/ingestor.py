@@ -8,7 +8,7 @@ import jwt
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-from common.ingestor_listener import standalone_ingestion_claim
+from common.ingestor_listener import run_standalone_ingestion
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
@@ -571,9 +571,7 @@ async def sync_org(client: Client, github_client: "GitHubClient", org_login: str
     reload_interval=SYNC_INTERVAL,
     metadata={"github_api_url": GITHUB_API_URL, "organizations": [org_login]},
   )
-  async with standalone_ingestion_claim(datasource_info.datasource_id) as acquired:
-    if not acquired:
-      return
+  async def sync_datasource() -> None:
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
 
@@ -932,6 +930,8 @@ async def sync_org(client: Client, github_client: "GitHubClient", org_login: str
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
       logging.error(error_msg, exc_info=True)
       raise
+
+  await run_standalone_ingestion(datasource_info.datasource_id, sync_datasource)
 
 
 async def sync_github_entities(client: Client):

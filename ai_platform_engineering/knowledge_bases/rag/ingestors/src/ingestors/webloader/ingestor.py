@@ -328,6 +328,7 @@ async def reload_datasource(
 
 async def redis_listener(client: Client):
   """Run webloader commands through the shared per-ingestor listener."""
+  await redis_client.ensure_setup()
 
   async def initialize_worker_pool() -> None:
     await get_worker_pool()
@@ -358,6 +359,7 @@ async def redis_listener(client: Client):
 
 async def periodic_reload(client: Client):
   """Reload due web datasources with the shared connector scheduler."""
+  await redis_client.ensure_setup()
   # The startup listener normally starts the pool first. This also covers a
   # startup race and explicit reload-all commands.
   await get_worker_pool()

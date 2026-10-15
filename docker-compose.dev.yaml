@@ -1340,6 +1340,10 @@ services:
     depends_on:
       caipe-mongodb:
         condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
       milvus-standalone:
         condition: service_healthy
     profiles:
@@ -1374,7 +1378,17 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, neo4j, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      neo4j:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - graph_rag
 
@@ -1410,7 +1424,15 @@ services:
       - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - web-ingestor
       - web_ingestor
@@ -1427,6 +1449,8 @@ services:
     environment:
       - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=backstage
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - BACKSTAGE_URL=${BACKSTAGE_URL}
       - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
@@ -1455,6 +1479,8 @@ services:
     environment:
       - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=aws
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
@@ -1489,6 +1515,8 @@ services:
     environment:
       - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=k8s
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - CLUSTER_NAME=${CLUSTER_NAME}
       - KUBECONFIG=${KUBECONFIG:-/home/app/.kube/config}
       - KUBE_CONTEXT=${KUBE_CONTEXT:-}
@@ -1535,7 +1563,15 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: unless-stopped
     env_file: [.env]
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - slack-ingestor
 
@@ -1563,7 +1599,15 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: unless-stopped
     env_file: [.env]
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - webex-ingestor
 
@@ -1579,6 +1623,8 @@ services:
     environment:
       - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=argocdv3
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - SERVER_URL=${SERVER_URL}
       - ARGOCD_AUTH_TOKEN=${ARGOCD_AUTH_TOKEN}
       - ARGOCD_VERIFY_SSL=${ARGOCD_VERIFY_SSL:-true}
@@ -1606,6 +1652,8 @@ services:
     environment:
       - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=github
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication: Use either PAT or GitHub App
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_INSTALLATION_ID for GitHub App auth
@@ -1652,7 +1700,15 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: unless-stopped
     env_file: [.env]
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - jira-ingestor
 
@@ -1681,7 +1737,15 @@ services:
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - confluence-ingestor
 
@@ -1697,6 +1761,8 @@ services:
     environment:
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - INGESTOR_TYPE=dummy_structured_ingestor
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:

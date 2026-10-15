@@ -7,7 +7,7 @@ import tempfile
 import boto3
 from typing import List, Any, Dict, Optional
 
-from common.ingestor_listener import standalone_ingestion_claim
+from common.ingestor_listener import run_standalone_ingestion
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
@@ -769,9 +769,7 @@ async def sync_account(client: Client, session: boto3.Session, account_name: str
       "resource_types": RESOURCE_TYPES,
     },
   )
-  async with standalone_ingestion_claim(datasource_info.datasource_id) as acquired:
-    if not acquired:
-      return
+  async def sync_datasource() -> None:
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
 
@@ -818,6 +816,8 @@ async def sync_account(client: Client, session: boto3.Session, account_name: str
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
       logging.error(error_msg, exc_info=True)
       raise
+
+  await run_standalone_ingestion(datasource_info.datasource_id, sync_datasource)
 
 
 async def sync_aws_resources(client: Client) -> None:

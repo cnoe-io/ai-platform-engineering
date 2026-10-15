@@ -24,6 +24,10 @@ CURRENT_CLAIM: ContextVar[dict[str, Any] | None] = ContextVar("rag_claim", defau
 LEASE_SECONDS = 120
 
 
+class IngestionLeaseLostError(RuntimeError):
+  """The current operation cannot continue after losing its datasource lease."""
+
+
 def utcnow() -> datetime:
   return datetime.now(timezone.utc)
 
@@ -110,6 +114,7 @@ class MongoStorage:
   """Mongo-backed storage used by the public RAG storage facades."""
 
   def __init__(self, database: Any | None = None, *, client: Any | None = None) -> None:
+    self._setup_complete = False
     self.client = client
     if database is None:
       uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
@@ -134,6 +139,13 @@ class MongoStorage:
     await self.db.rag_commands.create_index([("queue", 1), ("state", 1), ("created_at", 1)])
     await self.db.rag_commands.create_index([("state", 1), ("lease_until", 1)])
     await self.db.rag_ontology_examples.create_index([("key", 1), ("sequence", 1)], unique=True)
+
+    self._setup_complete = True
+
+  async def ensure_setup(self) -> None:
+    """Initialize this client once before independent startup or reload paths."""
+    if not self._setup_complete:
+      await self.setup()
 
   async def ping(self) -> bool:
     await self.db.command("ping")
@@ -271,7 +283,13 @@ class MongoStorage:
     return await self.db.rag_ontology_examples.count_documents({"key": key, **live_filter()})
 
   async def ltrim(self, key: str, start: int, stop: int) -> None:
-    keep = [record["_id"] async for record in self.db.rag_ontology_examples.find({"key": key}).sort("sequence", 1).skip(start).limit(stop - start + 1)]
+    query = {"key": key, **live_filter()}
+    length = await self.db.rag_ontology_examples.count_documents(query)
+    start = max(length + start, 0) if start < 0 else start
+    stop = length + stop if stop < 0 else min(stop, length - 1)
+    keep = []
+    if start <= stop and start < length:
+      keep = [record["_id"] async for record in self.db.rag_ontology_examples.find(query).sort("sequence", 1).skip(start).limit(stop - start + 1)]
     await self.db.rag_ontology_examples.delete_many({"key": key, "_id": {"$nin": keep}})
 
   async def enqueue(self, queue: str, payload: str, *, expires_at: datetime | None = None) -> str:
