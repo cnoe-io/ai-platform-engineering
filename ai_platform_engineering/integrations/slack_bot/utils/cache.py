@@ -57,6 +57,10 @@ class CacheMetrics:
   cache_age_samples: int = 0
 
 
+class CacheLeaseLostError(RuntimeError):
+  """A completed loader lost ownership before its value could be published."""
+
+
 @dataclass(frozen=True)
 class _Entry:
   value: Any
@@ -90,6 +94,7 @@ class ServerCache:
     self._redis_lock = Lock()
     self._circuit_open_until = 0.0
     self._entries: OrderedDict[str, _Entry] = OrderedDict()
+    self._cooldowns: dict[str, int] = {}
     self._entries_lock = RLock()
     self._in_flight: dict[str, Future[CacheResult[Any]]] = {}
     self._in_flight_lock = Lock()
@@ -149,7 +154,7 @@ class ServerCache:
       entry = self._entries.get(key)
       if entry is None:
         return None
-      if entry.hard_expires_at_ms <= self._now_ms():
+      if entry.hard_expires_at_ms <= self._now_ms() or entry.computed_at_ms + int(policy.stale_seconds * 1000) <= self._now_ms():
         self._entries.pop(key, None)
         return None
       self._entries.move_to_end(key)
@@ -301,6 +306,8 @@ class ServerCache:
       value = json.loads(_json(self._load(loader)))
       entry = _Entry(value, self._now_ms(), 0)
       published = self._publish(key, lock_key, token, entry, policy) if owns_lease.is_set() else False
+      if use_lease and lease and not published:
+        raise CacheLeaseLostError("Cache refresh lease was lost before publish")
       if not use_lease or lease is None or published:
         self._remember(key, entry, policy)
       return CacheResult(value, "miss", entry.computed_at_ms)
@@ -328,6 +335,39 @@ class ServerCache:
           self._in_flight.pop(key, None)
 
     Thread(target=run, daemon=True).start()
+
+  def get(self, policy: CachePolicy, key: object) -> CacheResult[Any] | None:
+    """Return a fresh or usable stale snapshot without invoking a loader."""
+    if not self._enabled(policy):
+      return None
+    cache_key = self._key(policy, key)
+    return self._read_local(cache_key, policy) or self._read_redis(cache_key, policy)
+
+  def cooldown_remaining_seconds(self, namespace: str, key: object) -> float:
+    cache_key = self._key(CachePolicy(namespace, 1, 1), {"cooldown": key})
+    local_deadline = self._cooldowns.get(cache_key, 0)
+    remote = self._redis_operation(lambda client: client.get(cache_key))
+    try:
+      remote_deadline = int(remote) if remote is not None else 0
+    except (TypeError, ValueError):
+      remote_deadline = 0
+    deadline = max(local_deadline, remote_deadline)
+    return max(0, (deadline - self._now_ms()) / 1000)
+
+  def set_cooldown(self, namespace: str, key: object, seconds: float) -> None:
+    duration_ms = max(1, int(seconds * 1000))
+    cache_key = self._key(CachePolicy(namespace, 1, 1), {"cooldown": key})
+    deadline = self._now_ms() + duration_ms
+    self._cooldowns[cache_key] = max(self._cooldowns.get(cache_key, 0), deadline)
+    self._redis_operation(
+      lambda client: client.eval(
+        "local current=tonumber(redis.call('GET', KEYS[1]) or '0'); if current >= tonumber(ARGV[1]) then return current end; redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2]); return tonumber(ARGV[1])",
+        1,
+        cache_key,
+        str(deadline),
+        str(duration_ms),
+      )
+    )
 
   def get_or_load(self, policy: CachePolicy, key: object, loader: Callable[[], T]) -> CacheResult[T]:
     if not self._enabled(policy):

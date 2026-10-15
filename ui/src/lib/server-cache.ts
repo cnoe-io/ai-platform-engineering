@@ -68,6 +68,7 @@ const metrics: CacheMetrics = {
 
 let redisClient: RedisClientType | undefined;
 let redisUrl: string | undefined;
+let redisConnection: Promise<RedisClientType | undefined> | undefined;
 let circuitOpenUntil = 0;
 let activeLoads = 0;
 const loadWaiters: Array<{ resolve: () => void; cancelled: boolean }> = [];
@@ -75,6 +76,14 @@ const loadWaiters: Array<{ resolve: () => void; cancelled: boolean }> = [];
 function positiveNumberFromEnv(name: string, fallback: number): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+async function withinDeadline<T>(operation: Promise<T>, deadline: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Redis operation deadline exceeded")), deadline);
+    timer.unref?.();
+    void operation.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }
 
 function canonicalize(value: unknown): unknown {
@@ -131,7 +140,7 @@ function readLocal(key: string, policy: CachePolicy): CacheResult<unknown> | und
   const entry = localEntries.get(key);
   if (!entry) return undefined;
   const now = Date.now();
-  if (entry.hardExpiresAt <= now) {
+  if (entry.hardExpiresAt <= now || entry.computedAt + policy.staleMs <= now) {
     localEntries.delete(key);
     return undefined;
   }
@@ -150,18 +159,31 @@ async function getRedis(): Promise<RedisClientType | undefined> {
     return undefined;
   }
   if (redisClient && redisUrl === configuredUrl && redisClient.isOpen) return redisClient;
+  if (redisConnection && redisUrl === configuredUrl) return redisConnection;
+  redisUrl = configuredUrl;
+  const connection = (async (): Promise<RedisClientType | undefined> => {
+    let candidate: RedisClientType | undefined;
+    try {
+      if (redisClient?.isOpen) await redisClient.close();
+      candidate = createClient({ url: configuredUrl, socket: { connectTimeout: 1_000, reconnectStrategy: false } });
+      candidate.on("error", () => undefined);
+      await withinDeadline(candidate.connect(), positiveNumberFromEnv("CAIPE_CACHE_REDIS_OPERATION_DEADLINE_MS", DEFAULT_REDIS_OPERATION_DEADLINE_MS));
+      redisClient = candidate;
+      return candidate;
+    } catch {
+      metrics.redisErrors += 1;
+      circuitOpenUntil = Date.now() + REDIS_COOLDOWN_MS;
+      if (candidate?.isOpen) candidate.destroy();
+      if (redisClient?.isOpen) redisClient.destroy();
+      redisClient = undefined;
+      return undefined;
+    }
+  })();
+  redisConnection = connection;
   try {
-    if (redisClient?.isOpen) await redisClient.close();
-    redisUrl = configuredUrl;
-    redisClient = createClient({ url: configuredUrl, socket: { connectTimeout: 1_000, reconnectStrategy: false } });
-    redisClient.on("error", () => undefined);
-    await redisClient.connect();
-    return redisClient;
-  } catch {
-    metrics.redisErrors += 1;
-    circuitOpenUntil = Date.now() + REDIS_COOLDOWN_MS;
-    redisClient = undefined;
-    return undefined;
+    return await connection;
+  } finally {
+    if (redisConnection === connection) redisConnection = undefined;
   }
 }
 
@@ -170,11 +192,7 @@ async function redisOperation<T>(operation: (client: RedisClientType) => Promise
   if (!client) return undefined;
   try {
     const deadline = positiveNumberFromEnv("CAIPE_CACHE_REDIS_OPERATION_DEADLINE_MS", DEFAULT_REDIS_OPERATION_DEADLINE_MS);
-    return await new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Redis operation deadline exceeded")), deadline);
-      timer.unref?.();
-      void operation(client).then(resolve, reject).finally(() => clearTimeout(timer));
-    });
+    return await withinDeadline(operation(client), deadline);
   } catch {
     metrics.redisErrors += 1;
     circuitOpenUntil = Date.now() + REDIS_COOLDOWN_MS;
@@ -310,6 +328,7 @@ async function refresh<T>(key: string, policy: CachePolicy, loader: () => Promis
     const value = JSON.parse(JSON.stringify(await load(loader))) as T;
     const envelope: CacheEnvelope = { value, computedAt: Date.now() };
     const published = ownsLease ? await publishWithLease(key, leaseKey, token, envelope, policy.staleMs) : false;
+    if (useLease && lease && !published) throw new Error("Cache refresh lease was lost before publish");
     if (!useLease || lease === undefined || published) {
       remember(key, envelope, policy.staleMs, policy.maxEntries ?? DEFAULT_MAX_ENTRIES);
     }
@@ -387,6 +406,7 @@ export async function resetServerCacheForTests(): Promise<void> {
     cacheAgeSamples: 0,
   } satisfies CacheMetrics);
   circuitOpenUntil = 0;
+  redisConnection = undefined;
   if (redisClient?.isOpen) await redisClient.close();
   redisClient = undefined;
   redisUrl = undefined;

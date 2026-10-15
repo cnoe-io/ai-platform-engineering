@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from threading import Event, Thread
+from time import sleep
 
 import redis
+import pytest
 
-from ai_platform_engineering.integrations.slack_bot.utils.cache import CachePolicy, ServerCache
+from ai_platform_engineering.integrations.slack_bot.utils.cache import CacheLeaseLostError, CachePolicy, ServerCache
 
 
 class FakeRedis:
@@ -26,7 +28,7 @@ class FakeRedis:
     if self.fail:
       raise redis.RedisError("unavailable")
     if options.get("nx") and key in self.values:
-      return False
+      return None  # redis-py returns None for SET NX contention.
     if options.get("xx") and key not in self.values:
       return False
     self.values[key] = value
@@ -96,6 +98,27 @@ def test_renew_does_not_extend_another_owner_lease() -> None:
   assert fake.values["lease"] == "owner-b"
 
 
+def test_redis_py_none_for_nx_contention_is_not_an_outage() -> None:
+  fake = FakeRedis()
+  cache = ServerCache(redis_url="redis://example", redis_client_factory=lambda _: fake)
+
+  assert cache._acquire_lease("lease", "owner-a") is True
+  assert cache._acquire_lease("lease", "owner-b") is False
+  assert cache.metrics().redis_errors == 0
+
+
+def test_lost_lease_does_not_publish_or_remember_loader_value() -> None:
+  fake = FakeRedis()
+  cache = ServerCache(redis_url="redis://example", redis_client_factory=lambda _: fake)
+  policy = CachePolicy(namespace="slack:users", fresh_seconds=60, stale_seconds=300)
+  cache._publish = lambda *_args: False  # type: ignore[method-assign]
+
+  with pytest.raises(CacheLeaseLostError, match="lease was lost"):
+    cache.get_or_load(policy, "workspace", lambda: {"generation": "stale-owner"})
+
+  assert cache.get(policy, "workspace") is None
+
+
 def test_redis_circuit_serves_local_hit() -> None:
   fake = FakeRedis()
   cache = ServerCache(redis_url="redis://example", redis_client_factory=lambda _: fake)
@@ -107,3 +130,15 @@ def test_redis_circuit_serves_local_hit() -> None:
 
   assert result.state == "hit"
   assert result.value == {"users": []}
+
+
+def test_reduced_hard_ttl_expires_an_existing_local_snapshot() -> None:
+  cache = ServerCache(redis_url=None)
+  key = "workspace"
+  cache.get_or_load(CachePolicy(namespace="slack:users", fresh_seconds=60, stale_seconds=300), key, lambda: {"generation": 1})
+  sleep(0.01)
+
+  result = cache.get_or_load(CachePolicy(namespace="slack:users", fresh_seconds=0.001, stale_seconds=0.005), key, lambda: {"generation": 2})
+
+  assert result.value == {"generation": 2}
+  assert result.state == "miss"

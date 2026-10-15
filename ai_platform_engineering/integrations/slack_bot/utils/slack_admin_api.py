@@ -572,7 +572,7 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
             try:
                 self._write_json(handler({key: values[0] for key, values in query.items()}) if handler else self.service.directory.status())
             except SlackDirectoryError as exc:
-                self._write_json({"error": str(exc)}, status=exc.status)
+                self._write_json({"error": str(exc)}, status=exc.status, retry_after=exc.retry_after)
             return
         if path not in {"/admin/slack/routes/status", "/admin/slack/routes/config-defaults"}:
             self._write_json({"error": "not_found"}, status=404)
@@ -677,11 +677,13 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    def _write_json(self, payload: dict[str, Any], *, status: int = 200) -> None:
+    def _write_json(self, payload: dict[str, Any], *, status: int = 200, retry_after: int | None = None) -> None:
         encoded = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(encoded)
 
