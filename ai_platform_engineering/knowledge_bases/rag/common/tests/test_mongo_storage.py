@@ -189,3 +189,28 @@ def test_ontology_batches_keep_numeric_sums_and_bounded_ordered_examples():
     assert examples == [str(index) for index in range(20)]
     assert await storage.db.rag_ontology_examples.count_documents({}) == 20
   asyncio.run(isolated(scenario))
+
+
+@pytest.mark.parametrize("start,stop,expected", [
+  (-2, -1, ["c", "d"]), (0, -2, ["a", "b", "c"]), (-100, 100, ["a", "b", "c", "d"]),
+  (0, -100, []), (3, 1, []), (100, 200, []), (-3, -2, ["b", "c"]),
+])
+def test_ltrim_redis_inclusive_negative_indices(start: int, stop: int, expected: list[str]) -> None:
+  async def scenario(storage: MongoStorage) -> None:
+    for value in ["a", "b", "c", "d"]:
+      await storage.rpush("graph_relation_heuristics:primary:examples", value)
+    await storage.ltrim("graph_relation_heuristics:primary:examples", start, stop)
+    assert await storage.lrange("graph_relation_heuristics:primary:examples", 0, -1) == expected
+  asyncio.run(isolated(scenario))
+
+
+def test_ensure_setup_initializes_indexes_once() -> None:
+  async def scenario(storage: MongoStorage) -> None:
+    fresh = MongoStorage(storage.db)
+    assert not fresh._setup_complete
+    await fresh.ensure_setup()
+    assert fresh._setup_complete
+    await fresh.ensure_setup()
+    indexes = await fresh.db.rag_ontology_examples.index_information()
+    assert "expires_at_1" in indexes
+  asyncio.run(isolated(scenario))

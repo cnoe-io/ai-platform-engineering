@@ -4,7 +4,7 @@ import time
 import logging
 from typing import List, Dict, Any, Set
 
-from common.ingestor_listener import standalone_ingestion_claim
+from common.ingestor_listener import run_standalone_ingestion
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
@@ -216,9 +216,7 @@ async def sync_k8s_resources(client: Client):
       "resource_types": list(RESOURCE_LIST),
     },
   )
-  async with standalone_ingestion_claim(datasource_info.datasource_id) as acquired:
-    if not acquired:
-      return
+  async def sync_datasource() -> None:
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
 
@@ -348,6 +346,8 @@ async def sync_k8s_resources(client: Client):
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
       logging.error(error_msg, exc_info=True)
       raise
+
+  await run_standalone_ingestion(datasource_info.datasource_id, sync_datasource)
 
 
 if __name__ == "__main__":

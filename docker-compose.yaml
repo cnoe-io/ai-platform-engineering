@@ -674,7 +674,13 @@ services:
       - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     restart: unless-stopped
     env_file: [.env]
-    depends_on: [caipe-mongodb]
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - rag
       - graph_rag
@@ -835,7 +841,19 @@ services:
       - SYNC_INTERVAL=86400
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, neo4j, neo4j-ontology, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      neo4j:
+        condition: service_started
+      neo4j-ontology:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - graph_rag
 
@@ -854,7 +872,15 @@ services:
       - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - web-ingestor
       - web_ingestor
@@ -875,7 +901,15 @@ services:
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - jira-ingestor
 
@@ -897,7 +931,15 @@ services:
       - RAG_SERVER_URL=http://rag-server:9446
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - confluence-ingestor
 
@@ -920,7 +962,15 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - slack-ingestor
 
@@ -942,7 +992,15 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag-server, caipe-mongodb]
+    depends_on:
+      rag-server:
+        condition: service_started
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     profiles:
       - webex-ingestor
 
