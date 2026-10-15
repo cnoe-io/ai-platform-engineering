@@ -21,7 +21,7 @@ jobs:
         ports:
           - 27017:27017
         options: >-
-          --health-cmd 'mongosh --quiet --eval "db.adminCommand({ping:1})"'
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       AUDIT_TEST_MONGODB_URI: mongodb://127.0.0.1:27017
