@@ -8,7 +8,7 @@
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { findAgenticAppAssistantStream } from "@/lib/agentic-apps/assistant-stream";
-import { POST as proxyAgenticAppStream } from "@/app/api/agentic-apps/runtime/[appId]/[[...path]]/route";
+import { proxyAgenticAppRequest } from "@/lib/agentic-apps/proxy";
 import { getAgentId } from "@/types/a2a";
 import { NextRequest,NextResponse } from "next/server";
 import {
@@ -70,20 +70,25 @@ export async function POST(request: NextRequest): Promise<Response> {
   const conversation = conversationAuthz.conversation;
   if (conversation.client_type === "webex") {
     const savedAgentId = getAgentId(conversation);
-    const nativeStream = savedAgentId && findAgenticAppAssistantStream(savedAgentId);
+    let nativeStream;
+    try {
+      nativeStream = savedAgentId && findAgenticAppAssistantStream(savedAgentId);
+    } catch {
+      console.error("[stream/start] Conflicting installed app assistant bindings");
+      return NextResponse.json({ success: false, error: "Assistant configuration conflict" }, { status: 503 });
+    }
     if (nativeStream) {
       if (body.agent_id !== savedAgentId) {
         return NextResponse.json({ success: false, error: "Agent does not match this conversation" }, { status: 409 });
       }
-      if (authResult.isServiceAccount || !authResult.subject) {
+      if (authResult.isServiceAccount || !authResult.subject || !authResult.authenticatedUser) {
         return NextResponse.json({ success: false, error: "Interactive user identity required" }, { status: 403 });
       }
-      // The installed app proxy re-authenticates the linked user and enforces
-      // the app's launch and HTTP policy before forwarding this AG-UI request.
-      const response = await proxyAgenticAppStream(appRequest, {
+      // Reuse the exact outer identity; a cookie must not replace a bearer user.
+      const response = await proxyAgenticAppRequest(appRequest, {
         params: Promise.resolve({ appId: nativeStream.appId, path: nativeStream.path }),
-      });
-      if (response.ok && !response.headers.get("content-type")?.includes("text/event-stream")) {
+      }, authResult.authenticatedUser);
+      if (response.ok && response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "text/event-stream") {
         await response.body?.cancel();
         return NextResponse.json({ success: false, error: "Assistant stream did not return SSE" }, { status: 502 });
       }

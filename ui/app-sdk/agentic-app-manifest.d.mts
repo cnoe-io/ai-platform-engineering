@@ -71,6 +71,11 @@ export interface AgenticAppManifest {
     supportUrl?: string;
   };
 }
+export function resolveAgenticAppHttpPolicyAction(
+  manifest: AgenticAppManifest,
+  method: string,
+  path: string,
+): AgenticAppPolicyAction | undefined;
 export function validateAgenticAppManifest(value: unknown): AgenticAppManifest;
 export function normalizeLegacyAgenticAppManifest(
   value: unknown,
