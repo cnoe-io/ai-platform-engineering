@@ -1,3 +1,9 @@
+## 1.3.0-rc.11 (2026-10-16)
+
+### Fix
+
+- **oncall**: use VictorOps as live source (#2981)
+
 ## 1.3.0-rc.10 (2026-10-14)
 
 ### Feat
