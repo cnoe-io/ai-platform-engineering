@@ -57,13 +57,11 @@ describe("AgenticAppShell", () => {
       ok: true,
       status: 200,
       json: async () => ({
-        items: [
-          app({
+        item: app({
             assistantAgentId: "agent-example",
             assistantAgentName: "Example Agent",
             assistantLabel: "Ask Example",
           }),
-        ],
       }),
     }) as jest.Mock;
     mockResolveUsableChatAgent.mockResolvedValue({
@@ -130,7 +128,7 @@ describe("AgenticAppShell", () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ items: [app()] }),
+      json: async () => ({ item: app() }),
     });
     mockResolveUsableChatAgent.mockResolvedValue({
       id: "agent-default",
@@ -151,7 +149,7 @@ describe("AgenticAppShell", () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ items: [app({ assistantEnabled: false })] }),
+      json: async () => ({ item: app({ assistantEnabled: false }) }),
     });
 
     render(<AgenticAppShell appId="example-app" path={[]} />);

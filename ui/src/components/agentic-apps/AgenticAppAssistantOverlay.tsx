@@ -7,7 +7,7 @@ import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { buildAssistantClientContext } from "@/lib/agentic-apps/assistant-context";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
-import type { Conversation } from "@/types/a2a";
+import { findLatestAppConversation } from "@/lib/agentic-apps/assistant-conversations";
 import type { AgenticAppAssistantContextRecord } from "@/types/agentic-app";
 
 const DEFAULT_PANEL_SIZE = { width: 720, height: 780 };
@@ -54,16 +54,13 @@ export function AgenticAppAssistantOverlay({
     message: string;
   } | null>(null);
   const [conversationActionPending, setConversationActionPending] = useState(false);
-  const previousActiveConversationRef = useRef<string | null | undefined>(undefined);
+  const selectionSessionRef = useRef<{ previous: string | null; owned: string | null } | null>(null);
   const conversationRequestRef = useRef<{
     key: string;
     promise: Promise<string>;
   } | null>(null);
   const createConversation = useChatStore((state) => state.createConversation);
   const deleteConversation = useChatStore((state) => state.deleteConversation);
-  const loadConversationsFromServer = useChatStore(
-    (state) => state.loadConversationsFromServer,
-  );
   const loadMessagesFromServer = useChatStore((state) => state.loadMessagesFromServer);
   const setActiveConversation = useChatStore((state) => state.setActiveConversation);
   const conversationKey = `${appId}:${assistantAgentId}`;
@@ -89,50 +86,62 @@ export function AgenticAppAssistantOverlay({
 
   useEffect(() => {
     if (!open) return;
-    previousActiveConversationRef.current = useChatStore.getState().activeConversationId;
+    const session = { previous: useChatStore.getState().activeConversationId, owned: null as string | null };
+    selectionSessionRef.current = session;
     return () => {
-      setActiveConversation(previousActiveConversationRef.current ?? null);
-      previousActiveConversationRef.current = undefined;
+      selectionSessionRef.current = null;
+      if (session.owned && useChatStore.getState().activeConversationId === session.owned)
+        setActiveConversation(session.previous);
     };
-  }, [open, setActiveConversation]);
+  }, [open, conversationKey, setActiveConversation]);
+
+  const activate = useCallback((id: string, session: typeof selectionSessionRef.current): boolean => {
+    if (!session || selectionSessionRef.current !== session) return false;
+    const current = useChatStore.getState().activeConversationId;
+    if (current !== session.previous && current !== session.owned) return false;
+    session.owned = id;
+    setActiveConversation(id);
+    return true;
+  }, [setActiveConversation]);
 
   const createAppConversation = useCallback(
     () =>
       createConversation(assistantAgentId, {
         title: conversationTitle,
         metadata: conversationMetadata,
+        activate: false,
       }),
     [assistantAgentId, conversationMetadata, conversationTitle, createConversation],
   );
 
   const findOrCreateAppConversation = useCallback(async (): Promise<string> => {
-    await loadConversationsFromServer();
-    const existing = findLatestAppConversation(
+    const existing = await findLatestAppConversation(
       useChatStore.getState().conversations,
       appId,
       assistantAgentId,
     );
     if (!existing) return createAppConversation();
 
-    setActiveConversation(existing.id);
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.some((item) => item.id === existing.id)
+        ? state.conversations : [existing, ...state.conversations],
+    }));
     await loadMessagesFromServer(existing.id);
     return existing.id;
   }, [
     appId,
     assistantAgentId,
     createAppConversation,
-    loadConversationsFromServer,
     loadMessagesFromServer,
-    setActiveConversation,
   ]);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const previousActiveConversation = previousActiveConversationRef.current ?? null;
+    const session = selectionSessionRef.current;
 
     if (assistantConversation?.agentId === assistantAgentId) {
-      setActiveConversation(assistantConversation.id);
+      activate(assistantConversation.id, session);
       return () => {
         cancelled = true;
       };
@@ -149,12 +158,8 @@ export function AgenticAppAssistantOverlay({
 
     request.promise
       .then((id) => {
-        if (cancelled) {
-          setActiveConversation(previousActiveConversation);
-          return;
-        }
+        if (cancelled || conversationRequestRef.current !== request || !activate(id, session)) return;
         setAssistantConversation({ agentId: assistantAgentId, id });
-        setActiveConversation(id);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -173,19 +178,21 @@ export function AgenticAppAssistantOverlay({
     assistantConversation,
     conversationKey,
     findOrCreateAppConversation,
+    activate,
     open,
     setActiveConversation,
   ]);
 
   const handleNewChat = useCallback(async (): Promise<void> => {
     if (conversationActionPending) return;
+    const session = selectionSessionRef.current;
     setConversationActionPending(true);
     setConversationError(null);
     try {
       const id = await createAppConversation();
+      if (selectionSessionRef.current !== session) return;
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
-      setAssistantConversation({ agentId: assistantAgentId, id });
-      setActiveConversation(id);
+      if (activate(id, session)) setAssistantConversation({ agentId: assistantAgentId, id });
     } catch (error: unknown) {
       setConversationError({
         agentId: assistantAgentId,
@@ -197,9 +204,9 @@ export function AgenticAppAssistantOverlay({
   }, [
     assistantAgentId,
     conversationActionPending,
+    activate,
     conversationKey,
     createAppConversation,
-    setActiveConversation,
   ]);
 
   const handleClearChat = useCallback(async (): Promise<void> => {
@@ -212,14 +219,16 @@ export function AgenticAppAssistantOverlay({
       return;
     }
 
+    const session = selectionSessionRef.current;
     setConversationActionPending(true);
     setConversationError(null);
     try {
-      await deleteConversation(assistantConversation.id);
+      await deleteConversation(assistantConversation.id, { selectNext: false });
+      if (selectionSessionRef.current !== session) return;
       const id = await createAppConversation();
+      if (selectionSessionRef.current !== session) return;
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
-      setAssistantConversation({ agentId: assistantAgentId, id });
-      setActiveConversation(id);
+      if (activate(id, session)) setAssistantConversation({ agentId: assistantAgentId, id });
     } catch (error: unknown) {
       setConversationError({
         agentId: assistantAgentId,
@@ -232,10 +241,10 @@ export function AgenticAppAssistantOverlay({
     assistantAgentId,
     assistantConversation,
     conversationActionPending,
+    activate,
     conversationKey,
     createAppConversation,
     deleteConversation,
-    setActiveConversation,
   ]);
 
   const handleResizeStart = useCallback(
@@ -429,24 +438,6 @@ function clampPanelSize(size: { width: number; height: number }): {
     width: Math.max(MIN_PANEL_SIZE.width, Math.min(MAX_PANEL_SIZE.width, size.width)),
     height: Math.max(MIN_PANEL_SIZE.height, Math.min(MAX_PANEL_SIZE.height, size.height)),
   };
-}
-
-function findLatestAppConversation(
-  conversations: Conversation[],
-  appId: string,
-  agentId: string,
-): Conversation | null {
-  return conversations.reduce<Conversation | null>((latest, conversation) => {
-    const metadata = conversation.metadata;
-    if (
-      metadata?.conversation_surface !== AGENTIC_APP_CONVERSATION_KIND
-      || metadata.agentic_app_id !== appId
-      || metadata.agentic_app_agent_id !== agentId
-    ) {
-      return latest;
-    }
-    return !latest || conversation.updatedAt > latest.updatedAt ? conversation : latest;
-  }, null);
 }
 
 function readStoredGlassMode(): boolean {

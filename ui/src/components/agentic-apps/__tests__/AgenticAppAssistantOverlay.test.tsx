@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
@@ -10,6 +10,10 @@ const mockDeleteConversation = jest.fn();
 const mockLoadConversationsFromServer = jest.fn();
 const mockLoadMessagesFromServer = jest.fn();
 const mockSetActiveConversation = jest.fn();
+const mockFindConversation = jest.fn();
+jest.mock("@/lib/agentic-apps/assistant-conversations", () => ({
+  findLatestAppConversation: (...args: unknown[]) => mockFindConversation(...args),
+}));
 const mockChatStoreState: {
   activeConversationId: string | null;
   conversations: Conversation[];
@@ -59,6 +63,8 @@ describe("AgenticAppAssistantOverlay", () => {
     mockDeleteConversation.mockResolvedValue(undefined);
     mockLoadConversationsFromServer.mockResolvedValue(undefined);
     mockLoadMessagesFromServer.mockResolvedValue(undefined);
+    mockSetActiveConversation.mockImplementation((id) => { mockChatStoreState.activeConversationId = id; });
+    mockFindConversation.mockImplementation(async () => mockChatStoreState.conversations.at(-1) ?? null);
     const mockUseChatStore = useChatStore as unknown as jest.Mock & {
       getState: () => typeof mockChatStoreState;
     };
@@ -66,6 +72,7 @@ describe("AgenticAppAssistantOverlay", () => {
       (selector: (state: typeof mockChatStoreState) => unknown) => selector(mockChatStoreState),
     );
     mockUseChatStore.getState = () => mockChatStoreState;
+    Object.assign(mockUseChatStore, { setState: jest.fn() });
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -107,6 +114,7 @@ describe("AgenticAppAssistantOverlay", () => {
     expect(screen.getByText("Starting Ask Example…")).toBeInTheDocument();
     await waitFor(() => {
       expect(mockCreateConversation).toHaveBeenCalledWith("agent-example", {
+        activate: false,
         title: "Example App Assistant",
         metadata: {
           conversation_surface: "agentic-app",
@@ -201,12 +209,35 @@ describe("AgenticAppAssistantOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear assistant chat" }));
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith("assistant-conversation");
+      expect(mockDeleteConversation).toHaveBeenCalledWith("assistant-conversation", { selectNext: false });
       expect(screen.getByTestId("chat-panel")).toHaveAttribute(
         "data-conversation-id",
         "replacement-conversation",
       );
     });
+  });
+  it.each(["initialization", "new", "clear"])("does not steal selection after close during %s", async (operation) => {
+    let finish: (id: string) => void = () => undefined;
+    const pending = new Promise<string>((resolve) => { finish = resolve; });
+    const props = {
+      appId: "example-app", appName: "Example App", activeContext: null,
+      onClearContext: jest.fn(), assistantAgentId: "agent-example", onOpenChange: jest.fn(),
+    };
+    if (operation === "initialization") mockCreateConversation.mockReturnValueOnce(pending);
+    const { rerender } = render(<AgenticAppAssistantOverlay {...props} open />);
+    if (operation !== "initialization") {
+      await screen.findByTestId("chat-panel");
+      mockCreateConversation.mockReturnValueOnce(pending);
+      jest.spyOn(window, "confirm").mockReturnValue(true);
+      fireEvent.click(screen.getByRole("button", { name: operation === "new" ? "Start new assistant chat" : "Clear assistant chat" }));
+    }
+    await act(async () => { await Promise.resolve(); });
+    rerender(<AgenticAppAssistantOverlay {...props} open={false} />);
+    mockChatStoreState.activeConversationId = "user-selected-chat";
+    mockSetActiveConversation.mockClear();
+    await act(async () => { finish("late-assistant-chat"); });
+    expect(mockSetActiveConversation).not.toHaveBeenCalled();
+    expect(mockChatStoreState.activeConversationId).toBe("user-selected-chat");
   });
 });
 

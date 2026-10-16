@@ -103,7 +103,7 @@ interface ChatState {
   // Actions
   createConversation: (
     agentId: string,
-    options?: { title?: string; metadata?: Record<string, unknown> },
+    options?: { title?: string; metadata?: Record<string, unknown>; activate?: boolean },
   ) => Promise<string>;
   setActiveConversation: (id: string | null) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => string;
@@ -119,7 +119,7 @@ interface ChatState {
   setContextUsage: (conversationId: string,usage: ContextUsageEventData) => void;
   clearStreamEvents: (conversationId?: string) => void;
   getConversationStreamEvents: (conversationId: string) => StreamEvent[];
-  deleteConversation: (id: string) => Promise<void>;
+  deleteConversation: (id: string, options?: { selectNext?: boolean }) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
   updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => void;
@@ -317,7 +317,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
       createConversation: async (
         agentId: string,
-        options?: { title?: string; metadata?: Record<string, unknown> },
+        options?: { title?: string; metadata?: Record<string, unknown>; activate?: boolean },
       ) => {
         const storageMode = getStorageMode();
         const normalizedAgentId = agentId.trim();
@@ -356,12 +356,12 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
         // Update local state
         set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
-          ...(state.conversationFilter === 'web' || state.conversationFilter === 'all'
+          ...(options?.activate === false || state.conversationFilter === 'web' || state.conversationFilter === 'all'
             ? {}
             : { conversationFilter: 'all' as const, conversationPage: 1 }),
-          activeConversationId: id,
+          ...(options?.activate === false ? {} : { activeConversationId: id }),
         }));
-        persistLastActiveConversationId(id);
+        if (options?.activate !== false) persistLastActiveConversationId(id);
 
         return id;
       },
@@ -685,7 +685,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
         return conv?.streamEvents || [];
       },
 
-      deleteConversation: async (id: string) => {
+      deleteConversation: async (id: string, options?: { selectNext?: boolean }) => {
         const storageMode = await getStorageMode();
 
         // Snapshot for rollback. The removal below is optimistic, so a server
@@ -708,7 +708,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
           // If this was the active conversation, select the next one intelligently
           let newActiveId = state.activeConversationId;
-          if (wasActiveConversation) {
+          if (wasActiveConversation && options?.selectNext !== false) {
             if (newConversations.length === 0) {
               // No conversations left
               newActiveId = null;
