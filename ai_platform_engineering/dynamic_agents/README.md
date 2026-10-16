@@ -52,7 +52,7 @@ Dynamic Agents provide a flexible way to create purpose-built AI assistants with
 
 The initial native phase established one ACP execution path for default and
 custom agents, keeping DeepAgents/LangGraph and the simulated filesystem.
-Current changes add configured Claude Code/Codex sandbox placements behind that
+Current changes add configured Claude Code sandbox placements behind that
 same execution service. **Sandbox integration is under review; remote rollout,
 provider authentication, policy and complete skills qualification remain pending
 approval. No existing agent is automatically switched.**
@@ -60,7 +60,7 @@ approval. No existing agent is automatically switched.**
 | Runtime | Configuration | Session and files |
 |---|---|---|
 | Native (default) | `execution.kind=native`, existing model/tools/skills | Original LangGraph thread, checkpoints and logical filesystem. |
-| Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; persistent real workspace with bounded canonical text artifacts. |
+| Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; real working filesystem restored from canonical native checkpoints, with bounded canonical text artifacts. |
 
 - The pinned released Python ACP SDK is `0.12.1`, wire protocol `1`. Native
   `caipe.io/native-acp` events preserve current progress and checkpointed human
@@ -86,8 +86,9 @@ approval. No existing agent is automatically switched.**
   sessions additionally pin caller, connection, profile revision, environment
   UID, cwd and native provider session. Failed load or placement changes never
   silently start another session or import a native checkpoint as CLI state.
+  Codex is deferred; profiles must support the exact native-state archive contract.
 - Existing clear/delete uses that admitted binding. Sandbox cleanup deletes the
-  exact remote generation before resetting local references; failures remain
+  exact remote generation and purges owned checkpoint blobs before resetting local references; failures remain
   retryable. Sandbox rewind and cached-runtime restart are explicitly
   unsupported. Use a new conversation or the supported clear lifecycle.
 
@@ -99,10 +100,25 @@ for diagrams, state ownership, tool/workspace boundaries and qualification.
 Other SDK/provider runtimes still need a qualified adapter; ACP alone does not
 supply a logical filesystem or operating-system isolation.
 
-Include bindings, leases, executions/events, tool requests, checkpoints and
-GridFS in canonical MongoDB backups. Provider-native sessions/workspaces need
-their own persistent-volume backups. Restoring leases does not restart work;
-worker loss reports interruption rather than retrying uncertain external effects.
+Include bindings, leases, executions/events, tool requests, checkpoint manifests
+and all GridFS buckets in a consistent canonical MongoDB backup. Claude Code
+keeps its native file layout while running; quiescent archives make the canonical
+database authoritative for committed native state. Before success, drain the ACP
+process, verify the archive bytes and publish its head under the current lease.
+Every later load restores that head, even on a healthy volume. A lost allocation
+can be recreated only from a committed checkpoint with the same owner/profile,
+native versions and session ID. Restore intent and verified receipts fence the
+replacement; unfinished restore blocks execution.
+
+The bounded archive includes native transcripts, subagents, compaction, file
+history, workspace and SQLite/WAL state. Only fixed operational scratch/locks and
+known native login files are excluded; deployment credentials are supplied again.
+Keep three recent snapshots plus restore provenance. Clear/delete removes live
+checkpoint records and blobs; a background sweeper retires interrupted uploads.
+Provider volumes are working copies, with optional additional backups. Before
+the first settled prompt there may be no recoverable native checkpoint. Hard
+worker loss reports interruption and restores the last committed state without
+repeating uncertain external effects; restored leases do not restart work.
 
 Run migration, continuity, input, broker and artifact tests on an isolated
 MongoDB; tests create/remove only their own random databases:
@@ -247,7 +263,7 @@ model credential belongs in an agent definition.
 {
   "name": "Example code agent",
   "system_prompt": "Work on the admitted workspace and use configured CAIPE tools.",
-  "execution": {"kind": "sandbox", "profile_id": "primary-codex"},
+  "execution": {"kind": "sandbox", "profile_id": "primary-claude"},
   "allowed_tools": {}
 }
 ```
@@ -262,7 +278,7 @@ The fixed provider contract is relative to `SANDBOX_SERVICE_URL`:
 
 | Operation | Request/result |
 |---|---|
-| `GET /api/caipe/profiles` | `{profiles:[{id,name,harness,revision,capabilities,...}]}`; `harness` is `claude-code` or `codex`. |
+| `GET /api/caipe/profiles` | `{profiles:[{id,name,harness,revision,capabilities,...}]}`; `harness` is `claude-code`; the exact `state_contract` and pinned native versions are required. |
 | `POST /api/caipe/sandboxes` | `{conversation_id:<UUID>,profile_id,revision}`; returns `id,uid,namespace,conversation_id,profile_id,revision,cwd,state,resource_version`. Creation retries must be idempotent. |
 | `GET /api/caipe/sandboxes?conversation_id=...&profile_id=...` | Read-only owner-bound recovery lookup after an uncertain creation response; never creates an environment. |
 | `GET /api/caipe/sandboxes/{id}` | Fresh allocation identity/version; retired profiles must retain metadata for safe cleanup without permitting execution. |
@@ -270,6 +286,8 @@ The fixed provider contract is relative to `SANDBOX_SERVICE_URL`:
 | `PUT .../{id}/workspace` | `{conversation_id,uid,files}`; one managed instructions/skills/`inputs/` snapshot, max128 files/1MiB total/256KiB each. |
 | `GET .../{id}/workspace/files`; `GET .../content?path=...` | Owner/UID query binding; bounded relative regular-text listing/content. No credentials/private state/symlink traversal. |
 | `PUT .../{id}/workspace/content` | `{conversation_id,uid,path,content}`; atomic ordinary UTF-8 write, max256KiB, returning `{path,bytes}`. |
+| `POST .../{id}/state/export` | Owner/UID-bound quiescent export: bounded NDJSON header, base64 chunks and complete frame, with format, native versions, exclusions, hash and byte count. |
+| `POST .../{id}/state/restore`; `GET .../{id}/state/receipt` | Restore a committed archive under a unique restore identity; verify the exact receipt before publishing a replacement binding. Interrupted restore blocks execution. |
 | `WS .../{id}/acp?conversation_id=...&uid=...` | Non-TTY ACP JSON-RPC, one object/message, max8MiB, stderr excluded. |
 
 Instruction/skill preparation locks against active execution. Ordinary artifact
@@ -280,7 +298,7 @@ inputs, 512KiB per readable output and 4MiB output export; omitted files produce
 explicit warnings. Existing `format_file` mirrors the newly formatted copy into
 the real workspace so the harness can read the tool's result.
 
-The provider must keep session HOME/workspace persistent, pin image/command and
+The provider must support the exact versioned HOME/workspace state contract, pin image/command and
 policy revision, isolate users and validate actual process environment identity.
 Long-lived admitted execution may outlive its handshake bearer; reconnect must
 reauthenticate and operator deadlines/revocation controls still apply. A CLI may
@@ -294,7 +312,7 @@ for it. Existing native automation remains unchanged.
 
 No remote rollout or credentials are supplied by this change. Qualify actual
 provider/model auth, MCP reachability, skills, cancellation, native session
-restore and volume backup/deletion behavior after review approval.
+restore after working-volume loss and backup/deletion behavior after review approval.
 
 ### Models Configuration
 

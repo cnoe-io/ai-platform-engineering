@@ -92,6 +92,7 @@ from dynamic_agents.services.model_capabilities import (
 )
 from dynamic_agents.services.remote_agent_tool import create_remote_agent_tool
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
+from dynamic_agents.services.sandbox_client import SandboxError
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 from dynamic_agents.services.tracing import TracingManager
 
@@ -1495,6 +1496,12 @@ class AgentRuntime:
             if not subagent_config.enabled:
                 logger.warning(f"Agent '{self.config.name}': Subagent '{ref.name}' is disabled, skipping")
                 continue
+
+            if subagent_config.execution.kind != "native":
+                raise SandboxError(
+                    "A native coordinator cannot inline a sandbox subagent. "
+                    "Run the sandbox agent directly until cross-runtime child routing is qualified."
+                )
 
             # Build MCP tools for subagent
             subagent_tools, builtin_tool_names = await self._build_subagent_tools(subagent_config)

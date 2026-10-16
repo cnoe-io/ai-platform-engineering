@@ -372,7 +372,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
   });
 
   it("preserves broker-qualified features while retaining harness-owned middleware configuration", async () => {
-    const fetchMock = mockApi({ profiles: [{ id: "primary", name: "Primary sandbox", harness: "codex", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true } }] });
+    const fetchMock = mockApi({ profiles: [{ id: "primary", name: "Primary sandbox", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true } }] });
     const source = { _id: "agent-primary", name: "Example", system_prompt: "Use permitted tools", visibility: "team", owner_team_slug: "platform", allowed_tools: { primary: true }, allowed_remote_agents: ["remote-primary"], builtin_tools: { workflows: ["workflow-primary"] }, subagents: [{ agent_id: "agent-child", name: "child", description: "Specialist" }], skills: ["skill-primary"], features: { model_call_limit: { enabled: true, run_limit: 20 } }, enabled: true, owner_id: "owner@example.test", is_system: false, created_at: "", updated_at: "" } as import("@/types/dynamic-agent").DynamicAgentConfig;
     const onSave = jest.fn();
     render(<DynamicAgentEditor cloneFrom={source} onCancel={jest.fn()} onSave={onSave} />);
@@ -523,7 +523,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(saveButton).not.toBeDisabled();
   });
   it("explains unsupported retained skills and requires an explicit clear or qualified profile", async () => {
-    mockApi({ profiles: [{ id: "primary", name: "Primary sandbox", harness: "codex", revision: "v1", capabilities: { mcp: true, skills: false, attachments: true } }] });
+    mockApi({ profiles: [{ id: "primary", name: "Primary sandbox", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: false, attachments: true } }] });
     const source = { _id: "agent-primary", name: "Example", system_prompt: "Use permitted tools", visibility: "team", owner_team_slug: "platform", allowed_tools: {}, subagents: [], skills: ["skill-primary"], enabled: true, owner_id: "owner@example.test", is_system: false, created_at: "", updated_at: "" } as import("@/types/dynamic-agent").DynamicAgentConfig;
     render(<DynamicAgentEditor cloneFrom={source} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();

@@ -1609,7 +1609,7 @@ export function DynamicAgentEditor({
                   >
                     <option value="native">DeepAgents (shared runtime)</option>
                     {sandbox && !selectedRuntimeProfile && <option value={`sandbox:${execution.profile_id}`} disabled>Unavailable profile: {execution.profile_id}</option>}
-                    {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} ({profile.harness === "claude-code" ? "Claude Code" : "Codex"})</option>)}
+                    {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} (Claude Code)</option>)}
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {sandbox ? "Runs over ACP in the selected sandbox. Its profile manages the model, credentials and isolation. Runtime changes apply to new conversations; existing sessions keep their binding." : "Runs in the shared DeepAgents runtime with a logical filesystem. Choose a sandbox profile for isolated ACP execution."}

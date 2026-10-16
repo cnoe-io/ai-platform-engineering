@@ -41,6 +41,9 @@ it("rejects malformed or duplicate catalog entries rather than publishing partia
   expect(() => parseRuntimeProfiles({ profiles: [profile, profile] })).toThrow();
   expect(() => parseRuntimeProfiles({ profiles: [{ ...profile, capabilities: { mcp: true } }] })).toThrow();
 });
+it("refuses deferred harnesses rather than admitting them through a stale catalog", () => {
+  expect(() => parseRuntimeProfiles({ profiles: [{ ...profile, harness: "codex" }] })).toThrow();
+});
 it("stops before backend access for an unauthorized caller", async () => {
   mockAuthenticate.mockResolvedValue(NextResponse.json({}, { status: 401 }));
   await expect(loadRuntimeProfiles(request())).rejects.toMatchObject({ statusCode: 401 });

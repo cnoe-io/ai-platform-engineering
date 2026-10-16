@@ -10,10 +10,11 @@ import pytest
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.config import Settings
 from dynamic_agents.services import sandbox_client
+from dynamic_agents.services.native_state_protocol import STATE_CONTRACT
 from dynamic_agents.services.sandbox_client import SandboxAllocation, SandboxClient, SandboxError, SandboxProfile
 
 PROFILE = {"id": "example-harness", "name": "Example harness", "harness": "claude-code", "revision": "revision-1",
-           "capabilities": {"mcp": True, "skills": True, "attachments": True}}
+           "capabilities": {"mcp": True, "skills": True, "attachments": True}, "state_contract": STATE_CONTRACT}
 
 
 def _client(monkeypatch, handler):

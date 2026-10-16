@@ -436,7 +436,7 @@ export type AgentExecution =
 export interface AgentRuntimeProfile {
   id: string;
   name: string;
-  harness: "claude-code" | "codex";
+  harness: "claude-code";
   revision: string;
   capabilities: { mcp: boolean; skills: boolean; attachments: boolean };
 }

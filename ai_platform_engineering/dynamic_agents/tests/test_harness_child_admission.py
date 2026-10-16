@@ -190,3 +190,18 @@ async def test_inline_hook_has_no_effect_on_ordinary_native_skip_missing_behavio
     runtime.config = _agent("ordinary-native")
     runtime._mongo_service = SimpleNamespace(get_agent=lambda _identifier: None)
     assert await runtime._resolve_subagents([_ref("missing-child")]) == []
+
+
+@pytest.mark.parametrize("retained_model", [True, False])
+async def test_ordinary_native_parent_never_inlines_sandbox_child_or_constructs_its_model(retained_model):
+    assert inline_harness_admission.get() is None
+    child = _agent("external-child", execution=AgentExecutionConfig(kind="sandbox", profile_id="qualified"))
+    if not retained_model:
+        child = child.model_copy(update={"model": None})
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime.config = _agent("native-parent")
+    runtime._mongo_service = SimpleNamespace(get_agent=lambda _identifier: child)
+    runtime._build_subagent_tools = AsyncMock()
+    with pytest.raises(SandboxError, match="cannot inline a sandbox subagent"):
+        await runtime._resolve_subagents([_ref(child.id)])
+    runtime._build_subagent_tools.assert_not_awaited()

@@ -22,6 +22,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from dynamic_agents.models import AgentExecutionConfig, DynamicAgentConfig
 from dynamic_agents.services.mcp_client import intersect_allowed_tools
+from dynamic_agents.services.native_state_protocol import STATE_CONTRACT
 from dynamic_agents.services.runtime_storage import materialize_runtime_config, resolve_runtime_storage
 
 if TYPE_CHECKING:
@@ -217,7 +218,81 @@ def get_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str) -
     record = mongo.get_session_bindings_collection().find_one({"agent_id": agent_id, "session_id": session_id})
     if record is None:
         raise SessionBindingError("Sandbox execution requires an admitted session")
-    return _validate_binding(record, agent_id, session_id, mongo.settings).sandbox
+    binding = _validate_binding(record, agent_id, session_id, mongo.settings)
+    return _sandbox_with_checkpoint_allocation(mongo, binding)
+
+
+def _sandbox_with_checkpoint_allocation(mongo: MongoDBService, binding: _StoredBinding) -> dict[str, Any] | None:
+    """Materialize only an allocation authorized by the atomic restore fence.
+
+    The immutable profile, owner and provider-native session still come from
+    the original admission. A caller cannot replace these through restoration.
+    """
+    if binding.sandbox is None:
+        return None
+    authority = mongo.get_session_runs_collection().find_one({
+        "agent_id": binding.agent_id, "session_id": binding.session_id,
+    }, {"checkpoint_allocation": 1, "checkpoint_profile": 1, "checkpoint_phase": 1})
+    if authority is None:
+        return binding.sandbox
+    # Importing checkpoint models here would create a repository cycle. Verify
+    # the same stable identity directly from its canonical serialized fields.
+    state = dict(binding.sandbox)
+    if "checkpoint_profile" in authority:
+        approved_profile = authority["checkpoint_profile"]
+        original_profile = state.get("profile", {})
+        if ({key: value for key, value in approved_profile.items() if key != "state_contract"}
+                != {key: value for key, value in original_profile.items() if key != "state_contract"}
+                or approved_profile.get("state_contract") != STATE_CONTRACT):
+            raise SessionBindingError("The native-state profile upgrade changed its original admission")
+        state["profile"] = approved_profile
+    if "checkpoint_phase" in authority:
+        state["checkpoint_phase"] = authority["checkpoint_phase"]
+    restored = authority.get("checkpoint_allocation")
+    if restored is None:
+        return state
+    profile = state.get("profile", {})
+    identity = {"agent_id": binding.agent_id, "session_id": binding.session_id,
+        "owner_subject": state.get("owner_subject"), "profile_id": profile.get("id"),
+        "profile_revision": profile.get("revision"), "harness": profile.get("harness"),
+        "provider_session_id": state.get("provider_session_id"), "connection_version": state.get("connection_version")}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if restored.get("identity_hash") != digest or restored.get("owner_subject") != state.get("owner_subject"):
+        raise SessionBindingError("The restored sandbox allocation does not match its original admission")
+    allocation = restored.get("allocation")
+    original_allocation = state.get("allocation") or {}
+    if (not isinstance(allocation, dict) or allocation.get("conversation_id") != original_allocation.get("conversation_id")
+            or allocation.get("profile_id") != profile.get("id") or allocation.get("revision") != profile.get("revision")):
+        raise SessionBindingError("The restored sandbox allocation has an invalid identity")
+    return {**state, "allocation": allocation}
+
+
+def adopt_sandbox_checkpoint_profile(
+    mongo: MongoDBService, agent_id: str, session_id: str, profile: dict[str, Any], lease_id: str,
+) -> dict[str, Any]:
+    """Fence a legacy session before importing its existing unchanged runtime.
+
+    Only adding the qualified state contract is permitted. The adopting phase
+    is committed in the lease authority before any export; only publishing a
+    verified checkpoint can move that authority to the active phase.
+    """
+    state = get_sandbox_binding(mongo, agent_id, session_id)
+    old_profile = state.get("profile", {}) if state else {}
+    if (state is None or state.get("checkpoint_phase") not in {None, "adopting"}
+            or profile.get("state_contract") != STATE_CONTRACT
+            or {key: value for key, value in profile.items() if key != "state_contract"}
+            != {key: value for key, value in old_profile.items() if key != "state_contract"}
+            or old_profile.get("state_contract") not in (None, STATE_CONTRACT)):
+        raise SessionBindingError("This sandbox cannot adopt native checkpoints without explicit migration")
+    changed = mongo.get_session_runs_collection().update_one({
+        "agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+        "lease_expires_at": {"$gt": datetime.now(timezone.utc)}, "cancel_requested": {"$ne": True},
+        "checkpoint_head": {"$exists": False}, "checkpoint_phase": {"$ne": "active"},
+    }, {"$set": {"checkpoint_profile": profile, "checkpoint_phase": "adopting"},
+        "$inc": {"checkpoint_generation": 1}, "$unset": {"checkpoint_writer": ""}})
+    if not changed.matched_count:
+        raise SessionBindingError("Native checkpoint adoption requires the active session lease")
+    return {**state, "profile": profile, "checkpoint_phase": "adopting"}
 
 
 def save_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str, state: dict[str, Any]) -> None:
@@ -232,10 +307,14 @@ def save_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str, 
         raise SessionBindingError("This conversation is bound to a native checkpoint")
     if binding.sandbox is not None:
         old = binding.sandbox
-        if any(old.get(field) != state.get(field) for field in ("profile", "owner_subject", "connection_version")):
+        authorized = _sandbox_with_checkpoint_allocation(mongo, binding)
+        if (any(old.get(field) != state.get(field) for field in ("owner_subject", "connection_version"))
+                or (old.get("profile") != state.get("profile")
+                    and (authorized is None or authorized.get("profile") != state.get("profile")))):
             raise SessionBindingError("The admitted sandbox environment changed; explicit migration is required")
         if old.get("allocation") is not None and old["allocation"] != state.get("allocation"):
-            raise SessionBindingError("The admitted sandbox environment changed; explicit migration is required")
+            if authorized is None or authorized.get("allocation") != state.get("allocation"):
+                raise SessionBindingError("The admitted sandbox environment changed; explicit migration is required")
         if old.get("provider_session_id") and old["provider_session_id"] != state.get("provider_session_id"):
             raise SessionBindingError("The admitted ACP session reference changed")
     result = collection.update_one({**key, "revision": binding.revision}, {
@@ -257,9 +336,9 @@ def reset_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str,
     if record is None:
         raise SessionBindingError("Sandbox cleanup requires an admitted session")
     binding = _validate_binding(record, agent_id, session_id, mongo.settings)
-    if binding.runtime_kind != "sandbox" or binding.sandbox != expected:
+    if binding.runtime_kind != "sandbox" or _sandbox_with_checkpoint_allocation(mongo, binding) != expected:
         raise SessionBindingError("The sandbox binding changed during cleanup")
-    result = collection.update_one({**key, "revision": binding.revision, "sandbox": expected}, {
+    result = collection.update_one({**key, "revision": binding.revision, "sandbox": binding.sandbox}, {
         "$unset": {"sandbox": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}, "$inc": {"revision": 1},
     })
     if not result.matched_count:

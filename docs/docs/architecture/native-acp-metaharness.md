@@ -11,7 +11,8 @@ run journal and human-input lifecycle; their native state remains different.
 
 The initial phase of the [metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877)
 established the native ACP path and detached execution. The current changes add
-sandbox profiles, remote ACP transport and a platform tool/workspace bridge.
+Claude Code sandbox profiles, remote ACP transport, a platform tool/workspace
+bridge and canonical native-state checkpoints.
 **These additions are under review. Remote deployment, provider authentication,
 network policy and complete skills qualification remain pending approval.**
 This document does not imply that a deployed agent has changed runtimes.
@@ -20,9 +21,9 @@ This document does not imply that a deployed agent has changed runtimes.
 
 | Area | Native foundation | Sandbox integration under review |
 |---|---|---|
-| Execution | Existing DeepAgents/LangGraph runtime behind a logical ACP agent. Default, SRE and custom agents remain shared logical agents. | A configured Claude Code or Codex ACP process in a provider-managed environment. |
+| Execution | Existing DeepAgents/LangGraph runtime behind a logical ACP agent. Default, SRE and custom agents remain shared logical agents. | A configured Claude Code ACP process in a provider-managed environment. Codex is deferred until its persistence integration is qualified. |
 | Agent definition | Native model, prompt, tools and skills use existing configuration. | `execution.kind=sandbox` selects a configured `profile_id`; its deployment owns image, command, model route and credentials. |
-| Files | Existing simulated filesystem and checkpoint/GridFS storage. | A real persistent workspace, plus bounded text-artifact exchange with CAIPE's existing file store. |
+| Files | Existing simulated filesystem and checkpoint/GridFS storage. | A real workspace restored from canonical native-state checkpoints, plus bounded text-artifact exchange with CAIPE's existing file store. |
 | Session | Original LangGraph thread and admitted storage coordinates. | Pinned environment identity and native provider session ID, stored in the same CAIPE binding. |
 | Platform services | Native tools, human input, subagents and the existing workflow engine. | A run-scoped tool broker reuses those services without giving the harness the caller's bearer. |
 
@@ -49,13 +50,16 @@ flowchart TB
   Native --> Deep[DeepAgents and LangGraph]
   Binding --> Remote[ACP client and transport]
   Remote --> Provider[Configured sandbox provider]
-  Provider --> Harness[Claude Code or Codex harness]
+  Provider --> Harness[Claude Code harness]
   Harness -->|Run capability| Broker[CAIPE platform tool broker]
   Broker --> Tools[Current tools, workflows and native children]
   Deep --> DB
   Execution --> DB
   Broker --> DB
-  Harness --> Workspace[Persistent native workspace]
+  Harness --> Workspace[Native working filesystem]
+  Workspace -->|Quiescent checkpoint| Checkpoints[Versioned native-state archive]
+  Checkpoints -->|Verified bytes and fenced head| DB
+  DB -->|Restore committed state before load| Workspace
   Workspace -->|Bounded text artifacts| Files[Existing CAIPE file store]
   Files --> DB
 ```
@@ -93,23 +97,52 @@ introducing another routing engine or conversation database.
 | Conversation and visible history | Existing CAIPE conversation/BFF APIs in canonical MongoDB. The browser remains the interactive transcript writer. |
 | Effective configuration and placement | `native_acp_sessions`: original agent/session identity, configuration snapshot and immutable checkpoint/filesystem or sandbox binding. |
 | Native runtime state | Existing LangGraph checkpoint collections and logical file namespace. ACP does not rename the original thread. |
-| External runtime state | Provider-native session ID and pinned environment identity in the CAIPE binding; CLI transcripts/workspace on the provider's persistent volume. |
-| Active execution | `native_acp_runs` owns the native lease; `native_acp_execution_runs` owns turn identity, producer association, outcome and pending human decisions. |
+| Claude Code runtime state | Opaque versioned HOME/workspace archives in canonical MongoDB GridFS, with manifests in `native_acp_checkpoints`. The provider filesystem is the working copy. |
+| Active execution and checkpoint head | `native_acp_runs` owns the native lease, checkpoint publication fence and recovery intent; `native_acp_execution_runs` owns turn identity, producer association, outcome and pending human decisions. |
 | Replay | `native_acp_execution_events` stores sequenced output; subscribers do not own or restart execution. |
 | Platform tool calls | `native_acp_tool_requests` stores bounded, idempotent requests and results under the owning run/lease. Only the producer holding that lease executes them. |
 
-One canonical CAIPE database does not mean one physical store for every byte
-of runtime state. A sandbox harness can keep native transcripts, metadata or a
-local database on its persistent volume. That may duplicate conversation/tool
-content; it is managed runtime state, not another authority for CAIPE identity,
-permissions or visible history. ACP does not redirect that storage into MongoDB.
+### Canonical storage without replacing the native harness
 
-| Operational concern | Consequence |
+Claude Code continues to use its native files while running. CAIPE checkpoints
+those files into the same MongoDB database as conversation and execution records;
+a provider volume is a working cache rather than the only recoverable copy.
+This preserves native transcripts, sub-agent state, compaction, file history,
+settings, binary workspace files and local database/WAL files without translating
+them into CAIPE chat messages. It does not require an experimental external
+session-store API or change the harness's native file checkpointing.
+
+| Boundary | Guarantee |
 |---|---|
-| Restore MongoDB alone | CAIPE history can be readable while the bound native session cannot resume. Restore and validate the matching workspace/native state too. |
-| Delete a conversation | Cleanup must also govern native transcripts, retained volumes and backup expiry. A successful environment-resource deletion is not proof of physical erasure. |
-| Change or upgrade a harness | Preserve canonical history, but qualify native-state compatibility or start a new native session explicitly. |
-| Require one physical datastore | This implementation does not meet that stronger requirement. A qualified runtime storage adapter or checkpoint export/restore contract would be additional work. |
+| Successful turn | CAIPE closes and drains the ACP process, validates the complete archive and persisted hash, then publishes the checkpoint head under the existing live lease before emitting success. A storage failure cannot become a successful completed turn. |
+| Next turn | Restore the committed head before native `session/load`, including on a healthy volume. Uncommitted working files cannot silently replace canonical state. Each hydration uses a new restore identity. |
+| Lost allocation | A committed checkpoint permits owner-bound replacement, verified restore and lease-fenced allocation rebinding. Caller, profile/runtime versions and native session ID stay pinned. No checkpoint means no fabricated recovery. |
+| Stop or graceful failure | Attempt a bounded quiescent checkpoint while the same worker still owns the lease. If capture fails, retain the previous committed head and report the failure. |
+| First prompt | Keep the new live native session open until its first settled prompt can be checkpointed. Before that first checkpoint, the journal is durable but total working-storage loss can lose unfinished native state. |
+| Hard worker loss | Retain canonical output and the last committed native checkpoint; report interruption. Do not repeat prompts, tools or approval callbacks to reconstruct a response. |
+| Upgrade | Require the admitted profile and native adapter/SDK versions. Format or runtime changes need a qualified migration; a matching visible transcript is insufficient. |
+
+The checkpoint is an opaque, bounded archive, not a second conversation service.
+Uploads remain unpublished until fully validated. The checkpoint head shares the
+existing lease document so an expired worker cannot overwrite a newer owner's
+state. Replacement recovery records its intent before provisioning, then makes
+the destination executable only after the verified restore receipt and fenced
+binding update. Interrupted restores block execution until recovery completes.
+
+Archives include the managed workspace manifest so revoked skills and inputs can
+be removed correctly. Fixed exclusions omit runtime locks, checkpoint scratch
+files and known native login credential files. Credentials are supplied again by
+the deployment. Workspace content can still contain secrets produced by tools;
+apply the same access, encryption and backup controls as other sensitive CAIPE
+records. Active snapshots retain three recent versions plus restore provenance;
+clear/delete removes live checkpoint records and blobs, with bounded orphan
+cleanup for interrupted uploads. Backup expiry remains an operator policy.
+
+The initial archive contract allows 256 MiB of archive and expanded state,
+128 MiB per file and 20,000 entries. Oversized or inconsistent native state
+fails checkpointing explicitly. Capacity planning must include the whole working
+HOME, including repository metadata and native session history, rather than only
+the text artifacts displayed in CAIPE.
 
 Admission acquires the native lease before reading or changing runtime state.
 The 120-second lease is extended with one-second heartbeat/cancellation polling;
@@ -119,8 +152,9 @@ saved configuration narrowed by current grants.
 
 A sandbox binding additionally pins the original caller, configured connection,
 profile revision, namespace, environment UID, cwd and provider session ID.
-Changing a profile/image/policy, losing an environment, or failing session load
-requires explicit migration or a new conversation. Existing native checkpoints
+Changing a profile/image/policy or failing native session load requires explicit
+migration or a new conversation. Losing an environment can recover the same
+native session from its committed checkpoint under the pinned profile. Existing native checkpoints
 are not imported into a different harness as if they were that harness's state.
 
 ```mermaid
@@ -143,7 +177,8 @@ sequenceDiagram
   Service-->>UI: Replay without repeating prompt or tools
 ```
 
-Worker loss retains persisted output and native state but reports interruption.
+Worker loss retains persisted output and the last committed native state but
+reports interruption.
 Neither the lease nor the journal provides exactly-once effects at an external
 service. A claimed platform tool request is not reclaimed after uncertain
 failure. Recovery must never repeat a prompt or mutation merely to reconstruct
@@ -218,9 +253,9 @@ the selected provider, not just protocol tests.
 
 | Operation | Native runtime | Sandbox runtime |
 |---|---|---|
-| Reconnect/reload | Replay the existing journal and continue checkpointed state. | Replay the same journal; subsequent turns load the pinned provider session. |
+| Reconnect/reload | Replay the existing journal and continue checkpointed state. | Replay the same journal; restore the committed native checkpoint before subsequent session load. |
 | Stop | Cancel the owning native turn and wait for cleanup. | Cancel the actual admitted ACP prompt and its producer/tool/input work; retain saved context. |
-| Clear | Retire obsolete journals and remove admitted checkpoint/files. | Delete the exact pinned environment before resetting its provider reference and canonical files. Cleanup failure remains visible and retryable. |
+| Clear | Retire obsolete journals and remove admitted checkpoint/files. | Delete the exact pinned environment, purge owned checkpoints, then reset its provider reference and canonical files. Cleanup failure remains visible and retryable. |
 | Permanent deletion | Fence late admissions, clear native state, then remove canonical history through existing authorization. | Apply the same fence, perform owner-bound generation/version-checked remote cleanup, then finish canonical deletion. Retained volumes/backups follow deployment policy. |
 | Rewind | Existing checkpoint rewind. | Explicitly unsupported; start a new conversation to branch from earlier history. No transcript-only pretend rewind. |
 | Restart runtime | Rebuild the cached native runtime with current resources. | Explicitly unavailable for a retained provider session; use the supported clear/new-conversation lifecycle. |
@@ -243,8 +278,9 @@ agent is switched by supplying them:
 | `SANDBOX_PROVISION_TIMEOUT_SECONDS` | Bounded readiness wait; expiry preserves the idempotent environment for retry. | `600`, range 10–1800. |
 
 The provider contract supplies configured profile discovery, idempotent creation,
-identity/status, resume/suspend/delete, scoped workspace operations and a
-non-TTY ACP relay. It needs independently configured CAIPE issuer/audience/JWKS,
+identity/status, resume/suspend/delete, scoped workspace operations, native-state
+export/restore/receipt and a non-TTY ACP relay. Claude Code profiles must advertise
+the exact supported state contract; a profile without it is unavailable. It needs independently configured CAIPE issuer/audience/JWKS,
 access policy, pinned harness profiles, storage, model Secret references and
 routes back to CAIPE. Unattended sandbox workflows/triggers also need a qualified
 delegated caller identity; a service-account token plus an email header cannot
@@ -256,14 +292,17 @@ for the exact request fields and limits.
 | Verification | What it establishes |
 |---|---|
 | Deterministic ACP/MongoDB tests | Serialized events, immutable binding, reconnect, human decisions, capability isolation, child admission, file boundaries and cleanup behavior in source. |
-| Offline adapter boot | Negotiation and advertised native session capabilities without model/provider calls. It does not establish credential or model compatibility. |
+| Offline native resume | The pinned Claude adapter starts a genuine session, checkpoints it with the production archive worker, restores after working-filesystem loss and loads the same native session using loopback inference. It does not establish production model, provider authentication or policy compatibility. |
+| Canonical backup recovery | A real MongoDB dump, database deletion and restore recover the checkpoint archive, head, binding and journal. A fresh Claude process loads that recovered archive with its original native session and context. |
 | Deployment qualification pending approval | Actual provider login, model gateway, MCP reachability, skills execution, policy enforcement, session restore after process/Pod loss, cancellation and retained-volume lifecycle. |
 
 Use the same `MONGODB_URI`/`MONGODB_DATABASE` for canonical CAIPE records and
-include ACP bindings, leases, executions/events, tool requests, checkpoints and
-GridFS in backups. Back up provider-native session/workspace volumes separately;
-restoring MongoDB alone does not restore a remote CLI session. Restored leases
-must expire, not restart work. Journal limits remain 8 MiB/frame, 64 MiB/run and
+include ACP bindings, leases, executions/events, tool requests, checkpoint manifests
+and their complete GridFS buckets in one consistent backup. Restoring this
+canonical database recovers committed native state as well as CAIPE records;
+provider volume backups are optional additional recovery copies. Restored leases
+must expire, not restart work. A database backup does not preserve a live process
+or the outcome of an in-flight external mutation. Journal limits remain 8 MiB/frame, 64 MiB/run and
 100,000 frames/run, with explicit failure instead of successful truncation.
 
 Rollback restores prior image pins through the normal deployment process and

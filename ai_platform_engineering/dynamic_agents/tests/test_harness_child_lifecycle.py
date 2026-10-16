@@ -16,6 +16,7 @@ from dynamic_agents.services.agent_execution import AgentExecutionService, Execu
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.harness_tools import HARNESS_TOOL_REQUESTS_COLLECTION
 from dynamic_agents.services.native_run_repository import NativeRunRepository
+from dynamic_agents.services.native_state_protocol import STATE_CONTRACT
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
 from dynamic_agents.services.sandbox_client import SandboxError
 from dynamic_agents.services.session_bindings import (
@@ -74,7 +75,8 @@ async def delegated_state(native_database, monkeypatch):
     save_sandbox_binding(state.mongo, state.parent.agent.id, state.parent.session_id, {
         "owner_subject": state.owner,
         "connection_version": hashlib.sha256(state.settings.sandbox_service_url.encode()).hexdigest(),
-        "profile": {"id": "qualified", "name": "Qualified runtime", "harness": "codex", "revision": "revision-1"},
+        "profile": {"id": "qualified", "name": "Qualified runtime", "harness": "claude-code", "revision": "revision-1",
+            "state_contract": STATE_CONTRACT},
         "allocation": None, "provider_session_id": None,
     })
     monkeypatch.setattr(agent_execution, "require_agent_use_permission", AsyncMock())

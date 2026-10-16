@@ -10,9 +10,10 @@ import pytest
 
 from dynamic_agents.config import Settings
 from dynamic_agents.services import sandbox_client
+from dynamic_agents.services.native_state_protocol import STATE_CONTRACT
 from dynamic_agents.services.sandbox_client import SandboxAllocation, SandboxClient, SandboxError, SandboxProfile
 
-PROFILE = SandboxProfile(id="primary", name="Primary", harness="claude-code", revision="v1")
+PROFILE = SandboxProfile(id="primary", name="Primary", harness="claude-code", revision="v1", state_contract=STATE_CONTRACT)
 REFERENCE = "11111111-2222-4333-8444-555555555555"
 
 

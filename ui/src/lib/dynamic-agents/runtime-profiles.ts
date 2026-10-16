@@ -19,7 +19,7 @@ export function parseRuntimeProfiles(value: unknown): AgentRuntimeProfile[] {
   return value.profiles.map((entry: unknown) => {
     if (!record(entry) || typeof entry.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(entry.id) || ids.has(entry.id) ||
         typeof entry.name !== "string" || !entry.name.trim() || entry.name.length > 200 ||
-        !["claude-code", "codex"].includes(String(entry.harness)) ||
+        entry.harness !== "claude-code" ||
         typeof entry.revision !== "string" || !entry.revision || entry.revision.length > 256 ||
         !record(entry.capabilities) || ["mcp", "skills", "attachments"].some((key) => typeof (entry.capabilities as Record<string, unknown>)[key] !== "boolean")) {
       throw new ApiError("Runtime profiles are temporarily unavailable", 502, "INVALID_RUNTIME_PROFILES");

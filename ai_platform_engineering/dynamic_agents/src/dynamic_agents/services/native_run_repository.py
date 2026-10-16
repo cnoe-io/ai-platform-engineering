@@ -239,7 +239,7 @@ class NativeRunRepository:
                 seconds=STARTUP_TIMEOUT_SECONDS,
             ) <= now
             lease = self.mongo.get_session_runs_collection().find_one({
-                "agent_id": doc["agent_id"], "session_id": doc["session_id"],
+                "agent_id": doc["agent_id"], "session_id": doc["session_id"], "lease_id": {"$exists": True},
             }) if doc["status"] in {"running", "awaiting_input"} else None
             if lease is None and doc["status"] in {"running", "awaiting_input"}:
                 # prepare_finish is acknowledged before native lease deletion.
