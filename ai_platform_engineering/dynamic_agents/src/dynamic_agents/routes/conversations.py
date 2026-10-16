@@ -14,11 +14,13 @@ from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.access import can_access_conversation
 from dynamic_agents.auth.auth import UserContext, get_user_context
+from dynamic_agents.auth.authz import require_conversation_delete_permission
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_execution import AgentExecutionService
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.native_run_repository import NativeRunStorageError
 from dynamic_agents.services.runtime_cache import RuntimeCapacityError
+from dynamic_agents.services.sandbox_client import SandboxError
 from dynamic_agents.services.session_runs import SessionRunBusyError
 
 logger = logging.getLogger(__name__)
@@ -257,6 +259,50 @@ async def rewind_conversation(
 # =============================================================================
 
 
+@router.post("/{conversation_id}/cleanup", response_model=ApiResponse)
+async def cleanup_conversation_runtime(
+    conversation_id: str,
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> ApiResponse:
+    """Delete external execution state before the BFF purges an authorized chat.
+
+    Runtime targets come only from canonical conversation metadata, never from
+    caller-provided namespace or agent identifiers. Ordinary clear stays admin-only.
+    """
+    if mongo._client is None or mongo._db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    conversation = mongo._db["conversations"].find_one({"_id": conversation_id})
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await require_conversation_delete_permission(conversation_id)
+    agent_id = next((item.get("id") for item in conversation.get("participants", [])
+                     if item.get("type") == "agent" and item.get("id")), conversation.get("agent_id", ""))
+    if not agent_id:
+        raise HTTPException(status_code=409, detail="Conversation has no bound agent")
+    session_ids = {conversation_id}
+    if conversation.get("source") == "autonomous":
+        context_id = conversation.get("execution_context_id")
+        if not isinstance(context_id, str) or not context_id.strip():
+            task_id = conversation.get("task_id") or conversation.get("metadata", {}).get("task_id")
+            run = mongo._db[mongo.settings.autonomous_runs_collection].find_one(
+                {"task_id": task_id, "execution_context_id": {"$ne": None}}, sort=[("started_at", -1)],
+            ) if task_id else None
+            context_id = run.get("execution_context_id") if run else None
+        if isinstance(context_id, str) and context_id.strip():
+            session_ids.add(context_id)
+    try:
+        for session_id in sorted(session_ids):
+            await AgentExecutionService(mongo).clear(agent_id, session_id, permanent=True)
+    except SessionRunBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except NativeRunStorageError as exc:
+        raise HTTPException(status_code=503, detail="Durable agent state is unavailable. Please retry later.") from exc
+    except SandboxError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ApiResponse(success=True, data={"conversation_id": conversation_id, "session_ids": sorted(session_ids)})
+
+
 @router.post("/{conversation_id}/clear", response_model=ApiResponse)
 async def clear_conversation_checkpoints(
     conversation_id: str,
@@ -300,6 +346,8 @@ async def clear_conversation_checkpoints(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except NativeRunStorageError as exc:
         raise HTTPException(status_code=503, detail="Durable agent state is unavailable. Please retry later.") from exc
+    except SandboxError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     # Log the action for audit
     logger.info(

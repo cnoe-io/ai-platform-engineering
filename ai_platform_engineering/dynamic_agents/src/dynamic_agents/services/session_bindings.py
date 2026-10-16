@@ -13,13 +13,14 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
+from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import BaseModel, Field, ValidationError
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
-from dynamic_agents.models import DynamicAgentConfig
+from dynamic_agents.models import AgentExecutionConfig, DynamicAgentConfig
 from dynamic_agents.services.mcp_client import intersect_allowed_tools
 from dynamic_agents.services.runtime_storage import materialize_runtime_config, resolve_runtime_storage
 
@@ -43,12 +44,17 @@ class _PersistenceCoordinates(BaseModel):
     gridfs_bucket_name: str
 
 
+class _DelegatedSession(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=256)
+    session_id: str = Field(min_length=1, max_length=256)
+
+
 class _StoredBinding(BaseModel):
     schema_version: Literal[1]
     agent_id: str
     session_id: str
     native_session_id: str
-    runtime_kind: Literal["native"]
+    runtime_kind: Literal["native", "sandbox"]
     protocol: Literal["acp"]
     effective_config: DynamicAgentConfig
     config_version: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -56,6 +62,8 @@ class _StoredBinding(BaseModel):
     persistence: _PersistenceCoordinates
     created_at: datetime
     updated_at: datetime
+    sandbox: dict[str, Any] | None = None
+    delegated_sessions: list[_DelegatedSession] = Field(default_factory=list, max_length=64)
 
 
 def _snapshot_version(configuration: dict) -> str:
@@ -89,6 +97,7 @@ def _validate_binding(record: dict, agent_id: str, session_id: str, settings: Se
         or binding.effective_config.id != agent_id
         or binding.session_id != session_id
         or binding.native_session_id != session_id
+        or binding.runtime_kind != binding.effective_config.execution.kind
         # Verify the stored bytes' logical JSON, before model defaults are added.
         # New optional fields must not invalidate an earlier admitted snapshot.
         or binding.config_version != _snapshot_version(record["effective_config"])
@@ -137,7 +146,7 @@ def resolve_native_binding(
         **key,
         "schema_version": 1,
         "native_session_id": session_id,
-        "runtime_kind": "native",
+        "runtime_kind": admitted.execution.kind,
         "protocol": "acp",
         "effective_config": admitted.model_dump(mode="json", by_alias=True),
         "config_version": _config_version(admitted),
@@ -147,6 +156,16 @@ def resolve_native_binding(
         "updated_at": now,
     }
     try:
+        # Legacy conversations may predate ACP bindings. An existing native
+        # checkpoint is executable state, never a new sandbox's transcript.
+        if admitted.execution.kind == "sandbox" and collection.find_one(key, {"_id": 1}) is None:
+            storage = resolve_runtime_storage(admitted, session_id, mongo.settings)
+            if mongo._db[storage.checkpoint_collection].find_one({"thread_id": session_id}, {"_id": 1}) is not None:
+                admitted = admitted.model_copy(update={"execution": AgentExecutionConfig()}, deep=True)
+                if admitted.model is None:
+                    raise SessionBindingError("This conversation has native state; retain its model or start a new conversation")
+                initial.update(runtime_kind="native", effective_config=admitted.model_dump(mode="json", by_alias=True),
+                               config_version=_config_version(admitted))
         try:
             record = collection.find_one_and_update(
                 key, {"$setOnInsert": initial}, upsert=True, return_document=ReturnDocument.AFTER,
@@ -167,7 +186,13 @@ def resolve_native_binding(
                 ],
             }, deep=True)
         else:
-            admitted = agent.model_copy(update={"backend": binding.effective_config.backend}, deep=True)
+            admitted = agent.model_copy(update={
+                "backend": binding.effective_config.backend,
+                "execution": binding.effective_config.execution,
+                # A definition may move to a harness whose model is profile-
+                # owned. Older native checkpoints retain their admitted model.
+                "model": agent.model or binding.effective_config.model,
+            }, deep=True)
         version = _config_version(admitted)
         if version == binding.config_version:
             return binding.effective_config
@@ -186,3 +211,139 @@ def resolve_native_binding(
     except PyMongoError as exc:
         logger.exception("Native ACP session persistence failed for agent %s", agent.id)
         raise SessionBindingError("Native ACP session persistence is unavailable") from exc
+
+
+def get_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str) -> dict[str, Any] | None:
+    record = mongo.get_session_bindings_collection().find_one({"agent_id": agent_id, "session_id": session_id})
+    if record is None:
+        raise SessionBindingError("Sandbox execution requires an admitted session")
+    return _validate_binding(record, agent_id, session_id, mongo.settings).sandbox
+
+
+def save_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str, state: dict[str, Any]) -> None:
+    """Pin the external environment and native reference before any prompt."""
+    collection = mongo.get_session_bindings_collection()
+    key = {"agent_id": agent_id, "session_id": session_id}
+    record = collection.find_one(key)
+    if record is None:
+        raise SessionBindingError("Sandbox execution requires an admitted session")
+    binding = _validate_binding(record, agent_id, session_id, mongo.settings)
+    if binding.runtime_kind != "sandbox":
+        raise SessionBindingError("This conversation is bound to a native checkpoint")
+    if binding.sandbox is not None:
+        old = binding.sandbox
+        if any(old.get(field) != state.get(field) for field in ("profile", "owner_subject", "connection_version")):
+            raise SessionBindingError("The admitted sandbox environment changed; explicit migration is required")
+        if old.get("allocation") is not None and old["allocation"] != state.get("allocation"):
+            raise SessionBindingError("The admitted sandbox environment changed; explicit migration is required")
+        if old.get("provider_session_id") and old["provider_session_id"] != state.get("provider_session_id"):
+            raise SessionBindingError("The admitted ACP session reference changed")
+    result = collection.update_one({**key, "revision": binding.revision}, {
+        "$set": {"sandbox": state, "updated_at": datetime.now(timezone.utc)}, "$inc": {"revision": 1},
+    })
+    if not result.matched_count:
+        raise SessionBindingError("Sandbox admission changed concurrently")
+
+
+def reset_sandbox_binding(mongo: MongoDBService, agent_id: str, session_id: str, expected: dict[str, Any]) -> None:
+    """Forget a deleted external session only while its native lease is held.
+
+    The caller must first delete the exact pinned allocation. A stale cleanup
+    cannot erase a different allocation admitted by another worker.
+    """
+    collection = mongo.get_session_bindings_collection()
+    key = {"agent_id": agent_id, "session_id": session_id}
+    record = collection.find_one(key)
+    if record is None:
+        raise SessionBindingError("Sandbox cleanup requires an admitted session")
+    binding = _validate_binding(record, agent_id, session_id, mongo.settings)
+    if binding.runtime_kind != "sandbox" or binding.sandbox != expected:
+        raise SessionBindingError("The sandbox binding changed during cleanup")
+    result = collection.update_one({**key, "revision": binding.revision, "sandbox": expected}, {
+        "$unset": {"sandbox": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}, "$inc": {"revision": 1},
+    })
+    if not result.matched_count:
+        raise SessionBindingError("Sandbox cleanup changed concurrently")
+
+
+def _delegated_parent(
+    mongo: MongoDBService, agent_id: str, session_id: str, owner_subject: str | None,
+) -> _StoredBinding | None:
+    record = mongo.get_session_bindings_collection().find_one({"agent_id": agent_id, "session_id": session_id})
+    if record is None:
+        return None
+    binding = _validate_binding(record, agent_id, session_id, mongo.settings)
+    if binding.delegated_sessions:
+        if (binding.runtime_kind != "sandbox" or not owner_subject or not binding.sandbox
+                or binding.sandbox.get("owner_subject") != owner_subject):
+            raise SessionBindingError("Only the original sandbox owner can access its delegated sessions")
+        seen = set()
+        for child in binding.delegated_sessions:
+            expected = str(uuid5(NAMESPACE_URL, f"caipe-child:{session_id}:{child.agent_id}"))
+            if child.agent_id == agent_id or child.session_id != expected or child.agent_id in seen:
+                raise SessionBindingError("The delegated session lifecycle binding is invalid")
+            seen.add(child.agent_id)
+    return binding
+
+
+def get_delegated_sessions(
+    mongo: MongoDBService, agent_id: str, session_id: str, owner_subject: str | None,
+) -> list[dict[str, str]]:
+    """Read parent-owned cleanup coordinates, never caller-supplied namespaces."""
+    binding = _delegated_parent(mongo, agent_id, session_id, owner_subject)
+    return [child.model_dump() for child in binding.delegated_sessions] if binding else []
+
+
+def link_delegated_session(
+    mongo: MongoDBService, agent_id: str, session_id: str, child_agent_id: str, child_session_id: str,
+    owner_subject: str,
+) -> None:
+    """Journal ownership before a native child can create persistent state.
+
+    The sandbox producer already holds its parent lease. Cleanup acquires that
+    same lease, so it cannot race a new link or a child invocation.
+    """
+    binding = _delegated_parent(mongo, agent_id, session_id, owner_subject)
+    if (binding is None or binding.runtime_kind != "sandbox" or not binding.sandbox
+            or binding.sandbox.get("owner_subject") != owner_subject
+            or mongo._db["native_acp_deleted_sessions"].find_one({"_id": session_id}, {"_id": 1}) is not None
+            or mongo.get_session_runs_collection().find_one({
+                "agent_id": agent_id, "session_id": session_id,
+                "lease_id": {"$exists": True}, "lease_expires_at": {"$gt": datetime.now(timezone.utc)},
+                "cancel_requested": {"$ne": True},
+            }, {"_id": 1}) is None):
+        raise SessionBindingError("Delegation requires the original sandbox owner's active parent admission")
+    expected = str(uuid5(NAMESPACE_URL, f"caipe-child:{session_id}:{child_agent_id}"))
+    if child_agent_id == agent_id or child_session_id != expected:
+        raise SessionBindingError("The delegated session does not match its parent")
+    children = [child.model_dump() for child in binding.delegated_sessions]
+    child = _DelegatedSession(agent_id=child_agent_id, session_id=child_session_id).model_dump()
+    if child in children:
+        return
+    if len(children) >= 64:
+        raise SessionBindingError("The delegated session lifecycle limit was reached")
+    result = mongo.get_session_bindings_collection().update_one({
+        "agent_id": agent_id, "session_id": session_id, "revision": binding.revision,
+    }, {"$set": {"delegated_sessions": [*children, child], "updated_at": datetime.now(timezone.utc)},
+        "$inc": {"revision": 1}})
+    if not result.matched_count:
+        raise SessionBindingError("The parent session changed during delegated admission")
+
+
+def clear_delegated_sessions(
+    mongo: MongoDBService, agent_id: str, session_id: str, owner_subject: str | None,
+    expected: list[dict[str, str]],
+) -> None:
+    """Remove links only after every descendant cleanup has been confirmed."""
+    binding = _delegated_parent(mongo, agent_id, session_id, owner_subject)
+    if binding is None or [child.model_dump() for child in binding.delegated_sessions] != expected:
+        raise SessionBindingError("The delegated session lifecycle changed during cleanup")
+    if not expected:
+        return
+    result = mongo.get_session_bindings_collection().update_one({
+        "agent_id": agent_id, "session_id": session_id, "revision": binding.revision,
+        "delegated_sessions": expected,
+    }, {"$unset": {"delegated_sessions": ""}, "$set": {"updated_at": datetime.now(timezone.utc)},
+        "$inc": {"revision": 1}})
+    if not result.matched_count:
+        raise SessionBindingError("The delegated session lifecycle changed during cleanup")

@@ -233,6 +233,7 @@ export function ChatPanel({
     // SSE/Dynamic Agent specific fields
     isSSE?: boolean;
     agentId?: string;
+    interruptId?: string;
   } | null>(null);
 
   // Tool approval state (HITL for gated tools)
@@ -355,7 +356,10 @@ export function ChatPanel({
   }, [conversationId, chosenAgentId, onAgentRelinked, toast]);
 
   // Slash command registry
-  const slashCommands = useSlashCommands(agentSkills, agent?.allowed_tools, agent?.subagents);
+  const sandboxProfileId = agent?.execution?.kind === "sandbox" ? agent.execution.profile_id : undefined;
+  const isSandboxRuntime = sandboxProfileId !== undefined;
+  const availableSlashCommands = useSlashCommands(agentSkills, agent?.allowed_tools, agent?.subagents);
+  const slashCommands = useMemo(() => isSandboxRuntime ? availableSlashCommands.filter((command) => command.id !== "effort") : availableSlashCommands, [availableSlashCommands, isSandboxRuntime]);
 
   // Get access token from session (if SSO is enabled and user is authenticated)
   const ssoEnabled = getConfig('ssoEnabled');
@@ -368,7 +372,7 @@ export function ChatPanel({
   );
 
   const configuredReasoningEffort = agent?.model?.reasoning_effort ?? "medium";
-  const requestReasoningEffort = supportedReasoningEfforts?.includes(reasoningEffort)
+  const requestReasoningEffort = !isSandboxRuntime && supportedReasoningEfforts?.includes(reasoningEffort)
     ? reasoningEffort
     : undefined;
 
@@ -381,7 +385,7 @@ export function ChatPanel({
   }, [conversation?.id, conversation?.metadata?.reasoning_effort, configuredReasoningEffort]);
 
   useEffect(() => {
-    if (!agent?.model?.id || !agent.model.provider) {
+    if (isSandboxRuntime || !agent?.model?.id || !agent.model.provider) {
       setSupportedReasoningEfforts([]);
       return;
     }
@@ -402,17 +406,17 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [agent?.model]);
+  }, [agent?.model, isSandboxRuntime]);
 
   const persistReasoningEffort = useCallback(async (
     effort: ReasoningEffort,
     source: "selector" | "command" = "selector",
     conversationIdOverride?: string,
   ): Promise<"changed" | "unsupported" | "error"> => {
-    if (!supportedReasoningEfforts?.includes(effort)) {
+    if (isSandboxRuntime || !supportedReasoningEfforts?.includes(effort)) {
       if (source === "selector") {
         toast(
-          `The selected model does not support changing reasoning effort. It will keep the provider default.`,
+          isSandboxRuntime ? "Reasoning is managed by the sandbox runtime profile." : "The selected model does not support changing reasoning effort. It will keep the provider default.",
           "warning",
           6000,
         );
@@ -444,7 +448,7 @@ export function ChatPanel({
       }
       return "error";
     }
-  }, [activeConversationId, agentId, createConversation, supportedReasoningEfforts, toast]);
+  }, [activeConversationId, agentId, createConversation, supportedReasoningEfforts, toast, isSandboxRuntime]);
 
   const showEffortStatus = useCallback((
     text: string,
@@ -792,6 +796,7 @@ export function ChatPanel({
 
                 setPendingUserInput({
                   messageId: lastMsg.id,
+                  interruptId: idata.interrupt_id,
                   metadata: {
                     user_input: true,
                     input_title: `Input Required`,
@@ -1003,6 +1008,7 @@ export function ChatPanel({
 
        setPendingUserInput({
           messageId: lastMsg.id,
+          interruptId: inputEvent.inputRequiredData.interrupt_id,
           metadata: {
             user_input: true,
             input_title: `Input Required`,
@@ -1080,6 +1086,9 @@ export function ChatPanel({
       loopState.hitlFormRequested = status === "awaiting_input";
       if (status === "awaiting_input") interruptCheckedRef.current.delete(convId);
       if (useChatStore.getState().activeConversationId === convId) setRunDisplayStatus(status);
+    },
+    onReasoning(text, namespace) {
+      addStreamEvent(createStreamEvent("reasoning", { text, namespace }), convId);
     },
     onContent(text, namespace) {
       loopState.accumulatedText += text;
@@ -1176,6 +1185,7 @@ export function ChatPanel({
 
       setPendingUserInput({
         messageId: assistantMsgId,
+        interruptId,
         metadata: {
           user_input: true,
           input_title: "Input Required",
@@ -1384,7 +1394,7 @@ export function ChatPanel({
         });
         try {
           await adapter.reattachStream(
-            { conversationId, agentId, runId: run.run_id },
+            { conversationId, agentId, runId: run.run_id, firstSequence: run.first_sequence },
             buildStreamCallbacks(conversationId, messageId, state, new Map()),
           );
           finalizeStreamLoop(conversationId, messageId, state);
@@ -1785,6 +1795,10 @@ export function ChatPanel({
   }, [agentSkills, showCommandPanel]);
 
   const handleEffortCommand = useCallback(async (argument: string) => {
+    if (isSandboxRuntime) {
+      showEffortStatus("Reasoning is managed by the sandbox runtime profile.", "warning");
+      return;
+    }
     const normalized = argument.trim().toLowerCase();
     if (!["low", "medium", "high", "max"].includes(normalized)) {
       showEffortStatus(
@@ -1815,7 +1829,7 @@ export function ChatPanel({
         : "Could not save the reasoning effort. Try again.",
       result === "unsupported" ? "warning" : "error",
     );
-  }, [activeConversationId, agentId, createConversation, persistReasoningEffort, reasoningEffort, showEffortStatus]);
+  }, [activeConversationId, agentId, createConversation, persistReasoningEffort, reasoningEffort, showEffortStatus, isSandboxRuntime]);
 
   // Handle /help locally so its reference list does not become model context.
   const handleHelpCommand = useCallback(() => {
@@ -1838,7 +1852,7 @@ export function ChatPanel({
         {
           items: [
             { label: "/skills", description: "List available skills", insertText: "/skills" },
-            { label: "/effort <low|medium|high|max>", description: "Set reasoning effort for this chat", insertText: "/effort " },
+            ...(!isSandboxRuntime ? [{ label: "/effort <low|medium|high|max>", description: "Set reasoning effort for this chat", insertText: "/effort " }] : []),
             { label: "/help", description: "Show this help panel", insertText: "/help" },
             { label: "/clear", description: "Start a new conversation and reset context", insertText: "/clear" },
           ],
@@ -1847,7 +1861,7 @@ export function ChatPanel({
         ...(subagentItems.length ? [{ title: "Subagents", items: subagentItems }] : []),
       ],
     });
-  }, [agent, showCommandPanel]);
+  }, [agent, showCommandPanel, isSandboxRuntime]);
 
   // Handle /clear command
   const handleClearCommand = useCallback(async () => {
@@ -2081,8 +2095,8 @@ export function ChatPanel({
 
     // Send form data as discriminated resume payload
     const formDataJson = JSON.stringify(options?.dismissed
-      ? { type: "form_input", dismissed: true }
-      : { type: "form_input", values: formData });
+      ? { type: "form_input", interrupt_id: pendingUserInput.interruptId, dismissed: true }
+      : { type: "form_input", interrupt_id: pendingUserInput.interruptId, values: formData });
 
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
@@ -2209,7 +2223,7 @@ export function ChatPanel({
         }),
       };
     }
-    const resumeData = JSON.stringify(resumePayload);
+    const resumeData = JSON.stringify({ ...resumePayload, interrupt_id: pendingToolApproval.interruptId });
 
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
@@ -2471,6 +2485,7 @@ export function ChatPanel({
                       const isLocalCommand = msg.content.trim() === "/skills" ||
                         msg.content.trim() === "/help";
                       const canEditMessage = msg.role === "user" &&
+                        !isSandboxRuntime &&
                         isOwnMessage &&
                         isConversationOwner &&
                         !isLocalCommand &&
@@ -3042,9 +3057,10 @@ export function ChatPanel({
                 <div className="relative flex shrink-0 items-center gap-2 pt-5">
                   <span
                     className="absolute right-0 top-0 flex max-w-56 items-center gap-1 whitespace-nowrap text-[10px] font-medium text-muted-foreground max-sm:max-w-40"
-                    title={`${agent?.model?.id || "Model"} · ${reasoningEffort}`}
+                    title={isSandboxRuntime ? `Sandbox · ${sandboxProfileId}` : `${agent?.model?.id || "Model"} · ${reasoningEffort}`}
                     data-testid="composer-model-effort"
                   >
+                    {isSandboxRuntime ? <span className="truncate">Sandbox · {sandboxProfileId}</span> : <>
                     <span className="truncate">{agent?.model?.id || "Model"}</span>
                     <span aria-hidden="true">·</span>
                     <span
@@ -3061,6 +3077,7 @@ export function ChatPanel({
                     >
                       {reasoningEffort}
                     </span>
+                    </>}
                   </span>
 
                   {/* Attach files */}

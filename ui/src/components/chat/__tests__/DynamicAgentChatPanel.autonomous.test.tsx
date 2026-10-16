@@ -10,6 +10,7 @@ const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
 const mockToast = jest.fn();
 const mockStreamMessage = jest.fn().mockResolvedValue(undefined);
+const mockResumeStream = jest.fn().mockResolvedValue(undefined);
 const mockReattachStream = jest.fn().mockResolvedValue(undefined);
 const mockLatestRun = jest.fn().mockResolvedValue(null);
 const mockInitializeFeatureFlags = jest.fn();
@@ -51,7 +52,7 @@ jest.mock("@/components/autonomous/api", () => ({
   },
 }));
 jest.mock("@/lib/streaming", () => ({
-  createStreamAdapter: () => ({ streamMessage: mockStreamMessage, reattachStream: mockReattachStream, abort: jest.fn() }),
+  createStreamAdapter: () => ({ streamMessage: mockStreamMessage, resumeStream: mockResumeStream, reattachStream: mockReattachStream, abort: jest.fn() }),
 }));
 jest.mock("@/lib/streaming/native-runs", () => ({ getLatestNativeRun: (...args: unknown[]) => mockLatestRun(...args) }));
 jest.mock("@/hooks/useDynamicAgentTimeline", () => ({ useAgentTimeline: () => ({ data: {} }) }));
@@ -63,6 +64,9 @@ jest.mock("../DynamicAgentTimeline", () => ({ AgentTimeline: () => null }));
 jest.mock("../FeedbackButton", () => ({ FeedbackButton: () => null }));
 jest.mock("../useSlashCommands", () => ({ useSlashCommands: () => [] }));
 jest.mock("../CustomCallButtons", () => ({ DEFAULT_AGENTS: [] }));
+
+jest.mock("../MetadataInputForm", () => ({ MetadataInputForm: ({ onSubmit, onCancel }: { onSubmit: (data: Record<string, string>) => void; onCancel: () => void }) => <div><button onClick={() => onSubmit({ answer: "example" })}>Submit input</button><button onClick={onCancel}>Dismiss input</button></div> }));
+jest.mock("../ToolApprovalCard", () => ({ ToolApprovalCard: ({ onApprove, onReject, onEdit }: { onApprove: () => void; onReject: () => void; onEdit: (args: Record<string, unknown>) => void }) => <div><button onClick={onApprove}>Approve tool</button><button onClick={onReject}>Reject tool</button><button onClick={() => onEdit({ path: "/logical.txt" })}>Edit tool</button></div> }));
 
 function runMessages(runId: string): ChatMessage[] {
   return (["user", "assistant"] as const).map((role) => ({
@@ -79,6 +83,8 @@ function runMessages(runId: string): ChatMessage[] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStreamMessage.mockResolvedValue(undefined);
+  mockResumeStream.mockResolvedValue(undefined);
   HTMLElement.prototype.scrollIntoView = jest.fn();
   mockConversation = {
     id: "task-chat",
@@ -145,7 +151,7 @@ it("reattaches a completed detached run after reload into the same partial assis
   render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
 
   await waitFor(() => expect(mockReattachStream).toHaveBeenCalledWith(
-    { conversationId: "task-chat", agentId: "example-agent", runId: "run-1" },
+    { conversationId: "task-chat", agentId: "example-agent", runId: "run-1", firstSequence: undefined },
     expect.any(Object),
   ));
   expect(mockChatState.addMessage).not.toHaveBeenCalled();
@@ -200,4 +206,96 @@ it("retains parent task context while replaying a HITL resume after reload", asy
   await waitFor(() => expect(mockReattachStream).toHaveBeenCalled());
   expect(mockChatState.addStreamEvent).toHaveBeenNthCalledWith(1, seed, "task-chat");
   expect(mockStreamMessage).not.toHaveBeenCalled();
+});
+
+it.each(["Submit input", "Dismiss input"])("correlates %s with the exact pending form interrupt", async (action) => {
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  mockStreamMessage.mockImplementationOnce(async (_params, callbacks: StreamCallbacks) => {
+    callbacks.onInputRequired?.("input-current", "Provide input", [], "example-agent");
+  });
+  render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/), { target: { value: "Continue the task" } });
+  fireEvent.click(screen.getByTitle("Send message"));
+  fireEvent.click(await screen.findByRole("button", { name: action }));
+  await waitFor(() => expect(mockResumeStream).toHaveBeenCalledTimes(1));
+  const payload = JSON.parse(mockResumeStream.mock.calls[0][0].resumeData);
+  expect(payload).toEqual(action === "Submit input" ? { type: "form_input", interrupt_id: "input-current", values: { answer: "example" } } : { type: "form_input", interrupt_id: "input-current", dismissed: true });
+});
+
+it.each(["Approve tool", "Reject tool", "Edit tool"])("correlates %s with the exact pending approval", async (action) => {
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  mockStreamMessage.mockImplementationOnce(async (_params, callbacks: StreamCallbacks) => {
+    callbacks.onToolApprovalRequired?.("approval-current", "read_file", {}, ["approve", "reject", "edit"], "example-agent");
+  });
+  render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/), { target: { value: "Continue the task" } });
+  fireEvent.click(screen.getByTitle("Send message"));
+  fireEvent.click(await screen.findByRole("button", { name: action }));
+  await waitFor(() => expect(mockResumeStream).toHaveBeenCalledTimes(1));
+  const payload = JSON.parse(mockResumeStream.mock.calls[0][0].resumeData);
+  expect(payload).toMatchObject({ type: "tool_approval", interrupt_id: "approval-current", decision: action === "Approve tool" ? "approve" : action === "Reject tool" ? "reject" : "edit" });
+});
+
+it("binds batched decisions to their pending approval without an early resume", async () => {
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  mockStreamMessage.mockImplementationOnce(async (_params, callbacks: StreamCallbacks) => {
+    callbacks.onToolApprovalRequired?.("approval-batch", "read_file", {}, ["approve", "reject"], "example-agent", [
+      { tool_name: "read_file", tool_args: {}, tool_call_id: "tool-1", allowed_decisions: ["approve", "reject"] },
+      { tool_name: "write_file", tool_args: {}, tool_call_id: "tool-2", allowed_decisions: ["approve", "reject"] },
+    ]);
+  });
+  render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/), { target: { value: "Continue the task" } });
+  fireEvent.click(screen.getByTitle("Send message"));
+  fireEvent.click(await screen.findByRole("button", { name: "Reject tool" }));
+  expect(mockResumeStream).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Approve tool" }));
+  await waitFor(() => expect(mockResumeStream).toHaveBeenCalledTimes(1));
+  expect(JSON.parse(mockResumeStream.mock.calls[0][0].resumeData)).toEqual({ type: "tool_approval", interrupt_id: "approval-batch", decisions: [{ decision: "reject" }, { decision: "approve" }] });
+});
+
+const sandboxAgent = {
+  _id: "example-agent", name: "Example", system_prompt: "Use permitted tools", execution: { kind: "sandbox", profile_id: "primary" },
+  model: { id: "retained-native-model", provider: "example", reasoning_effort: "high" }, allowed_tools: {}, subagents: [], skills: [], enabled: true,
+} as import("@/types/dynamic-agent").DynamicAgentConfig;
+
+it.each([false, true])('offers history editing only when the runtime can rewind (sandbox=%s)', (sandbox) => {
+  mockConversation = { ...mockConversation, source: 'web', task_id: undefined, messages: [{
+    id: 'editable-user', role: 'user', content: 'Earlier question', turnId: 'earlier-turn', timestamp: new Date(),
+  }] };
+  render(<ChatPanel agent={sandbox ? sandboxAgent : { ...sandboxAgent, execution: { kind: 'native' } }} agentId="example-agent" conversationId="task-chat" />);
+  if (sandbox) expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+  else expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
+});
+
+it.each(["start", "form", "tool"])("does not use a retained native model for sandbox %s requests", async (action) => {
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ reasoning_efforts: ["high"] }) });
+  mockStreamMessage.mockImplementationOnce(async (_params, callbacks: StreamCallbacks) => {
+    if (action === "form") callbacks.onInputRequired?.("input-current", "Provide input", [], "example-agent");
+    if (action === "tool") callbacks.onToolApprovalRequired?.("approval-current", "read_file", {}, ["reject"], "example-agent");
+  });
+  render(<ChatPanel agent={sandboxAgent} agentId="example-agent" conversationId="task-chat" />);
+  expect(screen.getByTestId("composer-model-effort")).toHaveTextContent("Sandbox · primary");
+  expect(screen.getByTestId("composer-model-effort")).not.toHaveTextContent("retained-native-model");
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/), { target: { value: "Continue the task" } });
+  fireEvent.click(screen.getByTitle("Send message"));
+  await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
+  expect(mockStreamMessage.mock.calls[0][0].reasoningEffort).toBeUndefined();
+  if (action !== "start") {
+    fireEvent.click(await screen.findByRole("button", { name: action === "form" ? "Submit input" : "Reject tool" }));
+    await waitFor(() => expect(mockResumeStream).toHaveBeenCalledTimes(1));
+    expect(mockResumeStream.mock.calls[0][0].reasoningEffort).toBeUndefined();
+  }
+  expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).includes("model-capabilities"))).toBe(false);
+});
+
+it("explains that sandbox reasoning belongs to the profile instead of persisting a native override", async () => {
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  render(<ChatPanel agent={sandboxAgent} agentId="example-agent" conversationId="task-chat" />);
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/), { target: { value: "/effort high" } });
+  fireEvent.click(screen.getByTitle("Send message"));
+  expect(await screen.findByText("Reasoning is managed by the sandbox runtime profile.")).toBeInTheDocument();
+  expect(mockStreamMessage).not.toHaveBeenCalled();
+  expect(mockResumeStream).not.toHaveBeenCalled();
 });

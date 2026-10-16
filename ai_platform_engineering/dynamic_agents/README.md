@@ -48,68 +48,64 @@ Dynamic Agents provide a flexible way to create purpose-built AI assistants with
 - Exactly one terminal outcome per turn: `success`, `error`, `interrupted`, or `cancelled`
 - Time to first user-visible response and end-to-end turn latency histograms
 
-### Native ACP execution
+### ACP execution and runtime placement
 
-Default and custom agent turns execute through one in-service Agent Client
-Protocol (ACP) path while keeping their existing DeepAgents/LangGraph runtime.
-The native ACP client and logical agent exchange JSON-RPC messages using the
-pinned Python SDK 0.12.1, schema 1.19 and wire protocol 1.
+The initial native phase established one ACP execution path for default and
+custom agents, keeping DeepAgents/LangGraph and the simulated filesystem.
+Current changes add configured Claude Code/Codex sandbox placements behind that
+same execution service. **Sandbox integration is under review; remote rollout,
+provider authentication, policy and complete skills qualification remain pending
+approval. No existing agent is automatically switched.**
 
-- Existing chat endpoints, AG-UI/custom SSE, workflow/invoke behavior, native
-  tools, logical files, subagent delegation and human input remain available.
-- Capability negotiation uses `caipe.io/native-acp` metadata and acknowledged
-  `_caipe/event` requests for validated native stream events. Standard ACP
-  session loading, client filesystem and terminal capabilities are not
-  advertised. This integration does not expose a public ACP server.
-- `native_acp_sessions` stores effective agent configuration admissions and
-  session bindings using `MONGODB_URI` and `MONGODB_DATABASE`, alongside existing
-  CAIPE records and native checkpoints. Tokens and MCP credentials are excluded.
-- `native_acp_runs` coordinates concurrent replicas using an owned 120-second
-  turn lease with one-second heartbeat/cancellation polling. Expiry permits
-  later checkpoint-based continuation; it does not restart crashed runs or
-  guarantee exactly-once tool effects. Worker clocks must be synchronized.
-- New turns refresh the effective configuration while preserving the first
-  admitted backend/checkpoint/filesystem binding; human-input resume restores
-  the last admitted snapshot after runtime-cache eviction, narrowed by the
-  current validated tool scope.
-- Conversation and execution-context IDs keep their original LangGraph thread
-  IDs. Interactive transcripts still use the existing browser/BFF writer.
-- Cached runtimes refresh their current caller, bearer and client context before
-  execution. Include ACP bindings, coordination and native state in canonical
-  database backups; restored leases do not trigger automatic execution.
-- Ordinary `/invoke` retains its ephemeral checkpoint/history behavior unless
-  `INVOKE_PERSIST_HISTORY` is enabled; transient turn coordination still uses
-  MongoDB. Scheduler invocations retain their existing persistent execution.
+| Runtime | Configuration | Session and files |
+|---|---|---|
+| Native (default) | `execution.kind=native`, existing model/tools/skills | Original LangGraph thread, checkpoints and logical filesystem. |
+| Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; persistent real workspace with bounded canonical text artifacts. |
 
-The shared execution service owns admission, MCP resolution, runtime lifetime,
-ACP dispatch and conversation-state operations. HTTP routes retain
-authorization and request/response handling. LangGraph chunks become typed
-events once; ACP publishes them directly and the client renders AG-UI or custom
-SSE. Streaming, human-input resume and invoke all use this path; the native
-runtime remains the execution implementation behind the logical ACP agent.
-Runtime construction, saved bindings and state deletion share one storage
-resolver. Deployment rollback uses the previous image pin and release values
-through the normal deployment process.
+- The pinned released Python ACP SDK is `0.12.1`, wire protocol `1`. Native
+  `caipe.io/native-acp` events preserve current progress and checkpointed human
+  input. External ACP uses standard new/load/prompt/progress/permission/cancel;
+  a narrow validated form-elicitation shim supplies newer schema messages.
+  Unsupported forms, URL elicitation and unstable protocol features are not
+  advertised as supported.
+- Chat, AG-UI/custom SSE, workflow/invoke and the canonical conversation writer
+  remain shared. Native invoke retains its persistent/ephemeral semantics;
+  sandbox invocations require durable admission and provider session binding.
+- `native_acp_sessions` stores admitted configuration/storage/placement.
+  `native_acp_runs` coordinates replicas with the existing 120-second lease and
+  one-second heartbeat/cancellation polling. Execution/event journals provide
+  cursor reconnect and reload recovery without repeating prompts or tools.
+- A sandbox gets a random run capability for CAIPE's tool broker. Current tools,
+  workflows, skills and configured native children retain their existing service
+  owners. Caller bearers/provider credentials stay in server-side closures;
+  child execution has its own admission and cannot borrow its parent's lease.
+- Human decisions belong to the waiting producer and canonical database, not a
+  browser connection. Stable decision IDs prevent repeated approvals; explicit
+  Stop cancels execution while observer disconnects do not.
+- Native sessions retain their first checkpoint/file coordinates. Sandbox
+  sessions additionally pin caller, connection, profile revision, environment
+  UID, cwd and native provider session. Failed load or placement changes never
+  silently start another session or import a native checkpoint as CLI state.
+- Existing clear/delete uses that admitted binding. Sandbox cleanup deletes the
+  exact remote generation before resetting local references; failures remain
+  retryable. Sandbox rewind and cached-runtime restart are explicitly
+  unsupported. Use a new conversation or the supported clear lifecycle.
 
-This is the native-runtime stage of the
-[metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877), related
-to the gateway and session foundation in the
-[Harness Engine discussion](https://github.com/orgs/caipe-io/discussions/2405).
-Streaming execution now belongs to the service, with canonical MongoDB run and
-event records, cursor reconnect and browser reload recovery. Stable turn IDs
-prevent duplicate execution on transport retries. Worker loss is explicitly
-interrupted rather than automatically retried. Remote transports, discovery and
-sandbox runtimes remain later integrations. See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
-for session ownership and filesystem/network boundaries.
+The architecture follows the [metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877)
+and related [Harness Engine discussion](https://github.com/orgs/caipe-io/discussions/2405),
+with one execution owner and canonical database. See the
+[architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
+for diagrams, state ownership, tool/workspace boundaries and qualification.
+Other SDK/provider runtimes still need a qualified adapter; ACP alone does not
+supply a logical filesystem or operating-system isolation.
 
-The initial prebuild supports DeepAgents; it does not yet expose Claude SDK,
-Bedrock AgentCore or Codex runtime choices. Later SDK integrations must preserve
-CAIPE's simulated filesystem and approved native tools. ACP does not turn an SDK
-working directory into a logical store or grant agent access to host files.
+Include bindings, leases, executions/events, tool requests, checkpoints and
+GridFS in canonical MongoDB backups. Provider-native sessions/workspaces need
+their own persistent-volume backups. Restoring leases does not restart work;
+worker loss reports interruption rather than retrying uncertain external effects.
 
-The Dynamic Agents CI job runs real-MongoDB checkpoint migration, worker
-reconstruction, pending form/batch-approval resume and storage-management tests.
-Run the same suite locally against an isolated test MongoDB:
+Run migration, continuity, input, broker and artifact tests on an isolated
+MongoDB; tests create/remove only their own random databases:
 
 ```bash
 PYTHONPATH=../.. \
@@ -118,10 +114,8 @@ FOLLOW_UP_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 \
 uv run --extra dev pytest -q -rs
 ```
 
-These tests create and remove random test databases. Use a test server rather
-than a deployed application database. Model calls are deterministic fixtures;
-ACP serialization, native checkpoint persistence and session admission remain
-real.
+Model and provider responses in these fixtures are deterministic. Source tests
+exercise real ACP serialization and MongoDB admission, not deployment readiness.
 
 ## Running Locally
 
@@ -130,7 +124,7 @@ real.
 - Python 3.14
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - MongoDB (local or remote)
-- At least one LLM provider configured
+- An LLM provider for native agents; sandbox model access is configured by its execution profile
 
 ### Installation
 
@@ -234,6 +228,73 @@ The API documentation is available at:
 | `AUTONOMOUS_RUNS_COLLECTION` | Shared Autonomous run collection, used to select the completed run context | `autonomous_runs` |
 | `AGENT_RUNTIME_TTL_SECONDS` | Cache TTL for agent runtimes | `3600` |
 | `CORS_ORIGINS` | Allowed CORS origins | `["*"]` |
+| `SANDBOX_SERVICE_URL` | Operator-owned provider base URL, optionally with an installed base path; the client appends `/api/caipe` | Empty |
+| `HARNESS_TOOLS_PUBLIC_URL` | Sandbox-reachable CAIPE MCP base, normally `https://caipe.example.test/api/v1/harness-tools`; each run appends `/{run_id}/mcp` | Empty |
+| `HARNESS_TOOLS_ALLOW_HTTP` | Explicit private/local exception for plaintext MCP broker transport | `false` |
+| `SANDBOX_PROVISION_TIMEOUT_SECONDS` | Readiness wait; timeout retains idempotent provision intent for retry/cleanup | `600` (10–1800) |
+
+
+### Sandbox runtime configuration
+
+These settings make configured profiles discoverable; they do not enable ACP,
+change existing agents or deploy a provider. Prefer HTTPS, configure the
+provider's independent CAIPE issuer/audience/JWKS trust and access restrictions,
+and qualify model routing, storage, filesystem/egress policy and native session
+restoration before enabling a profile. No control-plane URL, image, command or
+model credential belongs in an agent definition.
+
+```json
+{
+  "name": "Example code agent",
+  "system_prompt": "Work on the admitted workspace and use configured CAIPE tools.",
+  "execution": {"kind": "sandbox", "profile_id": "primary-codex"},
+  "allowed_tools": {}
+}
+```
+
+The authenticated `/api/v1/runtime-profiles` endpoint discovers profiles using
+the current caller. The editor checks declared MCP/skills/attachment capability
+before accepting those resources. Profile capabilities are qualification
+claims, not permission grants; a missing capability remains unavailable.
+The profile owns the harness/model; native agents still require a model.
+
+The fixed provider contract is relative to `SANDBOX_SERVICE_URL`:
+
+| Operation | Request/result |
+|---|---|
+| `GET /api/caipe/profiles` | `{profiles:[{id,name,harness,revision,capabilities,...}]}`; `harness` is `claude-code` or `codex`. |
+| `POST /api/caipe/sandboxes` | `{conversation_id:<UUID>,profile_id,revision}`; returns `id,uid,namespace,conversation_id,profile_id,revision,cwd,state,resource_version`. Creation retries must be idempotent. |
+| `GET /api/caipe/sandboxes?conversation_id=...&profile_id=...` | Read-only owner-bound recovery lookup after an uncertain creation response; never creates an environment. |
+| `GET /api/caipe/sandboxes/{id}` | Fresh allocation identity/version; retired profiles must retain metadata for safe cleanup without permitting execution. |
+| `POST .../{id}/resume` or `/suspend`; `DELETE .../{id}` | `{conversation_id,uid,resource_version}`; reject generation/version mismatches. Deletion follows provider retention policy. |
+| `PUT .../{id}/workspace` | `{conversation_id,uid,files}`; one managed instructions/skills/`inputs/` snapshot, max128 files/1MiB total/256KiB each. |
+| `GET .../{id}/workspace/files`; `GET .../content?path=...` | Owner/UID query binding; bounded relative regular-text listing/content. No credentials/private state/symlink traversal. |
+| `PUT .../{id}/workspace/content` | `{conversation_id,uid,path,content}`; atomic ordinary UTF-8 write, max256KiB, returning `{path,bytes}`. |
+| `WS .../{id}/acp?conversation_id=...&uid=...` | Non-TTY ACP JSON-RPC, one object/message, max8MiB, stderr excluded. |
+
+Instruction/skill preparation locks against active execution. Ordinary artifact
+reads/writes remain available during ACP. CAIPE snapshots only admitted
+canonical input files into `inputs/` and publishes bounded ordinary output back
+to the existing file store. Default bridge limits are 64 files, 512KiB total
+inputs, 512KiB per readable output and 4MiB output export; omitted files produce
+explicit warnings. Existing `format_file` mirrors the newly formatted copy into
+the real workspace so the harness can read the tool's result.
+
+The provider must keep session HOME/workspace persistent, pin image/command and
+policy revision, isolate users and validate actual process environment identity.
+Long-lived admitted execution may outlive its handshake bearer; reconnect must
+reauthenticate and operator deadlines/revocation controls still apply. A CLI may
+receive a scoped deployment-owned model credential; this is not out-of-process
+credential isolation. Process-group cleanup does not contain deliberately
+separated child sessions without a stronger per-run boundary.
+
+Unattended sandbox workflows/triggers require a qualified delegated caller
+identity; a service-account token plus a client-context email cannot substitute
+for it. Existing native automation remains unchanged.
+
+No remote rollout or credentials are supplied by this change. Qualify actual
+provider/model auth, MCP reachability, skills, cancellation, native session
+restore and volume backup/deletion behavior after review approval.
 
 ### Models Configuration
 
@@ -291,6 +352,7 @@ For a private deployment alias, configure both sides of discovery:
 | `/api/v1/agents/{id}` | DELETE | Admin | Delete agent |
 | `/api/v1/agents/{id}/available-subagents` | GET | Admin | List available subagents |
 | `/api/v1/agents/models` | GET | User | List available LLM models |
+| `/api/v1/runtime-profiles` | GET | User | Discover current caller's configured sandbox profiles and capability declarations |
 | `/api/v1/model-capabilities` | POST | User | Resolve input and reasoning capabilities for a model |
 
 ### MCP Server Endpoints

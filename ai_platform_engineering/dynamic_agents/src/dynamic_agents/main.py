@@ -40,11 +40,13 @@ from dynamic_agents.routes import (
     chat,
     conversations,
     files,
+    harness_tools,
     health,
     mcp_servers,
     middleware,
     model_capabilities,
     remote_agents,
+    runtime_profiles,
 )
 from dynamic_agents.services.agent_execution import get_native_run_coordinator
 from dynamic_agents.services.autonomous_follow_up_cleanup import run_copy_cleanup
@@ -201,6 +203,8 @@ def create_app() -> FastAPI:
     # Agent reachability probe used by the autonomous-agents service
     # to verify ``dynamic_agent_id`` targets exist before scheduling.
     app.include_router(agents.router, prefix="/api/v1")
+    app.include_router(runtime_profiles.router, prefix="/api/v1")
+    app.include_router(harness_tools.router, prefix="/api/v1")
 
     @app.exception_handler(RuntimeInitError)
     async def runtime_init_error_handler(request: Request, exc: RuntimeInitError):

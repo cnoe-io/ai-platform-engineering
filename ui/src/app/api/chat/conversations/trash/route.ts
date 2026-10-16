@@ -50,7 +50,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }).toArray();
 
     if (expired.length > 0) {
-      await deleteConversationsPermanently(expired);
+      await deleteConversationsPermanently(expired, req);
       console.log(`[Trash] Auto-purged ${expired.length} conversations older than ${ARCHIVE_RETENTION_DAYS} days for ${user.email}`);
     }
 

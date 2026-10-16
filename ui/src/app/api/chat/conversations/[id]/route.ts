@@ -151,7 +151,7 @@ export const DELETE = withErrorHandler(async (
     await requireConversationResourcePermission(session, user.email, conversation, 'delete');
 
     if (permanent) {
-      await deleteConversationsPermanently([conversation]);
+      await deleteConversationsPermanently([conversation], req);
       return successResponse({ deleted: true, permanent: true });
     } else {
       // Soft delete: move to archive by setting deleted_at timestamp
