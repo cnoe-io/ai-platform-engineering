@@ -1,3 +1,4 @@
+import { evaluateAgenticAppCasCompatibility } from "./cas-compat";
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 
@@ -131,6 +132,33 @@ export async function proxyAgenticAppRequest(
 
   const decisionId = randomUUID();
   const correlationId = request.headers.get("x-correlation-id") ?? randomUUID();
+  if (app.manifest.authorization) {
+    const decisions = await Promise.all([...new Set([app.manifest.authorization.launchAction, policy.casAction ?? app.manifest.authorization.launchAction])].map((action) => evaluateAgenticAppCasCompatibility({
+      appId,
+      subjectId: subject,
+      localEffect: "allow",
+      correlationId,
+      action,
+    })));
+    const cas = decisions.find((decision) => decision.effectiveEffect !== "allow");
+    if (cas) {
+      const unavailable = cas.casReason === "AUTHZ_UNAVAILABLE";
+      return Response.json(
+        {
+          error: unavailable ? "authorization_unavailable" : "app_unauthorized",
+          reasonCode: cas.casReason ?? "NO_CAPABILITY",
+        },
+        {
+          status: unavailable ? 503 : 403,
+          headers: {
+            "x-caipe-cas-mode": cas.mode,
+            "x-caipe-cas-decision": cas.casDecision,
+            "x-correlation-id": correlationId,
+          },
+        },
+      );
+    }
+  }
   const authMode = app.manifest.auth.mode;
   let bearerToken: string;
   if (authMode === "forward-user-access-token") {
