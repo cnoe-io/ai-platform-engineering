@@ -143,11 +143,14 @@ class HarnessWorkspaceBridge:
         # must not be loaded into memory merely to discover that it is too big.
         docs = list(self.store._files_collection.find({"metadata.namespace": list(self.namespace)},
             {"metadata.key": 1, "length": 1}).limit(MAX_SCANNED_INPUT_FILES + 1))
+        required = self.namespace != (self.agent.id, self.session_id, "filesystem")
         if len(docs) > MAX_SCANNED_INPUT_FILES:
-            raise SandboxError("The workflow input snapshot exceeds its supported file limit")
+            if required:
+                raise SandboxError("The workflow input snapshot exceeds its supported file limit")
+            self._warn("The conversation input-copy scan reached its file limit; additional files remain in CAIPE and the restored native workspace.")
+            docs = docs[:MAX_SCANNED_INPUT_FILES]
         files: dict[str, Any] = {}
         size = 0
-        required = self.namespace != (self.agent.id, self.session_id, "filesystem")
         for doc in docs:
             key = doc.get("metadata", {}).get("key")
             try:
@@ -157,7 +160,12 @@ class HarnessWorkspaceBridge:
                 continue
             if self._managed(path):
                 continue
-            if not isinstance(doc.get("length"), int) or isinstance(doc.get("length"), bool) or doc["length"] > MAX_STORED_INPUT_BYTES:
+            if not isinstance(doc.get("length"), int) or isinstance(doc.get("length"), bool):
+                raise SandboxError("A workflow input has invalid stored metadata")
+            if doc["length"] > MAX_STORED_INPUT_BYTES:
+                if not required:
+                    self._warn("Some conversation files exceed the input-copy budget and were not copied into inputs/. They remain downloadable in CAIPE; the restored native workspace is retained.")
+                    continue
                 raise SandboxError("A workflow input exceeds its supported size")
             value = self._stored_value(doc["_id"])
             try:

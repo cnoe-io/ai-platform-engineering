@@ -28,6 +28,7 @@ import { cn,deduplicateByKey,generateId } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { buildParticipants,ChatMessage as ChatMessageType,Conversation,type MessageAttachment,TurnStatus } from "@/types/a2a";
+import type { PendingConversationEdit } from "@/types/mongodb";
 import type { DynamicAgentConfig,ReasoningEffort } from "@/types/dynamic-agent";
 import { AnimatePresence,motion,useReducedMotion } from "framer-motion";
 import { Activity,AlertTriangle,ArrowDown,ArrowLeft,Check,Copy,Loader2,Paperclip,Pencil,Send,ShieldCheck,Sparkles,Square,User,X } from "lucide-react";
@@ -200,6 +201,10 @@ export function ChatPanel({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [pendingEdit, setPendingEdit] = useState<PendingConversationEdit | null>(null);
+  const [isRecoveringEdit, setIsRecoveringEdit] = useState(false);
+  const [editRecoveryError, setEditRecoveryError] = useState<string | null>(null);
+  const editRecoveryGeneration = useRef(0);
   const [isRewindConfirmationOpen, setIsRewindConfirmationOpen] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
   // Files staged in the composer for the next turn (multimodal input).
@@ -367,6 +372,29 @@ export function ChatPanel({
 
   const conversation = getActiveConversation();
   const isAutonomousHistory = conversation?.source === "autonomous";
+  const recoveryConversationId = conversationId ?? activeConversationId;
+  const refreshPendingEdit = useCallback(async () => {
+    const generation = ++editRecoveryGeneration.current;
+    if (!recoveryConversationId || panelReadOnly || isAutonomousHistory || getStorageMode() !== "mongodb") {
+      setPendingEdit(null);
+      return;
+    }
+    try {
+      const details = await apiClient.getConversation(recoveryConversationId);
+      if (generation === editRecoveryGeneration.current) setPendingEdit(details.pending_edit ?? null);
+    } catch {
+      // A failed read cannot dismiss a previously known recovery operation.
+      // A subsequent edit retry or page reload repeats normal authorization.
+    }
+  }, [recoveryConversationId, panelReadOnly, isAutonomousHistory]);
+
+  useEffect(() => {
+    setPendingEdit(null);
+    setEditRecoveryError(null);
+    void refreshPendingEdit();
+    return () => { editRecoveryGeneration.current += 1; };
+  }, [refreshPendingEdit]);
+
   const autonomousFollowUps = useAutonomousFollowUps(
     isAutonomousHistory && !panelReadOnly ? conversation?.task_id : undefined,
   );
@@ -1430,6 +1458,10 @@ export function ChatPanel({
   // producing one coherent assistant response for the whole batch.
   const submitMessageBatch = useCallback(async (messagesToSend: QueuedMessage[]) => {
     if (isAutonomousHistory) return;
+    if (pendingEdit) {
+      toast("Finish the pending conversation edit before sending another message.", "error", 6000);
+      return;
+    }
     const validMessages = messagesToSend.filter(
       (message) => message.text.trim() || message.files.length > 0,
     );
@@ -1579,7 +1611,7 @@ export function ChatPanel({
       setRunRecoveryError((error as Error).message || "Could not follow the existing run");
       setConversationStreaming(convId, null);
     }
-  }, [isAutonomousHistory, isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast]);
+  }, [isAutonomousHistory, pendingEdit, isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast]);
 
   const submitMessage = useCallback(
     (messageToSend: string, filesToSend: InputFile[] = []) => submitMessageBatch([{
@@ -1680,6 +1712,7 @@ export function ChatPanel({
       setEditDraft("");
       await submitMessage(editDraft, files);
     } catch (error) {
+      void refreshPendingEdit();
       toast(
         `Could not edit message: ${error instanceof Error ? error.message : String(error)}`,
         "error",
@@ -1701,7 +1734,33 @@ export function ChatPanel({
     submitMessage,
     toast,
     truncateConversationFromMessage,
+    refreshPendingEdit,
   ]);
+
+  const finishPendingEdit = useCallback(async () => {
+    if (!recoveryConversationId || !pendingEdit || isRecoveringEdit || panelReadOnly) return;
+    setIsRecoveringEdit(true);
+    setEditRecoveryError(null);
+    try {
+      await apiClient.rewindConversation(recoveryConversationId, {
+        agent_id: pendingEdit.agent_id, message_id: pendingEdit.message_id,
+      });
+      await useChatStore.getState().loadMessagesFromServer(recoveryConversationId, { force: true });
+      setPendingEdit(null);
+      setQueuedMessages([]);
+      setPendingUserInput(null);
+      setPendingToolApproval(null);
+      clearConversationInputRequired(recoveryConversationId);
+      if (editDraft.trim()) setInput(editDraft);
+      setEditingMessageId(null);
+      setEditDraft("");
+      setIsRewindConfirmationOpen(false);
+    } catch (error) {
+      setEditRecoveryError(error instanceof Error ? error.message : "The conversation edit could not finish. Retry again.");
+    } finally {
+      setIsRecoveringEdit(false);
+    }
+  }, [recoveryConversationId, pendingEdit, isRecoveringEdit, panelReadOnly, clearConversationInputRequired, editDraft]);
 
   // The Home page hero composer creates a conversation and navigates here
   // before a message can be sent (this panel only mounts once a conversation
@@ -1963,6 +2022,7 @@ export function ChatPanel({
 
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
+    if (pendingEdit) return;
     // Allow a turn with text OR attachments (a file-only send is valid).
     if (!input.trim() && attachments.length === 0) return;
 
@@ -2028,7 +2088,7 @@ export function ChatPanel({
     setAttachments([]);
 
     await submitMessage(message, encodedFiles);
-  }, [input, attachments, submitMessage, isThisConversationStreaming, pendingUserInput, slashCommands, executeSlashCommand, handleEffortCommand, handleStop]);
+  }, [input, attachments, submitMessage, isThisConversationStreaming, pendingUserInput, pendingEdit, slashCommands, executeSlashCommand, handleEffortCommand, handleStop]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -2483,7 +2543,7 @@ export function ChatPanel({
                       const isLocalCommand = msg.content.trim() === "/skills" ||
                         msg.content.trim() === "/help";
                       const canEditMessage = msg.role === "user" &&
-                        !isSandboxRuntime &&
+                        !pendingEdit &&
                         isOwnMessage &&
                         isConversationOwner &&
                         !isLocalCommand &&
@@ -2690,6 +2750,18 @@ export function ChatPanel({
               Messages sent here update the same conversation used by the API. Continuing here may interfere with that API chat, especially if both clients send at the same time.
             </p>
           </div>
+        </div>
+      )}
+
+      {pendingEdit && !panelReadOnly && !isAutonomousHistory && (
+        <div role="status" className="border-t border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+            <span>An earlier conversation edit needs to finish before you send another message.</span>
+            <Button variant="outline" onClick={finishPendingEdit} disabled={isRecoveringEdit}>
+              {isRecoveringEdit ? "Finishing edit..." : "Finish conversation edit"}
+            </Button>
+          </div>
+          {editRecoveryError && <p role="alert" className="max-w-7xl mx-auto mt-2 text-destructive">{editRecoveryError}</p>}
         </div>
       )}
 
@@ -3039,6 +3111,7 @@ export function ChatPanel({
                 <TextareaAutosize
                   ref={inputRef}
                   aria-label="Message"
+                  disabled={Boolean(pendingEdit)}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
@@ -3106,7 +3179,7 @@ export function ChatPanel({
                       <Button
                         size="icon"
                         onClick={() => handleSubmit(false)}
-                        disabled={!input.trim() && attachments.length === 0}
+                        disabled={Boolean(pendingEdit) || (!input.trim() && attachments.length === 0)}
                         variant="default"
                         title="Send message"
                       >

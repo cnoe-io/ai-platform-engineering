@@ -2,9 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage, Conversation } from "@/types/a2a";
 import type { StreamCallbacks } from "@/lib/streaming";
 import { createStreamEvent } from "@/lib/streaming/types";
+import { apiClient } from "@/lib/api-client";
 import { ChatPanel } from "../DynamicAgentChatPanel";
 
 let mockConversation: Conversation;
+let mockStorageMode = "localStorage";
+const mockGetConversation = jest.spyOn(apiClient, "getConversation");
+const mockRewindConversation = jest.spyOn(apiClient, "rewindConversation");
 const mockOpenChat = jest.fn();
 const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
@@ -28,6 +32,7 @@ const mockChatState = {
   setConversationStreaming: jest.fn(),
   saveMessagesToServer: jest.fn().mockResolvedValue(undefined),
   loadMessagesFromServer: jest.fn(),
+  clearConversationInputRequired: jest.fn(),
   contextUsageByConversation: {},
   messageHistory: {},
   setContextUsage: jest.fn(),
@@ -44,7 +49,7 @@ jest.mock("@/store/feature-flag-store", () => ({
 }));
 jest.mock("next-auth/react", () => ({ useSession: () => ({ data: null }) }));
 jest.mock("@/components/ui/toast", () => ({ useToast: () => ({ toast: mockToast }) }));
-jest.mock("@/lib/config", () => ({ getConfig: (key: string) => key === "appName" ? "Test agent" : false }));
+jest.mock("@/lib/config", () => ({ getConfig: (key: string) => key === "appName" ? "Test agent" : key === "storageMode" ? mockStorageMode : false }));
 jest.mock("@/components/autonomous/api", () => ({
   autonomousApi: {
     openFollowUpChat: (...args: unknown[]) => mockOpenChat(...args),
@@ -83,6 +88,9 @@ function runMessages(runId: string): ChatMessage[] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStorageMode = "localStorage";
+  mockGetConversation.mockResolvedValue({} as Awaited<ReturnType<typeof apiClient.getConversation>>);
+  mockRewindConversation.mockResolvedValue({ conversation_id: "task-chat", turn_id: "earlier-turn", removed_messages: 2, checkpoint_id: "checkpoint" });
   mockStreamMessage.mockResolvedValue(undefined);
   mockResumeStream.mockResolvedValue(undefined);
   HTMLElement.prototype.scrollIntoView = jest.fn();
@@ -259,13 +267,12 @@ const sandboxAgent = {
   model: { id: "retained-native-model", provider: "example", reasoning_effort: "high" }, allowed_tools: {}, subagents: [], skills: [], enabled: true,
 } as import("@/types/dynamic-agent").DynamicAgentConfig;
 
-it.each([false, true])('offers history editing only when the runtime can rewind (sandbox=%s)', (sandbox) => {
+it.each([false, true])('offers durable history editing for either runtime (sandbox=%s)', (sandbox) => {
   mockConversation = { ...mockConversation, source: 'web', task_id: undefined, messages: [{
     id: 'editable-user', role: 'user', content: 'Earlier question', turnId: 'earlier-turn', timestamp: new Date(),
   }] };
   render(<ChatPanel agent={sandbox ? sandboxAgent : { ...sandboxAgent, execution: { kind: 'native' } }} agentId="example-agent" conversationId="task-chat" />);
-  if (sandbox) expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
-  else expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
 });
 
 it.each(["start", "form", "tool"])("does not use a retained native model for sandbox %s requests", async (action) => {
@@ -298,4 +305,43 @@ it("explains that sandbox reasoning belongs to the profile instead of persisting
   expect(await screen.findByText("Reasoning is managed by the sandbox runtime profile.")).toBeInTheDocument();
   expect(mockStreamMessage).not.toHaveBeenCalled();
   expect(mockResumeStream).not.toHaveBeenCalled();
+});
+
+
+it("recovers an unfinished edit after refresh when its original message is already absent", async () => {
+  mockStorageMode = "mongodb";
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  mockGetConversation.mockResolvedValue({ pending_edit: { agent_id: "example-agent", message_id: "removed-message", phase: "history_applied" } } as Awaited<ReturnType<typeof apiClient.getConversation>>);
+  render(<ChatPanel agent={sandboxAgent} agentId="example-agent" conversationId="task-chat" />);
+  const button = await screen.findByRole("button", { name: "Finish conversation edit" });
+  expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  fireEvent.click(button);
+  await waitFor(() => expect(mockRewindConversation).toHaveBeenCalledWith("task-chat", { agent_id: "example-agent", message_id: "removed-message" }));
+  expect(mockChatState.loadMessagesFromServer).toHaveBeenCalledWith("task-chat", { force: true });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Finish conversation edit" })).toBeNull());
+  expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+  expect(mockStreamMessage).not.toHaveBeenCalled();
+});
+
+it("keeps edit recovery available after a failed acknowledgement and succeeds on retry", async () => {
+  mockStorageMode = "mongodb";
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  mockGetConversation.mockResolvedValue({ pending_edit: { agent_id: "example-agent", message_id: "removed-message", phase: "history_applied" } } as Awaited<ReturnType<typeof apiClient.getConversation>>);
+  mockRewindConversation.mockRejectedValueOnce(new Error("Confirmation is pending"));
+  render(<ChatPanel agent={sandboxAgent} agentId="example-agent" conversationId="task-chat" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Finish conversation edit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Confirmation is pending");
+  expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Finish conversation edit" }));
+  await waitFor(() => expect(mockRewindConversation).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Finish conversation edit" })).toBeNull());
+  expect(mockStreamMessage).not.toHaveBeenCalled();
+});
+
+it("does not fetch or offer private edit recovery in a shared read-only view", async () => {
+  mockStorageMode = "mongodb";
+  mockConversation = { ...mockConversation, source: "web", task_id: undefined, messages: [] };
+  render(<ChatPanel agent={sandboxAgent} agentId="example-agent" conversationId="task-chat" readOnly readOnlyReason="shared_readonly" />);
+  expect(mockGetConversation).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Finish conversation edit" })).toBeNull();
 });

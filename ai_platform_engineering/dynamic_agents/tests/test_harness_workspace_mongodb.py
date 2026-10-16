@@ -82,8 +82,10 @@ async def test_revoked_workspace_after_snapshot_blocks_input_delivery(native_dat
     assert peer.requests == []
 
 
-async def test_large_native_input_is_rejected_before_reading_its_gridfs_payload(native_database: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_large_native_input_is_rejected_before_reading_its_gridfs_payload(native_database: SimpleNamespace, public_context: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> None:
     value = bridge(native_database, WorkspacePeer())
+    value.namespace = ("example-workflow", "example-run", "filesystem")
+    public_context.return_value = value.namespace
     value.store.put(value.namespace, "/oversized.txt", create_file_data("x" * (harness_workspace.MAX_STORED_INPUT_BYTES + 1)))
     original = value.store.get
     calls: list[str] = []
@@ -229,3 +231,20 @@ async def test_generated_binary_above_input_copy_limit_does_not_block_next_conve
     assert await value.seed_inputs() == {}
     assert any("input-copy budget" in warning for warning in value.warnings)
     assert base64.b64decode(value.store.get(value.namespace, "/large.zip").value["content"]) == raw
+
+
+async def test_large_optional_stored_record_is_not_read_and_does_not_block_continuation(native_database: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    value = bridge(native_database, WorkspacePeer())
+    value.store.put(value.namespace, "/large.txt", create_file_data("x" * harness_workspace.MAX_STORED_INPUT_BYTES))
+    monkeypatch.setattr(value, "_stored_value", lambda _identifier: pytest.fail("Oversized optional records must not be read"))
+    assert await value.seed_inputs() == {}
+    assert any("input-copy budget" in warning for warning in value.warnings)
+
+
+async def test_optional_scan_limit_is_visible_without_blocking_continuation(native_database: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    value = bridge(native_database, WorkspacePeer())
+    for index in range(3):
+        value.store.put(value.namespace, f"/file-{index}.txt", create_file_data("example"))
+    monkeypatch.setattr(harness_workspace, "MAX_SCANNED_INPUT_FILES", 2)
+    assert len(await value.seed_inputs()) == 2
+    assert any("scan reached its file limit" in warning for warning in value.warnings)

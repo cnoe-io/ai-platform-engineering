@@ -1,3 +1,4 @@
+import { conversationForViewer } from "@/lib/conversation-view";
 // GET /api/chat/conversations/trash - List soft-deleted conversations (archive)
 // Also auto-purges conversations deleted more than 7 days ago
 
@@ -81,7 +82,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
 
     return paginatedResponse(
-      visibleItems,
+      visibleItems.map((conversation) => conversationForViewer(conversation)),
       visibleItems.length < items.length ? visibleItems.length : total,
       page,
       pageSize
