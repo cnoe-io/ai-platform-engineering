@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
@@ -22,7 +23,41 @@ from dynamic_agents.services.session_bindings import get_sandbox_binding, reset_
 from dynamic_agents.services.session_runs import await_session_operation, current_native_session_lease
 
 
-async def clear_sandbox_session(mongo: MongoDBService, agent_id: str, session_id: str, settings: Settings) -> bool:
+async def restart_sandbox_session(mongo: MongoDBService, agent_id: str, session_id: str, settings: Settings) -> bool:
+    """Reconnect ACP and MCP next turn while preserving the exact native state.
+
+    Idle sandbox transports are already closed after every turn. Restart has
+    the same reconnect meaning as the native cache operation: it never deletes
+    the environment, forks history, or resends an uncertain tool invocation.
+    A live turn holds the same admission and prevents this operation entirely.
+    """
+    state = await await_session_operation(get_sandbox_binding, mongo, agent_id, session_id)
+    if state is None:
+        return False
+    lease_id = current_native_session_lease.get()
+    if lease_id is None:
+        raise SandboxError("Sandbox restart requires its admitted session lease")
+    client = SandboxClient(settings)
+    if state.get("owner_subject") != current_subject_reference():
+        raise SandboxError("Only the sandbox's original caller can restart its runtime")
+    if state.get("connection_version") != hashlib.sha256(client.base.encode()).hexdigest():
+        raise SandboxError("The sandbox control-plane binding changed; restart requires operator recovery")
+    # Retain a pending recovery unchanged. The normal restore path completes
+    # its immutable operation before opening the fresh ACP/MCP connection.
+    changed = await await_session_operation(
+        mongo.get_session_runs_collection().update_one,
+        {"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+         "lease_expires_at": {"$gt": datetime.now(timezone.utc)}, "cancel_requested": {"$ne": True}},
+        {"$set": {"runtime_restart_requested_at": datetime.now(timezone.utc)}, "$inc": {"checkpoint_generation": 1}},
+    )
+    if not changed.matched_count:
+        raise SandboxError("The sandbox runtime restart lost its admitted session lease")
+    return True
+
+
+async def clear_sandbox_session(
+    mongo: MongoDBService, agent_id: str, session_id: str, settings: Settings, *, preserve_rewind: bool = False,
+) -> bool:
     """Delete the pinned environment before resetting its durable reference.
 
     Do not require the profile catalog to remain enabled: explicit cleanup must
@@ -83,7 +118,7 @@ async def clear_sandbox_session(mongo: MongoDBService, agent_id: str, session_id
                     allocation = None
     if allocation is not None:
         await client.delete(allocation, profile)
-    await store.cleanup(agent_id, session_id, state["owner_subject"], lease_id)
+    await store.cleanup(agent_id, session_id, state["owner_subject"], lease_id, preserve_rewind=preserve_rewind)
     # Cleanup removes the checkpoint allocation/phase overlay. Compare reset
     # against the resulting canonical binding rather than an obsolete overlay.
     current = await await_session_operation(get_sandbox_binding, mongo, agent_id, session_id)

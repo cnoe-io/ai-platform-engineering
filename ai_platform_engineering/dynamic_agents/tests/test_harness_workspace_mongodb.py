@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -20,7 +22,7 @@ from tests.test_native_acp_mongodb import native_database as native_database
 
 
 class WorkspacePeer:
-    def __init__(self, files: dict[str, str] | None = None, *, truncated: bool = False) -> None:
+    def __init__(self, files: dict[str, str | bytes] | None = None, *, truncated: bool = False) -> None:
         self.files = files or {}
         self.truncated = truncated
         self.requests: list[tuple[str, str, dict | None]] = []
@@ -36,6 +38,11 @@ class WorkspacePeer:
         relative = parse_qs(urlsplit(path).query)["path"][0]
         if relative in self.denied:
             raise SandboxError("The sandbox artifact is not a regular file")
+        if parse_qs(urlsplit(path).query).get("encoding") == ["base64"]:
+            raw = self.files[relative]
+            data = raw.encode() if isinstance(raw, str) else raw
+            return {"path": relative, "content": base64.b64encode(data).decode(), "encoding": "base64",
+                    "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
         return {"path": relative, "content": self.files[relative]}
 
 
@@ -99,7 +106,8 @@ async def test_completed_export_retains_unrelated_files_and_excludes_managed_pri
     warnings = await value.publish()
     assert value.store.get(value.namespace, "/report.txt").value["content"] == "Completed report"
     assert value.store.get(value.namespace, "/keep.txt").value["content"] == "Retain this file"
-    for path in ("/AGENTS.md", "/inputs/input.txt", "/outside.txt", "/.env", "/link.txt", "/binary.txt"):
+    assert value.store.get(value.namespace, "/binary.txt").value["encoding"] == "base64"
+    for path in ("/AGENTS.md", "/inputs/input.txt", "/outside.txt", "/.env", "/link.txt"):
         assert value.store.get(value.namespace, path) is None
     assert warnings
     assert not any("../outside.txt" in request[1] or "path=.env" in request[1] for request in peer.requests)
@@ -174,3 +182,50 @@ def test_allocation_and_namespace_must_match_the_admitted_conversation(native_da
     value = bridge(native_database, peer)
     with pytest.raises(SandboxError, match="admitted agent conversation"):
         HarnessWorkspaceBridge(native_database.mongo, value.agent, value.session_id, peer, value.allocation.model_copy(update={"conversation_id": "another-conversation"}))
+
+
+async def test_binary_export_and_next_workflow_input_preserve_exact_bytes(native_database: SimpleNamespace) -> None:
+    raw = b"PK\x03\x04\x00\xff\xfe\x80\x01" * 47
+    peer = WorkspacePeer({"output/archive.zip": raw})
+    value = bridge(native_database, peer)
+    assert await value.publish() == []
+    stored = value.store.get(value.namespace, "/output/archive.zip").value
+    assert stored["encoding"] == "base64"
+    assert base64.b64decode(stored["content"], validate=True) == raw
+    assert await value.seed_inputs() == {"inputs/output/archive.zip": {
+        "encoding": "base64", "content": base64.b64encode(raw).decode(),
+    }}
+
+
+async def test_binary_export_rejects_inconsistent_hash_before_gridfs_write(native_database: SimpleNamespace) -> None:
+    peer = WorkspacePeer({"output.bin": b"\xff\x00"})
+    original = peer._request
+
+    async def corrupt(method: str, path: str, body: dict | None = None) -> dict:
+        result = await original(method, path, body)
+        if result.get("encoding") == "base64":
+            result["sha256"] = "0" * 64
+        return result
+
+    peer._request = corrupt
+    value = bridge(native_database, peer)
+    assert await value.publish()
+    assert value.store.get(value.namespace, "/output.bin") is None
+
+
+async def test_oversized_required_binary_workflow_input_fails_before_provider_write(native_database: SimpleNamespace, public_context: AsyncMock) -> None:
+    value = bridge(native_database, WorkspacePeer())
+    value.namespace = ("example-workflow", "example-run", "filesystem")
+    public_context.return_value = value.namespace
+    value.store.put(value.namespace, "/output.bin", {"content": base64.b64encode(b"x" * (harness_workspace.MAX_INPUT_FILE_BYTES + 1)).decode(), "encoding": "base64"})
+    with pytest.raises(SandboxError, match="supported size"):
+        await value.seed_inputs()
+
+
+async def test_generated_binary_above_input_copy_limit_does_not_block_next_conversation_turn(native_database: SimpleNamespace) -> None:
+    raw = b"\xff\x00" * (150 * 1024)
+    value = bridge(native_database, WorkspacePeer({"large.zip": raw}))
+    assert await value.publish() == []
+    assert await value.seed_inputs() == {}
+    assert any("input-copy budget" in warning for warning in value.warnings)
+    assert base64.b64decode(value.store.get(value.namespace, "/large.zip").value["content"]) == raw

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from fastapi import HTTPException
+from pymongo.collection import Collection
 
 from dynamic_agents.models import AgentExecutionConfig
 from dynamic_agents.routes import conversations
@@ -76,6 +77,38 @@ async def test_clear_deletes_exact_allocation_before_binding_and_local_state(san
     assert get_sandbox_binding(state.mongo, state.agent.id, state.session_id) is None
     assert (result.checkpoints_deleted, result.writes_deleted, result.files_deleted) == (1, 1, 1)
     assert state.store.get(("other", "other-session", "filesystem"), "/report.txt") is not None
+
+
+@pytest.mark.parametrize("succeeds", [True, False])
+async def test_clear_fences_ui_rewind_receipts_only_after_cleanup_and_before_releasing_lease(sandbox_state, monkeypatch, succeeds):
+    state = sandbox_state
+    state.db["conversations"].insert_one({"_id": state.session_id, "owner_subject": "example-owner",
+        "native_rewind_epoch": 7, "native_rewind": {"operation_id": "old-ui-edit"}})
+    update = Collection.update_one
+    observed = []
+
+    def verify_admission(collection, query, changes, **kwargs):
+        if collection.name == "conversations" and "native_rewind_epoch" in changes.get("$inc", {}):
+            assert state.mongo.get_session_runs_collection().find_one({"session_id": state.session_id,
+                "lease_id": {"$exists": True}})
+            assert get_sandbox_binding(state.mongo, state.agent.id, state.session_id) is None
+            observed.append(True)
+        return update(collection, query, changes, **kwargs)
+
+    monkeypatch.setattr(Collection, "update_one", verify_admission)
+    service = AgentExecutionService(state.mongo, settings=state.settings)
+    if succeeds:
+        result = await service.clear(state.agent.id, state.session_id)
+        assert (result.checkpoints_deleted, result.writes_deleted, result.files_deleted) == (1, 1, 1)
+    else:
+        state.status = 503
+        with pytest.raises(SandboxError):
+            await service.clear(state.agent.id, state.session_id)
+    conversation = state.db["conversations"].find_one({"_id": state.session_id})
+    assert conversation["owner_subject"] == "example-owner"
+    assert conversation["native_rewind_epoch"] == (8 if succeeds else 7)
+    assert ("native_rewind" in conversation) is not succeeds
+    assert observed == ([True] if succeeds else [])
 
 
 async def test_sandbox_clear_preserves_shared_workflow_artifacts(sandbox_state):
@@ -167,13 +200,13 @@ def test_reset_rejects_stale_binding_and_preserves_new_state(sandbox_state):
     assert get_sandbox_binding(state.mongo, state.agent.id, state.session_id) == changed
 
 
-async def test_sandbox_rewind_and_cache_restart_are_explicitly_unsupported(sandbox_state):
+async def test_legacy_sandbox_requires_retained_rewind_history_but_can_reconnect(sandbox_state, monkeypatch):
     state = sandbox_state
+    monkeypatch.setattr("dynamic_agents.services.agent_execution.current_subject_reference", lambda: "user:example-owner")
     service = AgentExecutionService(state.mongo, settings=state.settings)
-    with pytest.raises(SandboxError, match="cannot rewind"):
+    with pytest.raises(ValueError, match="Unable to match"):
         await service.rewind(state.agent, state.session_id, state.user, turn_id="example-turn", message_content="message", content_occurrence=1)
-    with pytest.raises(SandboxError, match="restart is unavailable"):
-        await service.restart(state.agent.id, state.session_id)
+    assert await service.restart(state.agent.id, state.session_id)
     assert not state.calls
     assert get_sandbox_binding(state.mongo, state.agent.id, state.session_id) == state.binding
 

@@ -411,18 +411,28 @@ def link_delegated_session(
 
 def clear_delegated_sessions(
     mongo: MongoDBService, agent_id: str, session_id: str, owner_subject: str | None,
-    expected: list[dict[str, str]],
+    expected: list[dict[str, str]], *, remove: list[dict[str, str]] | None = None,
 ) -> None:
-    """Remove links only after every descendant cleanup has been confirmed."""
+    """Remove confirmed links with a CAS over the entire retained child set."""
     binding = _delegated_parent(mongo, agent_id, session_id, owner_subject)
     if binding is None or [child.model_dump() for child in binding.delegated_sessions] != expected:
         raise SessionBindingError("The delegated session lifecycle changed during cleanup")
     if not expected:
         return
+    removed = expected if remove is None else remove
+    if any(child not in expected for child in removed):
+        raise SessionBindingError("The delegated cleanup includes an unrelated session")
+    retained = [child for child in expected if child not in removed]
+    if retained == expected:
+        return
+    update: dict[str, Any] = {"$set": {"updated_at": datetime.now(timezone.utc)}, "$inc": {"revision": 1}}
+    if retained:
+        update["$set"]["delegated_sessions"] = retained
+    else:
+        update["$unset"] = {"delegated_sessions": ""}
     result = mongo.get_session_bindings_collection().update_one({
         "agent_id": agent_id, "session_id": session_id, "revision": binding.revision,
         "delegated_sessions": expected,
-    }, {"$unset": {"delegated_sessions": ""}, "$set": {"updated_at": datetime.now(timezone.utc)},
-        "$inc": {"revision": 1}})
+    }, update)
     if not result.matched_count:
         raise SessionBindingError("The delegated session lifecycle changed during cleanup")

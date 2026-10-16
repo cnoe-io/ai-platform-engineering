@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 import pytest
@@ -136,3 +137,48 @@ async def test_explicit_delete_rejects_replacement_identity_and_missing_precondi
     with pytest.raises(SandboxError, match="identity changed"):
         await client.delete(SandboxAllocation.model_validate(_allocation()), SandboxProfile.model_validate(PROFILE))
     assert [request.method for request in requests] == ["GET"]
+
+
+async def test_execution_capture_grant_is_bound_and_never_sent_to_control_or_restore(monkeypatch):
+    token = "caiperun." + "a" * 43
+    requests = []
+    allocation = SandboxAllocation.model_validate(_allocation())
+    run_id = "11111111-1111-4111-8111-111111111111"
+
+    def handler(request):
+        requests.append(request)
+        body = json.loads(request.content) if request.content else None
+        if request.url.path.endswith("/execution-grant") and request.method == "POST":
+            assert "X-CAIPE-Execution-Grant" not in request.headers
+            return httpx.Response(201, json={**body, "token": token, "expires_at": int(time.time()) + 60})
+        if request.url.path.endswith("/execution-grant"):
+            assert request.headers["X-CAIPE-Execution-Grant"] == token
+            return httpx.Response(204)
+        return httpx.Response(200, json={"files": [], "truncated": False})
+
+    client = _client(monkeypatch, handler)
+    async with client.execution(allocation, run_id):
+        await client.workspace_files(allocation)
+        assert requests[-1].headers["X-CAIPE-Execution-Grant"] == token
+        for method, suffix in [("GET", ""), ("PUT", "/workspace"), ("POST", "/state/restore"), ("POST", "/acp"), ("POST", "/resume"), ("DELETE", "")]:
+            assert "X-CAIPE-Execution-Grant" not in client._headers(method, f"/api/caipe/sandboxes/{allocation.id}{suffix}")
+        assert "X-CAIPE-Execution-Grant" not in client._headers("GET", "/api/caipe/sandboxes/other/workspace/content")
+        assert "X-CAIPE-Execution-Grant" not in client._headers("GET", "/api/caipe/profiles")
+    assert client._execution is None
+    assert requests[-1].method == "DELETE"
+
+
+@pytest.mark.parametrize("change", [{"token": "bad"}, {"uid": "different"}, {"expires_at": 0}, {"expires_at": True}, {"expires_at": 99999999999}])
+async def test_invalid_capture_grant_blocks_execution_before_prompt(monkeypatch, change):
+    allocation = SandboxAllocation.model_validate(_allocation())
+
+    def handler(request):
+        body = json.loads(request.content)
+        return httpx.Response(201, json={**body, "token": "caiperun." + "a" * 43,
+            "expires_at": int(time.time()) + 60, **change})
+
+    client = _client(monkeypatch, handler)
+    with pytest.raises(SandboxError, match="grant is invalid"):
+        async with client.execution(allocation, "11111111-1111-4111-8111-111111111111"):
+            pytest.fail("An invalid grant cannot start native execution")
+    assert client._execution is None

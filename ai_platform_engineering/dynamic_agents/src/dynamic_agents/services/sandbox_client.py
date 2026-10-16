@@ -12,6 +12,9 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
+import re
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
 from typing import Any, Literal
@@ -38,6 +41,7 @@ from dynamic_agents.services.native_state_protocol import (
 
 MAX_CONTROL_BYTES = 1024 * 1024
 MAX_ACP_BYTES = 8 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 class SandboxError(RuntimeError):
@@ -133,11 +137,52 @@ class SandboxClient:
         self.bearer = bearer or current_user_token.get()
         if not self.bearer:
             raise SandboxError("Sandbox execution requires an authenticated CAIPE caller")
+        self._execution: tuple[str, str] | None = None
+
+    def _headers(self, method: str, path: str) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {self.bearer}"}
+        if self._execution is not None:
+            allocation_id, token = self._execution
+            prefix = f"/api/caipe/sandboxes/{quote(allocation_id, safe='')}"
+            target = path.split("?", 1)[0]
+            allowed = {("GET", prefix + "/workspace/files"), ("GET", prefix + "/workspace/content"),
+                       ("PUT", prefix + "/workspace/content"), ("POST", prefix + "/state/export"),
+                       ("DELETE", prefix + "/execution-grant")}
+            if (method, target) in allowed:
+                headers["X-CAIPE-Execution-Grant"] = token
+        return headers
+
+    @asynccontextmanager
+    async def execution(self, allocation: SandboxAllocation, run_id: str) -> AsyncIterator[None]:
+        """Keep only the admitted turn's capture credential beyond user-token expiry."""
+        if self._execution is not None:
+            raise SandboxError("The sandbox client already owns an execution grant")
+        body = {"conversation_id": allocation.conversation_id, "uid": allocation.uid, "run_id": run_id}
+        path = f"/api/caipe/sandboxes/{quote(allocation.id, safe='')}/execution-grant"
+        result = await self._request("POST", path, body)
+        token, expires = result.get("token"), result.get("expires_at")
+        if (not isinstance(token, str) or not re.fullmatch(r"caiperun\.[A-Za-z0-9_.-]{40,192}", token)
+                or type(expires) is not int or not time.time() < expires <= time.time() + 86520
+                or any(result.get(key) != value for key, value in body.items())):
+            raise SandboxError("The admitted sandbox execution grant is invalid")
+        self._execution = (allocation.id, token)
+        try:
+            yield
+        finally:
+            try:
+                async with asyncio.timeout(5):
+                    await self._request("DELETE", path, body)
+            except (SandboxError, TimeoutError):
+                # Rotation/deadline also revoke this grant. Cleanup uncertainty
+                # must not discard an already verified canonical checkpoint.
+                logger.warning("Sandbox capture grant revocation was not acknowledged")
+            finally:
+                self._execution = None
 
     async def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         try:
             async with httpx.AsyncClient(follow_redirects=False, timeout=30) as client:
-                async with client.stream(method, self.base + path, headers={"Authorization": f"Bearer {self.bearer}"}, json=body) as response:
+                async with client.stream(method, self.base + path, headers=self._headers(method, path), json=body) as response:
                     if response.status_code in {401, 403}:
                         raise SandboxError("This caller is not authorized to use the sandbox execution profile")
                     if response.status_code == 404:
@@ -234,7 +279,7 @@ class SandboxClient:
             allocation = refreshed
         return allocation
 
-    async def prepare(self, allocation: SandboxAllocation, files: dict[str, str]) -> None:
+    async def prepare(self, allocation: SandboxAllocation, files: dict[str, str | dict[str, str]]) -> None:
         await self._request("PUT", f"/api/caipe/sandboxes/{quote(allocation.id, safe='')}/workspace", {
             "conversation_id": allocation.conversation_id, "uid": allocation.uid, "files": files,
         })
@@ -283,8 +328,9 @@ class SandboxClient:
             async with asyncio.timeout(600), httpx.AsyncClient(follow_redirects=False, timeout=httpx.Timeout(600, connect=10)) as client:
                 while True:
                     retry = False
-                    async with client.stream("POST", self.base + f"/api/caipe/sandboxes/{quote(allocation.id, safe='')}/state/export",
-                            headers={"Authorization": f"Bearer {self.bearer}", "Accept": "application/x-ndjson"}, json=body) as response:
+                    export_path = f"/api/caipe/sandboxes/{quote(allocation.id, safe='')}/state/export"
+                    async with client.stream("POST", self.base + export_path,
+                            headers={**self._headers("POST", export_path), "Accept": "application/x-ndjson"}, json=body) as response:
                         if response.status_code == 409 and asyncio.get_running_loop().time() < deadline:
                             retry = True  # ACP close can precede the provider's process lock release.
                         else:

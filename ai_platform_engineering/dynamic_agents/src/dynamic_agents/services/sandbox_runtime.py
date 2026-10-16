@@ -16,6 +16,11 @@ from dynamic_agents.models import DynamicAgentConfig, InputFile
 from dynamic_agents.services.harness_acp import HarnessACPDriver
 from dynamic_agents.services.harness_checkpoints import CheckpointIdentity, CheckpointManifest, CheckpointStore
 from dynamic_agents.services.harness_inputs import HarnessInputs
+from dynamic_agents.services.harness_policy import (
+    harness_middleware_entries,
+    harness_middleware_params,
+    harness_model_retry_options,
+)
 from dynamic_agents.services.harness_workspace import HarnessWorkspaceBridge
 from dynamic_agents.services.mongo import MongoDBService
 from dynamic_agents.services.native_run_coordinator import current_native_execution_run
@@ -50,6 +55,7 @@ class SandboxRuntime:
     attachments: bool
     close_connection: Callable[[], Awaitable[None]]
     checkpoint: Callable[[str], Awaitable[CheckpointManifest]]
+    warnings: tuple[str, ...] = ()
 
     async def _preserve_interrupted(self, status: str) -> None:
         async def preserve() -> None:
@@ -73,6 +79,9 @@ class SandboxRuntime:
         semantic = SemanticStreamEncoder()
         capture_attempted = False
         try:
+            for warning in self.warnings:
+                for frame in encoder.encode_event(WarningEvent(message=warning)):
+                    yield frame
             finished = None
             async with aclosing(self.driver.stream(message, semantic, run_id=self.run_id, files=files)) as events:
                 async for event in events:
@@ -85,6 +94,8 @@ class SandboxRuntime:
                 raise SandboxError("The harness did not complete its prompt")
             await self.close_connection()
             for warning in await self.workspace.publish():
+                if warning in self.warnings:
+                    continue
                 for frame in encoder.encode_event(WarningEvent(message=warning)):
                     yield frame
             capture_attempted = True
@@ -150,13 +161,21 @@ def _session_options(agent: DynamicAgentConfig, prompt: str, profile: SandboxPro
     options: dict[str, Any] = {
         "systemPrompt": prompt, "settingSources": ["project"], "allowDangerouslySkipPermissions": False,
     }
-    # Preserve the configured execution bound using the harness's own loop.
-    # Native model retry/compaction internals remain owned by each harness.
-    for item in agent.features.middleware if agent.features else []:
-        if item.type == "model_call_limit" and item.enabled:
-            limit = item.params.get("run_limit")
-            if type(limit) is int and limit > 0:
-                options["maxTurns"] = limit
+    options["env"], _ = harness_model_retry_options(agent)
+    # Programmatic settings take precedence over project-controlled settings.
+    # Keep the admitted retry budget from drifting after a workspace edit.
+    options["settings"] = {"env": dict(options["env"])}
+    # Preserve the configured execution bound using the harness's own loop,
+    # including the same defaults used when no middleware list was saved.
+    call_limit = harness_middleware_params(agent, "model_call_limit")
+    if call_limit is not None:
+        if call_limit.get("thread_limit") is not None:
+            raise SandboxError("Sandbox model-call limits currently support per-run limits; a thread limit requires a supported policy")
+        limit = call_limit.get("run_limit")
+        if limit is not None:
+            if type(limit) is not int or limit <= 0:
+                raise SandboxError("Model call run_limit must be a positive integer")
+            options["maxTurns"] = limit
     return {"claudeCode": {"options": options}}
 
 
@@ -285,7 +304,7 @@ async def sandbox_runtime(
         "\n\nWorkspace files: your real filesystem is rooted at the approved working directory. "
         "Existing CAIPE logical files are copied under inputs/ with their relative paths retained. "
         "For example, logical /reports/input.txt is available as inputs/reports/input.txt. "
-        "Write new output files using workspace-relative paths. Approved UTF-8 outputs are "
+        "Write new output files using workspace-relative paths. Approved text and binary outputs are "
         "published to CAIPE when the turn finishes. Do not place credentials in output files."
     )
     files = _workspace_files(workspace_prompt, skills_files, profile.harness)
@@ -298,7 +317,7 @@ async def sandbox_runtime(
         state["provider_session_id"] = provider_session_id
         await await_session_operation(save_sandbox_binding, mongo, agent.id, session_id, state)
 
-    async with AsyncExitStack() as connection_stack:
+    async with client.execution(allocation, run.run_id), AsyncExitStack() as connection_stack:
         transport = await connection_stack.enter_async_context(client.acp(allocation))
         driver = HarnessACPDriver(
             transport, agent_name=agent.name, canonical_session_id=session_id,
@@ -322,6 +341,28 @@ async def sandbox_runtime(
                               session_meta=_session_options(agent, workspace_prompt, profile))
             if not driver.capabilities.get("loadSession"):
                 raise SandboxError("The sandbox harness must support loading its durable native session")
-            yield SandboxRuntime(driver, run.run_id, workspace, profile.capabilities.get("attachments", False), close_connection, capture)
+            _, policy_warnings = harness_model_retry_options(agent)
+            policy_warnings += tuple(workspace.warnings)
+            if (harness_middleware_params(agent, "model_call_limit") or {}).get("run_limit") is not None:
+                policy_warnings += (
+                    "The configured model-call run limit is applied as Claude Code's native maxTurns budget. "
+                    "Native harness budget exhaustion stops this turn without acknowledging successful completion; "
+                    "CAIPE middleware exit_behavior does not replace that native result.",
+                )
+            if harness_middleware_params(agent, "tool_retry") is not None:
+                policy_warnings += (
+                    "Configured tool retries apply to server-admitted read-only or idempotent CAIPE tools. "
+                    "CAIPE does not automatically repeat mutations with an uncertain outcome. "
+                    "Claude Code controls its own filesystem and shell tool recovery.",
+                )
+            if harness_middleware_entries(agent, "tool_call_limit"):
+                policy_warnings += (
+                    "Configured tool-call run limits count admitted CAIPE broker requests, including delegation, "
+                    "rather than Claude Code's local filesystem or shell tools. Repeated observers of one request "
+                    "reuse its saved result. A continue limit returns a tool error; error/end stops the turn "
+                    "without acknowledging successful completion.",
+                )
+            yield SandboxRuntime(driver, run.run_id, workspace, profile.capabilities.get("attachments", False), close_connection,
+                                 capture, policy_warnings)
         finally:
             await close_connection()

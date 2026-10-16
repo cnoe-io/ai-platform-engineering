@@ -245,6 +245,7 @@ async def test_cache_restart_preserves_real_admitted_storage_and_resume_snapshot
     mongo = MongoDBService(settings)
     mongo._db = {
         SESSION_BINDINGS_COLLECTION: collection, "workflow_checkpoints": checkpoints, "workflow_checkpoints_writes": writes,
+        "conversations": MagicMock(update_one=MagicMock()),
     }
     mongo._native_run_coordinator = env.mongo._native_run_coordinator
     mongo.get_agent_mcp_servers = MagicMock(return_value=[])

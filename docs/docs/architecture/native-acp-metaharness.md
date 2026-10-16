@@ -23,7 +23,7 @@ This document does not imply that a deployed agent has changed runtimes.
 |---|---|---|
 | Execution | Existing DeepAgents/LangGraph runtime behind a logical ACP agent. Default, SRE and custom agents remain shared logical agents. | A configured Claude Code ACP process in a provider-managed environment. Codex is deferred until its persistence integration is qualified. |
 | Agent definition | Native model, prompt, tools and skills use existing configuration. | `execution.kind=sandbox` selects a configured `profile_id`; its deployment owns image, command, model route and credentials. |
-| Files | Existing simulated filesystem and checkpoint/GridFS storage. | A real workspace restored from canonical native-state checkpoints, plus bounded text-artifact exchange with CAIPE's existing file store. |
+| Files | Existing simulated filesystem and checkpoint/GridFS storage. | A real workspace restored from canonical native-state checkpoints, plus bounded text and binary artifact exchange with CAIPE's existing file store. |
 | Session | Original LangGraph thread and admitted storage coordinates. | Pinned environment identity and native provider session ID, stored in the same CAIPE binding. |
 | Platform services | Native tools, human input, subagents and the existing workflow engine. | A run-scoped tool broker reuses those services without giving the harness the caller's bearer. |
 
@@ -60,7 +60,7 @@ flowchart TB
   Workspace -->|Quiescent checkpoint| Checkpoints[Versioned native-state archive]
   Checkpoints -->|Verified bytes and fenced head| DB
   DB -->|Restore committed state before load| Workspace
-  Workspace -->|Bounded text artifacts| Files[Existing CAIPE file store]
+  Workspace -->|Bounded file artifacts| Files[Existing CAIPE file store]
   Files --> DB
 ```
 
@@ -134,7 +134,9 @@ be removed correctly. Fixed exclusions omit runtime locks, checkpoint scratch
 files and known native login credential files. Credentials are supplied again by
 the deployment. Workspace content can still contain secrets produced by tools;
 apply the same access, encryption and backup controls as other sensitive CAIPE
-records. Active snapshots retain three recent versions plus restore provenance;
+records. Active snapshots retain three recent recovery versions plus restore
+provenance. Turn boundaries also pin the native states needed to edit retained
+conversation history, so their storage grows with that history;
 clear/delete removes live checkpoint records and blobs, with bounded orphan
 cleanup for interrupted uploads. Backup expiry remains an operator policy.
 
@@ -221,11 +223,11 @@ policy. ACP itself supplies neither isolation nor egress enforcement.
 | Workspace operation | Contract and limit |
 |---|---|
 | Prepare instructions/skills | One managed snapshot containing `AGENTS.md`, `CLAUDE.md`, `.agents/skills/<id>/...` or `.claude/skills/<id>/...`; the profile selects the harness. |
-| Seed workflow files | Permission-checked canonical text files become `inputs/<safe relative path>` in the same prepare call. Shared workflow namespaces require the current canonical run/step/owner; arbitrary namespace overrides are rejected. |
+| Seed workflow files | Permission-checked canonical text and binary files become `inputs/<safe relative path>` in the same prepare call. Shared workflow namespaces require the current canonical run/step/owner; arbitrary namespace overrides are rejected. |
 | Prepare bounds | At most 128 files, 1 MiB total and 256 KiB per file. The persistent workspace lock prevents preparation during an active ACP process; stale managed files are removed. |
-| Read/list | Bounded regular UTF-8 files, excluding private metadata, credentials, symlinks, hardlinks and special files. Provider listing is bounded at 1,000 results/4,096 visited entries; content at 512 KiB. |
-| Publish artifacts | Copy bounded text artifacts into the existing canonical file namespace; do not publish instructions, skills, inputs, credentials or native provider state. Export limits/warnings are explicit rather than claiming all files were copied. |
-| Edit/upload/format | A fixed-cwd atomic ordinary-file writer accepts at most 256 KiB. Existing `format_file` imports its requested workspace input and mirrors newly formatted results back. No arbitrary HOME, credential or instruction-metadata writes are exposed. |
+| Read/list | Bounded regular files, excluding private metadata, credentials, symlinks, hardlinks and special files. Provider listing is bounded at 1,000 results/4,096 visited entries; content at 512 KiB. |
+| Publish artifacts | Copy bounded text and binary artifacts into the existing canonical file namespace; do not publish instructions, skills, inputs, credentials or native provider state. Export limits/warnings are explicit rather than claiming all files were copied. |
+| Edit/upload/format | A fixed-cwd atomic ordinary-file writer accepts at most 512 KiB. Existing text-only `format_file` imports its requested workspace input and mirrors newly formatted results back. No arbitrary HOME, credential or instruction-metadata writes are exposed. |
 
 The bridge bounds canonical input snapshots and output export independently of
 the provider limits. Missing, unsupported or oversized artifacts return an error
@@ -233,10 +235,28 @@ or visible warning. They are not silently represented as complete exports.
 Reads and ordinary-file writes can operate during ACP execution; instruction
 preparation remains exclusive.
 
+Binary transfer uses strict base64, decoded byte counts and SHA-256 receipts.
+The existing canonical GridFS file record carries `encoding=base64`; the same
+file APIs and downloads preserve those bytes. No separate file store is added.
+Text previews and `format_file` continue to handle text only.
+
+Interactive files outside the input-copy budget remain downloadable and produce
+a visible omission warning; they cannot block every later turn. The committed
+native workspace still restores normally. Required shared workflow inputs fail
+explicitly when they exceed the input contract.
+
 The provider must validate CAIPE bearer admission independently, pin configured
 image/command/policy revisions, isolate users and session workspaces, and check
 actual environment/Pod identity plus administrative controls. Agent definitions
 cannot supply executable commands, credentials, images or control-plane URLs.
+Before a prompt starts, a verified caller obtains a run-bound capture grant.
+Only its hash is kept by the environment service. It can authorize bounded
+workspace exchange and native-state export until the admitted execution deadline
+plus a short capture grace period, including after the login token expires.
+It cannot provision, restore, start ACP or perform lifecycle operations. The
+client revokes it after capture; rotation, expiry, profile/policy changes and
+environment replacement also invalidate it. Neither the grant nor the caller's
+bearer is given to the agent.
 Admitted long-running execution must not depend on a browser cookie or end
 solely because its handshake bearer expires. Reconnect requires fresh admission;
 operator execution deadlines and revocation controls still apply.
@@ -244,8 +264,8 @@ operator execution deadlines and revocation controls still apply.
 Model credentials are deployment-owned references, never returned through the
 provisioning API. A real CLI may receive its scoped model credential; that is not
 out-of-process credential isolation. Use a scoped model gateway and budgets.
-Process-group supervision cleans up ordinary descendants, but deliberately
-separated process groups require a stronger per-run cgroup/container boundary.
+The Linux supervisor also adopts and stops detached descendants. Container
+policy remains the security boundary against deliberately hostile same-UID code.
 Filesystem, egress, model routing and lifecycle guarantees need qualification in
 the selected provider, not just protocol tests.
 
@@ -257,8 +277,8 @@ the selected provider, not just protocol tests.
 | Stop | Cancel the owning native turn and wait for cleanup. | Cancel the actual admitted ACP prompt and its producer/tool/input work; retain saved context. |
 | Clear | Retire obsolete journals and remove admitted checkpoint/files. | Delete the exact pinned environment, purge owned checkpoints, then reset its provider reference and canonical files. Cleanup failure remains visible and retryable. |
 | Permanent deletion | Fence late admissions, clear native state, then remove canonical history through existing authorization. | Apply the same fence, perform owner-bound generation/version-checked remote cleanup, then finish canonical deletion. Retained volumes/backups follow deployment policy. |
-| Rewind | Existing checkpoint rewind. | Explicitly unsupported; start a new conversation to branch from earlier history. No transcript-only pretend rewind. |
-| Restart runtime | Rebuild the cached native runtime with current resources. | Explicitly unavailable for a retained provider session; use the supported clear/new-conversation lifecycle. |
+| Rewind | Existing checkpoint rewind. | Restore the selected turn's retained pre-prompt native state and linked native-child checkpoints. A durable edit intent gates later prompts; canonical UI history must be reconciled before continuation. Editing the first turn creates a genuinely fresh native session. Older turns without a retained boundary return an explicit error. |
+| Restart runtime | Rebuild the cached native runtime with current resources. | Reconnect ACP/MCP and reload the same pinned native session and workspace. Restart does not delete the environment or replay a prompt. |
 
 A minimal deleted-session ledger prevents late requests from recreating a
 permanently removed context. Soft deletion keeps archive/restore behavior.
@@ -266,6 +286,20 @@ Clear/deletion does not prove physical erasure of retained provider volumes,
 snapshots or backups.
 
 ## Operator configuration and qualification
+
+### Retry and execution budgets
+
+| Existing control | Claude Code placement |
+|---|---|
+| Model retry count | Use the pinned SDK's native retry count within one ACP prompt. CAIPE never resends a whole prompt to emulate inference retries. The SDK owns error classification, timing and the final error; differing configured middleware behavior is reported visibly. |
+| Model run limit | Use the native `maxTurns` budget, including the configured default. Exhaustion does not become a successful completion. |
+| Platform tool retries | Reuse CAIPE's retry middleware for tools whose server-owned metadata declares read-only or idempotent behavior. Recheck grants, definitions and lease ownership on each attempt; never automatically repeat an uncertain mutation. Workspace callbacks run once around the retry operation. |
+| Platform tool run limits | Count requests in the existing durable run record, globally and per configured tool. Repeated observers attach to the same result. Claude's local shell/filesystem tools remain governed by its runtime and environment policy. |
+| Thread-wide middleware limits | Explicitly rejected for this placement until their semantics across edits and native sessions are supported. Current SRE run limits do not require these controls. |
+
+The initial SRE cutover runs the whole SRE agent in Claude Code. Native children
+already configured on that agent remain available through the existing broker.
+A native parent delegating selected tasks to a sandbox child is outside this phase.
 
 Configure these settings on Dynamic Agents; no Compose default or existing
 agent is switched by supplying them:
@@ -282,9 +316,11 @@ identity/status, resume/suspend/delete, scoped workspace operations, native-stat
 export/restore/receipt and a non-TTY ACP relay. Claude Code profiles must advertise
 the exact supported state contract; a profile without it is unavailable. It needs independently configured CAIPE issuer/audience/JWKS,
 access policy, pinned harness profiles, storage, model Secret references and
-routes back to CAIPE. Unattended sandbox workflows/triggers also need a qualified
-delegated caller identity; a service-account token plus an email header cannot
-stand in for human authorization. Native automation is unchanged. Its API may
+routes back to CAIPE. Scheduled owner runs reuse CAIPE's existing owner token
+exchange. Other machine runs retain their independently verified service-account
+subject, admitted by an operator-owned subject/client pair. Email headers cannot
+impersonate a human. Existing CAIPE/CAS grants still decide agent, workflow and
+tool access; reconnects reauthenticate. Its API may
 expose no arbitrary exec or caller-selected
 credential destination. Refer to the [component configuration](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/dynamic_agents#sandbox-runtime-configuration)
 for the exact request fields and limits.

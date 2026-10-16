@@ -21,7 +21,10 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from pydantic import BaseModel
+from fastapi import HTTPException
+from langchain.agents.middleware.types import ToolCallRequest
+from langchain_core.messages import ToolMessage
+from pydantic import BaseModel, ValidationError
 from pymongo import ASCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -30,6 +33,8 @@ from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import ClientContext, DynamicAgentConfig, MCPServerConfig, UserContext
 from dynamic_agents.services.agent_runtime import AgentPlatformResources, AgentRuntime
 from dynamic_agents.services.harness_acp import HarnessACPDriver, HarnessPendingInput
+from dynamic_agents.services.harness_policy import harness_middleware_entries, harness_middleware_params
+from dynamic_agents.services.middleware import InterruptAwareToolRetryMiddleware
 from dynamic_agents.services.mongo import MongoDBService
 from dynamic_agents.services.native_run_repository import NativeExecutionRun, NativeRunRepository
 from dynamic_agents.services.session_runs import await_session_operation
@@ -50,6 +55,14 @@ ChildAdmission = Callable[[DynamicAgentConfig, str], Awaitable[None]]
 
 class HarnessToolError(RuntimeError):
     """A broker capability, lease or request is no longer usable."""
+
+
+class HarnessToolExecutionFailed(HarnessToolError):
+    """An admitted tool exhausted a policy that requires stopping the turn."""
+
+
+class _RetryableToolResult(RuntimeError):
+    """An admitted replay-safe tool explicitly returned an unsuccessful result."""
 
 
 def _now() -> datetime:
@@ -73,6 +86,7 @@ def _tool_schema(tool: Any) -> dict[str, Any]:
 
 
 def _content(value: Any, *, error: bool = False) -> dict[str, Any]:
+    error = error or isinstance(value, ToolMessage) and value.status == "error"
     if hasattr(value, "content"):
         value = value.content
     if isinstance(value, BaseModel):
@@ -100,6 +114,8 @@ class HarnessToolRepository:
         run = self.repository.runs.find_one({"run_id": run_id})
         if not run or not run.get("active") or run.get("finishing") or run.get("retired") or run.get("cancel_requested"):
             raise HarnessToolError("The harness execution is no longer active")
+        if run.get("harness_tool_limit_failed"):
+            raise HarnessToolExecutionFailed("The CAIPE tool-call limit stopped this turn")
         if run.get("status") not in {"running", "awaiting_input"} or self.repository._is_deleted(run["session_id"]):
             raise HarnessToolError("The harness execution is no longer active")
         if capability is not None and (
@@ -122,10 +138,26 @@ class HarnessToolRepository:
         current = self._active(run.run_id)
         lease_id = current["lease_id"]
         _encoded(tools, MAX_RESPONSE_BYTES)
+        agent = self.mongo.get_agent(run.agent_id)
+        limits = []
+        for policy in harness_middleware_entries(agent, "tool_call_limit") if agent is not None else []:
+            if policy.get("thread_limit") is not None:
+                raise HarnessToolError("Sandbox tool-call limits currently support per-run limits; a thread limit requires a supported policy")
+            limit = policy.get("run_limit")
+            if type(limit) is not int or limit < 0:
+                raise HarnessToolError("Tool-call run_limit must be a nonnegative integer")
+            if policy.get("exit_behavior", "continue") not in {"continue", "error", "end"}:
+                raise HarnessToolError("Tool-call exit_behavior must be continue, error or end")
+            if policy.get("tool_name") is not None and policy["tool_name"] not in {tool["name"] for tool in tools}:
+                continue
+            limits.append({"run_limit": limit, "tool_name": policy.get("tool_name"),
+                           "exit_behavior": policy.get("exit_behavior", "continue")})
         result = self.repository.runs.update_one({
             "run_id": run.run_id, "lease_id": lease_id, "active": True,
             "harness_capability_hash": {"$exists": False},
-        }, {"$set": {"harness_capability_hash": _digest(capability), "harness_tools": tools, "harness_call_count": 0}})
+        }, {"$set": {"harness_capability_hash": _digest(capability), "harness_tools": tools, "harness_call_count": 0,
+                     "harness_tool_call_limits": limits,
+                     "harness_tool_counts": {_digest(tool["name"]): 0 for tool in tools}}})
         if result.modified_count != 1:
             raise HarnessToolError("This execution already has a registered harness broker")
         return lease_id
@@ -154,10 +186,22 @@ class HarnessToolRepository:
             return existing["_id"]
         if self.requests.count_documents({"run_id": run_id, "status": {"$in": ["queued", "claimed"]}}, limit=MAX_QUEUED_CALLS) >= MAX_QUEUED_CALLS:
             raise HarnessToolError("The harness tool queue is full")
-        if self.repository.runs.update_one({
+        applicable = [limit for limit in run.get("harness_tool_call_limits", [])
+                      if limit["tool_name"] in {None, params["name"]}]
+        counter = f"harness_tool_counts.{_digest(params['name'])}"
+        filters: dict[str, Any] = {
             "run_id": run_id, "harness_capability_hash": _digest(capability), "active": True,
             "harness_call_count": {"$lt": MAX_RUN_CALLS},
-        }, {"$inc": {"harness_call_count": 1}}).modified_count != 1:
+        }
+        for limit in applicable:
+            key = counter if limit["tool_name"] else "harness_call_count"
+            filters[key] = {"$lt": min(filters.get(key, {}).get("$lt", MAX_RUN_CALLS), limit["run_limit"])}
+        if self.repository.runs.update_one(filters, {"$inc": {"harness_call_count": 1, counter: 1}}).modified_count != 1:
+            # The same run document owns admission, counters and terminal policy.
+            # No observer may reclaim a request or launch a second executor.
+            if any(limit["exit_behavior"] in {"error", "end"} for limit in applicable):
+                self.repository.runs.update_one({"run_id": run_id, "lease_id": run["lease_id"], "active": True},
+                                               {"$set": {"harness_tool_limit_failed": True}})
             raise HarnessToolError("The harness tool-call limit was reached")
         identifier = str(uuid4())
         try:
@@ -167,6 +211,8 @@ class HarnessToolRepository:
                 "status": "queued", "created_at": _now(), "updated_at": _now(),
             })
         except DuplicateKeyError:
+            self.repository.runs.update_one({"run_id": run_id, "lease_id": run["lease_id"]},
+                                            {"$inc": {"harness_call_count": -1, counter: -1}})
             return self.enqueue(run_id, capability, request)
         return identifier
 
@@ -347,12 +393,63 @@ class HarnessResources:
             if self.before_tool is not None:
                 await self.before_tool(name, arguments)
                 tool.get_input_schema().model_validate(arguments)
-            result = await tool.ainvoke(arguments)
-            if self.after_tool is not None:
+            result = await self._invoke_tool(current, servers, tool, arguments)
+            if self.after_tool is not None and not (isinstance(result, ToolMessage) and result.status == "error"):
                 await self.after_tool(name, arguments, result)
             return _content(result)
         finally:
             await fresh.cleanup()
+
+    async def _invoke_tool(self, current: DynamicAgentConfig, servers: list[MCPServerConfig], tool: Any,
+                           arguments: dict[str, Any]) -> Any:
+        params = harness_middleware_params(current, "tool_retry")
+        if params is not None and params.get("tools") is not None and tool.name not in params["tools"]:
+            params = None
+        metadata = tool.metadata or {}
+        # Only annotations loaded from the admitted server count. Agent-authored
+        # arguments, names and natural-language claims cannot authorize replay.
+        replay_safe = metadata.get("readOnlyHint") is True or metadata.get("idempotentHint") is True
+        failure = (params or {}).get("on_failure", "continue")
+        stop = failure in {"error", "raise", "end"}
+
+        async def invoke(request: ToolCallRequest) -> Any:
+            # Repeat authorization and lease fencing after every backoff. A tool
+            # grant, definition or server change requires fresh run admission.
+            await require_agent_use_permission(self.run.agent_id)
+            if self.lease_id is not None:
+                await await_session_operation(self.repository._active, self.run.run_id, lease_id=self.lease_id)
+            latest = await await_session_operation(self.repository.mongo.get_agent, self.run.agent_id)
+            if latest is None or not latest.enabled or latest.updated_at != current.updated_at:
+                raise HarnessToolError("The agent changed during tool execution")
+            if self.admit_parent is not None:
+                await self.admit_parent(latest, self.run.session_id)
+            latest_servers = await await_session_operation(self.repository.mongo.get_agent_mcp_servers, latest)
+            if {(server.id, server.updated_at) for server in servers} != {(server.id, server.updated_at) for server in latest_servers}:
+                raise HarnessToolError("The tool configuration changed during execution")
+            result = await tool.ainvoke(request.tool_call)
+            if params is not None and (replay_safe or stop) and isinstance(result, ToolMessage) and result.status == "error":
+                raise _RetryableToolResult("The admitted CAIPE tool returned an unsuccessful result")
+            return result
+
+        request = ToolCallRequest(tool_call={"name": tool.name, "args": arguments, "id": str(uuid4()), "type": "tool_call"},
+                                  tool=tool, state={}, runtime=None)
+        try:
+            if params is None:
+                return await invoke(request)
+            params = {**params, "retry_on": lambda exc: replay_safe and not isinstance(
+                exc, (HarnessToolError, HTTPException, ValidationError, PermissionError))}
+            # Remote exception messages can include credentials or response
+            # bodies. Retain the native retry implementation, sanitize only its
+            # final presentation and preserve its configured stop/continue mode.
+            params["on_failure"] = "error" if stop else lambda _exc: "The CAIPE tool failed after its configured retry attempts."
+            middleware = InterruptAwareToolRetryMiddleware(**params)
+            return await middleware.awrap_tool_call(request, invoke)
+        except HarnessToolError:
+            raise
+        except Exception as exc:
+            if stop:
+                raise HarnessToolExecutionFailed("The CAIPE tool exhausted its configured retry policy") from exc
+            raise
 
     async def serve(self) -> None:
         try:
@@ -382,6 +479,10 @@ class HarnessResources:
             try:
                 result = await self.execute(record["params"]["name"], record["params"].get("arguments", {}))
             except asyncio.CancelledError:
+                raise
+            except HarnessToolExecutionFailed:
+                await await_session_operation(self.repository.complete, record["_id"], self.run.run_id, self.lease_id,
+                    _content("The CAIPE tool exhausted its configured retry policy; this turn was stopped.", error=True))
                 raise
             except Exception:
                 # Tool/provider exceptions may contain credentials or remote

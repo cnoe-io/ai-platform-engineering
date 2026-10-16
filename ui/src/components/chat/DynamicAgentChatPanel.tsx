@@ -14,7 +14,7 @@ import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getDeterministicAgentThemeId } from "@/lib/agent-theme";
 import { interruptedAuthReason,interruptedTurnFallbackText } from "@/lib/chat-interrupt";
 import { getConfig } from "@/lib/config";
-import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
+import { ephemeralFileBlob, fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
 import { getGradientColors } from "@/lib/gradient-themes";
 import { takePendingFirstMessage } from "@/lib/pending-first-message";
@@ -882,10 +882,8 @@ export function ChatPanel({
 
         if (response.ok) {
           const data = await response.json();
-          const content = data.content || "";
-
           // Create blob and download
-          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+          const blob = ephemeralFileBlob(data);
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;

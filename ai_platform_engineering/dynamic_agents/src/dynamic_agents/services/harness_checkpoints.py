@@ -158,6 +158,7 @@ class CheckpointStore:
         self.manifests = self.db[CHECKPOINTS_COLLECTION]
         self.cleanup_records = self.db[CHECKPOINT_CLEANUP_COLLECTION]
         self.runs = mongo.get_session_runs_collection()
+        self.executions = self.db["native_acp_execution_runs"]
         self.bucket = GridFSBucket(self.db, bucket_name=CHECKPOINT_BUCKET)
         with timeout(CHECKPOINT_DB_TIMEOUT_SECONDS):
             self.manifests.create_index("checkpoint_id", unique=True, name="native_checkpoint_unique")
@@ -165,6 +166,7 @@ class CheckpointStore:
                                         name="native_checkpoint_session")
             self.cleanup_records.create_index([("agent_id", 1), ("session_id", 1)], name="native_checkpoint_cleanup_session")
             self.manifests.create_index([("status", 1), ("gc_checked_at", 1)], name="native_checkpoint_orphan_scan")
+            self.executions.create_index("checkpoint_before.checkpoint_id", sparse=True, name="native_checkpoint_turn_reference")
 
     def _key(self, identity: CheckpointIdentity) -> dict[str, str]:
         return {"agent_id": identity.agent_id, "session_id": identity.session_id}
@@ -392,7 +394,7 @@ class CheckpointStore:
                 and authority.get("checkpoint_generation") == record.get("generation")
                 and authority.get("lease_expires_at", now) > now)
             safe_after = max(record["created_at"], record.get("publication_started_at", record["created_at"]))
-            if (record["_id"] not in protected and not active_writer
+            if (record["_id"] not in protected and not self._turn_reference(record["_id"]) and not active_writer
                     and safe_after + timedelta(seconds=ORPHAN_GRACE_SECONDS) <= now):
                 self._discard(record["_id"])
                 count += 1
@@ -420,25 +422,251 @@ class CheckpointStore:
         ready = list(self.manifests.find({"identity": identity.model_dump(), "status": "ready"}, {"_id": 1})
                      .sort("generation", DESCENDING))
         for item in ready:
-            if item["_id"] not in protected:
+            if item["_id"] not in protected and not self._turn_reference(item["_id"]):
                 self._discard(item["_id"])
 
-    async def cleanup(self, agent_id: str, session_id: str, owner_subject: str, lease_id: str) -> dict[str, int]:
-        return await _checkpoint_operation(self._cleanup, agent_id, session_id, owner_subject, lease_id)
+    def _turn_reference(self, checkpoint_id: str) -> bool:
+        # User-visible edit history outlives the small crash-recovery window.
+        # Keep its opaque states for the same lifecycle as canonical run history.
+        return self.executions.find_one({"checkpoint_before.checkpoint_id": checkpoint_id}, {"_id": 1}) is not None
 
-    def _cleanup(self, agent_id: str, session_id: str, owner_subject: str, lease_id: str) -> dict[str, int]:
+    async def record_turn(
+        self, identity: CheckpointIdentity, *, run_id: str, message: str, lease_id: str,
+        delegated_states: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Pin the actual native state before a prompt, without retaining its text.
+
+        Run records hold immutable boundary references; the existing session
+        authority alone selects the current branch. A crash between those writes
+        leaves a conservative archive pin and cannot admit an unrecorded prompt.
+        """
+        await _checkpoint_operation(self._record_turn, identity, run_id, message, lease_id, delegated_states or [])
+
+    def _record_turn(
+        self, identity: CheckpointIdentity, run_id: str, message: str, lease_id: str, delegated_states: list[dict[str, Any]],
+    ) -> None:
+        state = self._require_identity(identity)
+        authority = self.runs.find_one(self._lease_query(identity, lease_id))
+        run = self.executions.find_one({"run_id": run_id, **self._key(identity),
+            "owner_subject": identity.owner_subject, "lease_id": lease_id, "active": True})
+        if authority is None or run is None:
+            raise CheckpointFenceError("The native turn boundary requires its admitted run and live lease")
+        if authority.get("checkpoint_restore") or authority.get("checkpoint_rewind"):
+            raise CheckpointFenceError("Finish native-state recovery before admitting another prompt")
+        if authority.get("checkpoint_turn_head") == run_id:
+            return
+        latest = self._latest(identity)
+        if latest is None and (state.get("checkpoint_phase") != "initial_capture_pending"
+                               or authority.get("checkpoint_turn_head") is not None):
+            raise CheckpointError("The native session has no verified state before this prompt")
+        boundary = {"checkpoint_id": latest.checkpoint_id if latest else None,
+            "identity_hash": identity.digest(), "previous_run_id": authority.get("checkpoint_turn_head"),
+            "message_sha256": hashlib.sha256(message.encode()).hexdigest(), "turn_id": run["turn_id"],
+            "delegated_states": delegated_states}
+        changed = self.executions.update_one({"run_id": run_id, "lease_id": lease_id, "active": True,
+            "$or": [{"checkpoint_before": {"$exists": False}}, {"checkpoint_before": boundary}]},
+            {"$set": {"checkpoint_before": boundary}})
+        if not changed.matched_count:
+            raise CheckpointFenceError("The native prompt already has a different state boundary")
+        changed = self.runs.update_one({**self._lease_query(identity, lease_id),
+            "checkpoint_turn_head": authority.get("checkpoint_turn_head")},
+            {"$set": {"checkpoint_turn_head": run_id}, "$inc": {"checkpoint_generation": 1}})
+        if not changed.matched_count:
+            raise CheckpointFenceError("The native prompt lost its state boundary admission")
+
+    async def rewind_boundary(
+        self, identity: CheckpointIdentity, *, turn_id: str, message: str, occurrence: int, lease_id: str,
+    ) -> dict[str, Any]:
+        """Resolve a selected user message only within the active native branch."""
+        return await _checkpoint_operation(self._rewind_boundary, identity, turn_id, message, occurrence, lease_id)
+
+    def _rewind_boundary(
+        self, identity: CheckpointIdentity, turn_id: str, message: str, occurrence: int, lease_id: str,
+    ) -> dict[str, Any]:
+        self._require_identity(identity)
+        authority = self.runs.find_one(self._lease_query(identity, lease_id))
+        if authority is None:
+            raise CheckpointFenceError("Native rewind requires the active session lease")
+        if authority.get("checkpoint_restore"):
+            raise CheckpointError("Finish the pending native-state recovery before editing this conversation")
+        run_id = authority.get("checkpoint_turn_head")
+        seen: set[str] = set()
+        matches = []
+        digest = hashlib.sha256(message.encode()).hexdigest()
+        while run_id is not None:
+            if run_id in seen:
+                raise CheckpointError("The native turn history contains an invalid branch")
+            seen.add(run_id)
+            run = self.executions.find_one({"run_id": run_id, **self._key(identity), "owner_subject": identity.owner_subject})
+            boundary = run.get("checkpoint_before") if run else None
+            if not isinstance(boundary, dict) or boundary.get("identity_hash") != identity.digest():
+                raise CheckpointError("The selected message has no retained native-state boundary")
+            selected = {**boundary, "run_id": run_id, "branch_head": authority.get("checkpoint_turn_head")}
+            if boundary.get("turn_id") == turn_id:
+                return selected
+            if boundary.get("message_sha256") == digest:
+                matches.append(selected)
+            run_id = boundary.get("previous_run_id")
+        if type(occurrence) is not int or occurrence < 1 or occurrence > len(matches):
+            raise ValueError("Unable to match the selected message to native checkpoint history")
+        return matches[-occurrence]
+
+    async def begin_rewind(
+        self, identity: CheckpointIdentity, *, boundary: dict[str, Any], lease_id: str,
+        requested_turn_id: str, requested_occurrence: int,
+    ) -> dict[str, Any]:
+        """Fence prompts before any parent or child state mutation."""
+        return await _checkpoint_operation(
+            self._begin_rewind, identity, boundary, lease_id, requested_turn_id, requested_occurrence,
+        )
+
+    def _begin_rewind(
+        self, identity: CheckpointIdentity, boundary: dict[str, Any], lease_id: str,
+        requested_turn_id: str, requested_occurrence: int,
+    ) -> dict[str, Any]:
+        self._require_identity(identity)
+        run = self.executions.find_one({"run_id": boundary["run_id"], **self._key(identity),
+            "owner_subject": identity.owner_subject})
+        expected = {key: value for key, value in boundary.items() if key not in {"run_id", "branch_head"}}
+        if run is None or run.get("checkpoint_before") != expected or expected.get("identity_hash") != identity.digest():
+            raise CheckpointFenceError("The selected native-state boundary changed")
+        if boundary["checkpoint_id"] is not None:
+            self._read_manifest(identity, boundary["checkpoint_id"])
+        intent = {"rewind_id": str(uuid4()), "identity": identity.model_dump(), "boundary": boundary, "created_at": _now(),
+            "requested_turn_id": requested_turn_id, "requested_occurrence": requested_occurrence}
+        changed = self.runs.update_one({**self._lease_query(identity, lease_id),
+            "checkpoint_turn_head": boundary["branch_head"], "checkpoint_restore": {"$exists": False},
+            "checkpoint_rewind": {"$exists": False}},
+            {"$set": {"checkpoint_rewind": intent},
+                "$inc": {"checkpoint_generation": 1}, "$unset": {"checkpoint_writer": ""}})
+        if not changed.matched_count:
+            raise CheckpointFenceError("The selected native-state branch lost its admission")
+        return intent
+
+    async def pending_rewind(
+        self, agent_id: str, session_id: str, *, owner_subject: str, lease_id: str,
+    ) -> dict[str, Any] | None:
+        def read() -> dict[str, Any] | None:
+            authority = self.runs.find_one({"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+                "lease_expires_at": {"$gt": _now()}, "cancel_requested": {"$ne": True}})
+            if authority is None:
+                raise CheckpointFenceError("Native rewind recovery requires the active session lease")
+            intent = authority.get("checkpoint_rewind")
+            if intent is None:
+                return None
+            try:
+                identity = CheckpointIdentity.model_validate(intent["identity"])
+                _uuid(intent["rewind_id"])
+            except (KeyError, TypeError, ValidationError):
+                raise CheckpointError("The pending native-state rewind is invalid") from None
+            if (identity.agent_id, identity.session_id, identity.owner_subject) != (agent_id, session_id, owner_subject):
+                raise CheckpointFenceError("The pending native-state rewind belongs to another caller")
+            return intent
+        return await _checkpoint_operation(read)
+
+    async def completed_rewind(
+        self, agent_id: str, session_id: str, *, owner_subject: str, lease_id: str,
+        turn_id: str, message: str, occurrence: int,
+    ) -> str | None:
+        """Recover a lost final acknowledgement only before a new turn branches."""
+        def read() -> str | None:
+            authority = self.runs.find_one({"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+                "lease_expires_at": {"$gt": _now()}, "cancel_requested": {"$ne": True}})
+            if authority is None:
+                raise CheckpointFenceError("Native rewind recovery requires the active session lease")
+            receipt = authority.get("checkpoint_rewind_receipt") or {}
+            if (receipt.get("owner_subject") == owner_subject and receipt.get("requested_turn_id") == turn_id
+                    and receipt.get("requested_occurrence") == occurrence
+                    and receipt.get("message_sha256") == hashlib.sha256(message.encode()).hexdigest()
+                    and authority.get("checkpoint_turn_head") == receipt.get("branch_head")):
+                return receipt["checkpoint_id"]
+            return None
+        return await _checkpoint_operation(read)
+
+    async def finish_rewind(self, intent: dict[str, Any], *, lease_id: str) -> str:
+        return await _checkpoint_operation(self._finish_rewind, intent, lease_id)
+
+    def _finish_rewind(self, intent: dict[str, Any], lease_id: str) -> str:
+        identity = CheckpointIdentity.model_validate(intent["identity"])
+        boundary = intent["boundary"]
+        result_id = boundary["checkpoint_id"] or boundary["run_id"]
+        changes: dict[str, Any] = {"checkpoint_turn_head": boundary["previous_run_id"],
+            "checkpoint_rewind_confirmation_required": True,
+            "checkpoint_rewind_receipt": {"rewind_id": intent["rewind_id"], "checkpoint_id": result_id,
+                "confirmed": False,
+                "owner_subject": identity.owner_subject, "branch_head": boundary["previous_run_id"],
+                "requested_turn_id": intent["requested_turn_id"], "requested_occurrence": intent["requested_occurrence"],
+                "message_sha256": boundary["message_sha256"]}}
+        if boundary["checkpoint_id"] is None:
+            if get_sandbox_binding(self.mongo, identity.agent_id, identity.session_id) is not None:
+                raise CheckpointError("Delete the first native environment before completing its rewind")
+        else:
+            self._require_identity(identity)
+            manifest = self._read_manifest(identity, boundary["checkpoint_id"])
+            changes.update(checkpoint_head={"checkpoint_id": manifest.checkpoint_id, "generation": manifest.generation,
+                "sha256": manifest.metadata.sha256, "identity_hash": identity.digest()}, checkpoint_phase="rewind_pending")
+        changed = self.runs.update_one({**self._lease_query(identity, lease_id), "checkpoint_rewind": intent},
+            {"$set": changes, "$inc": {"checkpoint_generation": 1},
+             "$unset": {"checkpoint_writer": "", "checkpoint_rewind": ""}})
+        if not changed.matched_count:
+            raise CheckpointFenceError("The native-state rewind lost its admitted session lease")
+        return result_id
+
+    async def confirm_rewind(
+        self, agent_id: str, session_id: str, *, owner_subject: str, lease_id: str,
+        checkpoint_id: str, turn_id: str, message: str, occurrence: int,
+    ) -> None:
+        """Release execution only after the canonical UI history edit succeeds."""
+        def confirm() -> None:
+            key = {"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+                "lease_expires_at": {"$gt": _now()}, "cancel_requested": {"$ne": True},
+                "checkpoint_rewind": {"$exists": False},
+                "checkpoint_rewind_receipt.owner_subject": owner_subject,
+                "checkpoint_rewind_receipt.checkpoint_id": checkpoint_id,
+                "checkpoint_rewind_receipt.requested_turn_id": turn_id,
+                "checkpoint_rewind_receipt.requested_occurrence": occurrence,
+                "checkpoint_rewind_receipt.message_sha256": hashlib.sha256(message.encode()).hexdigest()}
+            authority = self.runs.find_one(key)
+            if authority is None:
+                raise CheckpointFenceError("The native-state edit confirmation does not match its completed branch")
+            if authority["checkpoint_rewind_receipt"].get("confirmed") is True:
+                return
+            if authority.get("checkpoint_turn_head") != authority["checkpoint_rewind_receipt"]["branch_head"]:
+                raise CheckpointFenceError("The native-state edit confirmation does not match its completed branch")
+            changed = self.runs.update_one({**key, "checkpoint_turn_head": authority.get("checkpoint_turn_head")},
+                {"$unset": {"checkpoint_rewind_confirmation_required": ""},
+                 "$set": {"checkpoint_rewind_receipt.confirmed": True}})
+            if not changed.matched_count:
+                raise CheckpointFenceError("The native-state edit confirmation lost its admitted session lease")
+        await _checkpoint_operation(confirm)
+
+    async def cleanup(
+        self, agent_id: str, session_id: str, owner_subject: str, lease_id: str, *, preserve_rewind: bool = False,
+    ) -> dict[str, int]:
+        return await _checkpoint_operation(self._cleanup, agent_id, session_id, owner_subject, lease_id, preserve_rewind)
+
+    def _cleanup(
+        self, agent_id: str, session_id: str, owner_subject: str, lease_id: str, preserve_rewind: bool,
+    ) -> dict[str, int]:
         state = get_sandbox_binding(self.mongo, agent_id, session_id)
         if not state or state.get("owner_subject") != owner_subject:
             raise CheckpointFenceError("Only the original sandbox owner can clear its native checkpoints")
         # Invalidate the writer before physical deletion. Old workers cannot
         # publish even if an already sent GridFS chunk finishes afterward.
-        changed = self.runs.update_one({"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
-            "lease_expires_at": {"$gt": _now()}}, {"$inc": {"checkpoint_generation": 1}, "$unset": {
+        removed = {
                 "checkpoint_head": "", "checkpoint_writer": "", "checkpoint_allocation": "",
                 "checkpoint_restore": "", "checkpoint_history": "",
-            }})
+                "checkpoint_turn_head": "", "checkpoint_phase": "", "checkpoint_profile": "",
+            }
+        if not preserve_rewind:
+            removed["checkpoint_rewind"] = ""
+            removed["checkpoint_rewind_receipt"] = ""
+            removed["checkpoint_rewind_confirmation_required"] = ""
+        changed = self.runs.update_one({"agent_id": agent_id, "session_id": session_id, "lease_id": lease_id,
+            "lease_expires_at": {"$gt": _now()}}, {"$inc": {"checkpoint_generation": 1}, "$unset": removed})
         if not changed.matched_count:
             raise CheckpointFenceError("Native checkpoint cleanup requires the active session lease")
+        self.executions.update_many({"agent_id": agent_id, "session_id": session_id}, {"$unset": {"checkpoint_before": ""}})
         records = list(self.manifests.find({"identity.agent_id": agent_id, "identity.session_id": session_id}, {"_id": 1}))
         for record in records:
             self._discard(record["_id"])

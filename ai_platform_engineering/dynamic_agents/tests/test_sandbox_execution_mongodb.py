@@ -14,6 +14,7 @@ import base64
 import hashlib
 import json
 import os
+import time
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -120,10 +121,21 @@ class PortalPeer:
         self.generation = 0
         self.fail_restore = False
         self.lose_provision_reply_once = False
+        self.execution_grant = None
 
     def http(self, request):
         assert request.headers["Authorization"] == f"Bearer {HUMAN_BEARER}"
         payload = (None if request.url.path.endswith("/state/restore") else json.loads(request.content)) if request.content else None
+        if request.url.path.endswith("/execution-grant"):
+            assert payload["uid"] == self.allocation["uid"]
+            assert payload["conversation_id"] == self.allocation["conversation_id"]
+            if request.method == "POST":
+                assert "X-CAIPE-Execution-Grant" not in request.headers
+                self.execution_grant = "caiperun.fixture-namespace." + "a" * 43
+                return httpx.Response(201, json={**payload, "token": self.execution_grant, "expires_at": int(time.time()) + 3600})
+            assert request.headers["X-CAIPE-Execution-Grant"] == self.execution_grant
+            self.execution_grant = None
+            return httpx.Response(204)
         if request.url.path.endswith("/state/export"):
             assert all(peer.closed for peer in self.peers), "Checkpoint must close the real ACP connection first"
             self.trace.append("export")

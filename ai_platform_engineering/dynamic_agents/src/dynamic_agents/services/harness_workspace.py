@@ -1,4 +1,4 @@
-"""Bounded UTF-8 artifacts between an admitted sandbox and CAIPE's file store.
+"""Bounded artifacts between an admitted sandbox and CAIPE's file store.
 
 The sandbox owns its working filesystem. Only approved regular text artifacts
 are copied into the existing logical namespace for CAIPE file/download tools.
@@ -8,6 +8,7 @@ artifact contract. Canonical workflow storage is checked before and after IO.
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -17,6 +18,7 @@ from gridfs.errors import NoFile
 from pymongo.errors import PyMongoError
 
 from dynamic_agents.models import DynamicAgentConfig
+from dynamic_agents.services.file_content import decode_file_content, file_data_from_bytes, verify_file_receipt
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.harness_admission import require_harness_workspace
 from dynamic_agents.services.mongo import MongoDBService
@@ -108,6 +110,17 @@ class HarnessWorkspaceBridge:
             raise SandboxError("The workspace artifact response changed its requested path")
         return self._text(data.get("content"), MAX_FILE_BYTES)
 
+    async def _bytes(self, path: str) -> bytes:
+        data = await self.client._request("GET", self._path("content", path) + "&encoding=base64")
+        if not isinstance(data, dict) or data.get("path") != path or data.get("encoding") != "base64":
+            raise SandboxError("The workspace artifact response changed its requested path or encoding")
+        try:
+            content = decode_file_content(data, maximum=MAX_FILE_BYTES)
+            verify_file_receipt(data, content)
+            return content
+        except ValueError as exc:
+            raise SandboxError(str(exc)) from None
+
     def _stored_value(self, identifier: Any) -> dict[str, Any]:
         # Read the immutable upload ID, not a key that may be replaced between
         # metadata admission and IO. The byte bound also covers corrupt metadata.
@@ -125,15 +138,16 @@ class HarnessWorkspaceBridge:
             raise SandboxError("The workflow artifact has invalid stored data")
         return value
 
-    def _input_snapshot(self) -> dict[str, str]:
+    def _input_snapshot(self) -> dict[str, Any]:
         # Metadata bounds precede GridFS reads: an oversized native artifact
         # must not be loaded into memory merely to discover that it is too big.
         docs = list(self.store._files_collection.find({"metadata.namespace": list(self.namespace)},
             {"metadata.key": 1, "length": 1}).limit(MAX_SCANNED_INPUT_FILES + 1))
         if len(docs) > MAX_SCANNED_INPUT_FILES:
             raise SandboxError("The workflow input snapshot exceeds its supported file limit")
-        files: dict[str, str] = {}
+        files: dict[str, Any] = {}
         size = 0
+        required = self.namespace != (self.agent.id, self.session_id, "filesystem")
         for doc in docs:
             key = doc.get("metadata", {}).get("key")
             try:
@@ -146,20 +160,23 @@ class HarnessWorkspaceBridge:
             if not isinstance(doc.get("length"), int) or isinstance(doc.get("length"), bool) or doc["length"] > MAX_STORED_INPUT_BYTES:
                 raise SandboxError("A workflow input exceeds its supported size")
             value = self._stored_value(doc["_id"])
-            if not isinstance(value, dict) or value.get("encoding", "utf-8") != "utf-8":
-                self._warn("Non-text native files were excluded from sandbox inputs.")
+            try:
+                data = decode_file_content(value, maximum=MAX_FILE_BYTES)
+            except ValueError as exc:
+                raise SandboxError(str(exc)) from None
+            if len(data) > MAX_INPUT_FILE_BYTES or len(files) >= MAX_FILES or size + len(data) > MAX_INPUT_BYTES:
+                if required:
+                    raise SandboxError("The workflow input snapshot exceeds its supported size")
+                self._warn("Some conversation files exceed the input-copy budget and were not copied into inputs/. They remain downloadable in CAIPE; the restored native workspace is retained.")
                 continue
-            content = value.get("content")
-            if isinstance(content, list) and all(isinstance(line, str) for line in content):
-                content = "\n".join(content)
-            text = self._text(content, MAX_INPUT_FILE_BYTES)
-            size += len(text.encode("utf-8"))
-            if len(files) >= MAX_FILES or size > MAX_INPUT_BYTES:
-                raise SandboxError("The workflow input snapshot exceeds its supported size")
-            files[f"inputs/{path}"] = text
+            size += len(data)
+            if value.get("encoding") == "base64":
+                files[f"inputs/{path}"] = {"encoding": "base64", "content": base64.b64encode(data).decode("ascii")}
+            else:
+                files[f"inputs/{path}"] = self._text(data.decode("utf-8"), MAX_INPUT_FILE_BYTES)
         return files
 
-    async def seed_inputs(self) -> dict[str, str]:
+    async def seed_inputs(self) -> dict[str, Any]:
         """Return one managed file map to merge with instructions/skills in prepare."""
         await self._privacy()
         files = await await_session_operation(self._input_snapshot)
@@ -242,15 +259,15 @@ class HarnessWorkspaceBridge:
                     path = self._relative(raw)
                     if self._managed(path) or path.split("/")[0] == "inputs":
                         continue
-                    text = await self._content(path)
-                    size += len(text.encode("utf-8"))
+                    data = await self._bytes(path)
+                    size += len(data)
                     if size > MAX_EXPORT_BYTES:
                         self._warn("The workspace artifact export reached its byte limit; additional files remain in the sandbox.")
                         break
                     await self._privacy()
-                    await await_session_operation(self.store.put, self.namespace, f"/{path}", create_file_data(text))
+                    await await_session_operation(self.store.put, self.namespace, f"/{path}", file_data_from_bytes(data))
                 except (SandboxError, PyMongoError):
-                    self._warn("Some workspace files could not be exported as approved UTF-8 artifacts.")
+                    self._warn("Some workspace files could not be exported as approved artifacts.")
             await self._privacy()
         except (SandboxError, PyMongoError):
             self._warn("The workspace artifact export could not be completed; files remain in the sandbox.")

@@ -28,6 +28,7 @@ from dynamic_agents.models import ClientContext, DynamicAgentConfig, InputFile, 
 from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.harness_admission import inline_harness_admission, require_harness_workspace
+from dynamic_agents.services.harness_checkpoints import CheckpointIdentity, CheckpointStore
 from dynamic_agents.services.harness_inputs import HarnessInputs
 from dynamic_agents.services.harness_tools import HARNESS_TOOL_REQUESTS_COLLECTION, harness_resources
 from dynamic_agents.services.mongo import MongoDBService
@@ -50,18 +51,20 @@ from dynamic_agents.services.native_run_repository import (
 from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
 from dynamic_agents.services.sandbox_client import SandboxError
-from dynamic_agents.services.sandbox_lifecycle import clear_sandbox_session
+from dynamic_agents.services.sandbox_lifecycle import clear_sandbox_session, restart_sandbox_session
 from dynamic_agents.services.sandbox_runtime import SandboxRuntime, sandbox_runtime
 from dynamic_agents.services.session_bindings import (
     clear_delegated_sessions,
     get_delegated_sessions,
     get_native_binding,
+    get_sandbox_binding,
     link_delegated_session,
     resolve_native_binding,
 )
 from dynamic_agents.services.session_runs import (
     SessionRunBusyError,
     await_session_operation,
+    current_native_session_lease,
     native_session_run,
     request_native_session_cancel,
 )
@@ -141,6 +144,8 @@ class AgentExecutionService:
         """Admit one durable request; a retry attaches instead of repeating tools."""
         turn = replace(turn, turn_id=turn.turn_id or str(uuid4()))
         saved = await self._saved_agent(turn.agent.id, turn.session_id)
+        if (saved or turn.agent).execution.kind == "sandbox":
+            await self._require_completed_sandbox_edit(turn.agent.id, turn.session_id)
         if turn.resume_data is not None and saved is not None and (saved.execution.kind == "sandbox"):
             return await HarnessInputs(self.coordinator.repository).submit(
                 agent_id=turn.agent.id,
@@ -257,6 +262,7 @@ class AgentExecutionService:
                 await self._require_harness_boundary(agent, turn.session_id)
                 if self.mongo is None or current_native_execution_run.get() is None:
                     raise SandboxError("Sandbox execution requires the canonical database and a durable admitted run")
+                await self._require_completed_sandbox_edit(agent.id, turn.session_id)
                 async with harness_resources(
                     self.mongo,
                     agent,
@@ -306,6 +312,17 @@ class AgentExecutionService:
         if isinstance(runtime, SandboxRuntime):
             if turn.resume_data is not None:
                 raise SandboxError("Resume the existing harness request instead of sending another prompt")
+            state = await await_session_operation(get_sandbox_binding, self.mongo, turn.agent.id, turn.session_id)
+            identity = self._checkpoint_identity(turn.agent.id, turn.session_id, state)
+            lease_id = current_native_session_lease.get()
+            if lease_id is None:
+                raise SandboxError("Native prompt history requires its admitted session lease")
+            store = await asyncio.to_thread(CheckpointStore, self.mongo)
+            delegated_states = await self._delegated_checkpoint_states(turn.agent.id, turn.session_id, turn.user)
+            await store.record_turn(
+                identity, run_id=runtime.run_id, message=turn.message or "", lease_id=lease_id,
+                delegated_states=delegated_states,
+            )
             async with aclosing(runtime.dispatch(turn.message or "", encoder, turn.files)) as frames:
                 async for frame in frames:
                     yield frame
@@ -490,9 +507,38 @@ class AgentExecutionService:
     ) -> str:
         async with self._session(agent.id, session_id) as saved:
             if (saved or agent).execution.kind == "sandbox":
-                raise SandboxError(
-                    "This harness cannot rewind its provider session. Start a new conversation to branch from earlier history."
+                lease_id = current_native_session_lease.get()
+                if lease_id is None:
+                    raise SandboxError("Native rewind requires its admitted session lease")
+                store = await asyncio.to_thread(CheckpointStore, self.mongo)
+                pending = await store.pending_rewind(
+                    agent.id, session_id, owner_subject=self._owner(user), lease_id=lease_id,
                 )
+                if pending is not None:
+                    selected = pending["boundary"]
+                    if (pending["requested_turn_id"] != turn_id or pending["requested_occurrence"] != content_occurrence
+                            or selected["message_sha256"] != hashlib.sha256(message_content.encode()).hexdigest()):
+                        raise SandboxError("Finish the pending conversation edit before selecting another message")
+                    return await self._complete_sandbox_rewind(store, pending, user, lease_id)
+                completed = await store.completed_rewind(
+                    agent.id, session_id, owner_subject=self._owner(user), lease_id=lease_id,
+                    turn_id=turn_id, message=message_content, occurrence=content_occurrence,
+                )
+                if completed is not None:
+                    return completed
+                state = await await_session_operation(get_sandbox_binding, self.mongo, agent.id, session_id)
+                identity = self._checkpoint_identity(agent.id, session_id, state)
+                if identity.owner_subject != self._owner(user):
+                    raise SandboxError("Only the sandbox's original caller can edit its native session")
+                boundary = await store.rewind_boundary(
+                    identity, turn_id=turn_id, message=message_content, occurrence=content_occurrence, lease_id=lease_id,
+                )
+                await self._retire_replay(agent.id, session_id)
+                intent = await store.begin_rewind(
+                    identity, boundary=boundary, lease_id=lease_id,
+                    requested_turn_id=turn_id, requested_occurrence=content_occurrence,
+                )
+                return await self._complete_sandbox_rewind(store, intent, user, lease_id)
             async with self._state_runtime(saved or agent, session_id, user) as runtime:
                 return await runtime.rewind_before_turn(
                     session_id,
@@ -501,6 +547,107 @@ class AgentExecutionService:
                     content_occurrence,
                     before_mutation=lambda: self._retire_replay(agent.id, session_id),
                 )
+
+    async def _delegated_checkpoint_states(
+        self, agent_id: str, session_id: str, user: UserContext,
+    ) -> list[dict[str, Any]]:
+        """Retain exact native child graph coordinates with the parent boundary."""
+        children = await await_session_operation(
+            get_delegated_sessions, self.mongo, agent_id, session_id, self._owner(user),
+        )
+        snapshots = []
+        for child in children:
+            async with self._session(child["agent_id"], child["session_id"]) as saved:
+                if saved is None or saved.execution.kind != "native":
+                    raise SandboxError("The delegated native session has no retained execution binding")
+                async with self._state_runtime(saved, child["session_id"], user, read_only=True) as runtime:
+                    snapshot = await runtime._graph.aget_state({"configurable": {"thread_id": child["session_id"]}})
+                    checkpoint_id = snapshot.config.get("configurable", {}).get("checkpoint_id")
+                    snapshots.append({"agent_id": child["agent_id"], "session_id": child["session_id"],
+                        "checkpoint_id": checkpoint_id,
+                        "checkpoint_ns": snapshot.config.get("configurable", {}).get("checkpoint_ns", "")})
+        return snapshots
+
+    async def _require_completed_sandbox_edit(self, agent_id: str, session_id: str) -> None:
+        if self.mongo is None:
+            return
+        authority = await await_session_operation(
+            self.mongo.get_session_runs_collection().find_one,
+            {"agent_id": agent_id, "session_id": session_id},
+            {"checkpoint_rewind": 1, "checkpoint_rewind_confirmation_required": 1},
+        )
+        if authority and (authority.get("checkpoint_rewind") or authority.get("checkpoint_rewind_confirmation_required")):
+            raise SandboxError("A conversation edit is unfinished. Retry editing that message before sending another prompt.")
+
+    async def requires_rewind_confirmation(self, agent_id: str, session_id: str) -> bool:
+        saved = await self._saved_agent(agent_id, session_id)
+        return saved is not None and saved.execution.kind == "sandbox"
+
+    async def confirm_rewind(
+        self, agent_id: str, session_id: str, user: UserContext, *, checkpoint_id: str,
+        turn_id: str, message_content: str, content_occurrence: int,
+    ) -> None:
+        async with self._session(agent_id, session_id) as saved:
+            if saved is None or saved.execution.kind != "sandbox":
+                return
+            lease_id = current_native_session_lease.get()
+            if lease_id is None:
+                raise SandboxError("Native edit confirmation requires its admitted session lease")
+            store = await asyncio.to_thread(CheckpointStore, self.mongo)
+            await store.confirm_rewind(
+                agent_id, session_id, owner_subject=self._owner(user), lease_id=lease_id,
+                checkpoint_id=checkpoint_id, turn_id=turn_id, message=message_content, occurrence=content_occurrence,
+            )
+
+    async def _complete_sandbox_rewind(
+        self, store: CheckpointStore, intent: dict[str, Any], user: UserContext, lease_id: str,
+    ) -> str:
+        """Retry exact snapshot forks while the durable intent gates all prompts.
+
+        Graph copies have no model/tool side effects. Repeating an unacknowledged
+        copy selects the same original state, including pending interrupts. Hold
+        existing child leases through the parent's atomic head publication.
+        """
+        identity = CheckpointIdentity.model_validate(intent["identity"])
+        boundary = intent["boundary"]
+        targets = boundary["delegated_states"]
+        children = await await_session_operation(
+            get_delegated_sessions, self.mongo, identity.agent_id, identity.session_id, self._owner(user),
+        )
+        target_keys = {(target["agent_id"], target["session_id"]) for target in targets if target["checkpoint_id"]}
+        removed = [child for child in children if (child["agent_id"], child["session_id"]) not in target_keys]
+        for child in removed:
+            if await self._saved_agent(child["agent_id"], child["session_id"]) is not None:
+                await self.clear(child["agent_id"], child["session_id"], _delegated=True)
+        if removed:
+            await await_session_operation(
+                clear_delegated_sessions, self.mongo, identity.agent_id, identity.session_id, self._owner(user), children,
+                remove=removed,
+            )
+        async with AsyncExitStack() as stack:
+            for target in targets:
+                if not target["checkpoint_id"]:
+                    continue
+                saved = await stack.enter_async_context(self._session(target["agent_id"], target["session_id"]))
+                if saved is None or saved.execution.kind != "native":
+                    raise SandboxError("The retained child checkpoint cannot be restored without its native binding")
+                runtime = await stack.enter_async_context(self._state_runtime(saved, target["session_id"], user))
+                snapshot = await runtime._graph.aget_state({"configurable": {
+                    "thread_id": target["session_id"], "checkpoint_id": target["checkpoint_id"],
+                    "checkpoint_ns": target["checkpoint_ns"],
+                }})
+                if (snapshot.config.get("configurable", {}).get("checkpoint_id") != target["checkpoint_id"]
+                        or snapshot.metadata is None or snapshot.created_at is None):
+                    raise SandboxError("The retained child checkpoint is unavailable; native rewind remains pending")
+                await self._retire_replay(target["agent_id"], target["session_id"])
+                await runtime._graph.aupdate_state(snapshot.config, None, as_node="__copy__")
+            if boundary["checkpoint_id"] is None:
+                # No provider transcript existed before the first prompt. A
+                # fresh environment is the exact empty native-session boundary.
+                await clear_sandbox_session(
+                    self.mongo, identity.agent_id, identity.session_id, self.settings, preserve_rewind=True,
+                )
+            return await store.finish_rewind(intent, lease_id=lease_id)
 
     async def clear(
         self, agent_id: str, session_id: str, *, permanent: bool = False, _delegated: bool = False,
@@ -557,6 +704,13 @@ class AgentExecutionService:
             )
             if _delegated:
                 await self._purge_delegated_state(agent_id, session_id)
+            # Fence delayed UI edit responses before releasing native admission.
+            # A failed cleanup leaves its receipt/epoch intact for retry; only
+            # confirmed cleanup may invalidate pending canonical history edits.
+            await await_session_operation(
+                db["conversations"].update_one, {"_id": session_id},
+                {"$inc": {"native_rewind_epoch": 1}, "$unset": {"native_rewind": ""}},
+            )
         return ClearResult(
             checkpoints.deleted_count + deleted_children.checkpoints_deleted,
             writes.deleted_count + deleted_children.writes_deleted,
@@ -587,10 +741,19 @@ class AgentExecutionService:
     async def restart(self, agent_id: str, session_id: str) -> bool:
         async with self._session(agent_id, session_id) as saved:
             if saved is not None and saved.execution.kind == "sandbox":
-                raise SandboxError(
-                    "This harness retains its provider session between turns. Runtime restart is unavailable; clear the conversation to delete its sandbox."
-                )
+                return await restart_sandbox_session(self.mongo, agent_id, session_id, self.settings)
             return await self.cache.invalidate(agent_id, session_id)
+
+    @staticmethod
+    def _checkpoint_identity(agent_id: str, session_id: str, state: dict[str, Any] | None) -> CheckpointIdentity:
+        if state is None or not state.get("provider_session_id"):
+            raise SandboxError("This conversation has no admitted native harness session")
+        return CheckpointIdentity(
+            agent_id=agent_id, session_id=session_id, owner_subject=state["owner_subject"],
+            profile_id=state["profile"]["id"], profile_revision=state["profile"]["revision"],
+            harness=state["profile"]["harness"], provider_session_id=state["provider_session_id"],
+            connection_version=state["connection_version"],
+        )
 
     async def cancel(self, agent_id: str, session_id: str, *, turn_id: str | None = None) -> bool:
         if turn_id is not None:

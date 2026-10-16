@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from langchain_core.tools import tool
 
-from dynamic_agents.models import DynamicAgentConfig
+from dynamic_agents.models import DynamicAgentConfig, FeaturesConfig, MiddlewareEntry
 from dynamic_agents.routes import harness_tools as harness_tools_route
 from dynamic_agents.routes.harness_tools import router
 from dynamic_agents.services import agent_runtime, harness_tools
@@ -116,6 +116,43 @@ async def test_wrong_capability_stale_lease_and_worker_loss_never_reexecute_clai
     assert state.db[HARNESS_TOOL_REQUESTS_COLLECTION].find_one({"_id": identifier})["status"] == "claimed"
     producer.revoke(run.run_id, lease_id)
     assert state.db[HARNESS_TOOL_REQUESTS_COLLECTION].find_one({"_id": identifier})["status"] == "interrupted"
+
+
+async def test_configured_tool_limit_uses_existing_atomic_run_counter_and_cached_result(native_database, monkeypatch):
+    state = native_database
+    state.agent.features = FeaturesConfig(middleware=[MiddlewareEntry(type="tool_call_limit", params={"run_limit": 1})])
+    monkeypatch.setattr(state.mongo, "get_agent", lambda _identifier: state.agent)
+    repository, run, capability, lease_id = _broker(state)
+    request = {"jsonrpc": "2.0", "id": "first", "method": "tools/call", "params": {"name": "lookup", "arguments": {}}}
+    identifier = repository.enqueue(run.run_id, capability, request)
+    assert repository.claim(run.run_id, lease_id)["_id"] == identifier
+    result = {"content": [{"type": "text", "text": "Saved"}], "isError": False}
+    repository.complete(identifier, run.run_id, lease_id, result)
+    assert await repository.call(run.run_id, capability, request) == result
+    with pytest.raises(HarnessToolError, match="tool-call limit"):
+        repository.enqueue(run.run_id, capability, {**request, "id": "second"})
+    stored = state.db["native_acp_execution_runs"].find_one({"run_id": run.run_id})
+    assert stored["harness_call_count"] == 1
+    assert stored["harness_tool_counts"][harness_tools._digest("lookup")] == 1
+    assert not stored.get("harness_tool_limit_failed")
+    assert state.db[HARNESS_TOOL_REQUESTS_COLLECTION].count_documents({"run_id": run.run_id}) == 1
+
+
+async def test_specific_tool_limit_and_stop_policy_are_owned_by_same_run_lease(native_database, monkeypatch):
+    state = native_database
+    state.agent.features = FeaturesConfig(middleware=[
+        MiddlewareEntry(type="tool_call_limit", params={"run_limit": 20}),
+        MiddlewareEntry(type="tool_call_limit", params={"tool_name": "lookup", "run_limit": 0, "exit_behavior": "error"}),
+    ])
+    monkeypatch.setattr(state.mongo, "get_agent", lambda _identifier: state.agent)
+    repository, run, capability, lease_id = _broker(state)
+    request = {"jsonrpc": "2.0", "id": "first", "method": "tools/call", "params": {"name": "lookup", "arguments": {}}}
+    with pytest.raises(HarnessToolError, match="tool-call limit"):
+        repository.enqueue(run.run_id, capability, request)
+    with pytest.raises(harness_tools.HarnessToolExecutionFailed, match="tool-call limit"):
+        repository.claim(run.run_id, lease_id)
+    stored = state.db["native_acp_execution_runs"].find_one({"run_id": run.run_id})
+    assert stored["harness_call_count"] == 0 and stored["harness_tool_limit_failed"] is True
 
 
 async def test_capability_route_has_no_human_bearer_fallback_and_returns_mcp_framing(native_database):

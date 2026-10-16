@@ -60,7 +60,7 @@ approval. No existing agent is automatically switched.**
 | Runtime | Configuration | Session and files |
 |---|---|---|
 | Native (default) | `execution.kind=native`, existing model/tools/skills | Original LangGraph thread, checkpoints and logical filesystem. |
-| Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; real working filesystem restored from canonical native checkpoints, with bounded canonical text artifacts. |
+| Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; real working filesystem restored from canonical native checkpoints, with bounded canonical text and binary artifacts. |
 
 - The pinned released Python ACP SDK is `0.12.1`, wire protocol `1`. Native
   `caipe.io/native-acp` events preserve current progress and checkpointed human
@@ -282,6 +282,8 @@ The fixed provider contract is relative to `SANDBOX_SERVICE_URL`:
 | `POST /api/caipe/sandboxes` | `{conversation_id:<UUID>,profile_id,revision}`; returns `id,uid,namespace,conversation_id,profile_id,revision,cwd,state,resource_version`. Creation retries must be idempotent. |
 | `GET /api/caipe/sandboxes?conversation_id=...&profile_id=...` | Read-only owner-bound recovery lookup after an uncertain creation response; never creates an environment. |
 | `GET /api/caipe/sandboxes/{id}` | Fresh allocation identity/version; retired profiles must retain metadata for safe cleanup without permitting execution. |
+| `POST /api/caipe/sandboxes/{id}/execution-grant` | Fresh caller bearer plus `{conversation_id,uid,run_id}`; returns an opaque bounded capture token and its expiry. The token is held only for the admitted turn. |
+| `DELETE /api/caipe/sandboxes/{id}/execution-grant` | Exact run identity and its capture token revoke that grant without revoking a newer run. |
 | `POST .../{id}/resume` or `/suspend`; `DELETE .../{id}` | `{conversation_id,uid,resource_version}`; reject generation/version mismatches. Deletion follows provider retention policy. |
 | `PUT .../{id}/workspace` | `{conversation_id,uid,files}`; one managed instructions/skills/`inputs/` snapshot, max128 files/1MiB total/256KiB each. |
 | `GET .../{id}/workspace/files`; `GET .../content?path=...` | Owner/UID query binding; bounded relative regular-text listing/content. No credentials/private state/symlink traversal. |
@@ -292,23 +294,39 @@ The fixed provider contract is relative to `SANDBOX_SERVICE_URL`:
 
 Instruction/skill preparation locks against active execution. Ordinary artifact
 reads/writes remain available during ACP. CAIPE snapshots only admitted
-canonical input files into `inputs/` and publishes bounded ordinary output back
+canonical text/binary input files into `inputs/` and publishes bounded ordinary output back
 to the existing file store. Default bridge limits are 64 files, 512KiB total
 inputs, 512KiB per readable output and 4MiB output export; omitted files produce
 explicit warnings. Existing `format_file` mirrors the newly formatted copy into
 the real workspace so the harness can read the tool's result.
+
+Binary exchange uses strict base64 on the same workspace content endpoint, with
+byte-count/SHA-256 receipts. Canonical binary records use `encoding=base64` in
+the existing GridFS namespace; downloads decode the original bytes. Text
+previews and `format_file` remain text-only. Credential, instruction and native
+state paths are excluded from ordinary artifact publication.
 
 The provider must support the exact versioned HOME/workspace state contract, pin image/command and
 policy revision, isolate users and validate actual process environment identity.
 Long-lived admitted execution may outlive its handshake bearer; reconnect must
 reauthenticate and operator deadlines/revocation controls still apply. A CLI may
 receive a scoped deployment-owned model credential; this is not out-of-process
-credential isolation. Process-group cleanup does not contain deliberately
-separated child sessions without a stronger per-run boundary.
+credential isolation. The Linux supervisor reaps and stops detached descendants
+as well as the original process group. Container policy remains the security
+boundary against deliberately hostile same-UID code.
 
-Unattended sandbox workflows/triggers require a qualified delegated caller
-identity; a service-account token plus a client-context email cannot substitute
-for it. Existing native automation remains unchanged.
+An admitted execution grant keeps workspace exchange and checkpoint capture
+available after that bearer expires. `X-CAIPE-Execution-Grant` is accepted only
+on the exact run's ordinary workspace list/content, state export and grant revoke
+operations; never on creation, restore, ACP or lifecycle control. The provider
+stores only the grant hash and rechecks its identity, policy and deadline.
+CAIPE revokes it after capture; the agent never receives it. Tool authorization
+still follows the existing caller/grant lifecycle.
+
+Scheduled runs reuse CAIPE's existing real owner-token exchange. Other
+unattended runs retain their verified service-account identity, admitted by an
+explicit provider subject/client pair; CAIPE/CAS continues to authorize the run
+and its tools. Email headers cannot impersonate a human.
 
 No remote rollout or credentials are supplied by this change. Qualify actual
 provider/model auth, MCP reachability, skills, cancellation, native session
