@@ -225,6 +225,10 @@ describe("AgenticAppAssistantOverlay", () => {
     };
     if (operation === "initialization") mockCreateConversation.mockReturnValueOnce(pending);
     const { rerender } = render(<AgenticAppAssistantOverlay {...props} open />);
+    if (operation === "initialization") {
+      expect(screen.getByRole("button", { name: "Start new assistant chat" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Clear assistant chat" })).toBeDisabled();
+    }
     if (operation !== "initialization") {
       await screen.findByTestId("chat-panel");
       mockCreateConversation.mockReturnValueOnce(pending);
@@ -238,6 +242,33 @@ describe("AgenticAppAssistantOverlay", () => {
     await act(async () => { finish("late-assistant-chat"); });
     expect(mockSetActiveConversation).not.toHaveBeenCalled();
     expect(mockChatStoreState.activeConversationId).toBe("user-selected-chat");
+  });
+
+  it("does not reuse another app's conversation when both apps share an agent", async () => {
+    const props = {
+      appName: "Example App", activeContext: null, onClearContext: jest.fn(),
+      assistantAgentId: "agent-example", onOpenChange: jest.fn(), open: true,
+    };
+    mockCreateConversation.mockResolvedValueOnce("first-app-chat").mockResolvedValueOnce("second-app-chat");
+    const { rerender } = render(<AgenticAppAssistantOverlay {...props} appId="example-app" />);
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "first-app-chat"));
+    rerender(<AgenticAppAssistantOverlay {...props} appId="secondary-app" />);
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "second-app-chat"));
+    expect(mockFindConversation).toHaveBeenLastCalledWith([], "secondary-app", "agent-example");
+  });
+
+  it("retries a failed initialization when the assistant is reopened", async () => {
+    const props = {
+      appId: "example-app", appName: "Example App", activeContext: null,
+      onClearContext: jest.fn(), assistantAgentId: "agent-example", onOpenChange: jest.fn(),
+    };
+    mockFindConversation.mockRejectedValueOnce(new Error("History unavailable"));
+    const { rerender } = render(<AgenticAppAssistantOverlay {...props} open />);
+    await screen.findByText("History unavailable");
+    rerender(<AgenticAppAssistantOverlay {...props} open={false} />);
+    rerender(<AgenticAppAssistantOverlay {...props} open />);
+    expect(await screen.findByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "assistant-conversation");
+    expect(mockFindConversation).toHaveBeenCalledTimes(2);
   });
 });
 

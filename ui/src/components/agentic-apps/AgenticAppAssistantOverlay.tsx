@@ -46,11 +46,11 @@ export function AgenticAppAssistantOverlay({
   const [panelSize, setPanelSize] = useState(DEFAULT_PANEL_SIZE);
   const [glassMode, setGlassMode] = useState(readStoredGlassMode);
   const [assistantConversation, setAssistantConversation] = useState<{
-    agentId: string;
+    key: string;
     id: string;
   } | null>(null);
   const [conversationError, setConversationError] = useState<{
-    agentId: string;
+    key: string;
     message: string;
   } | null>(null);
   const [conversationActionPending, setConversationActionPending] = useState(false);
@@ -140,7 +140,7 @@ export function AgenticAppAssistantOverlay({
     let cancelled = false;
     const session = selectionSessionRef.current;
 
-    if (assistantConversation?.agentId === assistantAgentId) {
+    if (assistantConversation?.key === conversationKey) {
       activate(assistantConversation.id, session);
       return () => {
         cancelled = true;
@@ -159,12 +159,15 @@ export function AgenticAppAssistantOverlay({
     request.promise
       .then((id) => {
         if (cancelled || conversationRequestRef.current !== request || !activate(id, session)) return;
-        setAssistantConversation({ agentId: assistantAgentId, id });
+        setAssistantConversation({ key: conversationKey, id });
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
+        // A rejected lookup is not a cached result. Reopening can safely retry
+        // history discovery before deciding whether a conversation is absent.
+        if (conversationRequestRef.current === request) conversationRequestRef.current = null;
+        if (!cancelled && selectionSessionRef.current === session) {
           setConversationError({
-            agentId: assistantAgentId,
+            key: conversationKey,
             message: error instanceof Error ? error.message : "Could not start assistant chat",
           });
         }
@@ -184,7 +187,7 @@ export function AgenticAppAssistantOverlay({
   ]);
 
   const handleNewChat = useCallback(async (): Promise<void> => {
-    if (conversationActionPending) return;
+    if (assistantConversation?.key !== conversationKey || conversationActionPending) return;
     const session = selectionSessionRef.current;
     setConversationActionPending(true);
     setConversationError(null);
@@ -192,17 +195,18 @@ export function AgenticAppAssistantOverlay({
       const id = await createAppConversation();
       if (selectionSessionRef.current !== session) return;
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
-      if (activate(id, session)) setAssistantConversation({ agentId: assistantAgentId, id });
+      if (activate(id, session)) setAssistantConversation({ key: conversationKey, id });
     } catch (error: unknown) {
+      if (selectionSessionRef.current !== session) return;
       setConversationError({
-        agentId: assistantAgentId,
+        key: conversationKey,
         message: error instanceof Error ? error.message : "Could not start a new chat",
       });
     } finally {
       setConversationActionPending(false);
     }
   }, [
-    assistantAgentId,
+    assistantConversation,
     conversationActionPending,
     activate,
     conversationKey,
@@ -210,7 +214,7 @@ export function AgenticAppAssistantOverlay({
   ]);
 
   const handleClearChat = useCallback(async (): Promise<void> => {
-    if (!assistantConversation || conversationActionPending) return;
+    if (assistantConversation?.key !== conversationKey || conversationActionPending) return;
     if (
       !window.confirm(
         "Clear this chat? The current conversation will move to Trash and a new chat will start.",
@@ -228,17 +232,17 @@ export function AgenticAppAssistantOverlay({
       const id = await createAppConversation();
       if (selectionSessionRef.current !== session) return;
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
-      if (activate(id, session)) setAssistantConversation({ agentId: assistantAgentId, id });
+      if (activate(id, session)) setAssistantConversation({ key: conversationKey, id });
     } catch (error: unknown) {
+      if (selectionSessionRef.current !== session) return;
       setConversationError({
-        agentId: assistantAgentId,
+        key: conversationKey,
         message: error instanceof Error ? error.message : "Could not clear this chat",
       });
     } finally {
       setConversationActionPending(false);
     }
   }, [
-    assistantAgentId,
     assistantConversation,
     conversationActionPending,
     activate,
@@ -323,7 +327,7 @@ export function AgenticAppAssistantOverlay({
                 type="button"
                 aria-label="Start new assistant chat"
                 title="New chat"
-                disabled={conversationActionPending}
+                disabled={assistantConversation?.key !== conversationKey || conversationActionPending}
                 onClick={() => void handleNewChat()}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
               >
@@ -337,7 +341,7 @@ export function AgenticAppAssistantOverlay({
                 type="button"
                 aria-label="Clear assistant chat"
                 title="Clear chat"
-                disabled={!assistantConversation || conversationActionPending}
+                disabled={assistantConversation?.key !== conversationKey || conversationActionPending}
                 onClick={() => void handleClearChat()}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-red-400/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -393,14 +397,14 @@ export function AgenticAppAssistantOverlay({
           </div>
 
           <div className="min-h-0 flex-1 [&>div]:bg-transparent">
-            {assistantConversation?.agentId === assistantAgentId ? (
+            {assistantConversation?.key === conversationKey ? (
               <ChatPanel
                 key={assistantConversation.id}
                 conversationId={assistantConversation.id}
                 agentId={assistantAgentId}
                 clientContext={clientContext}
               />
-            ) : conversationError?.agentId === assistantAgentId ? (
+            ) : conversationError?.key === conversationKey ? (
               <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-200">
                 {conversationError.message}
               </div>
