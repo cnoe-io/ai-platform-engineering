@@ -58,7 +58,7 @@ build-backend = "uv_build"
 
 
 [tool.uv]
-constraint-dependencies = ["mcp==1.29.1", "starlette==1.6.0", "transformers==5.16.1"]
+constraint-dependencies = ["mcp==1.30.0", "starlette==1.6.0", "transformers==5.16.1"]
 
 [dependency-groups]
 dev = [
