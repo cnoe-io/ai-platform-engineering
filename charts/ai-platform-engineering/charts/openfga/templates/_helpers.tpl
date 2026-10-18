@@ -59,6 +59,19 @@ Create the name of the service account to use.
 {{- end }}
 {{- end }}
 
+{{/*
+Service account for the migrate pre-install hook. The release's main
+ServiceAccount is not created until after pre-install hooks finish, so when the
+chart owns the service account the hook gets its own, created as an earlier hook.
+*/}}
+{{- define "openfga.migrateServiceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- printf "%s-migrate" (include "openfga.serviceAccountName" .) | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- include "openfga.serviceAccountName" . }}
+{{- end }}
+{{- end }}
+
 {{- define "openfga.platformClientTokenUrl" -}}
 {{- .Values.init.platformClient.tokenUrl | default (printf "http://%s-keycloak:8080/realms/caipe/protocol/openid-connect/token" .Release.Name) -}}
 {{- end }}
