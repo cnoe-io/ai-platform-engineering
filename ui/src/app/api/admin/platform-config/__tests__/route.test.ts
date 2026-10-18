@@ -120,6 +120,9 @@ describe("admin platform-config route", () => {
 
     expect(body.data.release_notes).toEqual({
       enabled: true,
+      repository_url: null,
+      previous_commit: null,
+      latest_commit: null,
     });
   });
 
@@ -316,13 +319,77 @@ describe("admin platform-config route", () => {
       { _id: "platform_settings" },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release_notes: { enabled: false },
+          'release_notes.enabled': false,
         }),
       }),
       { upsert: true },
     );
     expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty("default_agent_id");
     expect(body.data.release_notes).toEqual({ enabled: false });
+    expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty('release_notes');
+    expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty('release_notes.repository_url');
+  });
+
+  it("persists a GitHub commit range for release notes", async () => {
+    const collection = {
+      findOne: jest.fn().mockResolvedValue(null),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          release_notes: {
+            enabled: true,
+            repository_url: "https://github.com/example/repository",
+            previous_commit: "1111111",
+            latest_commit: "2222222",
+          },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.release_notes).toEqual({
+      enabled: true,
+      repository_url: "https://github.com/example/repository",
+      previous_commit: "1111111",
+      latest_commit: "2222222",
+    });
+  });
+
+  it("rejects an incomplete release notes commit range", async () => {
+    const { PATCH } = await import("../route");
+
+    await expect(
+      PATCH(
+        request("/api/admin/platform-config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            release_notes: { previous_commit: "1111111" },
+          }),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "INCOMPLETE_RELEASE_NOTES_COMPARE" });
+  });
+
+  it("updates only the range without resetting a disabled announcement toggle", async () => {
+    const collection = { findOne: jest.fn(), updateOne: jest.fn().mockResolvedValue({ acknowledged: true }) };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+    await PATCH(request("/api/admin/platform-config", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ release_notes: {
+      repository_url: "https://github.com/example/repository", previous_commit: "release/primary", latest_commit: "v2.0.0",
+    } }) }));
+    const update = collection.updateOne.mock.calls[0][1].$set;
+    expect(update).toMatchObject({ 'release_notes.previous_commit': 'release/primary', 'release_notes.latest_commit': 'v2.0.0' });
+    expect(update).not.toHaveProperty('release_notes.enabled');
+    expect(update).not.toHaveProperty('release_notes');
   });
 
   it("checks coarse admin before system_config manage on updates", async () => {
