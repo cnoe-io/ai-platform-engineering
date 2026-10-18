@@ -22,6 +22,13 @@ INFRA_OPS_SSH_USER = os.getenv("INFRA_OPS_SSH_USER", "")
 INFRA_OPS_SSH_KEY_PATH = os.getenv("INFRA_OPS_SSH_KEY_PATH", "")
 INFRA_OPS_SSH_PORT = os.getenv("INFRA_OPS_SSH_PORT", "22")
 SSH_TIMEOUT = int(os.getenv("INFRA_OPS_SSH_TIMEOUT", "20"))
+# A bare `podman` call addresses the *invoking SSH user's own* (rootless)
+# storage, not the host's real rootful containers - on a host where the
+# workload runs under rootful podman, that silently returns an empty
+# container universe instead of an error. Set this to the rootful API
+# socket (e.g. unix:///run/podman/podman.sock) when the SSH user is a
+# non-root member of the group that socket is shared with.
+INFRA_OPS_CONTAINER_HOST = os.getenv("INFRA_OPS_CONTAINER_HOST", "")
 
 
 class InfraOpsConfigError(RuntimeError):
@@ -59,6 +66,8 @@ async def run_remote_command(argv: List[str]) -> Dict[str, Any]:
     _require_config()
 
     remote_cmd = " ".join(shlex.quote(arg) for arg in argv)
+    if INFRA_OPS_CONTAINER_HOST and argv and argv[0] == "podman":
+        remote_cmd = f"CONTAINER_HOST={shlex.quote(INFRA_OPS_CONTAINER_HOST)} {remote_cmd}"
     ssh_cmd = [
         "ssh",
         "-i", INFRA_OPS_SSH_KEY_PATH,

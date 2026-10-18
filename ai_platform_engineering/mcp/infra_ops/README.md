@@ -38,6 +38,7 @@ neither visible nor reachable.
 | `INFRA_OPS_SSH_KEY_PATH` | Path to the SSH private key | (required) |
 | `INFRA_OPS_SSH_PORT` | SSH port | `22` |
 | `INFRA_OPS_SSH_TIMEOUT` | Per-command timeout (seconds) | `20` |
+| `INFRA_OPS_CONTAINER_HOST` | Podman API socket to target (e.g. `unix:///run/podman/podman.sock`) when the SSH user must reach a rootful podman store it doesn't own. Leave unset when the SSH user's own (rootless) storage is where the workload runs - a bare `podman` call otherwise silently sees nothing instead of erroring. | (unset) |
 | `MCP_MODE` | `STDIO` or `http` | `STDIO` |
 | `MCP_HOST` | Bind host in `http` mode | `localhost` |
 | `MCP_PORT` | Bind port in `http` mode | `8000` |
