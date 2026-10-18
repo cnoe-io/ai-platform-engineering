@@ -204,7 +204,12 @@ export function AgentTaskAccordion({
                   </Button>
                 </div>
 
-                <RunHistory taskId={task.id} refreshKey={runHistoryRefreshKey} />
+                <RunHistory
+                  taskId={task.id}
+                  triggerType={task.trigger.type}
+                  refreshKey={runHistoryRefreshKey}
+                  allowFollowUp
+                />
               </div>
             )}
           </li>

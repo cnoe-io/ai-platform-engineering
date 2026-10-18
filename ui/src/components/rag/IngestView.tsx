@@ -19,6 +19,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SearchablePicker } from "@/components/ui/searchable-picker";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMultiPicker, TeamPicker } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
@@ -49,20 +51,27 @@ import {
   HelpCircle,
   Info,
   Layers,
+  ListChecks,
   Link as LinkIcon,
   Loader2,
   Pencil,
   Plus,
   RefreshCw,
+  Lock,
   RotateCcw,
   Search,
   Server,
   Settings,
   StopCircle,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import React, {
   useCallback,
   useEffect,
@@ -78,7 +87,10 @@ import type {
   PendingPublicationRequestView,
   PublicationRequestDocument,
 } from "@/types/publication-approval";
+import type { RagCollectionWithPermissions } from "@/types/rag-collection";
+import { BulkEditSourcesModal } from "./BulkEditSourcesModal";
 import { DatasourceAccessBadges } from "./DatasourceAccessBadges";
+import { AdvancedSettings } from "./AdvancedSettings";
 import { DatasourceAccessFields } from "./DatasourceAccessFields";
 import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import {
@@ -92,10 +104,12 @@ import {
   sourceConfigFilterProjection,
   type DatasourceViewState,
 } from "./datasource-view-state";
-import { mergeSelectedUploadFiles } from "./file-upload-selection";
+import { FileUploadDropzone } from "./FileUploadDropzone";
 import { IngestionSourceCard } from "./IngestionSourceCard";
 import { IngestionSourceForm } from "./IngestionSourceForm";
 import { KbSharingPanel } from "./KbSharingPanel";
+import { ReuploadFileModal } from "./ReuploadFileModal";
+import { useFileUploadSelection } from "./useFileUploadSelection";
 import type { DataSourceInfo, IngestionJob, IngestorInfo } from "./Models";
 import type {
   ChunkInfo,
@@ -116,6 +130,7 @@ import {
   ingestUrl,
   reloadDataSource,
   renameDataSource,
+  reuploadLocalFile,
   terminateJob,
 } from "./api/index";
 import {
@@ -124,6 +139,7 @@ import {
   ingestTypeConfigs,
   isIngestTypeAvailable,
   isIngestorOnline,
+  supportsReupload,
   supportsScheduledReload,
 } from "./typeConfig";
 
@@ -151,12 +167,6 @@ const IconRenderer = ({
       style={{ display: "inline-block" }}
     />
   );
-};
-
-const formatUploadFileSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 // Status badge component with consistent styling
@@ -345,60 +355,33 @@ export default function IngestView() {
   const [sharingDatasource, setSharingDatasource] =
     useState<DataSourceInfo | null>(null);
 
+  // Bulk-edit selection — a self-service tool: the caller can only select
+  // sources they manage, and applying goes through the same publication-
+  // approval workflow a single edit would trigger (see BulkEditSourcesModal).
+  const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
+  const [bulkSelectedSourceIds, setBulkSelectedSourceIds] = useState<
+    Set<string>
+  >(new Set());
+  const [bulkEditModalOpen, setBulkEditModalOpen] = useState(false);
+  const [bulkCollectionOptions, setBulkCollectionOptions] = useState<
+    RagCollectionWithPermissions[]
+  >([]);
+
   // Ingestion state
   const [url, setUrl] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [ingestorLimits, setIngestorLimits] = useState<RagIngestorLimits>(() =>
     normalizeRagIngestorLimits(undefined),
   );
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    selectedFiles,
+    addFiles: updateSelectedFiles,
+    removeFile: removeSelectedFile,
+    reset: resetSelectedFiles,
+  } = useFileUploadSelection(ingestorLimits.file);
   const ingestSectionRef = useRef<HTMLElement | null>(null);
   const [description, setDescription] = useState("");
   const [includeSubPages, setIncludeSubPages] = useState(false);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const selectedManagedSourceType = ingestTypeConfigs[ingestType]?.sourceType;
-
-  const updateSelectedFiles = useCallback(
-    (files: File[]) => {
-      const result = mergeSelectedUploadFiles(
-        selectedFiles,
-        files,
-        ingestorLimits.file,
-      );
-      if (result.unsupportedCount > 0) {
-        toast(
-          `${result.unsupportedCount} unsupported ${result.unsupportedCount === 1 ? "file was" : "files were"} skipped. Choose PDF, Markdown, or text files.`,
-          "error",
-        );
-      }
-      if (result.oversizedCount > 0) {
-        toast(
-          `${result.oversizedCount} ${result.oversizedCount === 1 ? "file exceeds" : "files exceed"} the ${ingestorLimits.file.max_file_size_mb} MiB platform limit.`,
-          "error",
-        );
-      }
-      if (result.duplicateCount > 0) {
-        toast(
-          `${result.duplicateCount} ${result.duplicateCount === 1 ? "file was" : "files were"} already selected.`,
-          "info",
-        );
-      }
-      if (result.countRejectedCount > 0) {
-        toast(
-          `Only ${ingestorLimits.file.max_files_per_upload} files may be ingested at once.`,
-          "error",
-        );
-      }
-      if (result.totalSizeRejectedCount > 0) {
-        toast(
-          `The selected files exceed the ${ingestorLimits.file.max_total_upload_size_mb} MiB total upload limit.`,
-          "error",
-        );
-      }
-      setSelectedFiles(result.files);
-    },
-    [ingestorLimits.file, selectedFiles, toast],
-  );
 
   // Scrapy settings state (for web ingest type)
   const [crawlMode, setCrawlMode] = useState<
@@ -528,6 +511,10 @@ export default function IngestView() {
   const [isReIngesting, setIsReIngesting] = useState(false);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
   const [reIngestError, setReIngestError] = useState<string | null>(null);
+  const [showReuploadModal, setShowReuploadModal] = useState<string | null>(
+    null,
+  );
+  const [isReuploading, setIsReuploading] = useState(false);
 
   const itemsPerPage = 10;
 
@@ -1096,7 +1083,7 @@ export default function IngestView() {
       cachedConfig: IngestionSourceConfigWithPermissions | undefined,
       canManageConfig: boolean,
     ) => {
-      if (cachedConfig && canManageConfig) {
+      if (cachedConfig && (canManageConfig || cachedConfig.config_driven)) {
         setEditingSourceConfig(cachedConfig);
         setSourceDialogOpen(true);
         return;
@@ -1555,7 +1542,7 @@ export default function IngestView() {
         toast("Files ingested.", "success");
       }
       setUrl("");
-      setSelectedFiles([]);
+      resetSelectedFiles();
       setDescription("");
       setIngestOwnerTeamSlug("");
       setIngestSearchTeamSlugs(
@@ -1620,6 +1607,25 @@ export default function IngestView() {
     } finally {
       setIsReIngesting(false);
       setShowReIngestConfirm(null);
+    }
+  };
+
+  const handleReuploadFile = async (datasourceId: string, files: File[]) => {
+    setIsReuploading(true);
+    try {
+      await reuploadLocalFile(datasourceId, files);
+      await fetchDataSources();
+      await fetchJobsForDataSource(datasourceId);
+      toast("File re-uploaded.", "success");
+      setShowReuploadModal(null);
+    } catch (error) {
+      console.error("Error re-uploading file:", error);
+      toast(
+        `Re-upload failed: ${getErrorMessage(error, "") || "unknown error"}`,
+        "error",
+      );
+    } finally {
+      setIsReuploading(false);
     }
   };
 
@@ -1748,6 +1754,81 @@ export default function IngestView() {
       await fetchIngestionSourceConfigs();
     }
   };
+
+  const manageableSourceIds = useMemo(
+    () =>
+      new Set(
+        Array.from(ingestionSourceConfigs.values())
+          .filter((source) => source._permissions.can_manage && !source.config_driven)
+          .map((source) => source.source_id),
+      ),
+    [ingestionSourceConfigs],
+  );
+
+  const toggleBulkSelected = (source: IngestionSourceConfigWithPermissions) => {
+    if (!manageableSourceIds.has(source.source_id)) return;
+    setBulkSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(source.source_id)) next.delete(source.source_id);
+      else next.add(source.source_id);
+      return next;
+    });
+  };
+
+  const exitBulkSelectionMode = () => {
+    setBulkSelectionMode(false);
+    setBulkSelectedSourceIds(new Set());
+  };
+
+  const selectByCollection = async (collectionId: string) => {
+    try {
+      const res = await fetch(
+        `/api/rag/collections/${encodeURIComponent(collectionId)}`,
+      );
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error ?? "Could not load collection");
+      }
+      const memberIds: string[] = Array.isArray(data.data?.source_ids)
+        ? data.data.source_ids
+        : [];
+      const addable = memberIds.filter((id) => manageableSourceIds.has(id));
+      setBulkSelectedSourceIds((prev) => new Set([...prev, ...addable]));
+      if (addable.length === 0) {
+        toast(
+          "No datasources you manage are in that collection.",
+          "info",
+        );
+      } else {
+        toast(
+          `Added ${addable.length} datasource${addable.length === 1 ? "" : "s"} from the collection.`,
+          "success",
+        );
+      }
+    } catch (error) {
+      toast(getErrorMessage(error, "Could not select by collection"), "error");
+    }
+  };
+
+  useEffect(() => {
+    if (!bulkSelectionMode || bulkCollectionOptions.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/rag/collections");
+        const data = await res.json();
+        if (!cancelled && res.ok && data?.success) {
+          setBulkCollectionOptions(data.data?.collections ?? []);
+        }
+      } catch {
+        // Collection quick-select is a convenience; failing silently still
+        // leaves manual card-by-card selection available.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bulkSelectionMode, bulkCollectionOptions.length]);
 
   const handleTerminateJob = async (datasourceId: string, jobId: string) => {
     try {
@@ -1878,106 +1959,14 @@ export default function IngestView() {
               ) : (
                 <>
                   {/* File source input */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-muted-foreground mb-2">
-                      Files
-                    </label>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".md,.markdown,.pdf,.txt,text/markdown,text/plain,application/pdf"
-                      multiple
-                      className="sr-only"
-                      aria-label="Choose files to ingest"
-                      onChange={(event) => {
-                        updateSelectedFiles(
-                          Array.from(event.currentTarget.files ?? []),
-                        );
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                    <div
-                      className="rounded-lg border-2 border-dashed border-border bg-muted/20 px-4 py-5 transition-colors hover:border-primary/50 hover:bg-muted/30"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        updateSelectedFiles(
-                          Array.from(event.dataTransfer.files),
-                        );
-                      }}
-                    >
-                      <div className="flex flex-col items-center justify-center gap-3 text-center sm:flex-row sm:text-left">
-                        <div className="rounded-full bg-primary/10 p-2.5 text-primary">
-                          <Upload className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">
-                            Drop files here or choose them from your computer
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            PDF, Markdown, and plain text. Up to{" "}
-                            {ingestorLimits.file.max_files_per_upload} files,{" "}
-                            {ingestorLimits.file.max_file_size_mb} MiB each, and{" "}
-                            {ingestorLimits.file.max_total_upload_size_mb} MiB
-                            total.
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="shrink-0 gap-2"
-                        >
-                          <Upload className="h-4 w-4" />
-                          Choose files
-                        </Button>
-                      </div>
-                    </div>
+                  <FileUploadDropzone
+                    selectedFiles={selectedFiles}
+                    limits={ingestorLimits.file}
+                    onFilesSelected={updateSelectedFiles}
+                    onRemoveFile={removeSelectedFile}
+                  />
 
-                    {selectedFiles.length > 0 && (
-                      <div className="mt-3 space-y-2" aria-live="polite">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          {selectedFiles.length}{" "}
-                          {selectedFiles.length === 1 ? "file" : "files"}{" "}
-                          selected
-                        </p>
-                        <div className="max-h-36 space-y-1.5 overflow-y-auto">
-                          {selectedFiles.map((file, index) => (
-                            <div
-                              key={`${file.name}-${file.lastModified}-${index}`}
-                              className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2"
-                            >
-                              <FileText className="h-4 w-4 shrink-0 text-primary" />
-                              <span
-                                className="min-w-0 flex-1 truncate text-sm"
-                                title={file.name}
-                              >
-                                {file.name}
-                              </span>
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {formatUploadFileSize(file.size)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedFiles((current) =>
-                                    current.filter(
-                                      (_, itemIndex) => itemIndex !== index,
-                                    ),
-                                  )
-                                }
-                                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                aria-label={`Remove ${file.name}`}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Quick options - Crawl Mode for web */}
+                  {/* Quick options - Crawl Mode for web */}
                     {ingestType === "web" && (
                       <div className="flex items-center gap-4 mt-2 ml-1">
                         <span className="text-sm text-muted-foreground">
@@ -2039,36 +2028,8 @@ export default function IngestView() {
                         className="w-full"
                       />
                     </div>
-                  </div>
 
-                  {/* Advanced settings - Animated Collapsible */}
-                  <div>
-                    <button
-                      onClick={() =>
-                        setShowAdvancedOptions(!showAdvancedOptions)
-                      }
-                      className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Settings className="h-4 w-4" />
-                      <span>Advanced settings</span>
-                      <motion.div
-                        animate={{ rotate: showAdvancedOptions ? 180 : 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </motion.div>
-                    </button>
-
-                    <AnimatePresence>
-                      {showAdvancedOptions && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="mt-4 p-4 rounded-lg bg-muted/50 border border-border/50 space-y-4">
+                    <AdvancedSettings className="mt-3" contentClassName="space-y-4">
                             {/* Web-specific Scrapy settings */}
                             {ingestType === "web" && (
                               <>
@@ -2385,7 +2346,7 @@ export default function IngestView() {
                                   <label className="block text-sm font-medium text-muted-foreground mb-1">
                                     Auto-Reload Interval
                                   </label>
-                                  <select
+                                  <Select
                                     value={
                                       isCustomReloadInterval
                                         ? "custom"
@@ -2411,7 +2372,7 @@ export default function IngestView() {
                                     <option value="259200">Every 3 days</option>
                                     <option value="604800">Every 7 days</option>
                                     <option value="custom">Custom...</option>
-                                  </select>
+                                  </Select>
                                   {isCustomReloadInterval && (
                                     <div className="mt-2">
                                       <Input
@@ -2486,11 +2447,7 @@ export default function IngestView() {
                                 </div>
                               </div>
                             )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+                  </AdvancedSettings>
                   <DatasourceAccessFields
                     className="mt-4"
                     ownerControl={
@@ -2616,6 +2573,21 @@ export default function IngestView() {
               {/* Source actions - Right Aligned */}
               <div className="flex items-center gap-2">
                 <Button
+                  variant={bulkSelectionMode ? "secondary" : "ghost"}
+                  size="sm"
+                  className="gap-2"
+                  onClick={() =>
+                    bulkSelectionMode
+                      ? exitBulkSelectionMode()
+                      : setBulkSelectionMode(true)
+                  }
+                  disabled={manageableSourceIds.size === 0}
+                  data-testid="bulk-edit-toggle"
+                >
+                  <ListChecks className="h-4 w-4" />
+                  {bulkSelectionMode ? "Cancel bulk edit" : "Bulk edit"}
+                </Button>
+                <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => void Promise.all([
@@ -2725,6 +2697,49 @@ export default function IngestView() {
               )}
             </div>
 
+            {bulkSelectionMode && (
+              <div className="flex flex-wrap items-center gap-2 border-b border-border/50 bg-muted/20 px-5 py-3">
+                <span className="text-xs font-medium">
+                  {bulkSelectedSourceIds.size} selected
+                </span>
+                <SearchablePicker
+                  id="bulk-edit-select-by-collection"
+                  options={bulkCollectionOptions}
+                  selected={undefined}
+                  onSelect={(collection) => void selectByCollection(collection._id)}
+                  getOptionKey={(collection) => collection._id}
+                  getOptionLabel={(collection) => collection.name}
+                  getSearchText={(collection) => [collection._id, collection.name]}
+                  placeholder="Select by collection..."
+                  searchPlaceholder="Search collections..."
+                  emptyLabel="No collections available"
+                  ariaLabel="Select by collection"
+                  triggerClassName="h-8 w-56 text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={bulkSelectedSourceIds.size === 0}
+                  onClick={() => setBulkSelectedSourceIds(new Set())}
+                >
+                  Clear selection
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={bulkSelectedSourceIds.size === 0}
+                  onClick={() => setBulkEditModalOpen(true)}
+                  data-testid="bulk-edit-open-modal"
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  Bulk edit selected
+                </Button>
+              </div>
+            )}
+
             {/* Pending sources — config rows with no DataSourceInfo yet */}
             {filteredPendingSourceConfigs.length > 0 && (
               <div className="px-5 py-4 border-b border-border/50 space-y-2">
@@ -2742,6 +2757,9 @@ export default function IngestView() {
                     onDelete={handleDeleteSourceConfig}
                     onRetry={handleRetrySourceConfig}
                     pendingPublicationRequest={pendingPublicationRequests.get(source.source_id)}
+                    selectionMode={bulkSelectionMode}
+                    selected={bulkSelectedSourceIds.has(source.source_id)}
+                    onToggleSelect={toggleBulkSelected}
                   />
                 ))}
               </div>
@@ -2795,9 +2813,13 @@ export default function IngestView() {
                       const confluenceScopeDescription =
                         sourceConfig?.source_type === "confluence_space" &&
                         sourceConfig.start_page_url
-                          ? sourceConfig.get_child_pages
-                            ? `Confluence page and child pages starting at ${sourceConfig.start_page_url}`
-                            : `Confluence page ${sourceConfig.start_page_url}`
+                          ? sourceConfig.content_kind === "folder"
+                            ? `Confluence folder (all nested pages) at ${sourceConfig.start_page_url}`
+                            : sourceConfig.content_kind === "space"
+                              ? `Entire Confluence space at ${sourceConfig.start_page_url}`
+                              : sourceConfig.get_child_pages
+                                ? `Confluence page and child pages starting at ${sourceConfig.start_page_url}`
+                                : `Confluence page ${sourceConfig.start_page_url}`
                           : "";
                       const displayDescription =
                         configuredDescription ||
@@ -2860,12 +2882,22 @@ export default function IngestView() {
                       const supportsReload = supportsScheduledReload(
                         ds.source_type,
                       );
-                      // Helm-seeded config rows (`config_driven: true`) are immutable via
-                      // the source-management API until they are adopted.
+                      const supportsFileReupload = supportsReupload(
+                        ds.source_type,
+                      );
+                      // Application-config rows (`config_driven: true`) are
+                      // immutable via the source-management API until adopted.
                       const isConfigDriven = Boolean(
                         sourceConfig?.config_driven,
                       );
                       const icon = getIconForType(ds.source_type);
+                      const usesCredential =
+                        sourceConfig?.source_type === "web_url" &&
+                        Boolean(
+                          sourceConfig.settings?.auth_headers?.some(
+                            (header) => header.secret_ref,
+                          ),
+                        );
 
                       // Get reload interval (first-class field or default)
                       const dsReloadInterval =
@@ -2908,6 +2940,30 @@ export default function IngestView() {
                             className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
                             onClick={() => toggleRow(ds.datasource_id)}
                           >
+                            {bulkSelectionMode && (
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 shrink-0"
+                                checked={bulkSelectedSourceIds.has(ds.datasource_id)}
+                                disabled={
+                                  !sourceConfig ||
+                                  !canManageSourceConfig ||
+                                  isConfigDriven
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() =>
+                                  sourceConfig && toggleBulkSelected(sourceConfig)
+                                }
+                                aria-label={`Select ${displayName}`}
+                                title={
+                                  !sourceConfig || !canManageSourceConfig
+                                    ? "You do not manage this source"
+                                    : isConfigDriven
+                                      ? "Loaded from app-config.yaml — view only"
+                                      : undefined
+                                }
+                              />
+                            )}
                             <motion.div
                               animate={{ rotate: isExpanded ? 90 : 0 }}
                               transition={{ duration: 0.2 }}
@@ -2915,8 +2971,34 @@ export default function IngestView() {
                               <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             </motion.div>
 
-                            {icon && (
+                            {icon && !usesCredential && (
                               <IconRenderer icon={icon} className="w-5 h-5" />
+                            )}
+                            {icon && usesCredential && (
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      className="relative inline-flex shrink-0"
+                                      data-testid={`credentialed-source-${ds.datasource_id}`}
+                                    >
+                                      <IconRenderer icon={icon} className="w-5 h-5" />
+                                      <Lock
+                                        aria-label="Crawled with a saved credential"
+                                        className="absolute -bottom-1.5 -right-1.5 h-4 w-4 rounded-full bg-background p-[1px] text-purple-500"
+                                      />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="top"
+                                    sideOffset={8}
+                                    className="max-w-xs whitespace-normal text-left"
+                                  >
+                                    Crawled with a saved credential, so its content may
+                                    not be public.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             )}
 
                             <div className="flex-1 min-w-0">
@@ -2986,7 +3068,7 @@ export default function IngestView() {
                                           ? `${ds.datasource_id.substring(0, 60)}\u2026`
                                           : ds.datasource_id)}
                                     </span>
-                                    {canManageDatasource && (
+                                    {canManageDatasource && !isConfigDriven && (
                                       <Button
                                         size="sm"
                                         variant="ghost"
@@ -3007,8 +3089,8 @@ export default function IngestView() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                    title="Manage Datasource"
-                                    aria-label="Manage Datasource"
+                                    title={isConfigDriven ? "View Datasource" : "Manage Datasource"}
+                                    aria-label={isConfigDriven ? "View Datasource" : "Manage Datasource"}
                                     disabled={
                                       openingSourceConfigId === ds.datasource_id
                                     }
@@ -3051,7 +3133,6 @@ export default function IngestView() {
                                       sourceConfig?.search_user_display_names ??
                                       ds.search_user_display_names
                                     }
-                                    ragCollections={ragCollections}
                                     pendingPublicationRequest={pendingPublicationRequests.get(
                                       ds.datasource_id,
                                     )}
@@ -3126,7 +3207,7 @@ export default function IngestView() {
                                 </>
                               )}
 
-                              {(canRunLifecycle || canManageDatasource) && (
+                              {!isConfigDriven && (canRunLifecycle || canManageDatasource) && (
                                 <div
                                   className="flex gap-1"
                                   onClick={(e) => e.stopPropagation()}
@@ -3136,12 +3217,18 @@ export default function IngestView() {
                                       variant="ghost"
                                       size="sm"
                                       onClick={() =>
-                                        setShowReIngestConfirm(ds.datasource_id)
+                                        supportsFileReupload
+                                          ? setShowReuploadModal(
+                                              ds.datasource_id,
+                                            )
+                                          : setShowReIngestConfirm(
+                                              ds.datasource_id,
+                                            )
                                       }
                                       disabled={
                                         loadingJobs ||
                                         hasActiveJob ||
-                                        !supportsReload ||
+                                        !(supportsReload || supportsFileReupload) ||
                                         isConfigDriven
                                       }
                                       className="h-7 w-7 p-0"
@@ -3150,11 +3237,13 @@ export default function IngestView() {
                                           ? "Loading job status"
                                           : isConfigDriven
                                           ? "Managed by ingestor config"
-                                          : !supportsReload
+                                          : !supportsReload && !supportsFileReupload
                                             ? "Re-ingest not supported"
                                             : hasActiveJob
                                               ? "Job in progress"
-                                              : "Re-ingest"
+                                              : supportsFileReupload
+                                                ? "Re-upload file"
+                                                : "Re-ingest"
                                       }
                                     >
                                       <RotateCcw className="h-3.5 w-3.5" />
@@ -4198,6 +4287,7 @@ export default function IngestView() {
                                                   </Button>
                                                 </div>
                                               )}
+
                                             </div>
                                           </motion.div>
                                         )}
@@ -4648,6 +4738,17 @@ export default function IngestView() {
         )}
       </AnimatePresence>
 
+      <ReuploadFileModal
+        open={Boolean(showReuploadModal)}
+        limits={ingestorLimits.file}
+        isSubmitting={isReuploading}
+        onClose={() => setShowReuploadModal(null)}
+        onSubmit={(files) => {
+          if (!showReuploadModal) return;
+          return handleReuploadFile(showReuploadModal, files);
+        }}
+      />
+
       {/* Re-ingest Error Dialog */}
       <Dialog
         open={Boolean(reIngestError)}
@@ -4719,11 +4820,27 @@ export default function IngestView() {
         }}
         onSave={handleSaveSourceConfig}
         initial={editingSourceConfig}
+        readOnly={editingSourceConfig?.config_driven === true}
         pendingPublicationRequest={editingSourceConfig
           ? pendingPublicationRequests.get(editingSourceConfig.source_id)
           : null}
         onPublicationRequestWithdrawn={async () => {
           await fetchPendingPublicationRequests();
+        }}
+      />
+
+      <BulkEditSourcesModal
+        open={bulkEditModalOpen}
+        sourceIds={Array.from(bulkSelectedSourceIds)}
+        onClose={() => setBulkEditModalOpen(false)}
+        onApplied={async () => {
+          setBulkEditModalOpen(false);
+          exitBulkSelectionMode();
+          await Promise.all([
+            fetchIngestionSourceConfigs(),
+            fetchDataSources(),
+            fetchPendingPublicationRequests(),
+          ]);
         }}
       />
 

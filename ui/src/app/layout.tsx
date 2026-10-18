@@ -1,4 +1,5 @@
 import { AuthProvider } from "@/components/auth-provider";
+import { AgentCompletionNotifier } from "@/components/notifications/AgentCompletionNotifier";
 import { ThemeInjector } from "@/components/theme-injector";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
@@ -30,7 +31,8 @@ const sourceSans = Source_Sans_3({
 const ibmPlex = IBM_Plex_Sans({
   variable: "--font-ibm-plex",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  // One variable face retains every weight without duplicate font URL rewrites.
+  weight: "variable",
   display: "swap",
   fallback: ["system-ui", "arial"],
 });
@@ -122,6 +124,7 @@ export default async function RootLayout({
             <ToastProvider>
               <ThemeInjector />
               <TokenExpiryGuard />
+              <AgentCompletionNotifier />
               {children}
             </ToastProvider>
           </ThemeProvider>

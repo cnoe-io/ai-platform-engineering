@@ -10,9 +10,15 @@ import type { InAppNotificationDocument } from "@/types/in-app-notification";
 const mockGetCollection = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+const mockForwardAdminNotificationToSlack = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
+jest.mock("@/lib/admin-notification-forwarding.server", () => ({
+  forwardAdminNotificationToSlack: (...args: unknown[]) =>
+    mockForwardAdminNotificationToSlack(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
@@ -28,6 +34,66 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:reviewers"] });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+  mockForwardAdminNotificationToSlack.mockResolvedValue(undefined);
+});
+
+describe("Slack admin-notification forwarding", () => {
+  it("forwards a newly inserted organization-admin notification", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 0, upsertedCount: 1 });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    await createInAppNotification({
+      eventKey: "publication:request-primary:requested",
+      recipientOrganizationAdmins: true,
+      title: "Approval needed",
+      message: "Jane submitted a publication request.",
+      href: "/admin/security/approvals?request=primary",
+      severity: "warning",
+    });
+
+    // Flush the fire-and-forget microtask queued by `void forward(...)`.
+    await Promise.resolve();
+
+    expect(mockForwardAdminNotificationToSlack).toHaveBeenCalledWith({
+      title: "Approval needed",
+      message: "Jane submitted a publication request.",
+      href: "/admin/security/approvals?request=primary",
+      severity: "warning",
+      sourceLabel: undefined,
+    });
+  });
+
+  it("does not forward a notification scoped to a single user", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 0, upsertedCount: 1 });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    await createInAppNotification({
+      eventKey: "publication:request-primary:approved",
+      recipientUserSubjects: ["requester-subject"],
+      title: "Request approved",
+      message: "Primary source was approved.",
+      severity: "success",
+    });
+    await Promise.resolve();
+
+    expect(mockForwardAdminNotificationToSlack).not.toHaveBeenCalled();
+  });
+
+  it("does not forward again when the same event_key is re-upserted", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, upsertedCount: 0 });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    await createInAppNotification({
+      eventKey: "publication:request-primary:requested",
+      recipientOrganizationAdmins: true,
+      title: "Approval needed",
+      message: "Jane submitted a publication request.",
+      severity: "warning",
+    });
+    await Promise.resolve();
+
+    expect(mockForwardAdminNotificationToSlack).not.toHaveBeenCalled();
+  });
 });
 
 it("creates one durable notification per event", async () => {
@@ -96,6 +162,7 @@ it("paginates direct, team, and organization-admin notifications", async () => {
       { recipient_user_subjects: "requester-subject" },
       { recipient_team_slugs: { $in: ["reviewers"] } },
       { recipient_organization_admins: true },
+      { recipient_platform_users: true },
     ]),
   }));
   expect(cursor.skip).toHaveBeenCalledWith(20);
@@ -105,6 +172,64 @@ it("paginates direct, team, and organization-admin notifications", async () => {
     pagination: { page: 2, page_size: 20, total: 21, total_pages: 2 },
     notifications: [{ id: "notification-primary", read: false }],
   });
+});
+
+it("creates a global Platform notification without changing personal audiences",async () => {
+  const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
+  mockGetCollection.mockResolvedValue({ updateOne });
+
+  await createInAppNotification({
+    eventKey: "platform-health:chat-runtime:incident-primary:opened",
+    recipientPlatformUsers: true,
+    title: "Chat Runtime is degraded",
+    message: "Two health audits reported a degraded runtime.",
+    severity: "warning",
+    category: "platform_health",
+    sourceLabel: "Platform",
+    lifecycleStatus: "active",
+  });
+
+  expect(updateOne).toHaveBeenCalledWith(
+    { event_key: "platform-health:chat-runtime:incident-primary:opened" },
+    expect.objectContaining({
+      $setOnInsert: expect.objectContaining({
+        recipient_user_subjects: [],
+        recipient_team_slugs: [],
+        recipient_platform_users: true,
+        category: "platform_health",
+        source_label: "Platform",
+        lifecycle_status: "active",
+      }),
+    }),
+    { upsert: true },
+  );
+});
+
+it("excludes Platform health notifications when an admin viewer opted out",async () => {
+  const cursor = {
+    sort: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    toArray: jest.fn().mockResolvedValue([]),
+  };
+  const collection = {
+    countDocuments: jest.fn().mockResolvedValue(0),
+    find: jest.fn().mockReturnValue(cursor),
+  };
+  mockGetCollection.mockResolvedValue(collection);
+
+  await listInAppNotifications("requester-subject",{
+    includePlatformNotifications: false,
+  });
+
+  const audience = collection.countDocuments.mock.calls[0][0];
+  expect(audience.category).toEqual({ $ne: "platform_health" });
+  expect(audience.$or).toEqual(expect.arrayContaining([
+    { recipient_user_subjects: "requester-subject" },
+    { recipient_team_slugs: { $in: ["reviewers"] } },
+    { recipient_organization_admins: true },
+    { recipient_platform_users: true },
+  ]));
 });
 
 it("marks only a notification in the viewer's audience as read", async () => {

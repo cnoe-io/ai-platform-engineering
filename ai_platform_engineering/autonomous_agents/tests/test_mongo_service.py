@@ -37,6 +37,11 @@ from autonomous_agents.services.mongo import (
     TaskNotFoundError,
     TaskStore,
 )
+from autonomous_agents.services.secret_encryption import (
+    WebhookSecretEncryptionError,
+    WebhookSecretEnvelope,
+    secret_ref_id,
+)
 
 _UI_UUID_REGEX = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -61,15 +66,44 @@ def _settings(**overrides) -> Settings:
         "chat_history_conversations_collection": "conversations",
         "chat_history_messages_collection": "messages",
         "chat_history_owner_email": "autonomous@system",
+        "credential_kms_cmk_id": None,
+        "credential_kms_region": None,
     }
     base.update(overrides)
     return Settings(**base)
 
 
+class _FakeSecretProtector:
+    """Opaque in-memory protector; real crypto/KMS behavior has focused tests."""
+
+    def __init__(self) -> None:
+        self._plaintext_by_token: dict[str, str] = {}
+
+    async def encrypt(
+        self, task_id: str, plaintext: str
+    ) -> WebhookSecretEnvelope:
+        token = f"opaque-{uuid.uuid4()}"
+        self._plaintext_by_token[token] = plaintext
+        return {
+            "secretRefId": secret_ref_id(task_id),
+            "algorithm": "AES-256-GCM",
+            "ciphertext": token,
+            "encryptedDek": "opaque-dek",
+            "keyProvider": "aws-kms",
+            "cmkId": "alias/test-credentials",
+        }
+
+    async def decrypt(self, task_id: str, envelope: dict) -> str:
+        assert envelope["secretRefId"] == secret_ref_id(task_id)
+        return self._plaintext_by_token[envelope["ciphertext"]]
+
+
 @pytest.fixture
 def service() -> MongoService:
     """Fresh MongoService backed by an in-memory mock client per test."""
-    svc = MongoService(settings=_settings())
+    svc = MongoService(
+        settings=_settings(), secret_protector=_FakeSecretProtector()
+    )
     svc.connect_with_client(AsyncMongoMockClient())
     return svc
 
@@ -283,6 +317,43 @@ class TestTaskCrud:
         assert (await service.get_task("interval-1")).trigger == interval.trigger
         assert (await service.get_task("webhook-1")).trigger == webhook.trigger
 
+    async def test_webhook_secret_is_never_stored_as_plaintext(
+        self, service: MongoService
+    ):
+        """New task writes replace trigger.secret with an encrypted envelope."""
+        await service.create_task(
+            _task("webhook-encrypted", trigger=WebhookTrigger(secret="very-secret"))
+        )
+
+        stored = await service._tasks().find_one({"_id": "webhook-encrypted"})
+        assert "secret" not in stored["trigger"]
+        assert stored["trigger"]["secret_envelope"]["keyProvider"] == "aws-kms"
+        assert "very-secret" not in repr(stored)
+        fetched = await service.get_task("webhook-encrypted")
+        assert fetched.trigger.secret == "very-secret"
+
+    async def test_per_task_secret_fails_closed_without_kms(self):
+        """Missing KMS config must never fall back to a plaintext Mongo write."""
+        svc = MongoService(settings=_settings())
+        svc.connect_with_client(AsyncMongoMockClient())
+
+        with pytest.raises(WebhookSecretEncryptionError, match="CREDENTIAL_KMS_CMK_ID"):
+            await svc.create_task(
+                _task("no-kms", trigger=WebhookTrigger(secret="must-not-leak"))
+            )
+        assert await svc._tasks().count_documents({}) == 0
+
+    async def test_task_without_per_task_secret_does_not_require_kms(self):
+        """Cron and unsigned/global-fallback webhook tasks remain usable."""
+        svc = MongoService(settings=_settings())
+        svc.connect_with_client(AsyncMongoMockClient())
+
+        await svc.create_task(_task("cron-no-kms"))
+        await svc.create_task(
+            _task("webhook-no-kms", trigger=WebhookTrigger(secret=None))
+        )
+        assert len(await svc.list_tasks()) == 2
+
 
 class TestRunHistory:
     """``record_run`` / ``list_runs`` / ``list_runs_by_task`` semantics."""
@@ -362,6 +433,11 @@ class TestChatHistory:
         msgs = [doc async for doc in service._messages().find({})]
         assert len(convs) == 1
         assert len(msgs) == 2
+        assert {message["metadata"]["run_id"] for message in msgs} == {"run-001"}
+        assert {message["metadata"]["kind"] for message in msgs} == {
+            "run_request",
+            "run_response",
+        }
 
     async def test_conversation_id_matches_ui_uuid_shape(self, service: MongoService):
         """Derived conversation id matches the UI's ``validateUUID`` regex."""
@@ -377,6 +453,7 @@ class TestChatHistory:
             status=TaskStatus.SUCCESS,
             started_at=_spaced(0),
             finished_at=_spaced(1),
+            execution_context_id="run-context-r1",
         )
         await service.publish_run(
             run,
@@ -391,6 +468,8 @@ class TestChatHistory:
         assert conv["owner_id"] == "autonomous@system"
         assert conv["agent_id"] == "github"
         assert conv["task_id"] == "weekly-prs"
+        assert conv["execution_context_id"] == "run-context-r1"
+        assert conv["metadata"]["task_name"] == "Weekly PR Review"
         assert "autonomous" in conv["tags"]
         assert "weekly-prs" in conv["tags"]
         assert conv["is_archived"] is False
@@ -399,6 +478,41 @@ class TestChatHistory:
             {"type": "user", "id": "autonomous@system"},
             {"type": "agent", "id": "github"},
         ]
+
+    async def test_existing_task_conversation_self_heals_autonomous_provenance(
+        self, service: MongoService
+    ):
+        """Legacy task chats without top-level provenance leave normal Chat history."""
+        task_id = "legacy-task"
+        conv_id = conversation_id_for_task(task_id)
+        await service._conversations().insert_one(
+            {
+                "_id": conv_id,
+                "title": "[Autonomous] Legacy Task",
+                "owner_id": "alice@example.com",
+                "created_at": _spaced(0),
+                "updated_at": _spaced(0),
+            }
+        )
+
+        await service.publish_run(
+            TaskRun(
+                run_id="legacy-run",
+                task_id=task_id,
+                task_name="Legacy Task",
+                status=TaskStatus.SUCCESS,
+                started_at=_spaced(1),
+                finished_at=_spaced(2),
+            ),
+            prompt="hello",
+            response="world",
+            error=None,
+            agent="github",
+        )
+
+        conv = await service._conversations().find_one({"_id": conv_id})
+        assert conv["source"] == "autonomous"
+        assert conv["task_id"] == task_id
 
     async def test_publish_run_is_idempotent_across_status_transitions(self, service: MongoService):
         """RUNNING => SUCCESS overwrites the existing message slots; no duplicates."""

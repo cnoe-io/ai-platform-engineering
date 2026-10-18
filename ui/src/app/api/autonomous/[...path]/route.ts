@@ -10,6 +10,10 @@ import {
   resolveKeycloakSubFromSession,
 } from '@/lib/api-middleware';
 import { getConfig } from '@/lib/config';
+import { authenticateRequest, getDynamicAgentsConfig, proxyRequest } from '@/lib/da-proxy';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import { subjectFromSession } from '@/lib/rbac/resource-authz';
 
 /**
  * Autonomous Agents API Proxy.
@@ -31,18 +35,12 @@ import { getConfig } from '@/lib/config';
  *      always hits `/api/autonomous/...` regardless of where the
  *      backend physically runs.
  *
- * Authorization model (per-user ownership, plan 2026-05-25):
- *   - By default every authenticated user is allowed through this proxy;
- *     the backend's `_assert_task_access` decides per-task access using the
- *     headers injected below. A regular user can create/read/edit/delete/run
- *     their own tasks; admins can act on any task; read-only audit on
- *     other users' autonomous chat threads is enforced by
- *     `requireConversationAccess` on the chat-side routes.
- *   - Operators can optionally tighten this to admins-only by setting
- *     `AUTONOMOUS_AGENTS_ADMIN_ONLY=true`, which makes this proxy reject
- *     non-admin callers with a 403 before any forwarding happens. This is a
- *     coarse switch; finer group-level access is handled by OpenFGA resource
- *     checks elsewhere in the BFF.
+ * Authorization model:
+ *   - The caller must belong to at least one Autonomous-enabled team (or be an
+ *     organization admin). The backend then applies per-task ownership using
+ *     the headers injected below.
+ *   - Team entitlement and per-agent access are enforced by Dynamic Agents on
+ *     every unattended run through CAS/OpenFGA.
  *   - Admin detection here resolves through `getAuthenticatedUser`,
  *     which reads the post-promotion session role. NextAuth's jwt /
  *     session callbacks promote Mongo-flagged or OIDC-group admins
@@ -115,18 +113,45 @@ async function forward(
   request: NextRequest,
   pathSegments: string[],
   method: SupportedMethod,
-): Promise<NextResponse> {
+): Promise<Response> {
   if (!getConfig('autonomousAgentsEnabled')) {
     throw new ApiError('Autonomous agents are disabled', 404);
   }
 
+  // Manual chats are created by the service that owns the checkpoints. It
+  // authorizes task ownership, Autonomous entitlement, and agent use itself.
+  const isFollowUpList = pathSegments.length === 3 && pathSegments[0] === 'tasks' && pathSegments[2] === 'follow-up-chats';
+  const isFollowUpChat = pathSegments.length === 5 && pathSegments[0] === 'tasks' && pathSegments[2] === 'runs' && pathSegments[4] === 'follow-up-chat';
+  if (isFollowUpList || isFollowUpChat) {
+    if (method !== (isFollowUpList ? 'GET' : 'POST')) throw new ApiError('Method not allowed', 405);
+    const auth = await authenticateRequest(request);
+    if (auth instanceof NextResponse) return auth;
+    const config = getDynamicAgentsConfig();
+    if (config instanceof NextResponse) return config;
+    return await proxyRequest(
+      `${config.dynamicAgentsUrl}/api/v1/autonomous/${pathSegments.map(encodeURIComponent).join('/')}`,
+      method, auth, '[autonomous/follow-up-chat]',
+    );
+  }
+
   return await withAuth(request, async (_req, user, session) => {
-    // This proxy is intentionally per-user: every authenticated caller may
-    // reach it, and the autonomous-agents backend enforces per-task ownership
-    // (`_assert_task_access`) — admins act on any task, non-admins only their
-    // own. The Piece-1 per-agent drawer relies on this per-user access, so the
-    // proxy must NOT be admin-gated. Admin-only oversight lives on a separate
-    // route (`/api/autonomous/oversight`) instead.
+    const openFgaUser = subjectFromSession(session);
+    if (!openFgaUser) {
+      throw new ApiError('Autonomous access requires a resolvable user identity', 403);
+    }
+    const entitlement = await checkOpenFgaTuple({
+      user: openFgaUser,
+      relation: 'can_automate',
+      object: organizationObjectId(),
+    });
+    if (!entitlement.allowed) {
+      throw new ApiError('Your team is not enabled for Autonomous', 403);
+    }
+    if (method === 'POST' && pathSegments.length === 5 && pathSegments[0] === 'tasks' && pathSegments[2] === 'runs' && pathSegments[4] === 'follow-up') {
+      throw new ApiError('Automated history is read-only. Open a manual follow-up chat to continue this run.', 409);
+    }
+
+    // Entitled callers reach the per-user backend, which enforces task ownership.
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -178,8 +203,16 @@ async function forward(
         const data = JSON.parse(text);
         return NextResponse.json(data, { status: response.status });
       } catch {
+        console.error(
+          `[Autonomous Proxy] ${method} ${targetUrl} returned non-JSON ` +
+            `(HTTP ${response.status}): ${text.slice(0, 500)}`,
+        );
         return NextResponse.json(
-          { error: 'Upstream returned non-JSON response', body: text.slice(0, 500) },
+          {
+            detail:
+              `Autonomous Agents service returned an invalid response ` +
+              `(HTTP ${response.status}). Check the service logs.`,
+          },
           { status: response.status },
         );
       }

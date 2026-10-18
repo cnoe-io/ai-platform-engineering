@@ -13,18 +13,83 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
-import { fromFormState, toFormState } from "./formState";
+import type {
+  AutonomousTask,
+  TaskFormState,
+  TaskSaveResult,
+  TriggerType,
+  WebhookProvider,
+} from "./types";
+import {
+  DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+  formatScheduleInterval,
+  fromFormState,
+  toFormState,
+} from "./formState";
+import { WebhookPayloadNotice, WebhookSetupStep } from "./WebhookSetupStep";
 
-const WEBHOOK_PROVIDER_OPTIONS = [
-  { value: "generic_hmac", label: "Generic HMAC" },
+export const DEFAULT_WEBHOOK_PROVIDER_OPTIONS: WebhookProvider[] = [
+  "github",
+  "jira",
+  "slack",
+  "pagerduty",
+];
+
+const WEBHOOK_PROVIDER_OPTIONS: Array<{ value: WebhookProvider; label: string }> = [
   { value: "github", label: "GitHub" },
   { value: "jira", label: "Jira" },
   { value: "slack", label: "Slack" },
   { value: "pagerduty", label: "PagerDuty" },
 ];
+
+const GITHUB_WEBHOOK_DOCS_URL =
+  "https://docs.github.com/en/webhooks/webhook-events-and-payloads";
+
+const FILTER_EXAMPLES: Record<WebhookProvider, string> = {
+  github: "Header X-GitHub-Event = pull_request; payload action = closed",
+  jira: "Payload webhookEvent = jira:issue_updated",
+  slack: "Payload type = event_callback; payload event.type = message",
+  pagerduty: "Payload event.event_type = incident.triggered",
+};
+
+const FEATURED_TIME_ZONES = [
+  "UTC",
+  "Europe/London",
+  "Europe/Paris",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+];
+
+const TIME_ZONE_LABELS: Record<string, string> = {
+  UTC: "UTC (UTC+00:00)",
+  "Europe/London": "London — Europe/London (GMT/BST, UTC+0/+1)",
+  "Europe/Paris": "Paris — Europe/Paris (CET/CEST)",
+  "America/New_York": "New York — America/New_York (EST/EDT)",
+  "America/Chicago": "Chicago — America/Chicago (CST/CDT)",
+  "America/Denver": "Denver — America/Denver (MST/MDT)",
+  "America/Los_Angeles": "Los Angeles — America/Los_Angeles (PST/PDT)",
+  "Asia/Kolkata": "India — Asia/Kolkata (UTC+05:30)",
+  "Asia/Singapore": "Singapore — Asia/Singapore (UTC+08:00)",
+  "Asia/Tokyo": "Tokyo — Asia/Tokyo (UTC+09:00)",
+  "Australia/Sydney": "Sydney — Australia/Sydney (AEST/AEDT)",
+};
+
+function availableTimeZones(): string[] {
+  const intl = Intl as typeof Intl & {
+    supportedValuesOf?: (key: "timeZone") => string[];
+  };
+  const supported = intl.supportedValuesOf?.("timeZone") ?? [];
+  return Array.from(new Set([...FEATURED_TIME_ZONES, ...supported]));
+}
 
 interface TaskFormDialogProps {
   open: boolean;
@@ -43,7 +108,10 @@ interface TaskFormDialogProps {
    * without preventing.
    */
   existingNames?: string[];
-  onSubmit: (task: AutonomousTask) => Promise<void>;
+  minimumScheduleIntervalSeconds?: number;
+  enabledWebhookProviders?: WebhookProvider[];
+  onSubmit: (task: AutonomousTask) => Promise<TaskSaveResult>;
+  onSaveWebhookSecret: (task: AutonomousTask, secret: string) => Promise<AutonomousTask>;
 }
 
 function seededFormState(
@@ -57,28 +125,48 @@ function seededFormState(
   return state;
 }
 
-export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, existingNames = [], onSubmit }: TaskFormDialogProps) {
+export function TaskFormDialog({
+  open,
+  onOpenChange,
+  task,
+  initialAgentId,
+  existingNames = [],
+  minimumScheduleIntervalSeconds = DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+  enabledWebhookProviders = DEFAULT_WEBHOOK_PROVIDER_OPTIONS,
+  onSubmit,
+  onSaveWebhookSecret,
+}: TaskFormDialogProps) {
   const isEdit = Boolean(task);
   const [form, setForm] = useState<TaskFormState>(() => seededFormState(task, initialAgentId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [webhookSetup, setWebhookSetup] = useState<{
+    task: AutonomousTask;
+    generatedSecret?: string;
+  } | null>(null);
 
   // Reset whenever the dialog opens or the underlying task changes.
   // Without this, editing task A then opening "create" would inherit
   // A's fields.
   useEffect(() => {
     if (open) {
-      setForm(seededFormState(task, initialAgentId));
+      const next = seededFormState(task, initialAgentId);
+      if (!task && !enabledWebhookProviders.includes(next.webhookProvider as WebhookProvider)) {
+        next.webhookProvider = enabledWebhookProviders[0] ?? "";
+      }
+      setForm(next);
       setError(null);
       setSubmitting(false);
+      setWebhookSetup(null);
     }
-  }, [open, task, initialAgentId]);
+  }, [open, task, initialAgentId, enabledWebhookProviders]);
 
   const update = <K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const triggerOptions = useMemo<TriggerType[]>(() => ["cron", "interval", "webhook"], []);
+  const timeZoneOptions = useMemo(availableTimeZones, []);
 
   // Case- and whitespace-insensitive: "daily REPORT " should still warn.
   const duplicateName = useMemo(() => {
@@ -86,6 +174,31 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
     if (!candidate) return false;
     return existingNames.some((n) => n.trim().toLowerCase() === candidate);
   }, [form.name, existingNames]);
+
+  const availableProviderOptions = WEBHOOK_PROVIDER_OPTIONS.filter((option) =>
+    enabledWebhookProviders.includes(option.value),
+  );
+
+  const updateWebhookProvider = (provider: WebhookProvider) => {
+    setForm((current) => ({
+      ...current,
+      webhookProvider: provider,
+      webhookFilterEnabled: false,
+      webhookFilterConditions: [{ source: "payload", field: "", values: "" }],
+    }));
+  };
+
+  const updateFilterCondition = (
+    index: number,
+    patch: Partial<TaskFormState["webhookFilterConditions"][number]>,
+  ) => {
+    setForm((current) => ({
+      ...current,
+      webhookFilterConditions: current.webhookFilterConditions.map((condition, currentIndex) =>
+        currentIndex === index ? { ...condition, ...patch } : condition,
+      ),
+    }));
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -100,15 +213,19 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
       );
       return;
     }
-    const result = fromFormState(form);
+    const result = fromFormState(form, minimumScheduleIntervalSeconds);
     if ("error" in result) {
       setError(result.error);
       return;
     }
     setSubmitting(true);
     try {
-      await onSubmit(result.task);
-      onOpenChange(false);
+      const saved = await onSubmit(result.task);
+      if (saved.task.trigger.type === "webhook" && (!isEdit || saved.webhookSetupRequired)) {
+        setWebhookSetup({ task: saved.task, generatedSecret: saved.webhookSetupSecret });
+      } else {
+        onOpenChange(false);
+      }
     } catch (err) {
       // Mirror the API client's error shape — `.message` already
       // carries the FastAPI ``detail`` string when available.
@@ -118,29 +235,41 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
     }
   };
 
+  const webhookUrl = webhookSetup
+    ? `${typeof window === "undefined" ? "" : window.location.origin}/api/v1/hooks/${encodeURIComponent(webhookSetup.task.id)}`
+    : "";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit task" : "New autonomous task"}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle>{webhookSetup ? "Configure webhook" : isEdit ? "Edit task" : "New autonomous task"}</DialogTitle>
+          {!webhookSetup && <DialogDescription>
             Tasks are scheduled via the autonomous-agents service and dispatched to
-            CAIPE supervisor over A2A. Cron and interval tasks fire automatically;{" "}
+            the CAIPE agent runtime using AG-UI streaming. Cron and interval tasks fire automatically;{" "}
             {isEdit ? (
               <>
                 webhook tasks fire when a POST hits{" "}
                 <code className="text-xs">/api/v1/hooks/{form.id}</code>.
               </>
             ) : (
-              <>
-                webhook tasks fire when a POST hits the hook URL shown on the task row
-                once it is created.
-              </>
+              <>webhook setup continues here after the task is created.</>
             )}
-          </DialogDescription>
+          </DialogDescription>}
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {webhookSetup ? (
+          <WebhookSetupStep
+            task={webhookSetup.task}
+            generatedSecret={webhookSetup.generatedSecret}
+            webhookUrl={webhookUrl}
+            onSaveProviderSecret={async (secret) => {
+              const updated = await onSaveWebhookSecret(webhookSetup.task, secret);
+              setWebhookSetup((current) => current ? { ...current, task: updated } : current);
+            }}
+            onDone={() => onOpenChange(false)}
+          />
+        ) : <form onSubmit={handleSubmit} className="space-y-4">
           {/* Create mode has no ID field at all -- the server generates the id
               -- so Name takes the full width. Edit mode shows the id as
               read-only text because operators need it for the webhook URL. */}
@@ -227,18 +356,39 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
             </div>
 
             {form.triggerType === "cron" && (
-              <div className="space-y-1">
-                <Label htmlFor="task-cron">Schedule (cron)</Label>
-                <Input
-                  id="task-cron"
-                  value={form.cronSchedule}
-                  onChange={(e) => update("cronSchedule", e.target.value)}
-                  placeholder="0 9 * * *"
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Standard 5-field cron expression (minute hour dom month dow).
-                </p>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="task-cron">Schedule (cron)</Label>
+                  <Input
+                    id="task-cron"
+                    value={form.cronSchedule}
+                    onChange={(e) => update("cronSchedule", e.target.value)}
+                    placeholder="0 9 * * *"
+                    required
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Standard 5-field cron expression (minute hour dom month dow). Runs
+                    must be at least {formatScheduleInterval(minimumScheduleIntervalSeconds)} apart.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="task-cron-timezone">Time zone</Label>
+                  <Select
+                    id="task-cron-timezone"
+                    value={form.cronTimezone}
+                    onChange={(e) => update("cronTimezone", e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                  >
+                    {timeZoneOptions.map((timeZone) => (
+                      <option key={timeZone} value={timeZone}>
+                        {TIME_ZONE_LABELS[timeZone] ?? timeZone}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    UTC by default. Named zones automatically follow daylight-saving changes.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -278,22 +428,30 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Fill in at least one field; empty fields count as 0. Values
-                  add up (e.g. 1 hour + 30 minutes = every 90 minutes).
+                  add up (e.g. 1 hour + 30 minutes = every 90 minutes). Minimum: {" "}
+                  {formatScheduleInterval(minimumScheduleIntervalSeconds)}. Intervals are elapsed
+                  durations, so time zones do not apply.
                 </p>
               </div>
             )}
 
             {form.triggerType === "webhook" && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="task-webhook-provider">Provider</Label>
-                  <select
+                  <Select
                     id="task-webhook-provider"
                     value={form.webhookProvider}
-                    onChange={(e) => update("webhookProvider", e.target.value)}
+                    onChange={(e) => updateWebhookProvider(e.target.value as WebhookProvider)}
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {WEBHOOK_PROVIDER_OPTIONS.map((opt) => (
+                    {task?.trigger.type === "webhook" &&
+                      !enabledWebhookProviders.includes(form.webhookProvider as WebhookProvider) && (
+                        <option value={form.webhookProvider} disabled>
+                          {form.webhookProvider} (disabled by deployment)
+                        </option>
+                      )}
+                    {availableProviderOptions.map((opt) => (
                       <option
                         key={opt.value}
                         value={opt.value}
@@ -305,52 +463,130 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
                         {opt.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="task-webhook-secret">HMAC secret (optional)</Label>
-                  <Input
-                    id="task-webhook-secret"
-                    value={form.webhookSecret}
-                    onChange={(e) => update("webhookSecret", e.target.value)}
-                    type="password"
-                    placeholder={
-                      isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret
-                        ? "secret already configured — type to replace"
-                        : "leave blank to accept unsigned payloads"
-                    }
-                  />
-                  {isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret && (
-                    <p className="text-xs text-muted-foreground">
-                      The existing secret is hidden for security. Leave this field blank to keep it unchanged.
-                    </p>
+                <WebhookPayloadNotice provider={form.webhookProvider} />
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <div className="space-y-1">
+                    <Label>Filter deliveries</Label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.webhookFilterEnabled}
+                        onChange={(e) => update("webhookFilterEnabled", e.target.checked)}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      Only run the agent when all conditions match
+                    </label>
+                  </div>
+
+                  {form.webhookFilterEnabled && (
+                    <div className="space-y-3">
+                      {form.webhookFilterConditions.map((condition, index) => (
+                        <div
+                          key={index}
+                          className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-[8rem_1fr_1fr_auto]"
+                          data-testid="webhook-filter-condition"
+                        >
+                          <Select
+                            value={condition.source}
+                            onChange={(e) => updateFilterCondition(index, {
+                              source: e.target.value as "payload" | "header",
+                              field: "",
+                            })}
+                            aria-label={`Filter ${index + 1} source`}
+                            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                          >
+                            <option value="payload">Payload</option>
+                            <option value="header">Header</option>
+                          </Select>
+                          <Input
+                            value={condition.field}
+                            onChange={(e) => updateFilterCondition(index, { field: e.target.value })}
+                            placeholder={condition.source === "payload" ? "event.type" : "X-Event-Type"}
+                            aria-label={`Filter ${index + 1} field`}
+                          />
+                          <Input
+                            value={condition.values}
+                            onChange={(e) => updateFilterCondition(index, { values: e.target.value })}
+                            placeholder="Accepted values, comma-separated"
+                            aria-label={`Filter ${index + 1} accepted values`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Remove filter ${index + 1}`}
+                            onClick={() => update(
+                              "webhookFilterConditions",
+                              form.webhookFilterConditions.filter((_, currentIndex) => currentIndex !== index),
+                            )}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={form.webhookFilterConditions.length >= 16}
+                        onClick={() => update("webhookFilterConditions", [
+                          ...form.webhookFilterConditions,
+                          { source: "payload", field: "", values: "" },
+                        ])}
+                      >
+                        Add condition
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        Field names and exact accepted values only; no filter code is executed.
+                        Conditions use AND, while comma-separated values within one condition use OR.
+                        Example: {FILTER_EXAMPLES[form.webhookProvider as WebhookProvider] ?? "Payload event.type = created"}.
+                        {form.webhookProvider === "github" && (
+                          <>{" "}<a
+                            href={GITHUB_WEBHOOK_DOCS_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline underline-offset-2 hover:text-foreground"
+                          >
+                            GitHub event documentation
+                          </a>.</>
+                        )}
+                      </p>
+                    </div>
                   )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Non-matching signed deliveries are acknowledged without creating a run or
+                    invoking the agent.
+                  </p>
                 </div>
+                {isEdit && ["slack", "pagerduty"].includes(form.webhookProvider) ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="task-webhook-secret">
+                      {form.webhookProvider === "slack" ? "Slack" : "PagerDuty"} signing secret
+                    </Label>
+                    <Input
+                      id="task-webhook-secret"
+                      value={form.webhookSecret}
+                      onChange={(e) => update("webhookSecret", e.target.value)}
+                      type="password"
+                      placeholder="Paste a new provider-issued secret to rotate it"
+                    />
+                    {task?.trigger.type === "webhook" && task.trigger.has_secret && (
+                      <p className="text-xs text-muted-foreground">
+                        A signing secret is securely stored. Leave this blank to keep it unchanged.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {form.webhookProvider === "slack" || form.webhookProvider === "pagerduty"
+                      ? "After creation, paste the signing secret issued by this provider."
+                      : "A strong signing secret will be generated automatically and shown once after creation."}
+                  </p>
+                )}
               </div>
             )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="task-timeout">Timeout (seconds, optional)</Label>
-              <Input
-                id="task-timeout"
-                value={form.timeoutSeconds}
-                onChange={(e) => update("timeoutSeconds", e.target.value)}
-                inputMode="decimal"
-                placeholder="defaults to A2A_TIMEOUT_SECONDS"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="task-retries">Max retries (optional)</Label>
-              <Input
-                id="task-retries"
-                value={form.maxRetries}
-                onChange={(e) => update("maxRetries", e.target.value)}
-                inputMode="numeric"
-                placeholder="defaults to A2A_MAX_RETRIES"
-              />
-            </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm">
@@ -382,7 +618,7 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
               {submitting ? "Saving…" : isEdit ? "Save changes" : "Create task"}
             </Button>
           </DialogFooter>
-        </form>
+        </form>}
       </DialogContent>
     </Dialog>
   );

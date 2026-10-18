@@ -57,7 +57,8 @@ export interface IngestionSourceConfigBase {
   creator_display_name?: string | null;
   creator_email?: string | null;
   search_user_display_names?: string[];
-  /** Search access inherited through RAG collections. */
+  /** Collections this source is a member of. Informational only - membership
+   * grants no Search access; see search_with_teams/search_with_users. */
   rag_collections?: RagCollectionMembershipLabel[];
   /** Active publication request created by the current user, when present. */
   _publication_request?: PendingPublicationRequestView;
@@ -72,6 +73,10 @@ export interface IngestionSourceConfigBase {
   ingestion_job_id?: string;
   /** Human-readable trigger failure retained so the UI can offer a retry. */
   last_error?: string;
+  /** Hash of the config-driven fields used to detect declarative changes. */
+  config_hash?: string;
+  /** Short-lived claim preventing duplicate seed ingestion across UI replicas. */
+  config_seed_claimed_at?: string;
 
   created_at: string;
   updated_at: string;
@@ -88,22 +93,28 @@ export interface ConfluenceSpaceSource extends IngestionSourceConfigBase {
   source_type: "confluence_space";
   confluence_url: string;
   space_key: string;
-  /** Concrete page used to start the initial crawl for this space. */
+  /** Concrete page, folder, or whole-space URL used to start the initial crawl. */
   start_page_url?: string;
-  /** Adopted legacy configuration selected the entire space (no root page). */
+  /** Discriminates what `start_page_url` points at. Defaults to "page" when absent (legacy sources). */
+  content_kind?: "page" | "folder" | "space";
+  /** Imported configuration selected the entire space (no root page). */
   whole_space?: boolean;
+  /** Ignored for folder/space sources, which always ingest every nested page. */
   get_child_pages?: boolean;
   allowed_title_patterns?: string[];
   denied_title_patterns?: string[];
   /**
-   * Full legacy page selection retained during config migration. New sources
-   * normally contain one entry, while an adopted env-configured space may
-   * contain several roots or an empty array meaning "the whole space".
+   * Full imported page selection retained during config migration. New sources
+   * normally contain one entry, while an adopted whole-space source may
+   * contain several roots or an empty array meaning "the whole space". Each
+   * entry has exactly one of `page_id` or `folder_id` set, matching
+   * `content_kind` — a folder entry expands to every page nested under it.
    */
   page_configs?: Array<{
-    page_id: string;
+    page_id?: string;
+    folder_id?: string;
     source?: string | null;
-    get_child_pages: boolean;
+    get_child_pages?: boolean;
   }>;
 }
 
@@ -127,6 +138,21 @@ export interface JiraProjectSource extends IngestionSourceConfigBase {
 
 export type WebCrawlMode = "single" | "sitemap" | "recursive";
 
+/**
+ * Request header attached to web crawl fetches.
+ *
+ * A static header carries its value directly and omits `secret_ref`. A
+ * credential-backed header marks the value's position with the literal
+ * `{{secret}}`; the ingestor resolves `secret_ref` against the credential store
+ * and substitutes it server-side, so the plaintext never travels with the source
+ * configuration. The placeholder and the reference are only ever set together.
+ */
+export interface WebAuthHeader {
+  header_name: string;
+  value_template: string;
+  secret_ref?: string;
+}
+
 export interface WebSourceSettings {
   crawl_mode: WebCrawlMode;
   max_depth?: number;
@@ -144,6 +170,7 @@ export interface WebSourceSettings {
   chunk_overlap?: number;
   user_agent?: string | null;
   allow_non_public_urls?: boolean;
+  auth_headers?: WebAuthHeader[];
 }
 
 export interface WebUrlSource extends IngestionSourceConfigBase {

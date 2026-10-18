@@ -37,14 +37,27 @@ jest.mock('lucide-react', () => ({
   ChevronDown: (props: Record<string, unknown>) => <span data-testid="icon-down" {...props} />,
   ChevronRight: (props: Record<string, unknown>) => <span data-testid="icon-right" {...props} />,
   MessageSquare: (props: Record<string, unknown>) => <span data-testid="icon-chat" {...props} />,
+  Send: () => <span />,
+}));
+
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => (
+    <div data-testid="markdown-renderer">{content}</div>
+  ),
 }));
 
 // The component fetches via `autonomousApi.listRuns`; we stub the
 // whole module so each test can hand-tailor the returned runs.
 const mockListRuns = jest.fn();
+const mockOpenChat = jest.fn();
+const mockListChats = jest.fn();
+const mockPush = jest.fn();
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('../api', () => ({
   autonomousApi: {
     listRuns: (...args: unknown[]) => mockListRuns(...args),
+    openFollowUpChat: (...args: unknown[]) => mockOpenChat(...args),
+    listFollowUpChats: (...args: unknown[]) => mockListChats(...args),
   },
   AutonomousApiError: class extends Error {
     status = 0;
@@ -66,12 +79,16 @@ function makeRun(overrides: Partial<TaskRun> = {}): TaskRun {
     response_preview: 'all good',
     error: null,
     conversation_id: '11111111-1111-1111-1111-111111111111',
+    execution_context_id: 'isolated-run-context',
     ...overrides,
   };
 }
 
 beforeEach(() => {
   mockListRuns.mockReset();
+  mockOpenChat.mockReset();
+  mockListChats.mockReset().mockResolvedValue({});
+  mockPush.mockReset();
 });
 
 afterEach(() => {
@@ -141,5 +158,116 @@ describe('RunHistory deep-link to chat', () => {
     const hrefs = links.map((l) => l.getAttribute('href'));
     expect(hrefs).toContain(`/chat/${runA.conversation_id}`);
     expect(hrefs).toContain(`/chat/${runB.conversation_id}`);
+  });
+});
+
+describe('RunHistory webhook results', () => {
+  it('renders the complete webhook response as markdown instead of the preview', async () => {
+    const run = makeRun({
+      conversation_id: null,
+      response_preview: 'Short **preview**',
+      response_full: '# Full result\n\n- first\n- second',
+    });
+    mockListRuns.mockResolvedValue([run]);
+
+    render(<RunHistory taskId="t-1" triggerType="webhook" />);
+    fireEvent.click(await screen.findByText(run.run_id));
+
+    expect(screen.getByText('Result')).toBeInTheDocument();
+    expect(screen.queryByText('Response preview')).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId('webhook-run-result').querySelector('[data-testid="markdown-renderer"]'),
+    ).toHaveTextContent(
+      '# Full result - first - second',
+    );
+    expect(screen.queryByText('Short **preview**')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the preview for webhook runs created before response_full existed', async () => {
+    const run = makeRun({
+      conversation_id: null,
+      response_preview: '**Legacy result**',
+      response_full: null,
+    });
+    mockListRuns.mockResolvedValue([run]);
+
+    render(<RunHistory taskId="t-1" triggerType="webhook" />);
+    fireEvent.click(await screen.findByText(run.run_id));
+
+    expect(
+      screen.getByTestId('webhook-run-result').querySelector('[data-testid="markdown-renderer"]'),
+    ).toHaveTextContent('**Legacy result**');
+  });
+
+  it('keeps the compact preview for non-webhook runs', async () => {
+    const run = makeRun({
+      response_preview: 'Compact preview',
+      response_full: '# Full scheduled result',
+    });
+    mockListRuns.mockResolvedValue([run]);
+
+    render(<RunHistory taskId="t-1" triggerType="cron" />);
+    fireEvent.click(await screen.findByText(run.run_id));
+
+    expect(screen.getByText('Response preview')).toBeInTheDocument();
+    expect(screen.getByText('Compact preview')).toBeInTheDocument();
+    expect(screen.queryByTestId('markdown-renderer')).not.toBeInTheDocument();
+  });
+});
+
+describe('RunHistory manual follow-up chats', () => {
+  it.each(['cron', 'interval', 'webhook'] as const)(
+    'opens a separate chat for either the older or latest %s run',
+    async (triggerType) => {
+      const older = makeRun({ run_id: 'older' });
+      const latest = makeRun({ run_id: 'latest', started_at: '2026-04-20T10:00:00Z' });
+      mockListRuns.mockResolvedValue([older, latest]);
+      mockOpenChat.mockImplementation(async (_taskId, runId) => ({ conversation_id: runId + '-chat' }));
+      render(<RunHistory taskId="t-1" triggerType={triggerType} allowFollowUp />);
+      fireEvent.click(await screen.findByText('older'));
+      fireEvent.click(screen.getByText('latest'));
+      expect(screen.queryByRole('textbox')).toBeNull();
+      const buttons = screen.getAllByRole('button', { name: 'Continue this run' });
+      expect(buttons).toHaveLength(2);
+      fireEvent.click(buttons[0]);
+      await waitFor(() => expect(mockOpenChat).toHaveBeenCalledWith('t-1', 'latest'));
+      expect(mockPush).toHaveBeenCalledWith('/chat/latest-chat');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue this run' }));
+      await waitFor(() => expect(mockOpenChat).toHaveBeenCalledWith('t-1', 'older'));
+      expect(mockPush).toHaveBeenCalledWith('/chat/older-chat');
+    },
+  );
+
+  it('renders a persistent link to an existing private follow-up after reload', async () => {
+    mockListRuns.mockResolvedValue([makeRun()]);
+    mockListChats.mockResolvedValue({ 'r-1': 'manual-chat' });
+    render(<RunHistory taskId="t-1" triggerType="webhook" allowFollowUp />);
+    fireEvent.click(await screen.findByText('r-1'));
+    expect(await screen.findByRole('link', { name: 'Open manual follow-up' })).toHaveAttribute('href', '/chat/manual-chat');
+    expect(mockOpenChat).not.toHaveBeenCalled();
+  });
+
+  it('reports branch creation failures and allows retry', async () => {
+    mockListRuns.mockResolvedValue([makeRun()]);
+    mockOpenChat.mockRejectedValueOnce(new Error('Context unavailable')).mockResolvedValueOnce({ conversation_id: 'manual-chat' });
+    render(<RunHistory taskId="t-1" triggerType="webhook" allowFollowUp />);
+    fireEvent.click(await screen.findByText('r-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue this run' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Context unavailable');
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue this run' }));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/chat/manual-chat'));
+  });
+
+  it.each([
+    { status: 'running' as const },
+    { status: 'pending' as const },
+    { execution_context_id: null },
+  ])('does not offer continuation for an unfinished or context-less run: %s', async (overrides) => {
+    mockListRuns.mockResolvedValue([makeRun(overrides)]);
+    render(<RunHistory taskId="t-1" triggerType="cron" allowFollowUp />);
+    fireEvent.click(await screen.findByText('r-1'));
+    expect(screen.queryByRole('button', { name: 'Continue this run' })).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });

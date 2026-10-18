@@ -14,6 +14,7 @@ fullnameOverride: ""
 
 serviceAccount:
   create: true
+  automount: false
   annotations: {}
   name: ""
 
@@ -38,15 +39,24 @@ migrate:
   backoffLimit: 6
   helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
   argocdHookDeletePolicy: "BeforeHookCreation,HookSucceeded"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 playground:
   enabled: false
 
 init:
   enabled: true
+  # -- Existing same-namespace ConfigMap containing authorization-model.json. Empty uses the bundled model; seed.py remains chart-owned.
+  existingModelConfigMap: ""
   image:
     repository: python
-    tag: "3.13-slim"
+    tag: "3.14-slim"
     pullPolicy: IfNotPresent
   storeName: caipe-openfga
   seedSub: ""
@@ -62,6 +72,13 @@ init:
   backoffLimit: 6
   helmHookDeletePolicy: "before-hook-creation"
   argocdHookDeletePolicy: "BeforeHookCreation"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 resources:
   requests:
@@ -95,3 +112,11 @@ securityContext:
       - ALL
   seccompProfile:
     type: RuntimeDefault
+
+# PodDisruptionBudget: prevents simultaneous eviction of all replicas during voluntary disruptions.
+# Enable in production; leave disabled for local/single-node environments.
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  # minAvailable: 1  # alternative: require at least N pods available (multi-replica only)
+  annotations: {}

@@ -19,17 +19,14 @@ describe("formState.toFormState", () => {
       llm_provider: "anthropic",
       trigger: { type: "cron", schedule: "0 0 * * *" },
       enabled: false,
-      timeout_seconds: 30,
-      max_retries: 2,
     };
     expect(toFormState(task)).toEqual(
       expect.objectContaining({
         id: "nightly",
         triggerType: "cron",
         cronSchedule: "0 0 * * *",
+        cronTimezone: "UTC",
         enabled: false,
-        timeoutSeconds: "30",
-        maxRetries: "2",
       }),
     );
   });
@@ -53,19 +50,34 @@ describe("formState.toFormState", () => {
     );
   });
 
-  it("maps webhook provider and leaves secret blank even when has_secret=true on the server", () => {
+  it("maps webhook provider, filter, and leaves a stored secret blank", () => {
     const task: AutonomousTask = {
       id: "hook",
       name: "N",
       agent: null,
       prompt: "p",
-      trigger: { type: "webhook", provider: "jira", has_secret: true },
+      trigger: {
+        type: "webhook",
+        provider: "github",
+        has_secret: true,
+        filter: {
+          conditions: [
+            { source: "header", field: "X-GitHub-Event", values: ["pull_request"] },
+            { source: "payload", field: "action", values: ["closed"] },
+          ],
+        },
+      },
       enabled: true,
     };
     expect(toFormState(task)).toEqual(
       expect.objectContaining({
-        webhookProvider: "jira",
+        webhookProvider: "github",
         webhookSecret: "",
+        webhookFilterEnabled: true,
+        webhookFilterConditions: [
+          { source: "header", field: "X-GitHub-Event", values: "pull_request" },
+          { source: "payload", field: "action", values: "closed" },
+        ],
       }),
     );
   });
@@ -98,11 +110,11 @@ describe("formState.fromFormState", () => {
   });
 
   it("parses a valid cron task", () => {
-    const result = fromFormState({ ...base, triggerType: "cron", cronSchedule: "*/5 * * * *" });
+    const result = fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *" });
     expect(result).toEqual({
       task: expect.objectContaining({
         id: "my_task",
-        trigger: { type: "cron", schedule: "*/5 * * * *" },
+        trigger: { type: "cron", schedule: "0 9 * * *", timezone: "UTC" },
       }),
     });
   });
@@ -111,6 +123,33 @@ describe("formState.fromFormState", () => {
     expect(
       fromFormState({ ...base, triggerType: "cron", cronSchedule: "   " }),
     ).toEqual({ error: expect.stringMatching(/Cron schedule/) });
+  });
+
+  it("round-trips an IANA timezone for cron schedules", () => {
+    const task: AutonomousTask = {
+      id: "london-morning",
+      name: "London morning",
+      agent: null,
+      prompt: "report",
+      trigger: {
+        type: "cron",
+        schedule: "0 9 * * *",
+        timezone: "Europe/London",
+      },
+      enabled: true,
+    };
+
+    const form = toFormState(task);
+    expect(form.cronTimezone).toBe("Europe/London");
+    expect(fromFormState(form)).toEqual({
+      task: expect.objectContaining({
+        trigger: {
+          type: "cron",
+          schedule: "0 9 * * *",
+          timezone: "Europe/London",
+        },
+      }),
+    });
   });
 
   it("requires at least one interval field", () => {
@@ -128,11 +167,29 @@ describe("formState.fromFormState", () => {
     ).toEqual({ error: expect.stringMatching(/positive whole numbers/) });
   });
 
-  it("maps webhook with blank secret to null", () => {
+  it("rejects intervals below the default 30-minute minimum", () => {
+    expect(
+      fromFormState({ ...base, triggerType: "interval", intervalMinutes: "29" }),
+    ).toEqual({ error: "Interval must be at least 30 minutes." });
+  });
+
+  it("accepts the configured interval minimum", () => {
+    const result = fromFormState(
+      { ...base, triggerType: "interval", intervalMinutes: "10" },
+      600,
+    );
+    expect(result).toEqual({
+      task: expect.objectContaining({
+        trigger: { type: "interval", seconds: null, minutes: 10, hours: null },
+      }),
+    });
+  });
+
+  it("maps webhook with blank secret to null for server generation/preservation", () => {
     const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "   " });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", provider: "generic_hmac", secret: null },
+        trigger: { type: "webhook", provider: "github", secret: null },
       }),
     });
   });
@@ -151,26 +208,90 @@ describe("formState.fromFormState", () => {
     });
   });
 
-  it("parses optional timeout and maxRetries", () => {
+  it("maps structured header and payload filters for any provider", () => {
     const result = fromFormState({
       ...base,
-      triggerType: "cron",
-      cronSchedule: "0 9 * * *",
-      timeoutSeconds: "60",
-      maxRetries: "3",
+      triggerType: "webhook",
+      webhookProvider: "jira",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [
+        { source: "header", field: " X-Event-Type ", values: " issue_updated " },
+        { source: "payload", field: "issue.status.name", values: "Done, Closed, Done" },
+      ],
     });
     expect(result).toEqual({
-      task: expect.objectContaining({ timeout_seconds: 60, max_retries: 3 }),
+      task: expect.objectContaining({
+        trigger: {
+          type: "webhook",
+          provider: "jira",
+          secret: null,
+          filter: {
+            conditions: [
+              { source: "header", field: "X-Event-Type", values: ["issue_updated"] },
+              { source: "payload", field: "issue.status.name", values: ["Done", "Closed"] },
+            ],
+          },
+        },
+      }),
     });
   });
 
-  it("rejects invalid timeout and maxRetries", () => {
-    expect(
-      fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *", timeoutSeconds: "-1" }),
-    ).toEqual({ error: expect.stringMatching(/Timeout/) });
-    expect(
-      fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *", maxRetries: "1.5" }),
-    ).toEqual({ error: expect.stringMatching(/Max retries/) });
+  it("requires a field and accepted value when filtering is enabled", () => {
+    expect(fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [{ source: "payload", field: " ", values: "closed" }],
+    })).toEqual({ error: expect.stringMatching(/field name/) });
+
+    expect(fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [{ source: "payload", field: "action", values: " " }],
+    })).toEqual({ error: expect.stringMatching(/at least one accepted value/) });
+  });
+
+  it("rejects unsafe payload paths and header names", () => {
+    expect(fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [{ source: "payload", field: "items[0].name", values: "x" }],
+    })).toEqual({ error: expect.stringMatching(/dot paths/) });
+
+    expect(fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [{ source: "header", field: "X Event", values: "x" }],
+    })).toEqual({ error: expect.stringMatching(/HTTP header/) });
+  });
+
+  it("sends filters for non-GitHub providers", () => {
+    const result = fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookProvider: "jira",
+      webhookFilterEnabled: true,
+      webhookFilterConditions: [
+        { source: "payload", field: "webhookEvent", values: "jira:issue_updated" },
+      ],
+    });
+    expect(result).toEqual({
+      task: expect.objectContaining({
+        trigger: {
+          type: "webhook",
+          provider: "jira",
+          secret: null,
+          filter: {
+            conditions: [
+              { source: "payload", field: "webhookEvent", values: ["jira:issue_updated"] },
+            ],
+          },
+        },
+      }),
+    });
   });
 
   it("converts empty agent to null", () => {
@@ -181,7 +302,9 @@ describe("formState.fromFormState", () => {
 
 describe("formState.summarizeTrigger", () => {
   it("summarises cron", () => {
-    expect(summarizeTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe("Cron: 0 9 * * *");
+    expect(summarizeTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe(
+      "Cron: 0 9 * * * (UTC)",
+    );
   });
   it("summarises interval", () => {
     expect(
@@ -190,7 +313,7 @@ describe("formState.summarizeTrigger", () => {
   });
   it("summarises webhook with/without secret", () => {
     expect(summarizeTrigger({ type: "webhook", provider: "jira", has_secret: true })).toBe("Webhook: jira (signed)");
-    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: generic_hmac");
+    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
   });
 });
 

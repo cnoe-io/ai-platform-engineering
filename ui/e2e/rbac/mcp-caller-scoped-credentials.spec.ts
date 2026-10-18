@@ -212,7 +212,7 @@ test.describe("RBAC e2e — caller-scoped MCP credentials", () => {
       await dismissReleaseUpgradeDialog(page);
       await expectChatComposerReady(page);
 
-      const composer = page.locator("textarea").first();
+      const composer = page.getByRole("textbox", { name: "Message" });
       await composer.fill("List my Jira issues");
       await composer.press("Enter");
 
@@ -230,10 +230,13 @@ test.describe("RBAC e2e — caller-scoped MCP credentials", () => {
       await expect(page.getByText(/cannot access Jira without your Atlassian connection/i)).toBeVisible();
 
       await installCredentialsBrowserMocks(page);
-      await connectLink.click({ force: true });
-
-      await expect(page).toHaveURL(/\/credentials\/connections$/);
-      await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
+      const connectedAppsPage = await Promise.all([
+        page.waitForEvent("popup"),
+        connectLink.click({ force: true }),
+      ]).then(([popup]) => popup);
+      await connectedAppsPage.waitForLoadState("domcontentloaded");
+      await expect(connectedAppsPage).toHaveURL(/\/credentials\/connections$/);
+      await expect(connectedAppsPage.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     });
   });
 });

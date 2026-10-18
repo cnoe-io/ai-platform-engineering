@@ -13,6 +13,7 @@ tags:
   mcp-jira: false
   mcp-komodor: false
   mcp-pagerduty: false
+  mcp-sharepoint: false
   mcp-slack: false
   mcp-splunk: false
   mcp-victorops: false
@@ -374,8 +375,8 @@ metrics:
     labels:
       grafana_dashboard: "1"
 
-# Extra Kubernetes resources to deploy
-extraDeploy: []
+# -- Extra Kubernetes resources keyed by a stable, deployment-defined name. Use this form when Helm --set/--set-file must target individual resources.
+extraDeployMap: {}
 
 # ---------------------------------------------------------------------------
 # Live-skills command template (rendered as the `/skills` slash command
@@ -553,6 +554,28 @@ mcp-pagerduty:
     port: 8000
     agentgateway:
       enabled: false
+      protocol: StreamableHTTP
+
+mcp-sharepoint:
+  nameOverride: "mcp-sharepoint"
+  mcpSecrets:
+    requiresSecret: true
+    create: false
+    secretName: "mcp-sharepoint-secret"
+  mcp:
+    image:
+      repository: "ghcr.io/caipe-io/mcp-sharepoint"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    mode: "http"
+    port: 8000
+    env:
+      MCP_AUTH_MODE: "none"
+    agentgateway:
+      enabled: true
+      id: sharepoint
+      pathPrefix: /mcp/sharepoint
       protocol: StreamableHTTP
 
 mcp-slack:
@@ -963,7 +986,9 @@ caipe-ui:
   #   oauth mode → IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY (PEM PKCS#8)
   existingSecret: ""
 
-  # MongoDB configuration for CAIPE UI persistence (in-cluster; disable for BYO)
+  # Enable switch for the in-cluster MongoDB-compatible persistence subchart.
+  # Provider/image/auth values are configured under the top-level `mongodb`
+  # alias below; this path remains here for backward-compatible enablement.
   mongodb:
     nameOverride: "mongodb"
     enabled: false  # Set to true to enable MongoDB
@@ -1006,6 +1031,39 @@ caipe-ui:
         #   remoteRef:
         #     key: dev/mongodb
         #     property: password
+
+# Values passed to the `mongodb` dependency alias. MongoDB remains the default;
+# set provider=documentdb together with caipe-ui.mongodb.enabled=true to use the
+# MIT-licensed PostgreSQL-backed implementation.
+mongodb:
+  provider: mongodb
+  nameOverride: mongodb
+  image:
+    repository: mongo
+    tag: "7.0"
+    pullPolicy: IfNotPresent
+  documentdb:
+    image:
+      repository: ghcr.io/documentdb/documentdb/documentdb-local
+      tag: "pg17-0.113.0"
+      pullPolicy: IfNotPresent
+    port: 10260
+    postgresPort: 9712
+    dataPath: /data
+    tlsMode: allowTLS
+    logLevel: warn
+    telemetryEnabled: false
+  service:
+    port: 27017
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+  auth:
+    rootUsername: admin
+    rootPassword: changeme
+    database: caipe
+  strictPasswords: false
 
 ######### LiteLLM MCP configuration #########
 # Standalone MCP server for LiteLLM FinOps reporting.
@@ -1129,6 +1187,9 @@ dynamic-agents:
     # the in-cluster default http://<release-name>-caipe-ui:3000; override only
     # when pointing dynamic-agents at an external CAIPE UI/BFF.
     CAIPE_API_URL: ""
+    AUTHZ_SERVICE_URL: ""
+    # Must match caipe-ui.config.CAIPE_ORG_KEY.
+    CAIPE_ORG_KEY: "caipe"
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
     # MCP server IDs routed through AgentGateway. "all" only applies to
@@ -1170,6 +1231,12 @@ dynamic-agents:
 # full recipe.
 autonomous-agents:
   nameOverride: "autonomous-agents"
+  # Restrict which supported webhook providers users may configure.
+  enabledWebhookProviders:
+    - github
+    - jira
+    - slack
+    - pagerduty
   image:
     repository: "ghcr.io/caipe-io/caipe-autonomous-agents"
     # tag defaults to .Chart.AppVersion when not specified
@@ -1177,17 +1244,19 @@ autonomous-agents:
     pullPolicy: "IfNotPresent"
   service:
     port: 8002
-  # Authenticate scheduled calls to Dynamic Agents with the bundled Keycloak
-  # platform client. Override tokenUrl and the Secret reference when using an
-  # external identity provider or a custom platform-client Secret.
+  # Mint the task owner's bearer with the bundled Keycloak scheduler-runner
+  # client. Dynamic Agents uses that identity for both authorization and
+  # caller-scoped MCP credentials. External IdPs must support RFC 8693
+  # requested_subject token exchange.
   dynamicAgentsAuth:
     enabled: true
     tokenUrl: ""
-    clientId: "caipe-platform"
-    scope: "openid profile email"
+    clientId: "caipe-scheduler-runner"
+    audience: "caipe-platform"
+    scope: ""
     clientSecretRef:
-      name: "caipe-platform-secret"
-      key: "OIDC_CLIENT_SECRET"
+      name: ""
+      key: "KC_SCHEDULER_CLIENT_SECRET"
   # ConfigMap for non-sensitive configuration.
   # DYNAMIC_AGENTS_URL defaults to the in-release dynamic-agents Service in the
   # autonomous-agents subchart helper. Set it here only to override that default.
@@ -1195,6 +1264,18 @@ autonomous-agents:
     # Dynamic-agents runtime endpoint -- every autonomous task runs against a
     # dynamic agent selected by the task's dynamic_agent_id.
     DYNAMIC_AGENTS_URL: ""
+    # Minimum gap between cron/interval fires. Webhook triggers are exempt.
+    MINIMUM_SCHEDULE_INTERVAL_SECONDS: "1800"
+    # Reject larger webhook bodies before parsing/signature verification.
+    WEBHOOK_MAX_PAYLOAD_BYTES: "1048576"
+    # Each task is a single-consumer FIFO. Bound queued work separately from
+    # execution concurrency across different tasks.
+    WEBHOOK_MAX_PENDING_PER_TASK: "100"
+    WEBHOOK_MAX_PENDING_PER_OWNER: "500"
+    WEBHOOK_MAX_PENDING_GLOBAL: "5000"
+    WEBHOOK_MAX_PENDING_PAYLOAD_BYTES_GLOBAL: "67108864"
+    WEBHOOK_MAX_CONCURRENT_PER_OWNER: "20"
+    WEBHOOK_MAX_CONCURRENT_GLOBAL: "100"
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
   # Pre-existing secret with MONGODB_URI (required), WEBHOOK_SECRET, and
@@ -1248,6 +1329,9 @@ scheduler:
     existingSecret: ""
     existingSecretKey: "token"
     value: ""
+  limits:
+    # -- Minimum permitted gap, in seconds, between recurring cron fires.
+    minimumScheduleIntervalSeconds: 1800
 # Scheduler MCP. Rendered whenever the scheduler feature is enabled unless this
 # narrower switch is disabled. It shares the scheduler service token Secret.
 schedulerMcp:
@@ -1357,10 +1441,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: slack_client_secret
-      # - secretKey: SLACK_LINK_HMAC_SECRET
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: slack_link_hmac_secret
       # - secretKey: OAUTH2_CLIENT_SECRET
       #   remoteRef:
       #     key: prod/slack-bot
@@ -1541,6 +1621,8 @@ openfga:
     pullPolicy: IfNotPresent
   init:
     enabled: true
+    # -- Existing same-namespace ConfigMap containing the complete composed authorization-model.json. Empty uses the bundled model.
+    existingModelConfigMap: ""
     storeName: caipe-openfga
     seedTuples: []
     platformClient:
@@ -1573,6 +1655,7 @@ openfga-authz-bridge:
     pullPolicy: IfNotPresent
   # Must match caipe-ui.config.CAIPE_ORG_KEY.
   organizationKey: caipe
+  imagePullSecrets: []
   openfga:
     httpUrl: ""
     storeName: caipe-openfga
@@ -1596,6 +1679,11 @@ openfga-authz-bridge:
     serviceUrl: ""
     tenantId: default
     subjectSalt: caipe-098-audit
+    # Routine allows are stored as periodic aggregate counts; denials and policy
+    # changes are always stored per-event. Enable only for a bounded
+    # investigation or compliance window.
+    fullFidelityAllows: false
+    allowRollupFlushSeconds: 60
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

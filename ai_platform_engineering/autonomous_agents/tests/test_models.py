@@ -1,6 +1,5 @@
 """Tests for autonomous_agents Pydantic models."""
 
-import pydantic
 import pytest
 
 from autonomous_agents.models import (
@@ -10,6 +9,8 @@ from autonomous_agents.models import (
     TaskRun,
     TaskStatus,
     TriggerType,
+    WebhookDeliveryFilter,
+    WebhookFilterCondition,
     WebhookTrigger,
 )
 
@@ -22,6 +23,16 @@ class TestTriggerTypes:
         trigger = CronTrigger(schedule="0 9 * * *")
         assert trigger.type == TriggerType.CRON
         assert trigger.schedule == "0 9 * * *"
+        assert trigger.timezone == "UTC"
+
+    def test_cron_trigger_accepts_iana_timezone_and_rejects_unknown_zone(self):
+        trigger = CronTrigger(
+            schedule="0 9 * * *", timezone=" Europe/London "
+        )
+        assert trigger.timezone == "Europe/London"
+
+        with pytest.raises(ValueError, match="Unknown IANA timezone"):
+            CronTrigger(schedule="0 9 * * *", timezone="Mars/Olympus_Mons")
 
     def test_interval_trigger_type(self):
         """IntervalTrigger reports ``TriggerType.INTERVAL``."""
@@ -42,6 +53,51 @@ class TestTriggerTypes:
 
         trigger_no_secret = WebhookTrigger()
         assert trigger_no_secret.secret is None
+
+    def test_webhook_filter_normalizes_and_deduplicates_values(self):
+        webhook_filter = WebhookDeliveryFilter(
+            conditions=[
+                WebhookFilterCondition(
+                    source="payload",
+                    field=" event.type ",
+                    values=[" closed ", "closed"],
+                )
+            ],
+        )
+        trigger = WebhookTrigger(provider="jira", filter=webhook_filter)
+
+        assert trigger.filter is not None
+        assert trigger.filter.conditions[0].field == "event.type"
+        assert trigger.filter.conditions[0].values == ["closed"]
+
+    def test_webhook_filter_rejects_invalid_fields_and_empty_values(self):
+        with pytest.raises(ValueError, match="dot paths"):
+            WebhookFilterCondition(
+                source="payload", field="event[0]", values=["created"]
+            )
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            WebhookFilterCondition(source="header", field="X-Event", values=[" "])
+
+    def test_legacy_github_filter_shape_is_migrated(self):
+        trigger = WebhookTrigger.model_validate(
+            {
+                "provider": "github",
+                "filter": {"event": "pull_request", "actions": ["closed"]},
+            }
+        )
+
+        assert trigger.filter is not None
+        assert trigger.filter.model_dump() == {
+            "conditions": [
+                {
+                    "source": "header",
+                    "field": "X-GitHub-Event",
+                    "values": ["pull_request"],
+                },
+                {"source": "payload", "field": "action", "values": ["closed"]},
+            ]
+        }
 
 
 class TestTaskDefinition:
@@ -93,59 +149,6 @@ class TestTaskStatus:
         assert TaskStatus.RUNNING == "running"
         assert TaskStatus.SUCCESS == "success"
         assert TaskStatus.FAILED == "failed"
-
-
-class TestPerTaskA2AOverrides:
-    """Per-task ``timeout_seconds`` override."""
-
-    def test_task_definition_a2a_overrides_default_to_none(self):
-        """Without an override the field is None so the scheduler uses Settings."""
-        task = TaskDefinition(
-            id="test",
-            name="Test",
-            agent="github",
-            prompt="x",
-            trigger=CronTrigger(schedule="* * * * *"),
-        )
-        assert task.timeout_seconds is None
-
-    def test_task_definition_accepts_per_task_overrides(self):
-        """Explicit override is stored verbatim."""
-        task = TaskDefinition(
-            id="test",
-            name="Test",
-            agent="github",
-            prompt="x",
-            trigger=CronTrigger(schedule="* * * * *"),
-            timeout_seconds=42.5,
-        )
-        assert task.timeout_seconds == 42.5
-
-    def test_task_definition_rejects_non_positive_timeout(self):
-        """``timeout_seconds`` must be strictly positive."""
-        for bad in (0, -1, -0.5):
-            with pytest.raises(pydantic.ValidationError):
-                TaskDefinition(
-                    id="test",
-                    name="Test",
-                    agent="github",
-                    prompt="x",
-                    trigger=CronTrigger(schedule="* * * * *"),
-                    timeout_seconds=bad,
-                )
-
-    def test_task_definition_rejects_inf_and_nan_timeout(self):
-        """``inf`` / ``-inf`` / ``nan`` timeouts are rejected at construction."""
-        for bad in (float("inf"), float("-inf"), float("nan")):
-            with pytest.raises(pydantic.ValidationError):
-                TaskDefinition(
-                    id="test",
-                    name="Test",
-                    agent="github",
-                    prompt="x",
-                    trigger=CronTrigger(schedule="* * * * *"),
-                    timeout_seconds=bad,
-                )
 
 
 class TestTaskDefinitionOwnerField:

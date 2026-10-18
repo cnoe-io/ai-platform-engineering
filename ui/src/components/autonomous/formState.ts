@@ -10,7 +10,15 @@
  * the exact same cron / interval / webhook parsing + validation logic.
  */
 
-import type { AutonomousTask, TaskFormState } from "./types";
+import type { AutonomousTask, TaskFormState, WebhookFilterCondition } from "./types";
+
+export const DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS = 30 * 60;
+
+export function formatScheduleInterval(seconds: number): string {
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
+  if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return `${seconds} seconds`;
+}
 
 export const EMPTY_FORM: TaskFormState = {
   id: "",
@@ -27,13 +35,14 @@ export const EMPTY_FORM: TaskFormState = {
   enabled: true,
   triggerType: "cron",
   cronSchedule: "0 9 * * *",
+  cronTimezone: "UTC",
   intervalSeconds: "",
   intervalMinutes: "",
   intervalHours: "",
-  webhookProvider: "generic_hmac",
+  webhookProvider: "github",
   webhookSecret: "",
-  timeoutSeconds: "",
-  maxRetries: "",
+  webhookFilterEnabled: false,
+  webhookFilterConditions: [{ source: "payload", field: "", values: "" }],
 };
 
 /** Convert API model -> form state. */
@@ -56,21 +65,28 @@ export function toFormState(task: AutonomousTask | null | undefined): TaskFormSt
     llm_provider: task.llm_provider ?? "",
     enabled: task.enabled,
     triggerType: task.trigger.type,
-    timeoutSeconds: task.timeout_seconds == null ? "" : String(task.timeout_seconds),
-    maxRetries: task.max_retries == null ? "" : String(task.max_retries),
   };
   if (task.trigger.type === "cron") {
     base.cronSchedule = task.trigger.schedule;
+    base.cronTimezone = task.trigger.timezone ?? "UTC";
   } else if (task.trigger.type === "interval") {
     base.intervalSeconds = task.trigger.seconds == null ? "" : String(task.trigger.seconds);
     base.intervalMinutes = task.trigger.minutes == null ? "" : String(task.trigger.minutes);
     base.intervalHours = task.trigger.hours == null ? "" : String(task.trigger.hours);
   } else {
-    base.webhookProvider = task.trigger.provider ?? "generic_hmac";
+    base.webhookProvider = task.trigger.provider ?? "github";
     // Backend never echoes the secret on read paths -- only the
     // ``has_secret`` boolean comes back. Leave the form blank so the
     // operator must explicitly type a new value to *change* it.
     base.webhookSecret = "";
+    if (task.trigger.filter) {
+      base.webhookFilterEnabled = true;
+      base.webhookFilterConditions = task.trigger.filter.conditions.map((condition) => ({
+        source: condition.source,
+        field: condition.field,
+        values: condition.values.join(", "),
+      }));
+    }
   }
   return base;
 }
@@ -83,7 +99,10 @@ export type FormConversionResult =
  * Convert form state -> API model. Returns ``{ error }`` when inputs
  * are invalid so the caller can surface a human-readable message.
  */
-export function fromFormState(form: TaskFormState): FormConversionResult {
+export function fromFormState(
+  form: TaskFormState,
+  minimumScheduleIntervalSeconds = DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+): FormConversionResult {
   const id = form.id.trim();
   const name = form.name.trim();
   const agent = form.agent.trim();
@@ -98,7 +117,11 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
   let trigger: AutonomousTask["trigger"];
   if (form.triggerType === "cron") {
     if (!form.cronSchedule.trim()) return { error: "Cron schedule is required." };
-    trigger = { type: "cron", schedule: form.cronSchedule.trim() };
+    trigger = {
+      type: "cron",
+      schedule: form.cronSchedule.trim(),
+      timezone: form.cronTimezone.trim() || "UTC",
+    };
   } else if (form.triggerType === "interval") {
     const parseField = (raw: string): number | null => {
       const v = raw.trim();
@@ -118,6 +141,12 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
     if (seconds == null && minutes == null && hours == null) {
       return { error: "Interval requires at least one of seconds / minutes / hours." };
     }
+    const totalSeconds = (seconds ?? 0) + (minutes ?? 0) * 60 + (hours ?? 0) * 3600;
+    if (totalSeconds < minimumScheduleIntervalSeconds) {
+      return {
+        error: `Interval must be at least ${formatScheduleInterval(minimumScheduleIntervalSeconds)}.`,
+      };
+    }
     trigger = {
       type: "interval",
       seconds: seconds ?? null,
@@ -125,32 +154,53 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
       hours: hours ?? null,
     };
   } else {
-    const provider = form.webhookProvider.trim() || "generic_hmac";
+    const provider = form.webhookProvider.trim() || "github";
+    let filter: NonNullable<Extract<AutonomousTask["trigger"], { type: "webhook" }>["filter"]> | undefined;
+    if (form.webhookFilterEnabled) {
+      if (form.webhookFilterConditions.length === 0) {
+        return { error: "Add at least one webhook filter condition." };
+      }
+      if (form.webhookFilterConditions.length > 16) {
+        return { error: "Webhook filters support at most 16 conditions." };
+      }
+      const conditions: WebhookFilterCondition[] = [];
+      for (const condition of form.webhookFilterConditions) {
+        const field = condition.field.trim();
+        if (!field) return { error: "Every webhook filter needs a field name." };
+        const validField = condition.source === "payload"
+          ? /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}$/.test(field)
+          : /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(field);
+        if (!validField) {
+          return {
+            error: condition.source === "payload"
+              ? "Payload fields must be dot paths with at most 8 segments."
+              : "Enter a valid HTTP header name.",
+          };
+        }
+        const values = Array.from(new Set(
+          condition.values.split(",").map((value) => value.trim()).filter(Boolean),
+        ));
+        if (values.length === 0) {
+          return { error: `Enter at least one accepted value for '${field}'.` };
+        }
+        if (values.length > 32) {
+          return { error: "Each webhook filter condition supports at most 32 values." };
+        }
+        if (values.some((value) => value.length > 200)) {
+          return { error: "Webhook filter values must be at most 200 characters." };
+        }
+        conditions.push({ source: condition.source, field, values });
+      }
+      filter = { conditions };
+    }
     trigger = {
       type: "webhook",
       provider,
-      // Treat empty input as "no secret" rather than "empty secret" --
-      // the latter would be (correctly) rejected by HMAC validation.
+      // POST generates the initial credential. On edit, a value is present
+      // only when rotating a Slack/PagerDuty-issued secret; null preserves it.
       secret: form.webhookSecret.trim() ? form.webhookSecret.trim() : null,
+      ...(filter ? { filter } : {}),
     };
-  }
-
-  let timeoutSeconds: number | null = null;
-  if (form.timeoutSeconds.trim()) {
-    const n = Number(form.timeoutSeconds);
-    if (!Number.isFinite(n) || n <= 0) {
-      return { error: "Timeout must be a positive number of seconds." };
-    }
-    timeoutSeconds = n;
-  }
-
-  let maxRetries: number | null = null;
-  if (form.maxRetries.trim()) {
-    const n = Number(form.maxRetries);
-    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-      return { error: "Max retries must be a non-negative integer." };
-    }
-    maxRetries = n;
   }
 
   const task: AutonomousTask = {
@@ -169,8 +219,6 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
     llm_provider: form.llm_provider.trim() || null,
     trigger,
     enabled: form.enabled,
-    timeout_seconds: timeoutSeconds,
-    max_retries: maxRetries,
   };
   return { task };
 }
@@ -182,7 +230,7 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
  */
 export function summarizeTrigger(trigger: AutonomousTask["trigger"]): string {
   if (trigger.type === "cron") {
-    return `Cron: ${trigger.schedule}`;
+    return `Cron: ${trigger.schedule} (${trigger.timezone ?? "UTC"})`;
   }
   if (trigger.type === "interval") {
     const parts: string[] = [];
@@ -191,6 +239,6 @@ export function summarizeTrigger(trigger: AutonomousTask["trigger"]): string {
     if (trigger.seconds) parts.push(`${trigger.seconds}s`);
     return parts.length > 0 ? `Every ${parts.join(" ")}` : "Interval (unset)";
   }
-  const provider = trigger.provider ?? "generic_hmac";
+  const provider = trigger.provider ?? "github";
   return trigger.has_secret ? `Webhook: ${provider} (signed)` : `Webhook: ${provider}`;
 }

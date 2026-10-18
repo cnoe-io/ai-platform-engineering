@@ -8,6 +8,7 @@ helpers. The dynamic-agents client is mocked everywhere so no live runtime is re
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -21,7 +22,11 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.services.chat_history import conversation_id_for_task
+from autonomous_agents.services.chat_history import (
+    conversation_id_for_task,
+    conversation_id_for_webhook_run,
+    execution_context_id_for_task_run,
+)
 from autonomous_agents.services.scheduler import (
     get_scheduler,
     register_scheduler_task,
@@ -275,6 +280,7 @@ class TestRunStoreWiring:
             dynamic_agent_id="agent-x",
             prompt="run the custom thing",
             trigger=CronTrigger(schedule="0 9 * * *"),
+            owner_sub="task-owner-sub",
         )
 
         invoke_da = AsyncMock(return_value=("custom agent answer", []))
@@ -292,6 +298,7 @@ class TestRunStoreWiring:
         assert run.response_full == "custom agent answer"
         invoke_da.assert_awaited_once()
         assert invoke_da.await_args.kwargs["agent_id"] == "agent-x"
+        assert invoke_da.await_args.kwargs["owner_sub"] == "task-owner-sub"
         assert invoke_da.await_args.kwargs["context"] == {
             "event": "message.created",
             "roomId": "room-123",
@@ -413,6 +420,48 @@ class TestChatHistoryPublisher:
         persisted = (await store.list_all())[0]
         assert persisted.conversation_id == run.conversation_id
 
+    @pytest.mark.parametrize(
+        "trigger",
+        [CronTrigger(schedule="0 9 * * *"), IntervalTrigger(minutes=30)],
+        ids=["cron", "interval"],
+    )
+    async def test_scheduled_runs_share_visible_chat_but_not_execution_context(
+        self,
+        store: _DictRunStore,
+        publisher: _RecordingPublisher,
+        trigger,
+    ):
+        """Each scheduled fire starts clean while results stay in one task chat."""
+        scheduled_task = TaskDefinition(
+            id="isolated-scheduled-task",
+            name="Isolated scheduled task",
+            dynamic_agent_id="agent-x",
+            prompt="check status",
+            trigger=trigger,
+        )
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            first = await execute_task(scheduled_task, run_id="scheduled-run-1")
+            second = await execute_task(scheduled_task, run_id="scheduled-run-2")
+
+        visible_chat_id = conversation_id_for_task(scheduled_task.id)
+        assert first.conversation_id == visible_chat_id
+        assert second.conversation_id == visible_chat_id
+        assert first.execution_context_id == execution_context_id_for_task_run(
+            scheduled_task.id, "scheduled-run-1"
+        )
+        assert second.execution_context_id == execution_context_id_for_task_run(
+            scheduled_task.id, "scheduled-run-2"
+        )
+        assert first.execution_context_id != second.execution_context_id
+        assert [call.kwargs["conversation_id"] for call in invoke.await_args_list] == [
+            first.execution_context_id,
+            second.execution_context_id,
+        ]
+
     async def test_webhook_context_is_redacted_in_published_prompt_by_default(
         self, store: _DictRunStore, publisher: _RecordingPublisher, cron_task: TaskDefinition,
     ):
@@ -524,20 +573,22 @@ class TestChatHistoryPublisher:
         assert run.status == TaskStatus.SUCCESS
         assert run.conversation_id is None
 
-    async def test_disabled_publisher_keeps_internal_dynamic_agent_conversation_id(
+    async def test_disabled_publisher_keeps_per_run_execution_context(
         self, store: _DictRunStore, cron_task: TaskDefinition,
     ):
-        """The runtime context id remains stable even when no UI chat is published."""
+        """A fresh runtime context remains available when UI publishing is off."""
         invoke = AsyncMock(return_value=("ok", []))
         with patch(
             "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=invoke,
         ):
-            await execute_task(cron_task)
+            run = await execute_task(cron_task, run_id="unpublished-run")
 
-        assert invoke.await_args.kwargs["conversation_id"] == conversation_id_for_task(
-            cron_task.id
+        assert run.conversation_id is None
+        assert run.execution_context_id == execution_context_id_for_task_run(
+            cron_task.id, "unpublished-run"
         )
+        assert invoke.await_args.kwargs["conversation_id"] == run.execution_context_id
 
 
 class TestFollowUp:
@@ -624,13 +675,13 @@ class TestFollowUp:
         assert "Operator follow-up" in captured["prompt"]
         assert "extra context: it's a 500 not a 404" in captured["prompt"]
 
-    async def test_execute_task_followup_publishes_augmented_prompt_to_chat(
+    async def test_webhook_followup_is_never_published_to_chat(
         self,
         store: _DictRunStore,
         publisher: _RecordingPublisher,
         webhook_task: TaskDefinition,
     ):
-        """Chat history shows the Webex reply as a concise user-side prompt."""
+        """Webhook runs stay in Autonomous run history and never enter chat."""
         follow_up = FollowUpContext(
             parent_run_id="r-original",
             user_text="webex says this is still failing",
@@ -644,9 +695,7 @@ class TestFollowUp:
         ):
             await execute_task(webhook_task, context={}, follow_up=follow_up)
 
-        assert len(publisher.calls) == 1
-        published_prompt = publisher.calls[0]["prompt"]
-        assert published_prompt == "Webex Follow-up: webex says this is still failing"
+        assert publisher.calls == []
 
     async def test_execute_task_followup_does_not_mutate_task_definition(
         self, store: _DictRunStore, webhook_task: TaskDefinition
@@ -691,6 +740,86 @@ class TestFollowUp:
 
         assert run.parent_run_id is None
 
+    async def test_initial_webhook_deliveries_use_isolated_execution_contexts(
+        self, store: _DictRunStore, webhook_task: TaskDefinition
+    ):
+        """Separate deliveries for one task never share model/checkpointer state."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            first = await execute_task(webhook_task, run_id="delivery-1")
+            second = await execute_task(webhook_task, run_id="delivery-2")
+
+        first_context = invoke.await_args_list[0].kwargs["conversation_id"]
+        second_context = invoke.await_args_list[1].kwargs["conversation_id"]
+        assert first_context == conversation_id_for_webhook_run(
+            webhook_task.id, "delivery-1"
+        )
+        assert second_context == conversation_id_for_webhook_run(
+            webhook_task.id, "delivery-2"
+        )
+        assert first_context != second_context
+        assert first.root_run_id == "delivery-1"
+        assert second.root_run_id == "delivery-2"
+
+    async def test_webhook_followup_reuses_only_selected_run_context(
+        self, store: _DictRunStore, webhook_task: TaskDefinition
+    ):
+        """A follow-up inherits its parent delivery's isolated context."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            parent = await execute_task(webhook_task, run_id="delivery-root")
+            follow_up = await execute_task(
+                webhook_task,
+                follow_up=FollowUpContext(
+                    parent_run_id=parent.run_id,
+                    user_text="look more closely",
+                    transport="webui",
+                ),
+                run_id="delivery-follow-up",
+            )
+
+        assert follow_up.parent_run_id == parent.run_id
+        assert follow_up.root_run_id == parent.run_id
+        assert follow_up.execution_context_id == parent.execution_context_id
+        assert invoke.await_args_list[1].kwargs["conversation_id"] == (
+            parent.execution_context_id
+        )
+
+    async def test_scheduled_followup_reuses_only_selected_run_context(
+        self, store: _DictRunStore, cron_task: TaskDefinition
+    ):
+        """Cron follow-ups inherit the selected run, not the latest task run."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            selected = await execute_task(cron_task, run_id="scheduled-selected")
+            latest = await execute_task(cron_task, run_id="scheduled-latest")
+            follow_up = await execute_task(
+                cron_task,
+                follow_up=FollowUpContext(
+                    parent_run_id=selected.run_id,
+                    user_text="continue the earlier result",
+                    transport="webui",
+                ),
+                run_id="scheduled-follow-up",
+            )
+
+        assert selected.execution_context_id != latest.execution_context_id
+        assert follow_up.parent_run_id == selected.run_id
+        assert follow_up.root_run_id == selected.run_id
+        assert follow_up.execution_context_id == selected.execution_context_id
+        assert invoke.await_args_list[2].kwargs["conversation_id"] == (
+            selected.execution_context_id
+        )
+
 
 def _job_task(
     task_id: str = "t1",
@@ -728,15 +857,35 @@ class TestHotReload:
     @pytest.mark.asyncio
     async def test_register_scheduler_task_adds_cron_job(self, _fresh_scheduler):
         """Cron task lands as an APScheduler job."""
-        register_scheduler_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/5 * * * *")))
+        register_scheduler_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/30 * * * *")))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["cron-1"]
 
     @pytest.mark.asyncio
+    async def test_cron_job_uses_configured_timezone(self, _fresh_scheduler):
+        register_scheduler_task(
+            _job_task(
+                "london",
+                trigger=CronTrigger(
+                    schedule="0 9 * * *", timezone="Europe/London"
+                ),
+            )
+        )
+
+        job = get_scheduler().get_job("london")
+        assert str(job.trigger.timezone) == "Europe/London"
+        summer_fire = job.trigger.get_next_fire_time(
+            None, datetime(2026, 7, 1, tzinfo=timezone.utc)
+        )
+        assert summer_fire is not None
+        assert summer_fire.hour == 9
+        assert summer_fire.astimezone(timezone.utc).hour == 8
+
+    @pytest.mark.asyncio
     async def test_register_scheduler_task_adds_interval_job(self, _fresh_scheduler):
         """Interval task lands as an APScheduler job."""
-        register_scheduler_task(_job_task("int-1", trigger=IntervalTrigger(seconds=30)))
+        register_scheduler_task(_job_task("int-1", trigger=IntervalTrigger(minutes=30)))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["int-1"]
@@ -771,7 +920,7 @@ class TestHotReload:
         register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
         first_trigger = get_scheduler().get_job("t1").trigger
 
-        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(minutes=15)))
+        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(minutes=60)))
         second_trigger = get_scheduler().get_job("t1").trigger
 
         assert type(first_trigger).__name__ == "CronTrigger"
@@ -809,7 +958,7 @@ class TestHotReload:
         """Bulk register adds every cron/interval entry and leaves the scheduler running."""
         tasks = [
             _job_task("cron-1", trigger=CronTrigger(schedule="0 * * * *")),
-            _job_task("int-1", trigger=IntervalTrigger(minutes=5)),
+            _job_task("int-1", trigger=IntervalTrigger(minutes=30)),
             _job_task("hook-1", trigger=WebhookTrigger()),
             _job_task("dis-1", enabled=False),
         ]
@@ -819,6 +968,20 @@ class TestHotReload:
         scheduler = get_scheduler()
         assert {j.id for j in scheduler.get_jobs()} == {"cron-1", "int-1"}
         assert scheduler.running is True
+
+    @pytest.mark.asyncio
+    async def test_bulk_registration_skips_existing_task_below_frequency_floor(
+        self, _fresh_scheduler, caplog
+    ):
+        tasks = [
+            _job_task("safe", trigger=IntervalTrigger(minutes=30)),
+            _job_task("too-fast", trigger=IntervalTrigger(minutes=5)),
+        ]
+
+        register_scheduler_tasks(tasks)
+
+        assert {job.id for job in get_scheduler().get_jobs()} == {"safe"}
+        assert "Schedule rejected during startup" in caplog.text
 
     @pytest.mark.asyncio
     async def test_register_scheduler_task_detaches_existing_job_when_disabled(self, _fresh_scheduler):
@@ -851,15 +1014,14 @@ class TestHotReload:
         assert scheduler.running is True
 
 
-class TestAutoPauseOnScheduleRevoke:
-    """A scheduled run denied with agent#schedule (owner's autonomous grant
-    revoked) fails the run AND auto-pauses the task"""
+class TestAutoPauseOnAuthorizationRevoke:
+    """A run denied after entitlement/access revocation auto-pauses the task."""
 
-    async def test_schedule_revoked_disables_task_and_fails_run(
+    async def test_authorization_revoked_disables_task_and_fails_run(
         self, store: _DictRunStore, task: TaskDefinition
     ):
         from autonomous_agents.services.dynamic_agents_client import (
-            DynamicAgentsScheduleRevokedError,
+            DynamicAgentsAuthorizationRevokedError,
         )
 
         updated: dict = {}
@@ -874,7 +1036,7 @@ class TestAutoPauseOnScheduleRevoke:
             patch(
                 "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
                 new=AsyncMock(
-                    side_effect=DynamicAgentsScheduleRevokedError(
+                    side_effect=DynamicAgentsAuthorizationRevokedError(
                         "autonomous access revoked for agent 'agent-x'"
                     )
                 ),

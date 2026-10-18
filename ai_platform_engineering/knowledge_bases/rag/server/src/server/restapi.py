@@ -6,7 +6,7 @@ import json
 import re
 import traceback
 import uuid
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 from common import utils
 from fastapi import FastAPI, status, HTTPException, Query, Depends, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
@@ -66,6 +66,7 @@ from common.models.rag import (
 from common.models.graph import Relation
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from contextvars import ContextVar
+from server import audit
 from server.rbac import (
   require_authenticated_user,
   require_role,
@@ -305,6 +306,11 @@ async def periodic_cleanup_task():
       # Continue running despite errors
 
 
+def create_redis_client(url: str) -> redis.Redis:
+  """Create the Redis client used by ingestion preview and job operations."""
+  return redis.from_url(url, decode_responses=True, socket_timeout=None)
+
+
 # Application lifespan management - initalization and cleanup
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
@@ -322,7 +328,7 @@ async def app_lifespan(app: FastAPI):
   global vector_db_query_service
   global ingestor
 
-  redis_client = redis.from_url(redis_url, decode_responses=True)
+  redis_client = create_redis_client(redis_url)
   metadata_storage = MetadataStorage(redis_client=redis_client)
   jobmanager = JobManager(redis_client=redis_client)
 
@@ -392,10 +398,14 @@ async def app_lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(periodic_cleanup_task())
     logger.info("Periodic cleanup task started")
 
+  audit.start_allow_rollup_flusher()
+
   yield
 
   # Shutdown
   logging.info("Shutting down the app...")
+
+  await audit.stop_allow_rollup_flusher()
 
   # Cancel the cleanup task
   if cleanup_task:
@@ -405,6 +415,16 @@ async def app_lifespan(app: FastAPI):
     except asyncio.CancelledError:
       pass
     logger.info("Periodic cleanup task stopped")
+
+  try:
+    if data_graph_db is not None:
+      await data_graph_db.close()
+  finally:
+    try:
+      if ontology_graph_db is not None:
+        await ontology_graph_db.close()
+    finally:
+      await redis_client.aclose()
 
 
 if mcp_enabled:
@@ -779,6 +799,10 @@ async def authorize_source_ingestion(
   ongoing Owner access.
   Existing datasources continue through the normal connector/config gate.
   """
+  # The platform service starts declaratively seeded sources only after the UI
+  # has preprovisioned their management and search policy.
+  if ownership_preprovisioned and is_trusted_ingestor_service(user):
+    return
   if existing_datasource is not None:
     await check_connector_configuration_access(user, datasource_id)
   elif ownership_preprovisioned:
@@ -2252,6 +2276,86 @@ def _validate_local_file_batch(files: list[tuple[str, bytes]]) -> None:
     raise HTTPException(status_code=413, detail=f"Upload exceeds the {max_local_file_total_upload_bytes} byte batch limit")
 
 
+def _bound_local_file_chunk_params(chunk_size: int, chunk_overlap: int) -> tuple[int, int]:
+  bounded_chunk_size = max(100, min(chunk_size, 100000))
+  bounded_chunk_overlap = max(0, min(chunk_overlap, 10000, bounded_chunk_size - 1))
+  return bounded_chunk_size, bounded_chunk_overlap
+
+
+async def _ingest_local_file_uploads(
+  *,
+  job_id: str,
+  datasource_id: str,
+  uploads: list[tuple[UploadFile, str, bytes, str, str]],
+  description: str,
+  fresh_until: int,
+  chunk_size: int,
+  chunk_overlap: int,
+  user: UserContext,
+  success_message: str,
+  failure_message: str,
+) -> None:
+  """Build documents from validated uploads, ingest them, and finalize the job."""
+  now = int(time.time())
+  documents = []
+  for upload_file, filename, content, text, document_type in uploads:
+    document_metadata = {
+      "document_id": f"{datasource_id}__{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
+      "datasource_id": datasource_id,
+      "ingestor_id": LOCAL_FILE_INGESTOR_ID,
+      "title": filename,
+      "description": description or "",
+      "is_structured_entity": False,
+      "document_type": document_type,
+      "document_ingested_at": now,
+      "fresh_until": fresh_until,
+      "metadata": {
+        "source": filename,
+        "filename": filename,
+        "content_type": upload_file.content_type,
+        "byte_size": len(content),
+      },
+    }
+    documents.append(Document(page_content=text, metadata=document_metadata))
+    logger.info(
+      "local_file_upload accepted filename=%s content_type=%s bytes=%d document_type=%s datasource_id=%s user=%s",
+      filename,
+      upload_file.content_type,
+      len(content),
+      document_type,
+      datasource_id,
+      user.email,
+    )
+
+  try:
+    await ingestor.ingest_documents(
+      ingestor_id=LOCAL_FILE_INGESTOR_ID,
+      datasource_id=datasource_id,
+      job_id=job_id,
+      documents=documents,
+      fresh_until=fresh_until,
+      chunk_overlap=chunk_overlap,
+      chunk_size=chunk_size,
+    )
+    await jobmanager.increment_document_count(job_id, len(documents))
+    await jobmanager.upsert_job(
+      job_id,
+      status=JobStatus.COMPLETED,
+      message=success_message,
+      total=len(uploads),
+      datasource_id=datasource_id,
+    )
+  except Exception as exc:
+    await jobmanager.increment_failure(job_id, message=str(exc))
+    await jobmanager.upsert_job(
+      job_id,
+      status=JobStatus.FAILED,
+      message=failure_message,
+      datasource_id=datasource_id,
+    )
+    raise
+
+
 @app.post("/v1/ingest/local-file", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_local_file(
   request: Request,
@@ -2331,8 +2435,7 @@ async def ingest_local_file(
   if not success:
     raise HTTPException(status_code=500, detail="Failed to create job")
 
-  bounded_chunk_size = max(100, min(chunk_size, 100000))
-  bounded_chunk_overlap = max(0, min(chunk_overlap, 10000, bounded_chunk_size - 1))
+  bounded_chunk_size, bounded_chunk_overlap = _bound_local_file_chunk_params(chunk_size, chunk_overlap)
   now = int(time.time())
   first_filename = uploads[0][1]
   datasource_name = first_filename if len(uploads) == 1 else f"{first_filename} + {len(uploads) - 1} files"
@@ -2374,67 +2477,138 @@ async def ingest_local_file(
   await metadata_storage.store_datasource_info(datasource_info)
 
   fresh_until = get_fresh_until(datasource_info.reload_interval)
-  documents = []
-  for upload_file, filename, content, text, document_type in uploads:
-    document_metadata = {
-      "document_id": f"{datasource_id}__{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
-      "datasource_id": datasource_id,
-      "ingestor_id": LOCAL_FILE_INGESTOR_ID,
-      "title": filename,
-      "description": description or "",
-      "is_structured_entity": False,
-      "document_type": document_type,
-      "document_ingested_at": now,
-      "fresh_until": fresh_until,
-      "metadata": {
-        "source": filename,
-        "filename": filename,
-        "content_type": upload_file.content_type,
-        "byte_size": len(content),
-      },
-    }
-    documents.append(Document(page_content=text, metadata=document_metadata))
-    logger.info(
-      "local_file_upload accepted filename=%s content_type=%s bytes=%d document_type=%s datasource_id=%s user=%s",
-      filename,
-      upload_file.content_type,
-      len(content),
-      document_type,
-      datasource_id,
-      user.email,
-    )
-
-  try:
-    await ingestor.ingest_documents(
-      ingestor_id=LOCAL_FILE_INGESTOR_ID,
-      datasource_id=datasource_id,
-      job_id=job_id,
-      documents=documents,
-      fresh_until=fresh_until,
-      chunk_overlap=bounded_chunk_overlap,
-      chunk_size=bounded_chunk_size,
-    )
-    await jobmanager.upsert_job(
-      job_id,
-      status=JobStatus.COMPLETED,
-      message="Uploaded file ingested successfully" if len(uploads) == 1 else f"Uploaded {len(uploads)} files ingested successfully",
-      total=len(uploads),
-      datasource_id=datasource_id,
-    )
-  except Exception as exc:
-    await jobmanager.increment_failure(job_id, message=str(exc))
-    await jobmanager.upsert_job(
-      job_id,
-      status=JobStatus.FAILED,
-      message="Uploaded file ingestion failed",
-      datasource_id=datasource_id,
-    )
-    raise
+  await _ingest_local_file_uploads(
+    job_id=job_id,
+    datasource_id=datasource_id,
+    uploads=uploads,
+    description=description,
+    fresh_until=fresh_until,
+    chunk_size=bounded_chunk_size,
+    chunk_overlap=bounded_chunk_overlap,
+    user=user,
+    success_message="Uploaded file ingested successfully" if len(uploads) == 1 else f"Uploaded {len(uploads)} files ingested successfully",
+    failure_message="Uploaded file ingestion failed",
+  )
 
   return {
     "datasource_id": datasource_id,
     "job_id": job_id,
     "message": "Local file ingested successfully" if len(uploads) == 1 else "Local files ingested successfully",
+  }
+
+
+@app.post("/v1/ingest/local-file/reupload", status_code=status.HTTP_202_ACCEPTED)
+async def reupload_local_file(
+  datasource_id: str = Form(...),
+  files: List[UploadFile] = File(..., alias="file"),
+  chunk_size: Optional[int] = Form(None),
+  chunk_overlap: Optional[int] = Form(None),
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Replace the content of an existing local-file data source with a new upload."""
+  if not metadata_storage or not jobmanager or not ingestor or not vector_db:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  if graph_rag_enabled and not data_graph_db:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  existing = await metadata_storage.get_datasource_info(datasource_id)
+  if not existing:
+    raise HTTPException(status_code=404, detail="Datasource not found")
+  if existing.source_type != "local_file":
+    raise HTTPException(status_code=400, detail="Only file datasources support re-upload")
+
+  await check_datasource_management_access(user, datasource_id)
+
+  uploads: list[tuple[UploadFile, str, bytes, str, str]] = []
+  for upload_file in files:
+    content = await upload_file.read()
+    try:
+      filename = _validate_local_file_upload(upload_file, content)
+      text, document_type = _extract_local_file_text(filename, upload_file.content_type, content)
+    except HTTPException as exc:
+      safe_filename = _safe_upload_filename(upload_file.filename)
+      logger.warning(
+        "local_file_reupload rejected filename=%s content_type=%s bytes=%d status=%d detail=%s user=%s",
+        safe_filename,
+        upload_file.content_type,
+        len(content),
+        exc.status_code,
+        exc.detail,
+        user.email,
+      )
+      raise
+    uploads.append((upload_file, filename, content, text, document_type))
+
+  _validate_local_file_batch([(filename, content) for _, filename, content, _, _ in uploads])
+  total_bytes = sum(len(content) for _, _, content, _, _ in uploads)
+
+  jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+  if jobs and any(job.status == JobStatus.IN_PROGRESS for job in jobs):
+    raise HTTPException(status_code=400, detail="Cannot re-upload while an ingestion job is in progress.")
+
+  await vector_db.adelete(expr=f"datasource_id == {VectorDBQueryService._quote_string(datasource_id)}")
+  if graph_rag_enabled and data_graph_db:
+    await data_graph_db.remove_entity(None, {DATASOURCE_ID_KEY: datasource_id})
+
+  bounded_chunk_size, bounded_chunk_overlap = _bound_local_file_chunk_params(
+    chunk_size if chunk_size is not None else (existing.default_chunk_size or 10000),
+    chunk_overlap if chunk_overlap is not None else (existing.default_chunk_overlap or 2000),
+  )
+
+  job_id = str(uuid.uuid4())
+  success = await jobmanager.upsert_job(
+    job_id,
+    status=JobStatus.IN_PROGRESS,
+    message="Re-uploading file..." if len(uploads) == 1 else f"Re-uploading {len(uploads)} files...",
+    total=len(uploads),
+    datasource_id=datasource_id,
+  )
+  if not success:
+    raise HTTPException(status_code=500, detail="Failed to create job")
+
+  now = int(time.time())
+  first_filename = uploads[0][1]
+  datasource_name = first_filename if len(uploads) == 1 else f"{first_filename} + {len(uploads) - 1} files"
+  file_metadata = [
+    {
+      "filename": filename,
+      "content_type": upload_file.content_type,
+      "document_type": document_type,
+      "byte_size": len(content),
+    }
+    for upload_file, filename, content, _, document_type in uploads
+  ]
+  existing.name = datasource_name
+  existing.default_chunk_size = bounded_chunk_size
+  existing.default_chunk_overlap = bounded_chunk_overlap
+  existing.last_updated = now
+  existing.metadata = {
+    **(existing.metadata or {}),
+    "filename": first_filename,
+    "file_count": len(uploads),
+    "total_byte_size": total_bytes,
+    "files": file_metadata,
+  }
+  await metadata_storage.store_datasource_info(existing)
+
+  fresh_until = get_fresh_until(existing.reload_interval)
+  await _ingest_local_file_uploads(
+    job_id=job_id,
+    datasource_id=datasource_id,
+    uploads=uploads,
+    description=existing.description,
+    fresh_until=fresh_until,
+    chunk_size=bounded_chunk_size,
+    chunk_overlap=bounded_chunk_overlap,
+    user=user,
+    success_message="Re-uploaded file ingested successfully" if len(uploads) == 1 else f"Re-uploaded {len(uploads)} files ingested successfully",
+    failure_message="Re-uploaded file ingestion failed",
+  )
+
+  return {
+    "datasource_id": datasource_id,
+    "job_id": job_id,
+    "message": "Local file re-uploaded successfully" if len(uploads) == 1 else "Local files re-uploaded successfully",
   }
 
 
@@ -2445,10 +2619,13 @@ async def preview_url_ingestion(
   user: UserContext = Depends(require_authenticated_user),
 ):
   """Crawl a bounded sample without creating a datasource, job, or documents."""
-  url_request.url = sanitize_url(
-    url_request.url,
-    url_request.settings.allow_non_public_urls,
-  )
+  try:
+    url_request.url = sanitize_url(
+      url_request.url,
+      url_request.settings.allow_non_public_urls,
+    )
+  except ValueError as e:
+    raise HTTPException(status_code=400, detail=str(e))
   datasource_id = utils.generate_datasource_id_from_url(url_request.url)
   existing_datasource = (
     await metadata_storage.get_datasource_info(datasource_id)
@@ -2473,17 +2650,19 @@ async def preview_url_ingestion(
 def resolve_confluence_datasource_id(
   confluence_request: ConfluenceIngestRequest,
   space_key: str,
-  page_id: str,
+  content_id: Optional[str],
+  content_kind: str,
 ) -> str:
-  """Resolve page-scoped identity while accepting an existing legacy ID."""
-  page_datasource_id = utils.generate_confluence_datasource_id(
+  """Resolve page/folder-scoped identity while accepting an existing legacy ID."""
+  scoped_datasource_id = utils.generate_confluence_datasource_id(
     confluence_request.url,
     space_key,
-    page_id,
+    content_id,
+    content_kind,
   )
   supplied_id = (confluence_request.preprovisioned_datasource_id or "").strip()
   if not supplied_id:
-    return page_datasource_id
+    return scoped_datasource_id
   if not confluence_request.ownership_preprovisioned:
     raise HTTPException(
       status_code=400,
@@ -2493,18 +2672,23 @@ def resolve_confluence_datasource_id(
     confluence_request.url,
     space_key,
   )
-  if supplied_id not in {page_datasource_id, legacy_space_id}:
+  if supplied_id not in {scoped_datasource_id, legacy_space_id}:
     raise HTTPException(
       status_code=400,
-      detail="Preprovisioned datasource ID does not match the Confluence page",
+      detail="Preprovisioned datasource ID does not match the Confluence source",
     )
   return supplied_id
 
 
 def confluence_scope_description(
   confluence_request: ConfluenceIngestRequest,
+  content_kind: str,
 ) -> str:
   """Describe the concrete URL scope represented by a Confluence source."""
+  if content_kind == "folder":
+    return f"Confluence folder (all nested pages) at {confluence_request.url}"
+  if content_kind == "space":
+    return f"Entire Confluence space at {confluence_request.url}"
   if confluence_request.get_child_pages:
     return f"Confluence page and child pages starting at {confluence_request.url}"
   return f"Confluence page {confluence_request.url}"
@@ -2517,11 +2701,11 @@ async def preview_confluence_ingestion(
   user: UserContext = Depends(require_authenticated_user),
 ):
   """Resolve the configured Confluence root and filters without ingesting."""
-  confluence_match = re.search(r"/spaces/([^/]+)/pages/(\d+)", confluence_request.url)
-  if not confluence_match:
+  locator = utils.parse_confluence_locator(confluence_request.url)
+  if not locator:
     raise HTTPException(
       status_code=400,
-      detail="Invalid Confluence URL format. Expected a /spaces/SPACE/pages/PAGE_ID URL",
+      detail="Invalid Confluence URL format. Expected a page, folder, or space URL under /spaces/SPACE/...",
     )
   if confluence_url:
     submitted = urlparse(confluence_request.url)
@@ -2531,12 +2715,12 @@ async def preview_confluence_ingestion(
         status_code=400,
         detail=f"URL must be from configured Confluence instance: {configured.scheme}://{configured.netloc}",
       )
-  space_key = unquote(confluence_match.group(1))
-  page_id = confluence_match.group(2)
+  space_key = locator.space_key
   datasource_id = resolve_confluence_datasource_id(
     confluence_request,
     space_key,
-    page_id,
+    locator.content_id,
+    locator.kind,
   )
   existing_datasource = (
     await metadata_storage.get_datasource_info(datasource_id)
@@ -2599,7 +2783,10 @@ async def ingest_url(
   logger.info(f"Received URL ingestion request: {url_request.url}")
 
   # Sanitize URL
-  sanitized_url = sanitize_url(url_request.url, url_request.settings.allow_non_public_urls)
+  try:
+    sanitized_url = sanitize_url(url_request.url, url_request.settings.allow_non_public_urls)
+  except ValueError as e:
+    raise HTTPException(status_code=400, detail=str(e))
   url_request.url = sanitized_url
 
   # Generate datasource ID and create datasource
@@ -2744,13 +2931,12 @@ async def ingest_confluence_page(
   logger.info(f"Received Confluence page ingestion request: {confluence_request.url}")
   logger.info(f"  get_child_pages: {confluence_request.get_child_pages}")
 
-  # Parse Confluence URL to extract space_key and page_id
-  confluence_match = re.search(r"/spaces/([^/]+)/pages/(\d+)", confluence_request.url)
-  if not confluence_match:
-    raise HTTPException(status_code=400, detail="Invalid Confluence URL format. Expected: https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title")
+  # Parse Confluence URL to extract space_key and the page/folder/space locator
+  locator = utils.parse_confluence_locator(confluence_request.url)
+  if not locator:
+    raise HTTPException(status_code=400, detail="Invalid Confluence URL format. Expected a page, folder, or space URL under /spaces/SPACE/...")
 
-  space_key = unquote(confluence_match.group(1))
-  page_id = confluence_match.group(2)
+  space_key = locator.space_key
 
   # Validate that submitted URL matches configured Confluence instance
   if confluence_url:
@@ -2761,16 +2947,23 @@ async def ingest_confluence_page(
     if submitted_parsed.scheme != configured_parsed.scheme or submitted_parsed.netloc != configured_parsed.netloc:
       raise HTTPException(status_code=400, detail=f"URL must be from configured Confluence instance: {configured_parsed.scheme}://{configured_parsed.netloc}")
 
-  # Page-scoped identity allows multiple independent roots in one Confluence
-  # space. Existing BFF records may explicitly retain the legacy space ID.
+  # Page/folder-scoped identity allows multiple independent roots in one
+  # Confluence space. Existing BFF records may explicitly retain the legacy
+  # whole-space ID.
   datasource_id = resolve_confluence_datasource_id(
     confluence_request,
     space_key,
-    page_id,
+    locator.content_id,
+    locator.kind,
   )
 
-  # Build page config for this ingestion
-  page_config = {"page_id": page_id, "source": confluence_request.url, "get_child_pages": confluence_request.get_child_pages}
+  # Build the config entry for this ingestion. A whole-space locator has no
+  # entry — load_pages() enumerates the space directly instead.
+  content_config = utils.build_confluence_content_config(
+    locator,
+    get_child_pages=confluence_request.get_child_pages,
+    source_url=confluence_request.url,
+  )
 
   # Check if the datasource already exists. Replacing or extending stored
   # connector configuration requires Owner access; a dedicated reload reuses
@@ -2810,20 +3003,18 @@ async def ingest_confluence_page(
       existing_datasource.metadata = {}
     page_configs = existing_datasource.metadata.get("page_configs", [])
 
-    # Check if page already exists in configs
-    existing_page_config = next((c for c in page_configs if c.get("page_id") == page_id), None)
+    if content_config:
+      dedup_key = "folder_id" if locator.kind == "folder" else "page_id"
+      existing_entry = next((c for c in page_configs if c.get(dedup_key) == locator.content_id), None)
 
-    if existing_page_config:
-      # Update the get_child_pages flag
-      existing_page_config["get_child_pages"] = confluence_request.get_child_pages
-      existing_page_config["source"] = confluence_request.url
-      logger.info(f"Updated page {page_id} config in {datasource_id}")
-    else:
-      # Add new page config
-      page_configs.append(page_config)
-      logger.info(f"Added page {page_id} to {datasource_id}")
+      if existing_entry:
+        existing_entry.update(content_config)
+        logger.info(f"Updated {dedup_key} {locator.content_id} config in {datasource_id}")
+      else:
+        page_configs.append(content_config)
+        logger.info(f"Added {dedup_key} {locator.content_id} to {datasource_id}")
 
-    existing_datasource.metadata["page_configs"] = page_configs
+      existing_datasource.metadata["page_configs"] = page_configs
     configured_name = (confluence_request.name or "").strip()
     if configured_name:
       existing_datasource.name = configured_name
@@ -2831,7 +3022,7 @@ async def ingest_confluence_page(
     if configured_description:
       existing_datasource.description = configured_description
     elif not existing_datasource.description or existing_datasource.description == f"Confluence space {space_key}":
-      existing_datasource.description = confluence_scope_description(confluence_request)
+      existing_datasource.description = confluence_scope_description(confluence_request, locator.kind)
     # Update title filter patterns if provided
     if confluence_request.allowed_title_patterns is not None:
       existing_datasource.metadata["allowed_title_patterns"] = confluence_request.allowed_title_patterns
@@ -2842,7 +3033,7 @@ async def ingest_confluence_page(
   else:
     # Create new datasource
     if not confluence_request.description:
-      confluence_request.description = confluence_scope_description(confluence_request)
+      confluence_request.description = confluence_scope_description(confluence_request, locator.kind)
 
     confluence_url_base = confluence_request.url.split("/wiki/")[0] + "/wiki" if "/wiki/" in confluence_request.url else confluence_request.url
 
@@ -2868,9 +3059,10 @@ async def ingest_confluence_page(
       metadata={
         "confluence_ingest_request": confluence_request.model_dump(),
         "space_key": space_key,
-        "page_configs": [page_config],
-        "root_page_id": page_id,
-        "root_page_url": confluence_request.url,
+        "page_configs": [content_config] if content_config else [],
+        "content_kind": locator.kind,
+        "root_content_id": locator.content_id,
+        "root_content_url": confluence_request.url,
         "confluence_url": confluence_url_base,
         "config_managed": confluence_request.config_managed,
         **({"allowed_title_patterns": confluence_request.allowed_title_patterns} if confluence_request.allowed_title_patterns else {}),

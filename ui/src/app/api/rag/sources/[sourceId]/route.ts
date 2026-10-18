@@ -42,7 +42,6 @@ import {
   getRagIngestorLimits,
 } from "@/lib/rag-ingestor-limits.server";
 import {
-  datasourceCollectionAudience,
   removeDatasourceFromAgentPins,
   removeDatasourceFromRagCollections,
 } from "@/lib/rag-collections.server";
@@ -50,6 +49,7 @@ import {
   changedApprovalGatedSourceUpdate,
   prepareRagPublication,
   ragPublicationRevision,
+  ragPublicationRevisionBasis,
 } from "@/lib/rag-publication-approval.server";
 import {
   deleteAllDataSourceRelationshipTuples,
@@ -64,13 +64,17 @@ import {
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
 import { resolveUserIdentitiesBySubject } from "@/lib/rbac/user-identity-directory";
-import type { IngestionSourceConfig } from "@/types/ingestion-source";
-import { NextRequest } from "next/server";
 import {
   optionalStringList,
   optionalStringMap,
   optionalWebSettings,
-} from "../route";
+} from "@/lib/ingestion-source-config";
+import {
+  authorizedSourceSecretRefs,
+  screenSourceRequestHeaders,
+} from "@/lib/rag-source-credentials.server";
+import type { IngestionSourceConfig } from "@/types/ingestion-source";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "rag_ingestion_sources";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
@@ -109,6 +113,7 @@ const IMMUTABLE_FIELDS = [
   "confluence_url",
   "space_key",
   "start_page_url",
+  "content_kind",
   "whole_space",
   "page_configs",
   "project_key",
@@ -639,6 +644,14 @@ export const PATCH = withErrorHandler(
 
     const updateData = pickMutableFields(body);
     validateMutableFields(source, updateData);
+    const settingsWereRequested = Object.prototype.hasOwnProperty.call(
+      updateData,
+      "settings",
+    );
+    if (settingsWereRequested) {
+      await authorizedSourceSecretRefs(session, updateData.settings);
+      await screenSourceRequestHeaders({ settings: updateData.settings, session });
+    }
     const searchTeamsWereRequested = Object.prototype.hasOwnProperty.call(
       body,
       "search_team_slugs",
@@ -841,17 +854,6 @@ export const PATCH = withErrorHandler(
 
     const gatedSourceUpdate = changedApprovalGatedSourceUpdate(source, updateData);
     const materialChange = ownerChanged || Object.keys(gatedSourceUpdate).length > 0;
-    const collectionAudience = materialChange
-      ? await datasourceCollectionAudience(sourceId, {
-          ownerTeamSlug: previousOwnerTeamSlug,
-          ownerSubject: previousOwnerSubject,
-        })
-      : {
-          collectionIds: [],
-          readerTeamSlugs: [],
-          hasExternalPrincipal: false,
-          organizationWide: false,
-        };
     const publicationSource = {
       ...source,
       ...gatedSourceUpdate,
@@ -871,9 +873,6 @@ export const PATCH = withErrorHandler(
           }
         : undefined,
       materialChange,
-      externalAudienceTeamSlugs: collectionAudience.readerTeamSlugs,
-      externalBroadAudience: collectionAudience.hasExternalPrincipal,
-      externalOrganizationWide: collectionAudience.organizationWide,
     });
     await invalidatePublicationRequests(
       publication.resource,
@@ -1147,6 +1146,7 @@ export const PATCH = withErrorHandler(
       publicationRequest = await createPublicationRequest({
         resource: publication.resource,
         resourceRevision: ragPublicationRevision(updated, effectiveSearch),
+        revisionBasis: ragPublicationRevisionBasis(updated, effectiveSearch),
         requestedState: publication.requestedState as unknown as Record<string, unknown>,
         effectiveState: effectiveSearch as unknown as Record<string, unknown>,
         riskFacts: publication.plan.risk_facts,
@@ -1165,6 +1165,7 @@ export const PATCH = withErrorHandler(
       await recordAutoApprovedPublication({
         resource: publication.resource,
         resourceRevision: ragPublicationRevision(updated, effectiveSearch),
+        revisionBasis: ragPublicationRevisionBasis(updated, effectiveSearch),
         requestedState: publication.requestedState as unknown as Record<string, unknown>,
         effectiveState: effectiveSearch as unknown as Record<string, unknown>,
         riskFacts: publication.plan.risk_facts,

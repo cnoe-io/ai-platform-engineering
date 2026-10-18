@@ -675,6 +675,24 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
+  it("validates remote timeouts against the normalized, deduplicated registry selection", async () => {
+    const insertOne = jest.fn();
+    const registryFind = jest.fn().mockReturnValue({ toArray: async () => [{ _id: "remote-example" }] });
+    mockGetCollection.mockImplementation(async (name: string) => name === "remote_agents"
+      ? { find: registryFind } : { findOne: async () => null, insertOne });
+    const { POST } = await import("../route");
+    const response = await POST(request("/api/dynamic-agents", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        name: "Example Agent", system_prompt: "Help with the task", model: { id: "example-model", provider: "openai" },
+        visibility: "global", allowed_remote_agents: [" remote-example ", "remote-example"],
+        remote_agent_timeouts: { "remote-example": 90 },
+      }) }));
+    expect(response.status).toBe(201);
+    expect(registryFind).toHaveBeenCalledWith(expect.objectContaining({ _id: { $in: ["remote-example"] } }), expect.anything());
+    expect(insertOne).toHaveBeenCalledWith(expect.objectContaining({ allowed_remote_agents: ["remote-example"],
+      remote_agent_timeouts: { "remote-example": 90 } }));
+  });
+
   it("creating a global agent resolves and grants the unlinked SA sub", async () => {
     const insertOne = jest.fn();
     mockGetCollection.mockResolvedValue({
@@ -789,7 +807,7 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
-  it("defaults a new RAG-enabled agent to Platform RAG when migration created it", async () => {
+  it("leaves a new RAG-enabled agent unrestricted when no knowledge scope is given", async () => {
     const insertOne = jest.fn();
     mockGetCollection.mockImplementation(async (name: string) => {
       if (name === "teams") {
@@ -803,15 +821,6 @@ describe("dynamic agents RBAC routes", () => {
         return {
           findOne: jest.fn().mockResolvedValue(null),
           insertOne,
-        };
-      }
-      if (name === "rag_collections") {
-        return {
-          findOne: jest.fn().mockResolvedValue({ _id: "platform-rag" }),
-          find: jest.fn().mockReturnValue({
-            project: jest.fn().mockReturnThis(),
-            toArray: jest.fn().mockResolvedValue([{ _id: "platform-rag" }]),
-          }),
         };
       }
       throw new Error(`unexpected collection ${name}`);
@@ -835,13 +844,14 @@ describe("dynamic agents RBAC routes", () => {
     expect(response.status).toBe(201);
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
-        datasource_ids: [],
-        rag_collection_ids: ["platform-rag"],
+        datasource_ids: undefined,
+        rag_collection_ids: undefined,
       }),
     );
+    expect(mockGetCollection).not.toHaveBeenCalledWith("rag_collections");
   });
 
-  it("starts with an explicit empty hand when Platform RAG exists but is not readable", async () => {
+  it("rejects a selected knowledge base the caller cannot read", async () => {
     const insertOne = jest.fn();
     mockFilterResourcesByPermission.mockResolvedValue([]);
     mockGetCollection.mockImplementation(async (name: string) => {
@@ -860,7 +870,12 @@ describe("dynamic agents RBAC routes", () => {
       }
       if (name === "rag_collections") {
         return {
-          findOne: jest.fn().mockResolvedValue({ _id: "platform-rag" }),
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest
+              .fn()
+              .mockResolvedValue([{ _id: "restricted-collection" }]),
+          }),
         };
       }
       throw new Error(`unexpected collection ${name}`);
@@ -877,14 +892,15 @@ describe("dynamic agents RBAC routes", () => {
           model: { id: "example-model", provider: "example-provider" },
           owner_team_slug: "primary",
           allowed_tools: { "knowledge-base": true },
+          rag_collection_ids: ["restricted-collection"],
         }),
       }),
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(insertOne).toHaveBeenCalledWith(
-      expect.objectContaining({ datasource_ids: [], rag_collection_ids: [] }),
-    );
+    expect(response.status).toBe(403);
+    expect(body.code).toBe("RAG_COLLECTION_NOT_ACCESSIBLE");
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
   it("preserves an explicit empty RAG hand for a new agent", async () => {
@@ -972,7 +988,7 @@ describe("dynamic agents RBAC routes", () => {
   });
 
   it.each(["datasource_ids", "rag_collection_ids"])(
-    "rejects null %s instead of creating a legacy-unrestricted agent",
+    "treats an explicit null %s as unrestricted on create, same as omitting it",
     async (field) => {
       const insertOne = jest.fn();
       mockGetCollection.mockImplementation(async (name: string) => {
@@ -1008,12 +1024,17 @@ describe("dynamic agents RBAC routes", () => {
         }),
       );
 
-      expect(response.status).toBe(400);
-      expect(insertOne).not.toHaveBeenCalled();
+      expect(response.status).toBe(201);
+      expect(insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          datasource_ids: undefined,
+          rag_collection_ids: undefined,
+        }),
+      );
     },
   );
 
-  it("pins an existing unscoped agent when RAG is enabled after Platform migration", async () => {
+  it("leaves an existing agent's knowledge scope untouched when the request omits both fields", async () => {
     const existingAgent = {
       _id: "agent-existing",
       name: "Existing agent",
@@ -1026,8 +1047,6 @@ describe("dynamic agents RBAC routes", () => {
     const findOneAndUpdate = jest.fn().mockResolvedValue({
       ...existingAgent,
       allowed_tools: { "knowledge-base": true },
-      datasource_ids: [],
-      rag_collection_ids: ["platform-rag"],
     });
     mockGetCollection.mockImplementation(async (name: string) => {
       if (name === "dynamic_agents") {
@@ -1041,15 +1060,6 @@ describe("dynamic agents RBAC routes", () => {
           find: jest.fn().mockReturnValue({
             project: jest.fn().mockReturnThis(),
             toArray: jest.fn().mockResolvedValue([]),
-          }),
-        };
-      }
-      if (name === "rag_collections") {
-        return {
-          findOne: jest.fn().mockResolvedValue({ _id: "platform-rag" }),
-          find: jest.fn().mockReturnValue({
-            project: jest.fn().mockReturnThis(),
-            toArray: jest.fn().mockResolvedValue([{ _id: "platform-rag" }]),
           }),
         };
       }
@@ -1068,17 +1078,20 @@ describe("dynamic agents RBAC routes", () => {
     expect(response.status).toBe(200);
     expect(findOneAndUpdate).toHaveBeenCalledWith(
       { _id: "agent-existing" },
-      expect.objectContaining({
+      {
         $set: expect.objectContaining({
-          datasource_ids: [],
-          rag_collection_ids: ["platform-rag"],
+          allowed_tools: { "knowledge-base": true },
         }),
-      }),
+      },
       expect.any(Object),
     );
+    const [, updateDoc] = findOneAndUpdate.mock.calls[0];
+    expect(updateDoc.$set).not.toHaveProperty("datasource_ids");
+    expect(updateDoc.$set).not.toHaveProperty("rag_collection_ids");
+    expect(updateDoc).not.toHaveProperty("$unset");
   });
 
-  it("clears a datasource when its stored collection selection is null", async () => {
+  it("sets datasource_ids without touching an untouched rag_collection_ids field", async () => {
     const existingAgent = {
       _id: "agent-existing",
       name: "Existing agent",
@@ -1093,7 +1106,6 @@ describe("dynamic agents RBAC routes", () => {
     const findOneAndUpdate = jest.fn().mockResolvedValue({
       ...existingAgent,
       datasource_ids: [],
-      rag_collection_ids: [],
     });
     mockGetCollection.mockImplementation(async (name: string) => {
       if (name === "dynamic_agents") {
@@ -1125,12 +1137,117 @@ describe("dynamic agents RBAC routes", () => {
     expect(response.status).toBe(200);
     expect(findOneAndUpdate).toHaveBeenCalledWith(
       { _id: "agent-existing" },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          datasource_ids: [],
-          rag_collection_ids: [],
+      { $set: expect.objectContaining({ datasource_ids: [] }) },
+      expect.any(Object),
+    );
+    const [, updateDoc] = findOneAndUpdate.mock.calls[0];
+    expect(updateDoc.$set).not.toHaveProperty("rag_collection_ids");
+    expect(updateDoc).not.toHaveProperty("$unset");
+  });
+
+  it.each(["datasource_ids", "rag_collection_ids"])(
+    "clears an existing %s back to unrestricted via $unset when the request sends an explicit null",
+    async (field) => {
+      const existingAgent = {
+        _id: "agent-existing",
+        name: "Existing agent",
+        owner_team_slug: "primary",
+        owner_subject: "alice-sub",
+        shared_with_teams: [],
+        allowed_tools: { "knowledge-base": true },
+        visibility: "team",
+        datasource_ids: ["source-a"],
+        rag_collection_ids: ["collection-a"],
+      };
+      const findOneAndUpdate = jest.fn().mockResolvedValue({
+        ...existingAgent,
+        [field]: undefined,
+      });
+      mockGetCollection.mockImplementation(async (name: string) => {
+        if (name === "dynamic_agents") {
+          return {
+            findOne: jest.fn().mockResolvedValue(existingAgent),
+            findOneAndUpdate,
+          };
+        }
+        if (name === "teams") {
+          return {
+            find: jest.fn().mockReturnValue({
+              project: jest.fn().mockReturnThis(),
+              toArray: jest.fn().mockResolvedValue([]),
+            }),
+          };
+        }
+        throw new Error(`unexpected collection ${name}`);
+      });
+
+      const { PUT } = await import("../route");
+      const response = await PUT(
+        request("/api/dynamic-agents?id=agent-existing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: null }),
         }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: "agent-existing" },
+        { $set: expect.any(Object), $unset: { [field]: "" } },
+        expect.any(Object),
+      );
+      const [, updateDoc] = findOneAndUpdate.mock.calls[0];
+      expect(updateDoc.$set).not.toHaveProperty(field);
+    },
+  );
+
+  it("persists a pure clear-to-unrestricted request even when no other field changes", async () => {
+    const existingAgent = {
+      _id: "agent-existing",
+      name: "Existing agent",
+      owner_team_slug: "primary",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: { "knowledge-base": true },
+      visibility: "team",
+      datasource_ids: ["source-a"],
+      rag_collection_ids: [],
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...existingAgent,
+      datasource_ids: undefined,
+    });
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") {
+        return {
+          findOne: jest.fn().mockResolvedValue(existingAgent),
+          findOneAndUpdate,
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-existing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ datasource_ids: null }),
       }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-existing" },
+      { $set: expect.any(Object), $unset: { datasource_ids: "" } },
       expect.any(Object),
     );
   });

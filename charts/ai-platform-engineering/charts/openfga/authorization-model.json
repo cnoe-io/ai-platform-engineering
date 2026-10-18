@@ -1279,6 +1279,10 @@
               },
               {
                 "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
                 "relation": "admin"
               }
             ]
@@ -1332,9 +1336,6 @@
           "this": {}
         },
         "auditor": {
-          "this": {}
-        },
-        "automator": {
           "this": {}
         },
         "can_discover": {
@@ -1447,22 +1448,6 @@
               {
                 "computedUserset": {
                   "relation": "can_manage"
-                }
-              }
-            ]
-          }
-        },
-        "can_schedule": {
-          "intersection": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "automator"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_use"
                 }
               }
             ]
@@ -1595,18 +1580,6 @@
               },
               {
                 "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              }
-            ]
-          },
-          "automator": {
-            "directly_related_user_types": [
-              {
-                "type": "team",
-                "relation": "member"
               },
               {
                 "type": "team",
@@ -2469,6 +2442,10 @@
                 "type": "service_account"
               },
               {
+                "type": "team",
+                "relation": "member"
+              },
+              {
                 "relation": "admin",
                 "type": "team"
               },
@@ -2588,16 +2565,6 @@
               {
                 "computedUserset": {
                   "relation": "owner"
-                }
-              },
-              {
-                "tupleToUserset": {
-                  "tupleset": {
-                    "relation": "parent_collection"
-                  },
-                  "computedUserset": {
-                    "relation": "can_read"
-                  }
                 }
               }
             ]
@@ -2755,6 +2722,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",
@@ -3021,6 +2992,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",
@@ -3299,6 +3274,10 @@
               },
               {
                 "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
                 "relation": "admin"
               },
               {
@@ -3458,6 +3437,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

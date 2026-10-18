@@ -1,8 +1,8 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
 import logging
-from contextlib import AsyncExitStack
-from typing import Any, AsyncGenerator
+from contextlib import AsyncExitStack, aclosing
+from typing import Any, AsyncGenerator, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -10,13 +10,14 @@ from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.auth.authz import (
-    require_agent_schedule_permission,
     require_agent_use_permission,
+    require_autonomous_permission,
 )
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, InputFile, UserContext
 from dynamic_agents.services.llm_clients import LLMConfigError
+from dynamic_agents.services.model_capabilities import supports_reasoning_effort
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import (
     RuntimeCapacityError,
@@ -29,11 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 async def _enforce_chat_authz(*, agent_id: str, user_sub: str | None, autonomous: bool) -> None:
-    """Authorize a chat call. Interactive calls need can_use autonomous
-    calls also need can_schedule"""
+    """Authorize a chat call.
+
+    Every caller needs access to the selected agent. Autonomous calls also
+    require the user to belong to at least one autonomous-enabled team.
+    """
     await require_agent_use_permission(agent_id, delegated_user_sub=user_sub)
     if autonomous:
-        await require_agent_schedule_permission(agent_id, delegated_user_sub=user_sub)
+        await require_autonomous_permission(delegated_user_sub=user_sub)
 
 
 # Fields that CANNOT be overridden via config_override
@@ -176,6 +180,7 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    reasoning_effort: Literal["low", "medium", "high", "max"] | None = None
     config_override: dict | None = Field(
         None,
         description=(
@@ -191,6 +196,25 @@ class ResumeStreamRequest(BaseModel):
     workflow_config_id: str | None = Field(
         None,
         description="Workflow config ID when resuming a workflow step (for delegated agent use).",
+    )
+
+
+def _with_reasoning_effort(
+    agent: DynamicAgentConfig,
+    requested: Literal["low", "medium", "high", "max"] | None,
+) -> DynamicAgentConfig:
+    """Apply a validated conversation override without mutating stored config."""
+    if requested is None:
+        return agent
+    if not supports_reasoning_effort(agent.model.id, requested):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model {agent.model.id!r} does not support configurable reasoning effort",
+        )
+    return agent.model_copy(
+        update={
+            "model": agent.model.model_copy(update={"reasoning_effort": requested})
+        }
     )
 
 
@@ -218,6 +242,7 @@ async def _collect_invoke_response(
         request.trace_id,
         encoder,
         files=request.files,
+        turn_id=request.turn_id,
     ):
         pass
 
@@ -260,6 +285,7 @@ async def _generate_sse_events(
     mongo: MongoDBService | None = None,
     client_context: ClientContext | None = None,
     files: list[InputFile] | None = None,
+    turn_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -286,8 +312,19 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder, files=files):
-            yield frame
+        async with aclosing(
+            runtime.stream(
+                message,
+                session_id,
+                user.email,
+                trace_id,
+                encoder,
+                files=files,
+                turn_id=turn_id,
+            )
+        ) as frames:
+            async for frame in frames:
+                yield frame
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity: {e}")
@@ -361,6 +398,7 @@ async def chat_start_stream(
     # Apply config_override if provided (deep merge, validated)
     if request.config_override:
         agent = apply_config_override(agent, request.config_override)
+    agent = _with_reasoning_effort(agent, request.reasoning_effort)
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
@@ -389,6 +427,7 @@ async def chat_start_stream(
             mongo=mongo,
             client_context=request.client_context,
             files=request.files,
+            turn_id=request.turn_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -432,8 +471,9 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
-            yield frame
+        async with aclosing(runtime.resume(session_id, user.email, resume_data, trace_id, encoder)) as frames:
+            async for frame in frames:
+                yield frame
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity: {e}")
@@ -482,6 +522,7 @@ async def chat_resume_stream(
     # Apply config_override if provided (same as /stream/start)
     if request.config_override:
         agent = apply_config_override(agent, request.config_override)
+    agent = _with_reasoning_effort(agent, request.reasoning_effort)
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
@@ -542,6 +583,8 @@ async def chat_invoke(
     # Apply config_override if provided (deep merge, validated)
     if request.config_override:
         agent = apply_config_override(agent, request.config_override)
+
+    agent = _with_reasoning_effort(agent, request.reasoning_effort)
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)

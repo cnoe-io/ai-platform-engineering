@@ -913,10 +913,11 @@ async def _diagnose_endpoint_failure(endpoint: str) -> str:
 
 
 # Bounded retry policy for transient MCP tool-load failures (cold-start
-# ext_authz timeouts, mid-stream disconnects). Kept small so a healthy
-# enumeration is not slowed (success path does zero retries) and a permanent
-# failure / denial is not retried needlessly.
-_DEFAULT_LOAD_MAX_ATTEMPTS = 3
+# ext_authz timeouts, AgentGateway 5xx readiness, mid-stream disconnects).
+# Five attempts cover the route-visible/upstream-not-ready window observed
+# during coordinated rollouts while keeping the success path at one request;
+# permanent failures and authorization denials still fail immediately.
+_DEFAULT_LOAD_MAX_ATTEMPTS = 5
 _DEFAULT_LOAD_BASE_BACKOFF_S = 0.25
 
 
@@ -940,7 +941,7 @@ async def get_tools_with_resilience(
 
     Args:
         connections: Dict mapping server_id to connection config.
-        max_attempts: Max connect attempts per server (>=1). Default 3.
+        max_attempts: Max connect attempts per server (>=1). Default 5.
         base_backoff_s: Base backoff for exponential+jitter delay. Default 0.25s.
 
     Returns:
@@ -1345,9 +1346,8 @@ def pin_datasource_filters(
     a different id.
     """
     # ``None`` is the backward-compatible legacy state: no agent-level pin.
-    # An explicit empty list means the editor selected no RAG sources and
-    # must therefore remove every RAG tool rather than widening to all of the
-    # caller's sources.
+    # An explicit empty list keeps filter-capable RAG tools available while
+    # pinning them to an empty scope, so calls return no indexed content.
     if datasource_ids is None and datasource_ids_provider is None:
         return tools
 
@@ -1360,14 +1360,6 @@ def pin_datasource_filters(
         is_rag_tool = any(tool.name.startswith(f"{server_id}_") for server_id in rag_server_ids)
         if not is_rag_tool:
             pinned.append(tool)
-            continue
-
-        if not datasource_ids and datasource_ids_provider is None:
-            logger.info(
-                "[%s] Removed RAG tool '%s': the agent has no configured datasources",
-                agent_name,
-                tool.name,
-            )
             continue
 
         schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))

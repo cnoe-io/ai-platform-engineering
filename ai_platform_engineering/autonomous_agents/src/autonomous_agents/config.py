@@ -3,10 +3,12 @@
 import json
 from functools import lru_cache
 from math import isfinite
-from typing import Any, Self
+from typing import Annotated, Self
 
-from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+SUPPORTED_WEBHOOK_PROVIDERS = ("github", "jira", "slack", "pagerduty")
 
 
 def _parse_cors_string(raw: str | None) -> list[str]:
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
     # dynamic agent's own model config governs execution).
     llm_provider: str = "anthropic-claude"
 
+    # Cron and interval tasks may not fire more frequently than this. Webhook
+    # tasks are event-driven and deliberately exempt.
+    minimum_schedule_interval_seconds: int = Field(default=1800, ge=1)
+
     # Dynamic-agents runtime — the single execution backend for autonomous
     # tasks. Every task targets a dynamic_agent_id and runs through this
     # service (its tools / system prompt / model / middleware).
@@ -60,6 +66,7 @@ class Settings(BaseSettings):
     dynamic_agents_oauth2_token_url: str | None = None
     dynamic_agents_oauth2_client_id: str | None = None
     dynamic_agents_oauth2_client_secret: str | None = None
+    dynamic_agents_oauth2_audience: str = "caipe-platform"
     dynamic_agents_oauth2_scope: str | None = None
 
     @field_validator(
@@ -85,6 +92,14 @@ class Settings(BaseSettings):
     # Per-task secrets always win when both are configured.
     webhook_secret: str | None = None
 
+    # Per-task webhook secrets use the same envelope-encryption scheme as the
+    # UI credential store (including UI-managed Webex OAuth secrets): a fresh
+    # AES-256-GCM data key per write, wrapped by this AWS KMS CMK. When the CMK
+    # is unset, tasks without per-task secrets still work, but persisting or
+    # reading a per-task secret fails closed instead of writing plaintext.
+    credential_kms_cmk_id: str | None = None
+    credential_kms_region: str | None = None
+
     # IMP-07 — webhook replay protection.
     #
     # When > 0, signed webhooks must additionally carry an
@@ -100,60 +115,79 @@ class Settings(BaseSettings):
     # timestamp header. See README.md for the signing contract.
     webhook_replay_window_seconds: int = Field(default=0, ge=0)
 
+    # Application-level webhook overload protection. Each webhook task is a
+    # FIFO with exactly one active run. Queue item/byte ceilings bound memory;
+    # separate owner/global execution limits allow safe parallelism across
+    # different webhooks. Edge/WAF limiting remains the first DDoS boundary.
+    webhook_max_payload_bytes: int = Field(default=1_048_576, ge=1)
+    webhook_max_pending_per_task: int = Field(default=100, ge=1)
+    webhook_max_pending_per_owner: int = Field(default=500, ge=1)
+    webhook_max_pending_global: int = Field(default=5_000, ge=1)
+    webhook_max_pending_payload_bytes_global: int = Field(
+        default=67_108_864, ge=1
+    )
+    webhook_max_concurrent_per_owner: int = Field(default=20, ge=1)
+    webhook_max_concurrent_global: int = Field(default=100, ge=1)
+
     # Path to the YAML file describing webhook provider adapters
     # (signature header, scheme, algorithm, payload template, etc.).
     # ``None`` (the default) means use the bundled
     # ``autonomous_agents/webhook_providers.yaml`` shipped with the
-    # package -- which already covers github, slack, pagerduty, and
-    # generic_hmac. Operators add private upstreams by pointing
-    # ``WEBHOOK_PROVIDERS_FILE`` at a custom file; that file fully
-    # replaces the bundled defaults, so include any built-in providers
-    # you still want when overriding.
+    # package. A custom file fully replaces the bundled adapter definitions,
+    # but does not expand the four task providers supported by the API/UI.
+    # Include every enabled provider when overriding this file.
     webhook_providers_file: str | None = None
 
-    # CORS — stored as a raw string so Docker ``CORS_ORIGINS=`` (empty) does
-    # not trip pydantic-settings' JSON decode for ``list[str]``. Expose the
-    # parsed list via the ``cors_origins`` property (same name as before).
-    cors_origins_raw: str = Field(
-        default="",
+    # Deployment allowlist for webhook providers offered by the UI and accepted
+    # by task/webhook routes. Provider adapter configuration remains separate:
+    # an adapter existing in YAML does not make it supported or user-selectable.
+    enabled_webhook_providers: list[str] = Field(
+        default_factory=lambda: list(SUPPORTED_WEBHOOK_PROVIDERS)
+    )
+
+    @field_validator("enabled_webhook_providers")
+    @classmethod
+    def validate_enabled_webhook_providers(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(value.strip().lower() for value in values))
+        if not normalized:
+            raise ValueError("ENABLED_WEBHOOK_PROVIDERS must enable at least one provider")
+        unknown = [
+            value for value in normalized if value not in SUPPORTED_WEBHOOK_PROVIDERS
+        ]
+        if unknown:
+            raise ValueError(
+                "ENABLED_WEBHOOK_PROVIDERS contains unsupported providers: "
+                + ", ".join(unknown)
+            )
+        return normalized
+
+    # NoDecode keeps empty and comma-separated environment values available to
+    # the validator instead of applying JSON decoding in the settings source.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
         validation_alias=AliasChoices(
             "cors_origins_raw",
             "CORS_ORIGINS",
             "AUTONOMOUS_CORS_ORIGINS",
         ),
     )
-    _cors_origins: list[str] = PrivateAttr(default_factory=list)
-
-    @model_validator(mode="before")
+    @field_validator("cors_origins", mode="before")
     @classmethod
-    def _legacy_cors_constructor_kwarg(cls, data: Any) -> Any:
-        # Unit tests and callers use ``Settings(cors_origins=[...])`` /
-        # ``Settings(cors_origins="http://a,http://b")`` — translate to raw.
-        if not isinstance(data, dict) or "cors_origins" not in data:
-            return data
-        co = data.pop("cors_origins")
-        if isinstance(co, list):
-            data["cors_origins_raw"] = ",".join(str(x) for x in co if str(x)) if co else ""
-        elif isinstance(co, str):
-            data["cors_origins_raw"] = co
-        return data
+    def _parse_cors_origins(cls, value: str | list[str] | None) -> list[str]:
+        if isinstance(value, list):
+            return [str(origin).strip() for origin in value if str(origin).strip()]
+        return _parse_cors_string(value)
 
-    @model_validator(mode="after")
-    def _materialize_cors_origins(self) -> Self:
-        # IMP-05: reject ``*`` with allow_credentials=True (see main.py).
-        parsed = _parse_cors_string(self.cors_origins_raw)
-        if any(origin.strip() == "*" for origin in parsed):
+    @field_validator("cors_origins")
+    @classmethod
+    def _reject_wildcard_cors_origin(cls, value: list[str]) -> list[str]:
+        if any(origin.strip() == "*" for origin in value):
             raise ValueError(
                 "cors_origins=['*'] is unsafe with allow_credentials=True; "
                 "list each allowed origin explicitly (e.g. "
                 "['http://localhost:3000','https://app.example.com'])"
             )
-        self._cors_origins = parsed
-        return self
-
-    @property
-    def cors_origins(self) -> list[str]:
-        return self._cors_origins
+        return value
 
     # Connection for MongoDB
     mongodb_uri: str | None = None

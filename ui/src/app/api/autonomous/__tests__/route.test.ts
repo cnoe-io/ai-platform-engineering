@@ -8,10 +8,8 @@
  * Tests for the /api/autonomous/[...path] proxy under the per-user
  * ownership model (plan section 4.1).
  *
- * The proxy no longer gates by OIDC role at the Next.js boundary.
- * Authentication is still required (no anonymous traffic), but every
- * authenticated user is allowed to make requests; the autonomous-agents
- * FastAPI service decides per-task ownership using the injected
+ * The proxy gates on user-level Autonomous team entitlement, then the
+ * autonomous-agents FastAPI service decides per-task ownership using the injected
  * `X-Authenticated-User-Email` / `X-Authenticated-User-Is-Admin` headers.
  *
  * What we assert here:
@@ -24,7 +22,7 @@
  *    the load-bearing 403 path, not the proxy).
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -55,6 +53,22 @@ jest.mock('@/lib/config', () => ({
     if (key === 'autonomousAgentsEnabled') return mockAutonomousAgentsEnabled;
     return undefined;
   },
+}));
+
+const mockCheckOpenFgaTuple = jest.fn();
+const mockAuthenticateRequest = jest.fn();
+const mockDynamicAgentsConfig = jest.fn();
+const mockProxyRequest = jest.fn();
+jest.mock('@/lib/da-proxy', () => ({
+  authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
+  getDynamicAgentsConfig: () => mockDynamicAgentsConfig(),
+  proxyRequest: (...args: unknown[]) => mockProxyRequest(...args),
+}));
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+jest.mock('@/lib/rbac/organization', () => ({
+  organizationObjectId: () => 'organization:caipe',
 }));
 
 // Upstream HTTP client -- the proxy uses global `fetch`. We replace it
@@ -106,6 +120,7 @@ function paramsFor(path: string) {
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
+    sub: 'admin-sub',
     role: 'admin',
     canViewAdmin: true,
   };
@@ -114,6 +129,7 @@ function adminSession() {
 function plainUserSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
+    sub: 'user-sub',
     role: 'user',
     canViewAdmin: false,
   };
@@ -129,6 +145,53 @@ function okJsonResponse(body: unknown) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockAutonomousAgentsEnabled = true;
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+  mockAuthenticateRequest.mockResolvedValue({ email: 'user@example.com', bearerToken: 'test-token' });
+  mockDynamicAgentsConfig.mockReturnValue({ dynamicAgentsUrl: 'http://runtime.example.test' });
+  mockProxyRequest.mockImplementation(async () => NextResponse.json({ conversation_id: 'manual-chat' }));
+});
+
+describe('independent manual follow-up chat proxy', () => {
+  it.each([
+    ['GET', 'tasks/example/follow-up-chats'],
+    ['POST', 'tasks/example/runs/run-1/follow-up-chat'],
+  ])('forwards %s %s to the checkpoint-owning runtime', async (method, path) => {
+    const handler = method === 'GET' ? GET : POST;
+    const response = await handler(makeRequest(method, path), paramsFor(path));
+    expect(response.status).toBe(200);
+    expect(mockProxyRequest).toHaveBeenCalledWith(
+      `http://runtime.example.test/api/v1/autonomous/${path}`, method,
+      { email: 'user@example.com', bearerToken: 'test-token' }, '[autonomous/follow-up-chat]',
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('requires authentication before forwarding', async () => {
+    mockAuthenticateRequest.mockResolvedValue(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+    const path = 'tasks/example/runs/run-1/follow-up-chat';
+    expect((await POST(makeRequest('POST', path), paramsFor(path))).status).toBe(401);
+    expect(mockProxyRequest).not.toHaveBeenCalled();
+  });
+
+  it('respects the deployment feature flag', async () => {
+    mockAutonomousAgentsEnabled = false;
+    const path = 'tasks/example/follow-up-chats';
+    expect((await GET(makeRequest('GET', path), paramsFor(path))).status).toBe(404);
+    expect(mockProxyRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not create a chat on GET', async () => {
+    const path = 'tasks/example/runs/run-1/follow-up-chat';
+    expect((await GET(makeRequest('GET', path), paramsFor(path))).status).toBe(405);
+    expect(mockProxyRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects the old inline follow-up endpoint', async () => {
+    mockGetServerSession.mockResolvedValue(plainUserSession());
+    const path = 'tasks/example/runs/run-1/follow-up';
+    expect((await POST(makeRequest('POST', path, { prompt: 'Reply' }), paramsFor(path))).status).toBe(409);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -148,6 +211,16 @@ describe('GET /api/autonomous/[...path] — deployment + auth guards', () => {
     mockGetServerSession.mockResolvedValue(null);
     const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
     expect(res.status).toBe(401);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('403 when the caller belongs to no Autonomous-enabled team', async () => {
+    mockGetServerSession.mockResolvedValue(plainUserSession());
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+
+    const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+
+    expect(res.status).toBe(403);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

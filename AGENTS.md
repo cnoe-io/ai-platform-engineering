@@ -31,7 +31,9 @@ until you have checked the shared locations below.
 |---|---|---|
 | UI page or API route | `ui/src/app/` | `ui/src/components/`, `ui/src/lib/`, `ui/src/store/` |
 | UI component | `ui/src/components/` | `ui/src/components/ui/` and `ui/src/components/shared/`, then an existing component in the same feature area |
+| UI selection control | `ui/src/components/ui/{select,searchable-picker}.tsx` | Follow `docs/docs/ui/selection-controls.md`; reuse a domain picker before adding a base or custom listbox |
 | UI state or browser data | `ui/src/store/` | Existing store and `ui/src/lib/` helpers |
+| Application manifest or native UI package | `ui/app-sdk/agentic-app-manifest.mjs` | CAIPE App Contract: shared `AgenticAppManifest` types/validation, `ui/src/lib/agentic-apps/` installation adapters, and the native component interface |
 | MCP integration | `ai_platform_engineering/mcp/<provider>/` | `ai_platform_engineering/mcp/common/` |
 | Slack or Webex behavior | `ai_platform_engineering/integrations/{slack_bot,webex_bot}/` | The BFF/API contract and shared auth utilities |
 | Dynamic/custom-agent runtime | `ai_platform_engineering/dynamic_agents/` | Its `src/` modules and tests |
@@ -76,11 +78,25 @@ AI agents operating in this repository **must** follow these rules on every comm
   - Example: `prebuild/feat/rag-batch-job-status`
 - **PR descriptions** - Follow the template in `.github/pull_request_template.md`
 
+## Pull Requests and Review
+
+- One logical change per PR. Aim for under 500 changed lines of hand-written code; keep
+  refactors out of behaviour changes.
+- The description states why the change exists, links the issue, and says how it was
+  verified.
+- Disclose AI assistance in the description. Never add AI co-author or `assisted-by`
+  trailers - see [DCO Policy](#dco-policy).
+- Never apply a review suggestion with GitHub's "Commit suggestion" button; the commit it
+  creates names the suggestion's author as a co-author who has not signed off, which
+  fails DCO. Apply it locally.
+- Do not resolve review threads on a pull request you do not own.
+- Full policy: `docs/docs/repo-ops/code-review.md`
+
 ## Issue Tracking
 
 This project uses **GitHub Issues** for issue tracking.
 
-- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Create follow-up work as GitHub Issues in `caipe-io/ai-platform-engineering`.
 - Reference related issues in PR descriptions when applicable.
 - Do not use repo-local Beads or `bd` issue tracking.
 

@@ -477,9 +477,7 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
     );
 
     await selectAccessRowPermission(dialog, RECIPIENT.email, "view");
-    await selectAccessRowPermission(dialog, TEAM.name, "comment");
-
-    expect(shareRequests).toContainEqual(
+    await expect.poll(() => shareRequests).toContainEqual(
       expect.objectContaining({
         method: "PATCH",
         body: {
@@ -488,7 +486,10 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
         },
       }),
     );
-    expect(shareRequests).toContainEqual(
+    await expect(accessRow(dialog, RECIPIENT.email).locator("select")).toHaveValue("view");
+
+    await selectAccessRowPermission(dialog, TEAM.name, "comment");
+    await expect.poll(() => shareRequests).toContainEqual(
       expect.objectContaining({
         method: "PATCH",
         body: {
@@ -497,6 +498,7 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
         },
       }),
     );
+    await expect(accessRow(dialog, TEAM.name).locator("select")).toHaveValue("comment");
   });
 
   test("recipient sees direct user shares on the Shared with me home tab", async ({

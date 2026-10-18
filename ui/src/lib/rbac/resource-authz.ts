@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api-error";
-import { authorize, authorizeMany, type Action, type Subject } from "@/lib/authz";
+import { authorize, authorizeMany, listAccessible, type Action, type Subject } from "@/lib/authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 import { type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
@@ -39,6 +39,8 @@ export interface ResourceAuthzSession {
    * matches the relationships those callers are granted in OpenFGA.
    */
   isServiceAccount?: boolean;
+  /** OAuth client identity supplied by the verified bearer-auth path. */
+  serviceAccountClientId?: string;
   principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
 }
 
@@ -404,15 +406,23 @@ export async function filterResourcesByPermission<T>(
 
   if (resources.length === 0) return [];
 
+  // The candidate list here is typically the WHOLE catalog (pre-pagination),
+  // so this is "which of these does the subject have access to" — a reverse
+  // lookup, not N per-resource decisions. listAccessible asks the PDP for the
+  // subject's accessible set in one call instead of checking each candidate.
+  // Fails closed (empty) on PDP unavailability, matching the previous
+  // authorizeMany-based behavior — AUTHZ_UNAVAILABLE decisions were never
+  // ALLOW, so they were already filtered out silently.
   const ids = resources.map((resource) => target.id(resource));
-  const results = await authorizeMany(
+  const { accessible } = await listAccessible(
     casSubject,
     resourcePermissionActionToCasAction(target.action),
     target.type,
     ids,
   );
+  const accessibleSet = new Set(accessible);
 
-  return resources.filter((resource) => results.get(target.id(resource))?.decision === "ALLOW");
+  return resources.filter((resource) => accessibleSet.has(target.id(resource)));
 }
 
 export interface McpServerRowPermissions {
@@ -500,24 +510,12 @@ export interface AgentRowPermissions {
   can_manage: boolean;
   can_write: boolean;
   can_discover: boolean;
-  can_schedule: boolean;
-  /**
-   * Whether the caller may flip per-agent autonomous enablement (the team
-   * `automator` grant). True for platform admins and admins of the agent's
-   * owner team only — deliberately narrower than `can_manage`, which the
-   * team-level "Manage" grant extends to every team member. Stamped by the
-   * agents list route (it needs `owner_team_slug`, which this resolver
-   * doesn't see).
-   */
-  can_automate: boolean;
 }
 
 const DEFAULT_AGENT_ROW_PERMISSIONS: AgentRowPermissions = {
   can_manage: false,
   can_write: false,
   can_discover: false,
-  can_schedule: false,
-  can_automate: false,
 };
 
 /**
@@ -540,14 +538,14 @@ export async function resolveAgentListPermissions(
     const rows = new Map(
       agentIds.map((id) => [
         id,
-        { can_manage: true, can_write: true, can_discover: true, can_schedule: true, can_automate: true } satisfies AgentRowPermissions,
+        { can_manage: true, can_write: true, can_discover: true } satisfies AgentRowPermissions,
       ]),
     );
     return { rows };
   }
 
   const uniqueIds = [...new Set(agentIds.filter((id) => id.trim().length > 0))];
-  const [manageResults, writeResults, discoverResults, scheduleResults] = await Promise.all([
+  const [manageResults, writeResults, discoverResults] = await Promise.all([
     uniqueIds.length > 0
       ? authorizeMany(casSubject, "manage", "agent", uniqueIds)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
@@ -557,9 +555,6 @@ export async function resolveAgentListPermissions(
     uniqueIds.length > 0
       ? authorizeMany(casSubject, "discover", "agent", uniqueIds)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
-    uniqueIds.length > 0
-      ? authorizeMany(casSubject, "schedule", "agent", uniqueIds)
-      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
   ]);
 
   const rows = new Map<string, AgentRowPermissions>();
@@ -568,9 +563,6 @@ export async function resolveAgentListPermissions(
       can_manage: manageResults.get(id)?.decision === "ALLOW",
       can_write: writeResults.get(id)?.decision === "ALLOW",
       can_discover: discoverResults.get(id)?.decision === "ALLOW",
-      can_schedule: scheduleResults.get(id)?.decision === "ALLOW",
-      // Refined by the agents list route, which knows each agent's owner team.
-      can_automate: false,
     });
   }
 

@@ -12,7 +12,7 @@ const CHANNELS = [
     cta: 'Join the CAIPE community channel',
     href: 'https://cloud-native.slack.com/archives/C08N0AKR52S',
     note: 'Need a CNCF Slack invite?',
-    noteHref: 'https://communityinviter.com/apps/cloud-native/cncf',
+    noteHref: 'https://inviter.co/cncf',
   },
   {
     icon: '📅',
@@ -29,7 +29,7 @@ const CHANNELS = [
     title: 'Meeting Recordings',
     description: 'Catch up on past community meetings and demos.',
     cta: 'Watch recordings',
-    href: 'https://www.youtube.com/@cnoe-community',
+    href: 'https://www.youtube.com/@caipe-io',
     note: null,
     noteHref: null,
   },
@@ -38,7 +38,7 @@ const CHANNELS = [
     title: 'GitHub Discussions',
     description: 'Ask questions, share ideas, and discuss platform engineering use cases.',
     cta: 'Open a discussion',
-    href: 'https://github.com/cnoe-io/ai-platform-engineering/discussions',
+    href: 'https://github.com/caipe-io/ai-platform-engineering/discussions',
     note: null,
     noteHref: null,
   },
@@ -67,7 +67,7 @@ const CONTRIBUTE = [
     icon: '🌱',
     title: 'Pick a Good First Issue',
     description: 'New to the project? Browse issues tagged for first-time contributors — bite-sized and well-scoped.',
-    href: 'https://github.com/cnoe-io/ai-platform-engineering/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22',
+    href: 'https://github.com/caipe-io/ai-platform-engineering/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22',
   },
   {
     icon: '🛠️',
@@ -85,7 +85,7 @@ const CONTRIBUTE = [
     icon: '🐛',
     title: 'File Issues',
     description: 'Found a bug or have a feature request? Open a GitHub issue.',
-    href: 'https://github.com/cnoe-io/ai-platform-engineering/issues',
+    href: 'https://github.com/caipe-io/ai-platform-engineering/issues',
   },
   {
     icon: '📖',
@@ -116,13 +116,13 @@ export default function CommunityPage() {
             <div className={styles.heroButtons}>
               <Link
                 className={styles.primaryBtn}
-                href="https://communityinviter.com/apps/cloud-native/cncf"
+                href="https://inviter.co/cncf"
               >
                 Join CNCF Slack →
               </Link>
               <Link
                 className={styles.secondaryBtn}
-                href="https://github.com/cnoe-io/ai-platform-engineering"
+                href="https://github.com/caipe-io/ai-platform-engineering"
               >
                 GitHub ↗
               </Link>

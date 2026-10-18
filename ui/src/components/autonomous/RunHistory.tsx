@@ -3,25 +3,31 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { RefreshCw, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MarkdownRenderer } from "@/components/shared/timeline/MarkdownRenderer";
 import { cn } from "@/lib/utils";
+import { useAutonomousFollowUps } from "@/hooks/use-autonomous-follow-ups";
+import { RunFollowUpButton } from "./RunFollowUpButton";
 
 import { autonomousApi, AutonomousApiError } from "./api";
-import type { TaskRun } from "./types";
+import type { TaskRun, TriggerType } from "./types";
 
 interface RunHistoryProps {
   taskId: string;
+  triggerType?: TriggerType;
   /**
    * Refresh trigger — bump this counter from the parent (e.g. right
    * after manually firing a task) to force a reload without waiting
    * for the polling interval.
    */
   refreshKey?: number;
+  /** Allow opening an independent manual follow-up chat for each run. */
+  allowFollowUp?: boolean;
 }
 
 const STATUS_BADGE_VARIANT: Record<TaskRun["status"], "default" | "secondary" | "destructive" | "outline"> = {
@@ -75,11 +81,56 @@ function formatDuration(start: string, end: string | null | undefined): string {
   }
 }
 
-export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
+interface OrderedRun {
+  run: TaskRun;
+  depth: number;
+}
+
+/** Root deliveries newest-first, with each delivery's follow-ups nested below it. */
+function orderRunThreads(runs: TaskRun[]): OrderedRun[] {
+  const byId = new Map(runs.map((run) => [run.run_id, run]));
+  const children = new Map<string, TaskRun[]>();
+  const roots: TaskRun[] = [];
+
+  for (const run of runs) {
+    if (run.parent_run_id && byId.has(run.parent_run_id)) {
+      const siblings = children.get(run.parent_run_id) ?? [];
+      siblings.push(run);
+      children.set(run.parent_run_id, siblings);
+    } else {
+      roots.push(run);
+    }
+  }
+
+  const timestamp = (run: TaskRun) => new Date(run.started_at).getTime() || 0;
+  roots.sort((a, b) => timestamp(b) - timestamp(a));
+  children.forEach((siblings) => siblings.sort((a, b) => timestamp(a) - timestamp(b)));
+
+  const ordered: OrderedRun[] = [];
+  const visited = new Set<string>();
+  const append = (run: TaskRun, depth: number) => {
+    if (visited.has(run.run_id)) return;
+    visited.add(run.run_id);
+    ordered.push({ run, depth });
+    for (const child of children.get(run.run_id) ?? []) append(child, depth + 1);
+  };
+  roots.forEach((run) => append(run, 0));
+  // Defensive cycle/orphan fallback: no persisted run should disappear.
+  runs.forEach((run) => append(run, 0));
+  return ordered;
+}
+
+export function RunHistory({
+  taskId,
+  triggerType,
+  refreshKey = 0,
+  allowFollowUp = false,
+}: RunHistoryProps) {
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const followUps = useAutonomousFollowUps(allowFollowUp ? taskId : undefined);
   // Track in-flight requests so a slow response doesn't clobber a
   // newer one — important once the auto-poll kicks in.
   const inflightRef = useRef(0);
@@ -135,6 +186,8 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
     });
   };
 
+  const orderedRuns = useMemo(() => orderRunThreads(runs), [runs]);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -163,13 +216,27 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
         </div>
       )}
 
+      {allowFollowUp && (
+        <p className="text-xs text-muted-foreground">
+          Automated history is read-only. Continue any run in a separate manual follow-up chat.
+        </p>
+      )}
       <ul className="flex flex-col gap-1">
-        {runs.map((run) => {
+        {orderedRuns.map(({ run, depth }) => {
           const isOpen = expanded.has(run.run_id);
+          const response =
+            triggerType === "webhook"
+              ? run.response_full ?? run.response_preview
+              : run.response_preview;
           return (
             <li
               key={run.run_id}
-              className="rounded-md border border-border bg-card text-card-foreground"
+              className={cn(
+                "rounded-md border border-border bg-card text-card-foreground",
+                depth > 0 && "border-l-orange-500/40",
+              )}
+              style={{ marginLeft: `${Math.min(depth, 3) * 16}px` }}
+              data-run-depth={depth}
             >
               <button
                 type="button"
@@ -187,6 +254,11 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
                 >
                   {run.status}
                 </Badge>
+                {depth > 0 && (
+                  <Badge variant="outline" className="border-orange-500/30 text-[10px] text-orange-700 dark:text-orange-300">
+                    Follow-up
+                  </Badge>
+                )}
                 <span className="font-mono text-muted-foreground truncate">
                   {run.run_id}
                 </span>
@@ -235,6 +307,19 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
                       </Button>
                     </div>
                   )}
+                  {triggerType === "webhook" && (
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {run.parent_run_id ? "Follow-up message" : "Task request"}
+                      </div>
+                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                        <MarkdownRenderer
+                          content={run.follow_up_text ?? run.request_prompt ?? "Request unavailable."}
+                          variant="final"
+                        />
+                      </div>
+                    </div>
+                  )}
                   {run.error && (
                     <div>
                       <div className="font-medium text-foreground mb-1">Error</div>
@@ -243,25 +328,45 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
                       </pre>
                     </div>
                   )}
-                  {run.response_preview && (
+                  {response && (
                     <div>
-                      <div className="font-medium text-foreground mb-1">Response preview</div>
-                      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 text-foreground">
-                        {run.response_preview}
-                      </pre>
+                      <div className="font-medium text-foreground mb-1">
+                        {triggerType === "webhook" ? "Result" : "Response preview"}
+                      </div>
+                      {triggerType === "webhook" ? (
+                        <div
+                          className="min-w-0 overflow-hidden rounded bg-muted p-3"
+                          data-testid="webhook-run-result"
+                        >
+                          <MarkdownRenderer content={response} variant="final" />
+                        </div>
+                      ) : (
+                        <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 text-foreground">
+                          {response}
+                        </pre>
+                      )}
                     </div>
                   )}
-                  {!run.error && !run.response_preview && (
+                  {!run.error && !response && (
                     <div className="text-muted-foreground italic">
                       No response captured.
                     </div>
                   )}
+                  {allowFollowUp && run.execution_context_id &&
+                    ["success", "failed"].includes(run.status) && (
+                      <RunFollowUpButton
+                        runId={run.run_id}
+                        conversationId={followUps.links[run.run_id]}
+                        openChat={followUps.openChat}
+                      />
+                    )}
                 </div>
               )}
             </li>
           );
         })}
       </ul>
+
     </div>
   );
 }

@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+import { forwardAdminNotificationToSlack } from "@/lib/admin-notification-forwarding.server";
 import { getCollection } from "@/lib/mongodb";
 import { checkOpenFgaTuple, listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import type {
   InAppNotificationDocument,
   InAppNotificationPage,
+  InAppNotificationCategory,
+  InAppNotificationLifecycleStatus,
+  InAppNotificationResolutionType,
   InAppNotificationSeverity,
 } from "@/types/in-app-notification";
 
@@ -20,7 +24,10 @@ function teamSlugFromObject(value: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
-async function notificationAudienceQuery(subject: string): Promise<Record<string, unknown>> {
+async function notificationAudienceQuery(
+  subject: string,
+  options: { includePlatformNotifications?: boolean } = {},
+): Promise<Record<string, unknown>> {
   let teamSlugs: string[] = [];
   let organizationAdmin = false;
   const [teamResult, adminResult] = await Promise.allSettled([
@@ -56,12 +63,16 @@ async function notificationAudienceQuery(subject: string): Promise<Record<string
   }
   return {
     archived_at: { $exists: false },
+    ...(options.includePlatformNotifications === false
+      ? { category: { $ne: "platform_health" } }
+      : {}),
     $or: [
       { recipient_user_subjects: subject },
       ...(teamSlugs.length > 0
         ? [{ recipient_team_slugs: { $in: teamSlugs } }]
         : []),
       ...(organizationAdmin ? [{ recipient_organization_admins: true }] : []),
+      { recipient_platform_users: true },
     ],
   };
 }
@@ -71,25 +82,33 @@ export async function createInAppNotification(input: {
   recipientUserSubjects?: string[];
   recipientTeamSlugs?: string[];
   recipientOrganizationAdmins?: boolean;
+  recipientPlatformUsers?: boolean;
   title: string;
   message: string;
   href?: string;
   severity?: InAppNotificationSeverity;
+  category?: InAppNotificationCategory;
+  sourceLabel?: string;
+  correlationKey?: string;
+  lifecycleStatus?: InAppNotificationLifecycleStatus;
 }): Promise<void> {
   const recipientUserSubjects = normalizedStrings(input.recipientUserSubjects ?? []);
   const recipientTeamSlugs = normalizedStrings(input.recipientTeamSlugs ?? []);
   const recipientOrganizationAdmins = input.recipientOrganizationAdmins === true;
+  const recipientPlatformUsers = input.recipientPlatformUsers === true;
   if (
     recipientUserSubjects.length === 0 &&
     recipientTeamSlugs.length === 0 &&
-    !recipientOrganizationAdmins
+    !recipientOrganizationAdmins &&
+    !recipientPlatformUsers
   ) return;
 
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
   const now = new Date().toISOString();
-  await collection.updateOne(
+  const severity = input.severity ?? "info";
+  const result = await collection.updateOne(
     { event_key: input.eventKey } as never,
     {
       $setOnInsert: {
@@ -98,10 +117,15 @@ export async function createInAppNotification(input: {
         recipient_user_subjects: recipientUserSubjects,
         recipient_team_slugs: recipientTeamSlugs,
         recipient_organization_admins: recipientOrganizationAdmins,
+        recipient_platform_users: recipientPlatformUsers,
         title: input.title,
         message: input.message,
         ...(input.href ? { href: input.href } : {}),
-        severity: input.severity ?? "info",
+        severity,
+        category: input.category ?? "general",
+        ...(input.sourceLabel ? { source_label: input.sourceLabel } : {}),
+        ...(input.correlationKey ? { correlation_key: input.correlationKey } : {}),
+        ...(input.lifecycleStatus ? { lifecycle_status: input.lifecycleStatus } : {}),
         created_at: now,
         updated_at: now,
         read_by_subjects: [],
@@ -109,6 +133,49 @@ export async function createInAppNotification(input: {
     } as never,
     { upsert: true },
   );
+
+  // Only forward genuinely new notifications — `$setOnInsert` means a
+  // duplicate `event_key` upsert leaves `upsertedCount` at 0, so a retried
+  // or re-triggered call never posts a second Slack message for the same
+  // event. Fire-and-forget: a Slack outage must never slow down or break
+  // in-app notification creation.
+  if (result.upsertedCount > 0 && recipientOrganizationAdmins) {
+    void forwardAdminNotificationToSlack({
+      title: input.title,
+      message: input.message,
+      href: input.href,
+      severity,
+      sourceLabel: input.sourceLabel,
+    }).catch(() => {});
+  }
+}
+
+export async function resolveInAppNotification(input: {
+  eventKey: string;
+  resolvedAt: string;
+  resolvedBySubject?: string;
+  resolutionType: InAppNotificationResolutionType;
+  resolutionNote?: string;
+}): Promise<boolean> {
+  const collection = await getCollection<InAppNotificationDocument>(
+    NOTIFICATION_COLLECTION,
+  );
+  const result = await collection.updateOne(
+    { event_key: input.eventKey, archived_at: { $exists: false } } as never,
+    {
+      $set: {
+        lifecycle_status: "resolved",
+        resolved_at: input.resolvedAt,
+        resolution_type: input.resolutionType,
+        ...(input.resolvedBySubject
+          ? { resolved_by_subject: input.resolvedBySubject }
+          : {}),
+        ...(input.resolutionNote ? { resolution_note: input.resolutionNote } : {}),
+        updated_at: input.resolvedAt,
+      },
+    } as never,
+  );
+  return result.matchedCount > 0;
 }
 
 export async function archiveInAppNotifications(
@@ -128,12 +195,16 @@ export async function archiveInAppNotifications(
 
 export async function listInAppNotifications(
   subject: string,
-  options: { page?: number; pageSize?: number } = {},
+  options: {
+    page?: number;
+    pageSize?: number;
+    includePlatformNotifications?: boolean;
+  } = {},
 ): Promise<InAppNotificationPage> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const requestedPage = Math.max(1, Math.floor(options.page ?? 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize ?? 10)));
   const [total, unreadCount] = await Promise.all([
@@ -158,6 +229,12 @@ export async function listInAppNotifications(
       message: row.message,
       ...(row.href ? { href: row.href } : {}),
       severity: row.severity,
+      category: row.category ?? "general",
+      ...(row.source_label ? { source_label: row.source_label } : {}),
+      ...(row.lifecycle_status
+        ? { lifecycle_status: row.lifecycle_status }
+        : {}),
+      ...(row.resolved_at ? { resolved_at: row.resolved_at } : {}),
       created_at: row.created_at,
       read: row.read_by_subjects.includes(subject),
     })),
@@ -174,11 +251,12 @@ export async function listInAppNotifications(
 export async function markInAppNotificationRead(
   subject: string,
   id: string,
+  options: { includePlatformNotifications?: boolean } = {},
 ): Promise<boolean> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const result = await collection.updateOne(
     { $and: [{ _id: id }, audience] } as never,
     {
@@ -191,11 +269,12 @@ export async function markInAppNotificationRead(
 
 export async function markAllInAppNotificationsRead(
   subject: string,
+  options: { includePlatformNotifications?: boolean } = {},
 ): Promise<number> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const result = await collection.updateMany(
     { $and: [audience, { read_by_subjects: { $ne: subject } }] } as never,
     {

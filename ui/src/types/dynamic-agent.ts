@@ -61,6 +61,26 @@ export interface MCPServerConfig {
   updated_at: string;
 }
 
+export interface RemoteAgentRegistryEntry {
+  _id: string;
+  name: string;
+  description?: string;
+  endpoint?: string;
+  timeout_seconds: number;
+  streaming?: boolean;
+  credential_source?: RemoteAgentCredentialSource;
+  protocol_version?: string;
+  protocol_bindings?: string[];
+}
+
+export interface RemoteAgentCredentialSource {
+  kind: "caller_token" | "secret_ref" | "provider_connection";
+  target: "header";
+  name: string;
+  secret_ref?: string;
+  provider?: string;
+}
+
 /** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */
 export interface MCPServerRowPermissions {
   can_manage: boolean;
@@ -311,7 +331,10 @@ export interface MiddlewareDefinition {
 export interface ModelConfig {
   id: string; // LLM model identifier (e.g., 'claude-sonnet-4-20250514')
   provider: string; // LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)
+  reasoning_effort?: ReasoningEffort;
 }
+
+export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 // =============================================================================
 // Dynamic Agent Types
@@ -411,6 +434,8 @@ export interface DynamicAgentConfig {
   description?: string;
   system_prompt: string;
   allowed_tools: Record<string, string[] | boolean>; // server_id -> tool names, true=all, false=disabled
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig; // Built-in tools configuration
   model: ModelConfig; // Required: LLM model configuration
   visibility: VisibilityType;
@@ -420,10 +445,11 @@ export interface DynamicAgentConfig {
   /**
    * RAG datasource ids (== source_id == knowledge_base_id) this agent's
    * search tool is pinned to. Narrows, never widens: the runtime intersects
-   * this list with the caller's RBAC-accessible datasources, so leaving it
-   * unset preserves the legacy "search everything the caller can see"
-   * behavior; an explicit empty list disables RAG tools. Populated from the
-   * owning team's visible datasources.
+   * this list with the caller's RBAC-accessible datasources. Leaving both
+   * this and rag_collection_ids unset is the intentional "unrestricted"
+   * default - the agent searches whatever the calling user can already
+   * access, with no additional agent-level narrowing. An explicit empty
+   * list is a deliberate opt-out that disables RAG tools entirely.
    */
   datasource_ids?: string[];
   /**
@@ -472,10 +498,6 @@ export interface AgentRowPermissions {
   can_manage: boolean;
   can_write: boolean;
   can_discover: boolean;
-  can_schedule: boolean;
-  /** Caller may flip per-agent autonomous enablement: platform admin or
-   *  admin of the agent's owner team. Narrower than can_manage. */
-  can_automate: boolean;
 }
 
 export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {
@@ -488,6 +510,8 @@ export interface DynamicAgentConfigCreate {
   description?: string;
   system_prompt: string;
   allowed_tools?: Record<string, string[] | boolean>;
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig; // Required: LLM model configuration
   /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
@@ -498,7 +522,9 @@ export interface DynamicAgentConfigCreate {
   owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
+  /** Omit entirely for the unrestricted default (see DynamicAgentConfig). */
   datasource_ids?: string[];
+  /** Omit entirely for the unrestricted default (see DynamicAgentConfig). */
   rag_collection_ids?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
@@ -512,6 +538,8 @@ export interface DynamicAgentConfigUpdate {
   description?: string;
   system_prompt?: string;
   allowed_tools?: Record<string, string[] | boolean>;
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
   /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
@@ -522,8 +550,10 @@ export interface DynamicAgentConfigUpdate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];
-  datasource_ids?: string[];
-  rag_collection_ids?: string[];
+  /** `null` clears back to the unrestricted default; omit to leave as-is. */
+  datasource_ids?: string[] | null;
+  /** `null` clears back to the unrestricted default; omit to leave as-is. */
+  rag_collection_ids?: string[] | null;
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;

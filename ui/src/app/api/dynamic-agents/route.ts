@@ -10,11 +10,9 @@ import {
   getAuthFromBearerOrSession,
   getPaginationParams,
   paginatedResponse,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import { findUserRoleInTeam } from "@/lib/rbac/team-membership-store";
 import { getCollection } from "@/lib/mongodb";
 import {
   RAG_COLLECTION_ID_PATTERN,
@@ -53,10 +51,7 @@ import type {
   SubAgentRef,
   VisibilityType,
 } from "@/types/dynamic-agent";
-import {
-  PLATFORM_RAG_COLLECTION_ID,
-  type RagCollection,
-} from "@/types/rag-collection";
+import { type RagCollection } from "@/types/rag-collection";
 import { Collection, ObjectId } from "mongodb";
 import { NextRequest } from "next/server";
 
@@ -68,6 +63,44 @@ const PLATFORM_DEFAULT_DELETE_ERROR =
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_RESOURCE_ID_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+function normalizeRemoteAgentIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new ApiError("allowed_remote_agents must be a list of registry IDs", 400, "INVALID_REMOTE_AGENT_IDS");
+  }
+  return [...new Set(value.map((item) => (item as string).trim()))];
+}
+
+async function validateRemoteAgentIds(value: unknown): Promise<string[]> {
+  const ids = normalizeRemoteAgentIds(value);
+  if (!ids.length) return ids;
+  const registry = await getCollection<{ _id: string; enabled?: boolean }>("remote_agents");
+  const entries = await registry.find({ _id: { $in: ids }, enabled: { $ne: false } }, { projection: { _id: 1 } }).toArray();
+  const found = new Set(entries.map((entry) => entry._id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length) {
+    throw new ApiError(`Unknown or disabled remote A2A agent(s): ${missing.join(", ")}`, 400, "INVALID_REMOTE_AGENT_IDS");
+  }
+  return ids;
+}
+
+function normalizeRemoteAgentTimeouts(value: unknown, allowedIds: unknown): Record<string, number> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("remote_agent_timeouts must be a registry-ID to seconds map", 400, "INVALID_REMOTE_AGENT_TIMEOUTS");
+  }
+  const allowed = new Set(normalizeRemoteAgentIds(allowedIds));
+  const result: Record<string, number> = {};
+  for (const [id, rawTimeout] of Object.entries(value)) {
+    const timeout = Number(rawTimeout);
+    if (!allowed.has(id) || !Number.isInteger(timeout) || timeout < 1 || timeout > 600) {
+      throw new ApiError("Each remote-agent timeout must reference a selected registry ID and be between 1 and 600 seconds", 400, "INVALID_REMOTE_AGENT_TIMEOUTS");
+    }
+    result[id] = timeout;
+  }
+  return result;
+}
 
 interface TeamOwnershipDoc {
   _id?: unknown;
@@ -216,6 +249,8 @@ const AGENT_MUTABLE_FIELDS = [
   "description",
   "system_prompt",
   "allowed_tools",
+  "allowed_remote_agents",
+  "remote_agent_timeouts",
   "builtin_tools",
   "model",
   "visibility",
@@ -240,9 +275,15 @@ function normalizeAgentDoc(
 ): Record<string, unknown> {
   // Migrate legacy model_id/model_provider → model
   if (doc.model_id && !doc.model) {
-    doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };
+    doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown", reasoning_effort: "medium" };
     delete doc.model_id;
     delete doc.model_provider;
+  }
+  if (doc.model && typeof doc.model === "object") {
+    const model = doc.model as Record<string, unknown>;
+    if (!["low", "medium", "high", "max"].includes(String(model.reasoning_effort))) {
+      model.reasoning_effort = "medium";
+    }
   }
   // A configured knowledge hand is always represented by two arrays. Older
   // rows could store the unselected half as null, which the editor must not
@@ -278,37 +319,10 @@ function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function hasRagToolAccess(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const selection = (value as Record<string, unknown>)["knowledge-base"];
-  return selection !== undefined && selection !== false;
-}
-
-async function platformRagDefaultIfAvailable(
-  session: ResourceAuthzSession,
-): Promise<string[] | undefined> {
-  const collections = await getCollection<RagCollection>(
-    RAG_COLLECTIONS_COLLECTION,
-  );
-  const platform = await collections.findOne(
-    { _id: PLATFORM_RAG_COLLECTION_ID } as never,
-    { projection: { _id: 1 } },
-  );
-  if (!platform) return undefined;
-  const readable = await filterResourcesByPermission(
-    session,
-    [{ id: PLATFORM_RAG_COLLECTION_ID }],
-    { type: "rag_collection", action: "read", id: (row) => row.id },
-    { bypassForOrgAdmin: true },
-  );
-  // Once Platform RAG exists, a new agent must never fall back to the legacy
-  // unrestricted behavior. Callers without Platform readership start with an
-  // explicit empty hand and can add collections/sources they are allowed to use.
-  return readable.length > 0 ? [PLATFORM_RAG_COLLECTION_ID] : [];
-}
-
 function normalizeDatasourceIds(value: unknown): string[] | undefined {
-  if (value === undefined) return undefined;
+  // `null` is an explicit clear-to-unrestricted signal (distinct from `[]`,
+  // an explicit deny), and normalizes the same as an absent field.
+  if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) {
     throw new ApiError(
       "datasource_ids must be an array of datasource ids",
@@ -340,12 +354,14 @@ function normalizeDatasourceIds(value: unknown): string[] | undefined {
     }
   }
   // Preserve an explicit [] as "this agent has no RAG sources". Undefined
-  // is reserved for legacy agents with no agent-level datasource restriction.
+  // (no agent-level pin at all) means the caller's own accessible datasources
+  // are used unnarrowed - it is an intentional default, not just a legacy
+  // pre-migration state.
   return ids;
 }
 
 function normalizeRagCollectionIds(value: unknown): string[] | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) {
     throw new ApiError(
       "rag_collection_ids must be an array of knowledge base ids",
@@ -586,7 +602,7 @@ async function validateSubagentVisibility(
  * - search=<string>: Filter agents by name or description (case-insensitive)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  const { user, session } = await getAuthFromBearerOrSession(request);
+  const { session } = await getAuthFromBearerOrSession(request);
 
   const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
   const { page, pageSize, skip } = getPaginationParams(request);
@@ -645,53 +661,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     pageItems.map((agent) => String(agent._id)),
   );
 
-  // can_automate — may the caller flip per-agent autonomous enablement?
-  // Platform admins or admins of the agent's owner team only. Deliberately
-  // narrower than can_manage: the team "Manage" grant extends can_manage to
-  // every member, but enabling autonomous for the whole team is a
-  // team-admin decision (mirrors the automation route's server-side gate).
-  let isPlatformAdmin = false;
-  try {
-    await requireRbacPermission(session, "admin_ui", "admin");
-    isPlatformAdmin = true;
-  } catch {
-    isPlatformAdmin = false;
-  }
-  const ownerSlugs = [
-    ...new Set(
-      pageItems
-        .map((agent) => agent.owner_team_slug)
-        .filter(
-          (slug): slug is string =>
-            typeof slug === "string" && slug.length > 0,
-        ),
-    ),
-  ];
-  const adminOfTeams = new Set<string>();
-  if (!isPlatformAdmin && user?.email && ownerSlugs.length > 0) {
-    const roles = await Promise.all(
-      ownerSlugs.map(
-        async (slug) =>
-          [
-            slug,
-            await findUserRoleInTeam(slug, { user_email: user.email }),
-          ] as const,
-      ),
-    );
-    for (const [slug, role] of roles) {
-      if (role === "admin") adminOfTeams.add(slug);
-    }
-  }
-
   const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
     ...(agent as DynamicAgentConfig),
-    permissions: {
-      ...agentRowPermissionsOrDefault(rows, String(agent._id)),
-      can_automate:
-        isPlatformAdmin ||
-        (typeof agent.owner_team_slug === "string" &&
-          adminOfTeams.has(agent.owner_team_slug)),
-    },
+    permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
   }));
 
   return paginatedResponse(items, visibleItems.length, page, pageSize);
@@ -731,6 +703,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
   if (!body.model?.provider || typeof body.model.provider !== "string") {
     throw new ApiError("Model provider is required (model.provider)", 400);
+  }
+  body.model.reasoning_effort ??= "medium";
+  if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
+    throw new ApiError("Invalid model.reasoning_effort", 400);
   }
   const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
   const requestedOwnerTeamId = normalizeString(body.owner_team_id);
@@ -841,30 +817,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const hasDatasourceSelection = Object.prototype.hasOwnProperty.call(
-    body,
-    "datasource_ids",
-  );
-  const hasCollectionSelection = Object.prototype.hasOwnProperty.call(
-    body,
-    "rag_collection_ids",
-  );
   let datasourceIds = normalizeDatasourceIds(body.datasource_ids);
   let ragCollectionIds = normalizeRagCollectionIds(body.rag_collection_ids);
-  // Platform RAG is the default hand for newly-created RAG-enabled agents,
-  // but only after migration has created it. Explicit [] on either field is
-  // a deliberate opt-out and must never be replaced with the default.
-  if (
-    hasRagToolAccess(body.allowed_tools) &&
-    !hasDatasourceSelection &&
-    !hasCollectionSelection
-  ) {
-    const platformDefault = await platformRagDefaultIfAvailable(session);
-    if (platformDefault !== undefined) {
-      datasourceIds = [];
-      ragCollectionIds = platformDefault;
-    }
-  }
+  // A RAG-enabled agent with no explicit selection is intentionally left
+  // unrestricted here: the RAG server always independently intersects
+  // results with the caller's own accessible datasources at query time, so
+  // "no configured scope" never means "unrestricted access" - it means "as
+  // much as the calling user can already see." Explicit [] on either field
+  // remains a deliberate opt-out (deny) and is preserved as-is below.
   if (datasourceIds !== undefined || ragCollectionIds !== undefined) {
     datasourceIds ??= [];
     ragCollectionIds ??= [];
@@ -875,6 +835,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // Build document with explicit field allowlist (Security VII)
   const ownerSubject = requireStableSubject(session);
   const now = new Date();
+  const allowedRemoteAgents = await validateRemoteAgentIds(body.allowed_remote_agents);
   const doc: DynamicAgentConfig = {
     _id: agentId,
     name: body.name as string,
@@ -882,6 +843,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     system_prompt: body.system_prompt as string,
     allowed_tools:
       (body.allowed_tools as Record<string, string[] | boolean>) ?? {},
+    allowed_remote_agents: allowedRemoteAgents,
+    remote_agent_timeouts: normalizeRemoteAgentTimeouts(body.remote_agent_timeouts, allowedRemoteAgents),
     builtin_tools: body.builtin_tools ?? undefined,
     model: body.model as DynamicAgentConfig["model"],
     visibility,
@@ -968,6 +931,15 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
 
   const body = await request.json();
+  if (body.model !== undefined) {
+    if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) {
+      throw new ApiError("model must be an object", 400);
+    }
+    body.model.reasoning_effort ??= "medium";
+    if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
+      throw new ApiError("Invalid model.reasoning_effort", 400);
+    }
+  }
   const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
   // Verify agent exists
@@ -987,6 +959,19 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   // Build update with explicit field allowlist
   const updateData = pickMutableFields(body);
+  if (Object.prototype.hasOwnProperty.call(updateData, "allowed_remote_agents")) {
+    updateData.allowed_remote_agents = await validateRemoteAgentIds(updateData.allowed_remote_agents);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(updateData, "remote_agent_timeouts") ||
+    Object.prototype.hasOwnProperty.call(updateData, "allowed_remote_agents")
+  ) {
+    updateData.remote_agent_timeouts = normalizeRemoteAgentTimeouts(
+      updateData.remote_agent_timeouts ?? agent.remote_agent_timeouts ?? {},
+      updateData.allowed_remote_agents ?? agent.allowed_remote_agents ?? [],
+    );
+  }
+  const unsetData: Record<string, "">  = {};
   const datasourceSelectionChanged = Object.prototype.hasOwnProperty.call(
     body,
     "datasource_ids",
@@ -994,8 +979,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const requestedDatasourceIds = datasourceSelectionChanged
     ? normalizeDatasourceIds(body.datasource_ids)
     : undefined;
-  if (datasourceSelectionChanged) {
-    updateData.datasource_ids = requestedDatasourceIds ?? [];
+  // An explicit `null` normalizes to `undefined` and clears the field back
+  // to unrestricted (no agent-level pin at all) rather than setting it to
+  // `[]` (an explicit deny). $set with `undefined` is silently dropped by
+  // the driver, so a real clear needs its own $unset.
+  const datasourceCleared =
+    datasourceSelectionChanged && requestedDatasourceIds === undefined;
+  if (datasourceCleared) {
+    delete updateData.datasource_ids;
+    unsetData.datasource_ids = "";
+  } else if (datasourceSelectionChanged) {
+    updateData.datasource_ids = requestedDatasourceIds;
   }
   const collectionSelectionChanged = Object.prototype.hasOwnProperty.call(
     body,
@@ -1004,8 +998,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const requestedCollectionIds = collectionSelectionChanged
     ? normalizeRagCollectionIds(body.rag_collection_ids)
     : undefined;
-  if (collectionSelectionChanged) {
-    updateData.rag_collection_ids = requestedCollectionIds ?? [];
+  const collectionCleared =
+    collectionSelectionChanged && requestedCollectionIds === undefined;
+  if (collectionCleared) {
+    delete updateData.rag_collection_ids;
+    unsetData.rag_collection_ids = "";
+  } else if (collectionSelectionChanged) {
+    updateData.rag_collection_ids = requestedCollectionIds;
   }
   // An ownership transfer changes owner_team_slug, which is intentionally NOT
   // in the mutable-field allowlist (owner is immutable on a normal edit).
@@ -1015,7 +1014,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     normalizeString(body.owner_team_slug) !== null &&
     normalizeString(body.owner_team_slug) !==
       normalizeString(agent.owner_team_slug);
-  if (Object.keys(updateData).length === 0 && !isTransferRequest) {
+  if (
+    Object.keys(updateData).length === 0 &&
+    Object.keys(unsetData).length === 0 &&
+    !isTransferRequest
+  ) {
     // No fields to update — return current state
     return successResponse(agent);
   }
@@ -1142,12 +1145,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
   }
 
-  let finalDatasourceIds = datasourceSelectionChanged
+  // updateData.datasource_ids/.rag_collection_ids are already set correctly
+  // above (a real array when changed, unset when cleared, untouched
+  // otherwise) - these are only computed here for validation, and must keep
+  // `undefined` as a genuine end state (unrestricted) rather than coercing
+  // it to `[]` (deny).
+  const finalDatasourceIds = datasourceSelectionChanged
     ? requestedDatasourceIds
     : agent.datasource_ids == null
       ? undefined
       : normalizeDatasourceIds(agent.datasource_ids);
-  let finalCollectionIds = collectionSelectionChanged
+  const finalCollectionIds = collectionSelectionChanged
     ? requestedCollectionIds
     : agent.rag_collection_ids == null
       ? undefined
@@ -1155,45 +1163,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const finalAllowedTools = (updateData.allowed_tools ??
     agent.allowed_tools ??
     {}) as Record<string, string[] | boolean>;
-  let appliedPlatformDefault = false;
-  if (
-    !datasourceSelectionChanged &&
-    !collectionSelectionChanged &&
-    finalDatasourceIds === undefined &&
-    finalCollectionIds === undefined &&
-    hasRagToolAccess(finalAllowedTools)
-  ) {
-    const platformDefault = await platformRagDefaultIfAvailable(session);
-    if (platformDefault !== undefined) {
-      finalDatasourceIds = [];
-      finalCollectionIds = platformDefault;
-      updateData.datasource_ids = [];
-      updateData.rag_collection_ids = platformDefault;
-      appliedPlatformDefault = true;
-    }
-  }
-  if (datasourceSelectionChanged || collectionSelectionChanged) {
-    finalDatasourceIds ??= [];
-    finalCollectionIds ??= [];
-    updateData.datasource_ids = finalDatasourceIds;
-    updateData.rag_collection_ids = finalCollectionIds;
-  }
-  if (
-    datasourceSelectionChanged ||
-    resolvedOwnership.transferred ||
-    appliedPlatformDefault
-  ) {
+  if (datasourceSelectionChanged || resolvedOwnership.transferred) {
     await validateDatasourceSelection(
       finalDatasourceIds,
       nextOwnerTeamSlug,
       session,
     );
   }
-  if (
-    collectionSelectionChanged ||
-    resolvedOwnership.transferred ||
-    appliedPlatformDefault
-  ) {
+  if (collectionSelectionChanged || resolvedOwnership.transferred) {
     await validateRagCollectionSelection(finalCollectionIds, session);
   }
 
@@ -1229,7 +1206,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   const updated = await collection.findOneAndUpdate(
     { _id: id },
-    { $set: updateData },
+    Object.keys(unsetData).length > 0
+      ? { $set: updateData, $unset: unsetData }
+      : { $set: updateData },
     { returnDocument: "after" },
   );
 

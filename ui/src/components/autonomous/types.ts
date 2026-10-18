@@ -13,9 +13,18 @@ export type TriggerType = 'cron' | 'interval' | 'webhook';
 
 export type TaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
+export interface AutonomousRuntimeSettings {
+  minimum_schedule_interval_seconds: number;
+  enabled_webhook_providers: WebhookProvider[];
+}
+
+export type WebhookProvider = 'github' | 'jira' | 'slack' | 'pagerduty';
+
 export interface CronTrigger {
   type: 'cron';
   schedule: string;
+  /** IANA time zone; absent legacy tasks are interpreted as UTC. */
+  timezone?: string;
 }
 
 export interface IntervalTrigger {
@@ -23,6 +32,19 @@ export interface IntervalTrigger {
   seconds?: number | null;
   minutes?: number | null;
   hours?: number | null;
+}
+
+export interface WebhookFilterCondition {
+  source: 'payload' | 'header';
+  /** Dot path for payload fields, or an HTTP header name. */
+  field: string;
+  /** Exact accepted values; any one value satisfies this condition. */
+  values: string[];
+}
+
+export interface WebhookDeliveryFilter {
+  /** Every condition must match before a delivery is queued. */
+  conditions: WebhookFilterCondition[];
 }
 
 export interface WebhookTrigger {
@@ -35,12 +57,13 @@ export interface WebhookTrigger {
    */
   provider?: string | null;
   /**
-   * Optional HMAC secret. The backend NEVER echoes the secret on
+   * HMAC signing secret accepted on update when rotating a provider-issued
+   * Slack/PagerDuty credential. The backend NEVER echoes the stored secret on
    * read paths -- ``_serialize_trigger`` in ``routes/tasks.py``
    * strips the value and replaces it with ``has_secret`` (below) so
    * any UI/XSS leak only learns whether one is configured, not the
-   * value itself. Outbound writes (POST/PUT) MAY include this field
-   * to set or rotate the secret.
+   * value itself. POST ignores this field and generates an initial secret;
+   * PUT may include it to save or rotate a provider-issued secret.
    */
   secret?: string | null;
   /**
@@ -50,6 +73,8 @@ export interface WebhookTrigger {
    * value.
    */
   has_secret?: boolean;
+  /** Optional provider-independent filter evaluated before a run is queued. */
+  filter?: WebhookDeliveryFilter | null;
 }
 
 export type Trigger = CronTrigger | IntervalTrigger | WebhookTrigger;
@@ -98,8 +123,6 @@ export interface AutonomousTask {
   llm_provider?: string | null;
   trigger: Trigger;
   enabled: boolean;
-  timeout_seconds?: number | null;
-  max_retries?: number | null;
   /** ISO-8601 string from APScheduler; null for webhook/disabled. */
   next_run?: string | null;
   /**
@@ -125,11 +148,18 @@ export interface AutonomousTask {
    */
   owner_id?: string | null;
   /**
-   * Owner's Keycloak subject (UUID). Stable across email changes, so the admin
-   * oversight view prefers it over ``owner_id`` when joining tasks to team
-   * members. May be absent for tasks created before it was exposed on the wire.
+   * Owner's Keycloak subject (UUID). Stable across email changes and used for
+   * authorization when available. May be absent for tasks created before it
+   * was exposed on the wire.
    */
   owner_sub?: string | null;
+}
+
+/** A mutation result kept separate so one-time secrets never enter task state. */
+export interface TaskSaveResult {
+  task: AutonomousTask;
+  webhookSetupRequired?: boolean;
+  webhookSetupSecret?: string;
 }
 
 export interface TaskRun {
@@ -150,6 +180,13 @@ export interface TaskRun {
    * manual runs.
    */
   parent_run_id?: string | null;
+  /** Root webhook delivery shared by this run and its follow-ups. */
+  root_run_id?: string | null;
+  /** Backend execution context; unrelated webhook deliveries use different ids. */
+  execution_context_id?: string | null;
+  /** Exact operator turn for follow-up runs, without the task-prompt prefix. */
+  follow_up_text?: string | null;
+  follow_up_transport?: string | null;
   /**
    * Prompt materialised for this specific run. Follow-up runs include
    * the inbound operator reply appended by the autonomous-agents
@@ -166,7 +203,7 @@ export interface TaskRun {
    */
   conversation_id?: string | null;
   /**
-   * Spec #099 Phase B — full supervisor response text and captured A2A
+   * Spec #099 Phase B — full runtime response text and captured stream
    * streaming events. The synthesiser replays ``events`` so past
    * scheduled fires render with the same plan / tools / timeline a
    * typed chat reply gets, instead of the 500-char ``response_preview``
@@ -209,11 +246,18 @@ export interface TaskFormState {
   enabled: boolean;
   triggerType: TriggerType;
   cronSchedule: string;
+  cronTimezone: string;
   intervalSeconds: string;
   intervalMinutes: string;
   intervalHours: string;
   webhookProvider: string;
+  /** Used only to rotate provider-issued Slack/PagerDuty secrets on edit. */
   webhookSecret: string;
-  timeoutSeconds: string;
-  maxRetries: string;
+  webhookFilterEnabled: boolean;
+  webhookFilterConditions: Array<{
+    source: 'payload' | 'header';
+    field: string;
+    /** Comma-separated exact accepted values. */
+    values: string;
+  }>;
 }

@@ -1,9 +1,10 @@
 """Pydantic models for Autonomous Agents service."""
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
-from math import isfinite
 from typing import Any, Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -30,6 +31,25 @@ class CronTrigger(BaseModel):
     """Trigger for cron-scheduled tasks"""
     type: Literal[TriggerType.CRON] = TriggerType.CRON
     schedule: str = Field(..., description="Cron expression e.g. '0 9 * * *'")
+    timezone: str = Field(
+        default="UTC",
+        description=(
+            "IANA timezone used to interpret the cron expression. Defaults to UTC; "
+            "named zones such as Europe/London follow daylight-saving changes."
+        ),
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        timezone_name = value.strip()
+        if not timezone_name:
+            raise ValueError("Cron timezone must not be empty")
+        try:
+            ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown IANA timezone: {timezone_name}") from exc
+        return timezone_name
 
 
 class IntervalTrigger(BaseModel):
@@ -50,16 +70,89 @@ class IntervalTrigger(BaseModel):
         return self
 
 
+class WebhookFilterCondition(BaseModel):
+    """One bounded equality condition for an incoming webhook delivery."""
+
+    source: Literal["payload", "header"] = "payload"
+    field: str = Field(..., min_length=1, max_length=200)
+    values: list[str] = Field(..., min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_condition(self) -> "WebhookFilterCondition":
+        self.field = self.field.strip()
+        if self.source == "payload":
+            if not re.fullmatch(
+                r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}", self.field
+            ):
+                raise ValueError(
+                    "Payload filter fields must be dot paths with at most 8 segments"
+                )
+        elif not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", self.field):
+            raise ValueError("Header filter fields must be valid HTTP header names")
+
+        normalized: list[str] = []
+        for value in self.values:
+            item = value.strip()
+            if not item:
+                raise ValueError("Webhook filter values must not be empty")
+            if len(item) > 200:
+                raise ValueError("Webhook filter values must be at most 200 characters")
+            if item not in normalized:
+                normalized.append(item)
+        self.values = normalized
+        return self
+
+
+class WebhookDeliveryFilter(BaseModel):
+    """Safe structured filter evaluated after signature verification."""
+
+    conditions: list[WebhookFilterCondition] = Field(
+        ..., min_length=1, max_length=16
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_github_event_filter(cls, data: Any) -> Any:
+        """Read the former ``{event, actions}`` shape without data migration."""
+        if not isinstance(data, dict) or "conditions" in data or "event" not in data:
+            return data
+
+        conditions: list[dict[str, Any]] = [
+            {
+                "source": "header",
+                "field": "X-GitHub-Event",
+                "values": [str(data["event"]).strip().lower()],
+            }
+        ]
+        actions = data.get("actions")
+        if isinstance(actions, list) and actions:
+            conditions.append(
+                {
+                    "source": "payload",
+                    "field": "action",
+                    "values": [str(action).strip().lower() for action in actions],
+                }
+            )
+        return {"conditions": conditions}
+
+
 class WebhookTrigger(BaseModel):
     """Trigger for webhook-scheduled tasks"""
     type: Literal[TriggerType.WEBHOOK] = TriggerType.WEBHOOK
-    secret: str | None = Field(None, description="Optional HMAC secret for payload validation")
+    secret: str | None = Field(
+        None,
+        description=(
+            "HMAC secret for payload validation. The create route always generates "
+            "this value; None is accepted only so redacted update payloads can "
+            "preserve the already-stored secret."
+        ),
+    )
     provider: str = Field(
         default="generic_hmac",
         description=(
-            "Webhook provider adapter id from webhook_providers.yaml "
-            "Use 'generic_hmac' for vendor-neutral HMAC webhooks. "
-            "Missing values default to 'generic_hmac'."
+            "Webhook provider adapter id. New tasks are restricted by the "
+            "deployment allowlist; the generic_hmac default remains only so "
+            "older persisted task documents can still be read."
         ),
     )
     dedup_header: str | None = Field(
@@ -68,6 +161,14 @@ class WebhookTrigger(BaseModel):
             "HTTP header name carrying a unique delivery id. When set "
             "Used as the dedup key for the trigger_instances collection "
             "so retries from the sender don't double-fire the task."
+        ),
+    )
+    filter: WebhookDeliveryFilter | None = Field(
+        default=None,
+        description=(
+            "Optional structured delivery filter for any provider. All conditions "
+            "must match; any configured value may satisfy a condition. Non-matching "
+            "signed deliveries are acknowledged without queueing or invoking the agent."
         ),
     )
 
@@ -194,14 +295,6 @@ class TaskDefinition(BaseModel):
     )
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Override the dynamic-agents call timeout for this task "
-            "(seconds, > 0). Defaults to DYNAMIC_AGENTS_TIMEOUT_SECONDS."
-        ),
-    )
     owner_id: str | None = Field(
         default=None,
         description=(
@@ -224,16 +317,6 @@ class TaskDefinition(BaseModel):
             "recreated."
         ),
     )
-
-    @field_validator("timeout_seconds")
-    @classmethod
-    def _timeout_must_be_finite(cls, v: float | None) -> float | None:
-        """Reject non-finite values that would break httpx timeouts at runtime."""
-        if v is None:
-            return v
-        if not isfinite(v):
-            raise ValueError("timeout_seconds must be a finite number")
-        return v
 
     @model_validator(mode="after")
     def _drop_deprecated_agent_hint(self) -> "TaskDefinition":
@@ -303,6 +386,17 @@ class FollowUpContext(BaseModel):
     )
 
 
+class TaskRunFollowUpCreate(BaseModel):
+    """Authenticated UI request to continue one webhook run."""
+
+    user_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=10_000,
+        description="Operator message to send in the selected run's context.",
+    )
+
+
 
 class TaskCreate(TaskDefinition):
     """Request body for ``POST /tasks``.
@@ -333,6 +427,18 @@ class TaskRun(BaseModel):
     # threaded timeline instead of unrelated rows. ``None`` for the
     # original webhook fire and for cron / interval / manual runs.
     parent_run_id: str | None = None
+    # Root delivery for a webhook conversation branch. Initial deliveries set
+    # this to their own run_id; follow-ups inherit it from the selected parent.
+    # None for cron/interval runs and legacy webhook records.
+    root_run_id: str | None = None
+    # Dynamic Agents conversation/checkpointer id used for execution. This is
+    # intentionally distinct from ``conversation_id`` below: the latter is a
+    # UI chat-history link, while this field protects execution isolation.
+    execution_context_id: str | None = None
+    # Exact operator message for a follow-up run. Stored separately from the
+    # augmented request_prompt so timeline clients can render a clean user turn.
+    follow_up_text: str | None = None
+    follow_up_transport: str | None = None
     # Prompt materialised for this specific run. For normal scheduled
     # runs this is the task prompt; for inbound follow-ups it includes
     # the operator reply appended by task_runner. The UI's autonomous
@@ -341,8 +447,9 @@ class TaskRun(BaseModel):
     # IMP-13: id of the chat-history conversation that mirrors this
     # run, when publishing is enabled. Lets the UI deep-link from a
     # run row to ``/chat/<conversation_id>``. Optional and stable per
-    # ``run_id`` (UUID5-derived) so the field is safe to leave unset
-    # for runs from before publishing was turned on.
+    # task (UUID5-derived) so every run is visible in one task history.
+    # The execution/checkpointer id lives separately above, so this is
+    # safe to leave unset for runs from before publishing was turned on.
     conversation_id: str | None = None
     # When this run was kicked off by a webhook delivery, this is the
     # ``_id`` of the row in ``trigger_instances`` that recorded the
