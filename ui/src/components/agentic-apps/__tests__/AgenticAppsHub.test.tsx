@@ -53,6 +53,10 @@ it("renders an empty installation without manufacturing app entries", async () =
   render(<AgenticAppsHub />);
   expect(await screen.findByText("No Apps are configured")).toBeInTheDocument();
   expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  const guide = screen.getByRole("link", { name: "Build a CAIPE app (opens in a new tab)" });
+  expect(guide).toHaveAttribute("href", "https://github.com/caipe-io/ai-platform-engineering/blob/main/docs/docs/features/agentic-app-manifest.md");
+  expect(guide).toHaveAttribute("target", "_blank");
+  expect(guide).toHaveAttribute("rel", "noopener noreferrer");
 });
 
 it.each(["unknown-icon", "constructor", "__proto__", "toString"])(
@@ -70,12 +74,12 @@ it("shows catalog failures without rendering launch links", async () => {
   render(<AgenticAppsHub />);
   expect(await screen.findByText("Could not load Apps")).toBeInTheDocument();
   expect(screen.getByText("Apps catalog returned HTTP 503")).toBeInTheDocument();
-  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Example workspace" })).not.toBeInTheDocument();
 });
 
 it("redirects expired sessions to login without launching an app", async () => {
   jest.mocked(global.fetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response);
   render(<AgenticAppsHub />);
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith("/login?callbackUrl=%2F"));
-  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Example workspace" })).not.toBeInTheDocument();
 });
