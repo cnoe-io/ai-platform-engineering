@@ -108,8 +108,10 @@ export function AgenticAppShell({
   useEffect(() => {
     let cancelled = false;
     if (!assistantConfigured) return () => undefined;
+    const controller = new AbortController();
 
     resolveUsableChatAgent({
+      signal: controller.signal,
       requestedAgentId,
       requireAvailableAgent: true,
     })
@@ -117,6 +119,7 @@ export function AgenticAppShell({
         if (!cancelled) setAssistantBinding({ bindingKey: assistantBindingKey, agent });
       })
       .catch((error: unknown) => {
+        if (cancelled) return;
         console.warn(
           `[AgenticAppShell] Contextual assistant unavailable for ${appId}:`,
           error instanceof Error ? error.message : String(error),
@@ -125,6 +128,7 @@ export function AgenticAppShell({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [appId, assistantBindingKey, assistantConfigured, requestedAgentId]);
 

@@ -80,6 +80,7 @@ describe("AgenticAppShell", () => {
     );
     expect(await screen.findByTestId("assistant-overlay")).toHaveTextContent("Ask Example");
     expect(mockResolveUsableChatAgent).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
       requestedAgentId: "agent-example",
       requireAvailableAgent: true,
     });
@@ -140,6 +141,7 @@ describe("AgenticAppShell", () => {
 
     expect(await screen.findByTestId("assistant-overlay")).toHaveTextContent("Ask CAIPE");
     expect(mockResolveUsableChatAgent).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
       requestedAgentId: undefined,
       requireAvailableAgent: true,
     });
@@ -157,5 +159,22 @@ describe("AgenticAppShell", () => {
     expect(await screen.findByTitle("Example App")).toBeInTheDocument();
     await waitFor(() => expect(mockResolveUsableChatAgent).not.toHaveBeenCalled());
     expect(screen.queryByTestId("assistant-overlay")).not.toBeInTheDocument();
+  });
+
+  it("aborts the assistant lookup on unmount without reporting a cancellation as failure", async () => {
+    const warning = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    let rejectLookup!: (error: unknown) => void;
+    mockResolveUsableChatAgent.mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectLookup = reject;
+    }));
+    const { unmount } = render(<AgenticAppShell appId="example-app" path={[]} />);
+    await waitFor(() => expect(mockResolveUsableChatAgent).toHaveBeenCalledTimes(1));
+    const signal = mockResolveUsableChatAgent.mock.calls[0][0].signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => rejectLookup(signal.reason));
+    expect(warning).not.toHaveBeenCalled();
+    warning.mockRestore();
   });
 });
