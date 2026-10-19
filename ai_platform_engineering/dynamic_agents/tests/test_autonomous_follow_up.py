@@ -213,17 +213,55 @@ def test_delta_backed_unfinished_tool_call_cannot_be_continued() -> None:
     assert saver.get_tuple({"configurable": {"thread_id": "manual", "checkpoint_ns": ""}}) is None
 
 
-def test_millisecond_precision_of_run_finish_keeps_final_snapshot() -> None:
+@pytest.mark.parametrize(("finished_at", "final_ts", "later_ts"), [
+    pytest.param(
+        "2026-09-01T10:00:00.123Z", "2026-09-01T10:00:00.123999Z", "2026-09-01T10:00:00.124Z",
+        id="bson-millisecond-string",
+    ),
+    pytest.param(
+        datetime(2026, 9, 1, 10, 0, 0, 123000, tzinfo=timezone.utc),
+        "2026-09-01T10:00:00.123999Z", "2026-09-01T10:00:00.124Z", id="bson-millisecond-datetime",
+    ),
+    pytest.param(
+        "2026-09-01T10:00:00.123456Z", "2026-09-01T10:00:00.123456Z", "2026-09-01T10:00:00.123457Z",
+        id="microsecond-string",
+    ),
+    pytest.param(
+        datetime(2026, 9, 1, 10, 0, 0, 123456, tzinfo=timezone.utc),
+        "2026-09-01T10:00:00.123456Z", "2026-09-01T10:00:00.123457Z", id="microsecond-datetime",
+    ),
+    pytest.param(
+        "2026-09-01T10:00:00.999Z", "2026-09-01T10:00:00.999999Z", "2026-09-01T10:00:01Z",
+        id="second-rollover",
+    ),
+    pytest.param(
+        "2026-09-01T10:00:00Z", "2026-09-01T10:00:00.000999Z", "2026-09-01T10:00:00.001Z",
+        id="whole-second",
+    ),
+])
+def test_run_finish_precision_keeps_final_snapshot_and_excludes_later_reply(
+    finished_at: datetime | str, final_ts: str, later_ts: str,
+) -> None:
     saver = MagicMock()
     entry = SimpleNamespace(
         checkpoint={
-            "id": "final", "ts": "2026-09-01T10:00:00.123456Z", "channel_versions": {},
+            "id": "final", "ts": final_ts, "channel_versions": {},
             "channel_values": {"messages": [AIMessage(content="Complete")]},
         }, metadata={"step": 1},
     )
-    saver.list.return_value = [entry]
-    assert service.copy_run_checkpoint(saver, "source", "manual", "2026-09-01T10:00:00.123Z") == "final"
+    later = SimpleNamespace(
+        checkpoint={
+            **entry.checkpoint, "id": "later", "ts": later_ts,
+            "channel_values": {"messages": [AIMessage(content="Later reply")]},
+        }, metadata={"step": 2},
+    )
+    saver.list.return_value = [later, entry]
+    assert service.copy_run_checkpoint(saver, "source", "manual", finished_at) == "final"
     saver.put.assert_called_once()
+    copied = saver.put.call_args.args[1]
+    assert [message.content for message in copied["channel_values"]["messages"].value] == ["Complete"]
+    assert entry.checkpoint["id"] == "final"
+    assert entry.checkpoint["ts"] == final_ts
 
 
 @pytest.fixture
