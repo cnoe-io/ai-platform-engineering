@@ -16,7 +16,7 @@
 
 import { createHash, randomUUID } from "crypto";
 
-import { getAuditBackend } from "@/lib/audit";
+import { getAuditClient } from "@/lib/audit";
 
 import type {
   Action,
@@ -127,9 +127,18 @@ function hashSubject(id: string): string {
   return "sha256:" + createHash("sha256").update(`${SUBJECT_SALT}:${id}`).digest("hex");
 }
 
-function writeAuditEvent(event: Record<string, unknown>): void {
+/** CAS owns these event shapes; transport preserves them without reinterpretation. */
+export type CasAuditEvent = CasDecisionEvent | CasBatchDecisionEvent | CasListObjectsEvent | CasGrantEvent | CasReconcileEvent | CasAllowRollupEvent;
+
+type CasAllowRollupEvent = Omit<CasDecisionEvent, "decision_id" | "gateway_checks" | "gateway_policy"> & {
+  count: number;
+  window_start: Date;
+  window_end: Date;
+};
+
+function writeAuditEvent(event: CasAuditEvent): void {
   try {
-    getAuditBackend().write(event);
+    getAuditClient().append(event);
   } catch (err) {
     console.warn("[cas/audit] Failed to enqueue audit event:", err);
   }
@@ -233,7 +242,7 @@ export function flushAllowRollups(): void {
       count: entry.count,
       window_start: entry.windowStart,
       window_end: entry.windowEnd,
-    } as unknown as Record<string, unknown>);
+    });
   }
 }
 
@@ -265,7 +274,7 @@ export function emitDecisionAudit(
     recordAllow(event);
     return;
   }
-  writeAuditEvent(event as unknown as Record<string, unknown>);
+  writeAuditEvent(event);
 }
 
 /** One completed gateway decision, not one row per internal graph check. */
@@ -281,7 +290,7 @@ export function emitGatewayDecisionAudit(req: GatewayRequest, result: GatewayRes
     ...(result.agent_id ? { agent_ref: `agent:${result.agent_id}` } : {}),
   };
   if (event.outcome === "allow" && !fullFidelityAllows()) recordAllow(event);
-  else writeAuditEvent(event as unknown as Record<string, unknown>);
+  else writeAuditEvent(event);
 }
 
 export function buildBatchDecisionEvent(
@@ -344,7 +353,7 @@ export function emitBatchDecisionAudit(
 ): void {
   if (results.size === 0) return;
   const event = buildBatchDecisionEvent(subject, action, resourceType, results, ctx);
-  writeAuditEvent(event as unknown as Record<string, unknown>);
+  writeAuditEvent(event);
 }
 
 /**
@@ -447,7 +456,7 @@ export function emitListObjectsDecisionAudit(
 ): void {
   if (candidateIds.length === 0) return;
   const event = buildListObjectsDecisionEvent(subject, action, resourceType, candidateIds, accessibleIds, reason, ctx);
-  writeAuditEvent(event as unknown as Record<string, unknown>);
+  writeAuditEvent(event);
 }
 
 export type GrantOperation = "grant" | "revoke";
@@ -641,7 +650,7 @@ export function emitReconcileAudit(
     ...(ctx.spanId ? { span_id: ctx.spanId } : {}),
   };
 
-  writeAuditEvent(event as unknown as Record<string, unknown>);
+  writeAuditEvent(event);
 }
 
 /** One audit event per grant/revoke attempt through audit-service. */
@@ -654,5 +663,5 @@ export async function emitGrantAudit(
   if (!ctx.caller) return;
 
   const event = buildGrantEvent(operation, intent, ctx, options);
-  writeAuditEvent(event as unknown as Record<string, unknown>);
+  writeAuditEvent(event);
 }

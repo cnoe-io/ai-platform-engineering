@@ -319,15 +319,19 @@ test.describe("mocked credentials workspace browser regression", () => {
 
       await assertPersonalCredentialsAvailable(page);
 
+      // The breadcrumb is server-rendered. Wait for client-fetched secrets so
+      // the workspace's OAuth listeners are mounted before sending the callback.
+      await expect(page.getByRole("button", { name: "View details for GitHub token" })).toBeVisible();
+
       const relayPagePromise = context.waitForEvent("page");
       await page.evaluate(() => {
         window.open("/oauth-callback-relay", "_blank");
       });
       const relayPage = await relayPagePromise;
       await relayPage.waitForLoadState("domcontentloaded");
-      await relayPage.close().catch(() => undefined);
 
       await expect(page).toHaveURL(/\/credentials\/connections$/);
+      await relayPage.close();
       await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
       await expect(page.getByText("Atlassian Cloud")).toBeVisible();
       await expect(page.getByText("healthy")).toBeVisible();

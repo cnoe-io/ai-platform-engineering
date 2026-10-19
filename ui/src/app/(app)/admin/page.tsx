@@ -3194,13 +3194,8 @@ function AdminPage() {
                     items={[
                       ...(tabGateValues.action_audit ? [{
                         id: "decisions",
-                        label: "Access decisions",
+                        label: "Security audit",
                         content: <UnifiedAuditTab key={searchParams.get("subject_ref") ?? "decisions"} isAdmin={canMutateAdminData} view="decisions" initialSubjectRef={searchParams.get("subject_ref") ?? ""} />,
-                      }] : []),
-                      ...(tabGateValues.action_audit ? [{
-                        id: "rbac",
-                        label: "RBAC",
-                        content: <UnifiedAuditTab isAdmin={canMutateAdminData} />,
                       }] : []),
                       ...(tabGateValues.audit_logs ? [{
                         id: "chat",

@@ -1,5 +1,6 @@
 import { ApiError, requireRbacPermission, withErrorHandler } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
+import { AuditServiceError, getAuditClient, type AuditQuery } from "@/lib/audit";
 import type { GatewayCheck } from "@/lib/authz";
 import type {
   AuditEventType,
@@ -32,9 +33,9 @@ const VALID_WINDOWS = new Map<string, number>([
   ["6h", 6 * 60 * 60 * 1000],
   ["12h", 12 * 60 * 60 * 1000],
   ["24h", 24 * 60 * 60 * 1000],
+  ["48h", 48 * 60 * 60 * 1000],
   ["7d", 7 * 24 * 60 * 60 * 1000],
 ]);
-const VALID_TIME_RESOLUTIONS = new Set(["auto", "minute", "hour", "day"]);
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
 
 interface AuditEventDocument {
@@ -123,10 +124,6 @@ interface ServiceAccountIdentityDocument {
   client_id?: string;
   name?: string;
   status?: string;
-}
-
-function auditServiceBaseUrl(): string {
-  return (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(/\/$/, "");
 }
 
 function normalizeAuditSource(
@@ -346,31 +343,12 @@ function parseWindow(value: string | null): { name: string; ms: number } {
   const ms = VALID_WINDOWS.get(name);
   if (ms === undefined) {
     throw new ApiError(
-      "`window` must be one of: 5m, 15m, 30m, 1h, 6h, 12h, 24h, 7d",
+      "`window` must be one of: 5m, 15m, 30m, 1h, 6h, 12h, 24h, 48h, 7d",
       400,
       "VALIDATION_ERROR",
     );
   }
   return { name, ms };
-}
-
-function resolutionForWindow(windowName: string): string {
-  if (windowName === "custom") return "auto";
-  if (["5m", "15m", "30m", "1h"].includes(windowName)) return "minute";
-  if (["6h", "12h", "24h"].includes(windowName)) return "hour";
-  return "day";
-}
-
-function parseTimeResolution(value: string | null, windowName: string): string {
-  const resolution = value?.trim().toLowerCase() || resolutionForWindow(windowName);
-  if (!VALID_TIME_RESOLUTIONS.has(resolution)) {
-    throw new ApiError(
-      "`time_resolution` must be one of: auto, minute, hour, day",
-      400,
-      "VALIDATION_ERROR",
-    );
-  }
-  return resolution;
 }
 
 function toIsoOrUndefined(value: Date | string | undefined): string | undefined {
@@ -464,26 +442,17 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
 }
 
 async function queryAuditService(
-  params: URLSearchParams,
-): Promise<{ records: AuditEventDocument[]; total: number; warning?: string }> {
+  query: AuditQuery,
+): Promise<{ records: AuditEventDocument[]; cursor?: string; next_cursor: string | null; since?: string; until?: string; as_of?: string; warning?: string }> {
   try {
-    const response = await fetch(`${auditServiceBaseUrl()}/v1/audit/events?${params.toString()}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      const warning = `Audit service unavailable (HTTP ${response.status}); audit events may be dropped`;
-      console.warn(`[audit-events] ${warning}`);
-      return { records: [], total: 0, warning };
-    }
-    const body = (await response.json()) as { records?: AuditEventDocument[]; total?: number };
-    return {
-      records: body.records ?? [],
-      total: typeof body.total === "number" ? body.total : body.records?.length ?? 0,
-    };
+    return await getAuditClient().queryPage<AuditEventDocument>(query);
   } catch (error) {
-    const warning = `Audit service unavailable; audit events may be dropped`;
+    if (error instanceof AuditServiceError && error.statusCode === 400) {
+      throw new ApiError(error.message, 400, "VALIDATION_ERROR");
+    }
+    const warning = "Audit queries unavailable; no conclusions can be drawn from these results";
     console.warn("[audit-events]", warning, error);
-    return { records: [], total: 0, warning };
+    return { records: [], next_cursor: null, warning };
   }
 }
 
@@ -512,6 +481,12 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   );
 
   const url = new URL(request.url);
+  const supportedParams = new Set(["from", "to", "window", "cursor", "limit", "type", "outcome", "agent_name", "tool_name", "user_email", "component", "correlation_id", "decision_id", "subject_ref", "resource_ref"]);
+  for (const key of url.searchParams.keys()) {
+    if (!supportedParams.has(key) || url.searchParams.getAll(key).length !== 1) {
+      throw new ApiError("Unsupported or repeated audit query parameter", 400, "VALIDATION_ERROR");
+    }
+  }
   const now = new Date();
 
   const fromParam = url.searchParams.get("from");
@@ -520,7 +495,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const explicitRange = Boolean(fromParam || toParam);
   const window = parseWindow(requestedWindow);
   const responseWindow = explicitRange && !requestedWindow ? "custom" : window.name;
-  const timeResolution = parseTimeResolution(url.searchParams.get("time_resolution"), responseWindow);
   const to = toParam ? parseIsoDate(toParam, "to") : now;
   const from = fromParam ? parseIsoDate(fromParam, "from") : new Date(to.getTime() - window.ms);
 
@@ -555,53 +529,42 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     );
   }
 
-  const pageRaw = url.searchParams.get("page") ?? "1";
   const limitRaw = url.searchParams.get("limit") ?? "50";
-  const page = parseInt(pageRaw, 10);
-  const limit = parseInt(limitRaw, 10);
-
-  if (!Number.isFinite(page) || page < 1) {
-    throw new ApiError("`page` must be a number >= 1", 400, "VALIDATION_ERROR");
-  }
-  if (!Number.isFinite(limit) || limit < 1 || limit > 200) {
+  const limit = Number(limitRaw);
+  if (!/^\d+$/.test(limitRaw) || !Number.isInteger(limit) || limit < 1 || limit > 200) {
     throw new ApiError("`limit` must be between 1 and 200", 400, "VALIDATION_ERROR");
   }
 
-  const serviceParams = new URLSearchParams({
-    since: from.toISOString(),
-    until: to.toISOString(),
-    limit: String(page * limit),
-    time_resolution: timeResolution,
-  });
-  if (!explicitRange || requestedWindow) {
-    serviceParams.set("window", window.name);
-  }
-  if (session.org) serviceParams.set("tenant_id", session.org);
-  if (typeParam) serviceParams.set("type", typeParam);
-  if (agentName) serviceParams.set("agent_name", agentName);
-  if (toolName) serviceParams.set("tool_name", toolName);
-  if (outcomeParam) serviceParams.set("outcome", outcomeParam);
-  if (userEmail) serviceParams.set("user_email", userEmail);
-  if (component) serviceParams.set("component", component);
-  if (correlationId) serviceParams.set("correlation_id", correlationId);
-  if (decisionId) serviceParams.set("decision_id", decisionId);
-  if (subjectRef) serviceParams.set("subject_ref", subjectRef);
-  if (resourceRef) serviceParams.set("resource_ref", resourceRef);
+  const query: AuditQuery = { limit, window: window.name };
+  // Preserve relative parameters across pages. The service pins their range
+  // and ingestion cutoff in its cursor; computing fresh dates here would drift.
+  if (fromParam) query.since = from;
+  if (toParam) query.until = to;
+  const cursor = url.searchParams.get("cursor");
+  if (cursor) query.cursor = cursor;
+  if (session.org) query.tenant_id = session.org;
+  if (typeParam) query.type = typeParam;
+  if (agentName) query.agent_name = agentName;
+  if (toolName) query.tool_name = toolName;
+  if (outcomeParam) query.outcome = outcomeParam;
+  if (userEmail) query.user_email = userEmail;
+  if (component) query.component = component;
+  if (correlationId) query.correlation_id = correlationId;
+  if (decisionId) query.decision_id = decisionId;
+  if (subjectRef) query.subject_ref = subjectRef;
+  if (resourceRef) query.resource_ref = resourceRef;
 
-  const { records: docs, total, warning } = await queryAuditService(serviceParams);
-  const offset = (page - 1) * limit;
+  const { records: docs, cursor: pageCursor, next_cursor, since, until, as_of, warning } = await queryAuditService(query);
   const currentPrincipal = currentPrincipalFromSession(session);
-  const pageDocs = docs.slice(offset, offset + limit).map((doc) => withReadablePrincipalFields(doc, currentPrincipal));
+  const pageDocs = docs.map((doc) => withReadablePrincipalFields(doc, currentPrincipal));
   const principalDisplays = await loadPrincipalDisplayMap(pageDocs, currentPrincipal);
   const records = pageDocs.map((doc) => withPrincipalDisplayFields(documentToEvent(doc), principalDisplays));
 
   return NextResponse.json({
     records,
-    total,
-    page,
+    cursor: pageCursor, next_cursor, since, until, as_of,
     limit,
     window: responseWindow,
-    time_resolution: timeResolution,
     ...(warning ? { warning, auditUnavailable: true } : {}),
   });
 });
