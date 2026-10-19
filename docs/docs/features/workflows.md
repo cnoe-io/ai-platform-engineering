@@ -172,8 +172,13 @@ MCP clients can define, run and monitor workflows without a separate container.
 Every call runs as the caller: the endpoint relays the caller's bearer token to the
 same workflow APIs, so the access control above applies unchanged.
 
-Enable it with Workflows itself. Set `caipe-ui.config.WORKFLOWS_ENABLED: "true"`, then
-register the server in `caipe-ui.appConfig.mcp_servers` so AgentGateway routes to it:
+Enable it with Workflows itself.
+
+With the installer, `./setup-caipe.sh --workflows` turns on the UI page and registers
+the server (it needs the RBAC runtime, which is the default).
+
+With Helm, set `caipe-ui.config.WORKFLOWS_ENABLED: "true"`, then register the server in
+`caipe-ui.appConfig.mcp_servers` so AgentGateway routes to it:
 
 ```yaml
 - id: workflows

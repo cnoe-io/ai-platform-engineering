@@ -98,6 +98,10 @@ ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
 # /api/autonomous proxy). Together ~4-5 extra pods — set ENABLE_SCHEDULER=false
 # / ENABLE_AUTONOMOUS_AGENTS=false on a memory-constrained host.
 ENABLE_SCHEDULER="${ENABLE_SCHEDULER:-true}"
+# Workflows: the Workflows page in the UI plus a workflows MCP endpoint that the
+# CAIPE UI (BFF) serves itself, so there is no extra pod. Off by default, like the
+# UI flag it sets (WORKFLOWS_ENABLED). Needs the RBAC runtime for the gateway route.
+ENABLE_WORKFLOWS="${ENABLE_WORKFLOWS:-false}"
 ENABLE_AUTONOMOUS_AGENTS="${ENABLE_AUTONOMOUS_AGENTS:-true}"
 # Keycloak bootstrap admin password (master realm). The keycloak subchart
 # requires an explicit value — generated admin passwords are disabled because
@@ -6692,6 +6696,25 @@ DAEOF
 DAEOF
     fi
 
+    # Workflows MCP: served by the CAIPE UI (BFF) at /api/mcp/workflows, so the
+    # AgentGateway target is the UI service. The gateway forwards the caller's
+    # bearer token and the BFF authorizes every call as that user, so no
+    # credential source is needed.
+    if $ENABLE_WORKFLOWS && $ENABLE_RBAC_RUNTIME; then
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "workflows"
+        name: "Workflows"
+        description: "Define, run and monitor multi-step agent workflows."
+        transport: "http"
+        enabled: true
+        endpoint: "http://caipe-agentgateway:4000/mcp/workflows"
+        source: "agentgateway"
+        agentgateway_discovered: false
+        agentgateway_endpoint: "http://caipe-agentgateway:4000/mcp/workflows"
+        agentgateway_target_endpoint: "http://caipe-caipe-ui:3000/api/mcp/workflows"
+DAEOF
+    fi
+
   helm_args+=(--values "$_da_values_file")
   log "caipe-ui appConfig + dynamic-agents auth: models + MCP servers written to ${_da_values_file}"
 
@@ -6898,6 +6921,13 @@ DAEOF
       --set "caipe-ui.config.SCHEDULER_ENABLED=true"
     )
     log "Scheduler enabled (scheduled runs + cron-runner + scheduler MCP)"
+  fi
+
+  # Workflows: the UI hides the page and the MCP endpoint answers 404 unless
+  # WORKFLOWS_ENABLED=true. The chart has no value for it, so set the UI config.
+  if $ENABLE_WORKFLOWS; then
+    helm_args+=(--set "caipe-ui.config.WORKFLOWS_ENABLED=true")
+    log "Workflows enabled (UI page + workflows MCP served by the UI)"
   fi
 
   # Autonomous agents: cron / interval / webhook triggers via the admin-gated
@@ -9225,6 +9255,10 @@ Options:
   --webex-bot        Deploy the Webex bot surface (webex-bot subchart). Auto-enabled when
                      --env-file sets ENABLE_WEBEX_BOT/ENABLE_WEBEX; needs WEBEX_INTEGRATION_BOT_ACCESS_TOKEN
   --no-webex-bot     Skip the Webex bot surface (overrides the env-file value)
+  --workflows        Turn on Workflows: the UI page and a workflows MCP endpoint served by the
+                     CAIPE UI (no extra pod) so agents and MCP clients can define, run and
+                     monitor workflows. Registered through AgentGateway (needs the RBAC runtime).
+  --no-workflows     Leave Workflows off (default)
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters — default ON
   --no-metallb       Skip MetalLB (also disables --ingress, which depends on it)
   --ingress          Install nginx-ingress + MetalLB and expose UI via domain — default ON
@@ -9333,6 +9367,8 @@ Environment variables (all optional):
                           or set ENABLE_WEBEX in --env-file)
   ENABLE_SCHEDULER       Scheduled Dynamic Agent runs — scheduler + cron-runner +
                           scheduler MCP (default: true; ENABLE_SCHEDULER=false to skip)
+  ENABLE_WORKFLOWS       Workflows UI page + workflows MCP endpoint on the UI
+                          (default: false; --workflows or ENABLE_WORKFLOWS=true to enable)
   ENABLE_AUTONOMOUS_AGENTS  Autonomous cron/interval/webhook agents
                           (default: true; ENABLE_AUTONOMOUS_AGENTS=false to skip).
                           Together these add ~4-5 pods.
@@ -9464,6 +9500,8 @@ for arg in "$@"; do
     --no-slack-bot)    ENABLE_SLACK_BOT=false; _SLACK_BOT_FORCED=off ;;
     --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;
     --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
+    --workflows)       ENABLE_WORKFLOWS=true ;;
+    --no-workflows)    ENABLE_WORKFLOWS=false ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
