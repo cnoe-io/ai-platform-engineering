@@ -1,6 +1,7 @@
 """A manual branch must never advance or reset its automated source context."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from itertools import count
 from types import SimpleNamespace
 from typing import Annotated, Any, TypedDict
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -44,6 +45,25 @@ class ToolBindingFakeModel(FakeMessagesListChatModel):
         return self
 
 
+@pytest.fixture
+def distinct_checkpoint_times(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep simulated runs in distinct BSON-millisecond intervals."""
+    put = MemorySaver.put
+    ticks = count()
+
+    def put_with_time(
+        saver: MemorySaver, config: dict[str, Any], checkpoint: dict[str, Any],
+        metadata: dict[str, Any], new_versions: dict[str, Any],
+    ) -> dict[str, Any]:
+        # The run cutoff includes its whole millisecond. Real-time checkpoints
+        # can otherwise place a later simulated reply inside that same interval.
+        timestamp = datetime(2026, 9, 1, tzinfo=timezone.utc) + timedelta(milliseconds=next(ticks))
+        return put(saver, config, {**checkpoint, "ts": timestamp.isoformat()}, metadata, new_versions)
+
+    monkeypatch.setattr(MemorySaver, "put", put_with_time)
+
+
+@pytest.mark.usefixtures("distinct_checkpoint_times")
 @pytest.mark.parametrize("saver_class", [MemorySaver, MongoHistoryMemorySaver])
 @pytest.mark.parametrize("snapshot_frequency", [1, 50])
 def test_branch_reconstructs_delta_messages_and_files_without_later_replies(
@@ -122,6 +142,7 @@ def test_real_deep_agent_can_continue_a_copied_run_with_tool_history_and_files()
     assert graph.get_state(source).values == source_before
 
 
+@pytest.mark.usefixtures("distinct_checkpoint_times")
 def test_branch_copies_completed_run_and_excludes_later_replies() -> None:
     saver = MemorySaver()
     builder = StateGraph(ChatState)
