@@ -68,9 +68,12 @@ Grant or revoke team access (caller needs management permission):
 ```
 
 TypeScript contracts: `access-contract.ts`. HTTP handlers: `access-http.ts`.
-Routes are thin entry points. Existing `/api/authz/v1/*` consumers are unchanged;
-their eventual migration should remove obsolete paths rather than maintain
-permanent aliases. The gateway-only contract below is separate from this self-check API.
+Routes are thin entry points. Dynamic Agents uses `/api/access/check` for human
+and service-account self-access (agent use, autonomous entitlement and org manage).
+Explicit service-account/owner delegation still uses `/api/authz/v1/decisions`:
+the old endpoint cannot be removed until that contract and remaining consumers
+are migrated. This is a bounded migration, not a permanent fallback. The
+gateway-only contract below is separate from this self-check API.
 
 ## Gateway authorization foundation
 
