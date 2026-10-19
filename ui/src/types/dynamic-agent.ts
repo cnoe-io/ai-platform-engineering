@@ -429,6 +429,8 @@ export type ResumeData =
     };
 
 export interface DynamicAgentConfig {
+  /** Deployment-owned, opt-in model-input projection. Not a permission grant. */
+  app_context_prompt?: { app_ids: string[]; fields: string[]; max_bytes?: number };
   _id: string;
   name: string;
   description?: string;

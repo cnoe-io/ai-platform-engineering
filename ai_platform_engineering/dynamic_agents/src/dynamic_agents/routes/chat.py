@@ -16,6 +16,7 @@ from dynamic_agents.auth.authz import (
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, InputFile, UserContext
+from dynamic_agents.services.app_context_prompt import app_context_scope
 from dynamic_agents.services.llm_clients import LLMConfigError
 from dynamic_agents.services.model_capabilities import supports_reasoning_effort
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -42,6 +43,7 @@ async def _enforce_chat_authz(*, agent_id: str, user_sub: str | None, autonomous
 
 # Fields that CANNOT be overridden via config_override
 _REJECTED_OVERRIDE_FIELDS: set[str] = {
+    "app_context_prompt",
     "ui",
     "name",
     "description",
@@ -180,6 +182,7 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    client_context: ClientContext | None = None
     reasoning_effort: Literal["low", "medium", "high", "max"] | None = None
     config_override: dict | None = Field(
         None,
@@ -235,16 +238,17 @@ async def _collect_invoke_response(
     """Run a non-streaming invocation and return its accumulated response."""
     encoder = get_encoder("custom")
 
-    async for _frame in runtime.stream(
-        request.message,
-        request.conversation_id,
-        user.email,
-        request.trace_id,
-        encoder,
-        files=request.files,
-        turn_id=request.turn_id,
-    ):
-        pass
+    with app_context_scope(agent.app_context_prompt, request.client_context.model_dump() if request.client_context else None):
+        async for _frame in runtime.stream(
+            request.message,
+            request.conversation_id,
+            user.email,
+            request.trace_id,
+            encoder,
+            files=request.files,
+            turn_id=request.turn_id,
+        ):
+            pass
 
     interrupt = await runtime.has_pending_interrupt(request.conversation_id)
     if interrupt:
@@ -312,19 +316,20 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async with aclosing(
-            runtime.stream(
-                message,
-                session_id,
-                user.email,
-                trace_id,
-                encoder,
-                files=files,
-                turn_id=turn_id,
-            )
-        ) as frames:
-            async for frame in frames:
-                yield frame
+        with app_context_scope(agent_config.app_context_prompt, client_context.model_dump() if client_context else None):
+            async with aclosing(
+                runtime.stream(
+                    message,
+                    session_id,
+                    user.email,
+                    trace_id,
+                    encoder,
+                    files=files,
+                    turn_id=turn_id,
+                )
+            ) as frames:
+                async for frame in frames:
+                    yield frame
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity: {e}")
@@ -447,6 +452,7 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    client_context: ClientContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -471,9 +477,10 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async with aclosing(runtime.resume(session_id, user.email, resume_data, trace_id, encoder)) as frames:
-            async for frame in frames:
-                yield frame
+        with app_context_scope(agent_config.app_context_prompt, client_context.model_dump() if client_context else None):
+            async with aclosing(runtime.resume(session_id, user.email, resume_data, trace_id, encoder)) as frames:
+                async for frame in frames:
+                    yield frame
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity: {e}")
@@ -546,6 +553,7 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            client_context=request.client_context,
         ),
         media_type="text/event-stream",
         headers={

@@ -49,6 +49,7 @@ from dynamic_agents.models import (
     SubAgentRef,
     UserContext,
 )
+from dynamic_agents.services.app_context_prompt import AppContextPromptMiddleware
 from dynamic_agents.services.attachment_store import (
     AttachmentStore,
     build_attachment_store,
@@ -1164,6 +1165,9 @@ class AgentRuntime:
             attachment_store=self._get_attachment_store(),
             enable_prompt_cache=self._prompt_cache_enabled(),
         )
+        # Project app data before the configured prompt filters; never opt in subagents implicitly.
+        if self.config.app_context_prompt is not None:
+            middleware_stack.insert(0, AppContextPromptMiddleware())
         # Prepend skills middleware so it runs before other middleware
         if skills_middleware:
             middleware_stack = [skills_middleware] + middleware_stack
