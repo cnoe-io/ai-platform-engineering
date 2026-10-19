@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import io
@@ -9,7 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import mongomock
@@ -143,6 +144,36 @@ def test_ingestion_is_idempotent_but_ids_are_immutable(store: MongoAuditStore) -
     with pytest.raises(EventConflict):
         store.insert([event("a", outcome="deny")])
     assert store.events.count_documents({}) == 1
+
+
+@pytest.mark.parametrize(
+    ("results", "delays", "flushed", "failed"),
+    [
+        ([2, 2, 1, 0], [0, 0, 1, 1], 5, 0),
+        ([2, OSError("archive unavailable"), 0], [0, 1, 1], 2, 1),
+        ([OSError("archive unavailable")], [1], 0, 1),
+    ],
+)
+def test_archive_loop_drains_full_batches_but_waits_when_idle_or_failed(
+    results: list[int | Exception], delays: list[int], flushed: int, failed: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = ArchiveWorker(Mock(), Mock(backend_name="s3"), batch_size=2, interval=1)
+    flush = Mock(side_effect=results)
+    monkeypatch.setattr(worker, "flush_once", flush)
+
+    async def exercise() -> None:
+        # Cancel at the last scheduling point rather than waiting in real time.
+        with patch("ai_platform_engineering.audit_service.archive_worker.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            sleep.side_effect = [None] * (len(results) - 1) + [asyncio.CancelledError()]
+            with pytest.raises(asyncio.CancelledError):
+                await worker.run()
+            assert [call.args[0] for call in sleep.await_args_list] == delays
+
+    asyncio.run(exercise())
+    assert flush.call_count == len(results)
+    assert worker.flushed_events == flushed
+    assert worker.failed_flushes == failed
+    assert (worker.last_error is not None) == isinstance(results[-1], Exception)
 
 
 def test_archival_retries_same_durable_batch_across_replicas(store: MongoAuditStore) -> None:

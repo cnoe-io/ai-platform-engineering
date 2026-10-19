@@ -113,6 +113,7 @@ class ArchiveWorker:
 
     async def run(self) -> None:
         while True:
+            count = 0
             try:
                 count = await asyncio.to_thread(self.flush_once)
                 self.flushed_events += count
@@ -123,4 +124,5 @@ class ArchiveWorker:
                 self.failed_flushes += 1
                 self.last_error = "Archival failed; durable events remain queued in MongoDB"
                 logger.exception("Audit archive batch failed; will retry")
-            await asyncio.sleep(self.interval)
+            # Yield between full batches; wait only when caught up or retrying.
+            await asyncio.sleep(0 if count >= self.batch_size else self.interval)

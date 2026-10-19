@@ -649,8 +649,9 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
   const [resourceRef, setResourceRef] = useState("");
   const [decisionId, setDecisionId] = useState("");
   const [correlationId, setCorrelationId] = useState("");
-  const [referenceFilters, setReferenceFilters] = useState({
+  const [appliedTextFilters, setAppliedTextFilters] = useState({
     subject_ref: initialSubjectRef, resource_ref: "", decision_id: "", correlation_id: "",
+    user_email: "", agent_name: "",
   });
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -677,15 +678,13 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     }
     if (typeFilter) params.set("type", typeFilter);
     if (outcomeFilter) params.set("outcome", outcomeFilter);
-    if (userEmail.trim()) params.set("user_email", userEmail.trim());
-    if (agentName.trim()) params.set("agent_name", agentName.trim());
-    for (const [key, value] of Object.entries(referenceFilters)) {
+    for (const [key, value] of Object.entries(appliedTextFilters)) {
       if (value) params.set(key, value);
     }
     if (timeWindow === "custom" && dateFrom) params.set("from", new Date(dateFrom).toISOString());
     if (timeWindow === "custom" && dateTo) params.set("to", new Date(dateTo).toISOString());
     return params;
-  }, [timeWindow, typeFilter, outcomeFilter, userEmail, agentName, referenceFilters, dateFrom, dateTo]);
+  }, [timeWindow, typeFilter, outcomeFilter, appliedTextFilters, dateFrom, dateTo]);
 
   const fetchEvents = useCallback(async (p = 1, cursor?: string) => {
     const queryId = ++latestQuery.current;
@@ -806,9 +805,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
       const filters: Record<string, string> = {};
       if (typeFilter) filters.type = typeFilter;
       if (outcomeFilter) filters.outcome = outcomeFilter;
-      if (userEmail.trim()) filters.user_email = userEmail.trim();
-      if (agentName.trim()) filters.agent_name = agentName.trim();
-      for (const [key, value] of Object.entries(referenceFilters)) {
+      for (const [key, value] of Object.entries(appliedTextFilters)) {
         if (value) filters[key] = value;
       }
       if (timeWindow === "custom") {
@@ -836,7 +833,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     } finally {
       setExporting(false);
     }
-  }, [buildAuditParams, timeWindow, typeFilter, outcomeFilter, userEmail, agentName, referenceFilters, dateFrom, dateTo]);
+  }, [buildAuditParams, timeWindow, typeFilter, outcomeFilter, appliedTextFilters, dateFrom, dateTo]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -883,7 +880,7 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
     setResourceRef("");
     setDecisionId("");
     setCorrelationId("");
-    setReferenceFilters({ subject_ref: "", resource_ref: "", decision_id: "", correlation_id: "" });
+    setAppliedTextFilters({ subject_ref: "", resource_ref: "", decision_id: "", correlation_id: "", user_email: "", agent_name: "" });
     setDateFrom("");
     setDateTo("");
     setTimeWindow(view === "decisions" ? "1h" : "5m");
@@ -1245,7 +1242,10 @@ export function UnifiedAuditTab({ isAdmin, view = "audit", initialSubjectRef = "
             Clear
           </Button>
           <Button variant="default" size="sm" onClick={() => {
-            setReferenceFilters({ subject_ref: subjectRef.trim(), resource_ref: resourceRef.trim(), decision_id: decisionId.trim(), correlation_id: correlationId.trim() });
+            setAppliedTextFilters({
+              subject_ref: subjectRef.trim(), resource_ref: resourceRef.trim(), decision_id: decisionId.trim(), correlation_id: correlationId.trim(),
+              user_email: userEmail.trim(), agent_name: agentName.trim(),
+            });
           }} className="gap-1 h-9">
             <Search className="h-3.5 w-3.5" />
             Search

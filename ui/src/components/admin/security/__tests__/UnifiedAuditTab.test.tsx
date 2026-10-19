@@ -32,6 +32,57 @@ describe('UnifiedAuditTab', () => {
     expect(requests.every((url) => url.searchParams.get('limit') === '30' && !url.searchParams.has('page'))).toBe(true);
   });
 
+  it('applies text filters only on Search and keeps applied values for paging and refresh', async () => {
+    const requests: URL[] = [];
+    (global.fetch as jest.Mock).mockImplementation(async (input: string) => {
+      const url = new URL(input, 'https://example.test');
+      if (url.pathname !== '/api/admin/audit-events') return { ok: true, json: async () => ({}) };
+      requests.push(url);
+      const cursor = url.searchParams.get('cursor') ?? 'first';
+      return { ok: true, json: async () => ({
+        records: [], cursor, next_cursor: cursor === 'first' ? 'second' : null,
+        since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z', limit: 30,
+      }) };
+    });
+    render(<UnifiedAuditTab isAdmin view="decisions" />);
+    await screen.findByText('Page 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Next audit page' }));
+    await screen.findByText('Page 2');
+    const initialRequests = requests.length;
+
+    fireEvent.change(screen.getByPlaceholderText('User email...'), { target: { value: ' primary@example.test ' } });
+    fireEvent.change(screen.getByPlaceholderText('Agent name...'), { target: { value: ' primary-agent ' } });
+    expect(requests).toHaveLength(initialRequests);
+    expect(screen.getByText('Page 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByText('Page 1');
+    expect(requests).toHaveLength(initialRequests + 1);
+    expect(requests.at(-1)?.searchParams.get('user_email')).toBe('primary@example.test');
+    expect(requests.at(-1)?.searchParams.get('agent_name')).toBe('primary-agent');
+    expect(requests.at(-1)?.searchParams.has('cursor')).toBe(false);
+
+    fireEvent.change(screen.getByPlaceholderText('User email...'), { target: { value: 'draft@example.test' } });
+    fireEvent.change(screen.getByPlaceholderText('Agent name...'), { target: { value: 'draft-agent' } });
+    expect(requests).toHaveLength(initialRequests + 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Next audit page' }));
+    await screen.findByText('Page 2');
+    expect(requests.at(-1)?.searchParams.get('cursor')).toBe('second');
+    expect(requests.at(-1)?.searchParams.get('user_email')).toBe('primary@example.test');
+    expect(requests.at(-1)?.searchParams.get('agent_name')).toBe('primary-agent');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByText('Page 1');
+    expect(requests.at(-1)?.searchParams.get('user_email')).toBe('primary@example.test');
+    expect(requests.at(-1)?.searchParams.get('agent_name')).toBe('primary-agent');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(requests.at(-1)?.searchParams.has('user_email')).toBe(false));
+    expect(requests.at(-1)?.searchParams.has('agent_name')).toBe(false);
+    expect(requests.at(-1)?.searchParams.has('cursor')).toBe(false);
+    expect(screen.getByPlaceholderText('User email...')).toHaveValue('');
+    expect(screen.getByPlaceholderText('Agent name...')).toHaveValue('');
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
@@ -554,6 +605,8 @@ describe('UnifiedAuditTab', () => {
       resource_id: 'hello-world',
       workflow_run_id: 'wfrun-20260611200000-abc',
       decision_via: 'tuple',
+      user_email: 'primary@example.test',
+      agent_name: 'primary-agent',
     };
     const pageTwoRecord = {
       ...pageOneRecord,
@@ -564,6 +617,14 @@ describe('UnifiedAuditTab', () => {
 
     const auditEventUrls: string[] = [];
     const auditResponses = [
+      {
+        ok: true,
+        json: async () => ({
+          records: [],
+          cursor: 'first', next_cursor: null, since: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', as_of: '2026-01-02T00:00:00Z',
+          limit: 30,
+        }),
+      },
       {
         ok: true,
         json: async () => ({
@@ -640,15 +701,28 @@ describe('UnifiedAuditTab', () => {
       expect(auditEventUrls).toHaveLength(2);
     });
 
+    fireEvent.change(screen.getByPlaceholderText('User email...'), { target: { value: ' primary@example.test ' } });
+    fireEvent.change(screen.getByPlaceholderText('Agent name...'), { target: { value: ' primary-agent ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(auditEventUrls).toHaveLength(3));
+    fireEvent.change(screen.getByPlaceholderText('User email...'), { target: { value: 'draft@example.test' } });
+    fireEvent.change(screen.getByPlaceholderText('Agent name...'), { target: { value: 'draft-agent' } });
+    expect(auditEventUrls).toHaveLength(3);
+
     fireEvent.click(screen.getByRole('button', { name: /download audit log/i }));
 
     await waitFor(() => {
       expect(createObjectURL).toHaveBeenCalledTimes(1);
     });
 
-    expect(auditEventUrls[2]).toContain('type=cas_decision');
-    expect(auditEventUrls[2]).toContain('limit=200');
-    expect(auditEventUrls[3]).toContain('cursor=second');
+    expect(auditEventUrls[3]).toContain('type=cas_decision');
+    expect(auditEventUrls[3]).toContain('limit=200');
+    expect(auditEventUrls[4]).toContain('cursor=second');
+    for (const url of auditEventUrls.slice(3)) {
+      const params = new URL(url, 'https://example.test').searchParams;
+      expect(params.get('user_email')).toBe('primary@example.test');
+      expect(params.get('agent_name')).toBe('primary-agent');
+    }
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-0');
 
@@ -663,7 +737,7 @@ describe('UnifiedAuditTab', () => {
     const records = JSON.parse(recordsText ?? '[]');
     expect(manifest).toMatchObject({
       format: 'raw-json-zip',
-      filters: { type: 'cas_decision' },
+      filters: { type: 'cas_decision', user_email: 'primary@example.test', agent_name: 'primary-agent' },
       as_of: '2026-01-02T00:00:00Z',
       record_count: 2,
     });

@@ -486,6 +486,13 @@ services:
       AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
     volumes:
       - audit_service_data:/var/lib/caipe-audit-service
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      caipe-documentdb:
+        condition: service_healthy
+        required: false
     healthcheck:
       test:
         - CMD
