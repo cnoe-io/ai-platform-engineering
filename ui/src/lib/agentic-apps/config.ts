@@ -684,7 +684,7 @@ function parseBindings(
   path: string,
 ): NonNullable<AgenticAppInstallation["bindings"]> {
   const raw = asRecord(value, path);
-  assertKnownKeys(raw, ["runtimeOrigin", "resources"], path);
+  assertKnownKeys(raw, ["runtimeOrigin", "resources", "serviceAccountClientId"], path);
   const resources =
     raw.resources === undefined
       ? undefined
@@ -695,6 +695,14 @@ function parseBindings(
           runtimeOrigin: requiredHttpOrigin(
             raw.runtimeOrigin,
             `${path}.runtimeOrigin`,
+          ),
+        }
+      : {}),
+    ...(raw.serviceAccountClientId !== undefined
+      ? {
+          serviceAccountClientId: requiredString(
+            raw.serviceAccountClientId,
+            `${path}.serviceAccountClientId`,
           ),
         }
       : {}),

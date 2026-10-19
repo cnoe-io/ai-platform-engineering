@@ -97,6 +97,26 @@ describe("shared application installation", () => {
     ).toThrow(/not compiled/);
   });
 
+  it("reads the service-account client id an installed app calls the host with", () => {
+    const [app] = configured(example, {
+      selected_ui_profile: "hosted",
+      bindings: {
+        runtimeOrigin: "https://runtime.example.test",
+        serviceAccountClientId: "example-client",
+      },
+    });
+    expect(app.installation.bindings?.serviceAccountClientId).toBe("example-client");
+  });
+
+  it("rejects a service-account client id that is not a string", () => {
+    expect(() =>
+      configured(example, {
+        selected_ui_profile: "hosted",
+        bindings: { runtimeOrigin: "https://runtime.example.test", serviceAccountClientId: 7 },
+      }),
+    ).toThrow(/serviceAccountClientId/);
+  });
+
   it("preserves owned canonical and relative aliases without escaping into host pages", () => {
     const publicApp = {
       appId: "example-app",

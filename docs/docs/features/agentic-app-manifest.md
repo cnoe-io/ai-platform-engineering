@@ -155,6 +155,23 @@ agentic_apps:
   create permission grants.
 - Native UI code is selected at build time. Runtime enablement cannot install it.
 
+### Creating notifications from an app
+
+An installed app can create in-app notifications for named users.
+
+- The manifest declares `host.notifications` version `1.0` in
+  `consumes.platformApis`.
+- The installation names the app's service-account client id in
+  `bindings.serviceAccountClientId`.
+- The app calls `POST /api/notifications` with that service account's bearer
+  token and `{ eventKey, recipientUserSubjects, title, message, href?, severity? }`.
+- Only an installed, enabled app that declares the capability and is bound to the
+  calling client may create notifications. Anything else is a `403`.
+- Recipients are user subjects only (1 to 50). `href` must be a relative path.
+- The host prefixes `eventKey` with `app:<app_id>:` and sets the source label to
+  the app's display name. A repeated `eventKey` creates nothing: `201` when
+  created, `200` when already there.
+
 ### Internal apps
 
 `visible: false` hides public catalog/navigation entries. It does not deny an
