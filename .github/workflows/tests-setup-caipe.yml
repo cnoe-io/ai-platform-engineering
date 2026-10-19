@@ -5,6 +5,7 @@ on:
     paths:
       - 'setup-caipe.sh'
       - 'tests/integration/test_setup_caipe_sudo_consent.sh'
+      - 'tests/integration/test_setup_caipe_user_token_mcp.sh'
       - 'tests/integration/test_setup_caipe_fresh_install_defaults.sh'
       - 'tests/integration/test_setup_caipe_public_urls.sh'
       - '.github/workflows/tests-setup-caipe.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'setup-caipe.sh'
       - 'tests/integration/test_setup_caipe_sudo_consent.sh'
+      - 'tests/integration/test_setup_caipe_user_token_mcp.sh'
       - 'tests/integration/test_setup_caipe_fresh_install_defaults.sh'
       - 'tests/integration/test_setup_caipe_public_urls.sh'
       - '.github/workflows/tests-setup-caipe.yml'
@@ -48,6 +50,7 @@ jobs:
         run: |
           /bin/bash -n setup-caipe.sh
           /bin/bash -n tests/integration/test_setup_caipe_sudo_consent.sh
+          /bin/bash -n tests/integration/test_setup_caipe_user_token_mcp.sh
           /bin/bash -n tests/integration/test_setup_caipe_fresh_install_defaults.sh
           /bin/bash -n tests/integration/test_setup_caipe_public_urls.sh
 
@@ -59,3 +62,6 @@ jobs:
 
       - name: Run public URL and NodePort regression tests
         run: /bin/bash tests/integration/test_setup_caipe_public_urls.sh
+
+      - name: Run user-token MCP regression tests
+        run: /bin/bash tests/integration/test_setup_caipe_user_token_mcp.sh
