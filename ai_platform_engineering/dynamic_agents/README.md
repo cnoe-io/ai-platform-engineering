@@ -155,9 +155,10 @@ Caller bearer → Dynamic Agents → BFF /api/access/check → CAS → OpenFGA
 - `401`: sign in; permission denial `403`: contact an admin; unavailable/malformed
   decisions `503`: retry. No local authorization fallback or decision cache.
 - Service-account runs with an explicit owner still use `/api/authz/v1/decisions`
-  and its existing cross-subject permission gate. Retirement depends on trusted
-  delegation work ([#2891](https://github.com/caipe-io/ai-platform-engineering/issues/2891));
-  the self-check API cannot impersonate another user.
+  and its existing cross-subject permission gate temporarily. **This deprecated
+  endpoint must be deleted before CAS migration is complete**, after trusted
+  delegation work ([#2891](https://github.com/caipe-io/ai-platform-engineering/issues/2891)).
+  No new consumers or compatibility aliases; the self-check API cannot impersonate another user.
 - Conversation ownership, lifecycle checks and downstream tool enforcement remain
   separate boundaries. `DEBUG=true` does not bypass the execution permission gate.
 

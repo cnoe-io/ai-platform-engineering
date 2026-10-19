@@ -11,7 +11,7 @@ Config:
                         http://caipe-ui:3000. DA POSTs to
                         {AUTHZ_SERVICE_URL}/api/access/check for self-access.
                         Delegated owner checks retain /api/authz/v1/decisions
-                        until the trusted-delegation contract is migrated.
+                        temporarily; delete it before CAS migration is complete.
 """
 
 from __future__ import annotations
@@ -35,7 +35,9 @@ _ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 # CAS decision endpoint, relative to AUTHZ_SERVICE_URL.
 _CHECK_PATH = "/api/access/check"
-_DELEGATED_DECISIONS_PATH = "/api/authz/v1/decisions"
+# Remove this path and its BFF route under #2891 before CAS epic #2487 is complete.
+# No new consumers, compatibility aliases or fallback to this endpoint.
+_LEGACY_DELEGATED_DECISIONS_PATH = "/api/authz/v1/decisions"
 
 
 def _error_detail(error: str, code: str, reason: str, action: str) -> dict[str, Any]:
@@ -130,7 +132,7 @@ async def _decide_action(
     }
     path = _CHECK_PATH
     if delegated_user_sub is not None:
-        path = _DELEGATED_DECISIONS_PATH
+        path = _LEGACY_DELEGATED_DECISIONS_PATH
         body["subject"] = {"type": "user", "id": delegated_user_sub}
     async with httpx.AsyncClient(timeout=5.0) as client:
         response = await client.post(f"{base}{path}", headers=headers, json=body)
