@@ -68,7 +68,7 @@ class Settings:
     backend: str = "local"
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "caipe"
-    query_retention_days: int = 0
+    query_retention_days: int = 7
     local_path: str = "/var/lib/caipe-audit-service"
     local_gzip: bool = True
     local_retention_days: int = 1
@@ -99,7 +99,7 @@ class Settings:
             backend=os.getenv("AUDIT_SERVICE_BACKEND", "local").strip().lower(),
             mongodb_uri=_mongodb_uri(),
             mongodb_database=os.getenv("AUDIT_SERVICE_MONGODB_DATABASE", "caipe"),
-            query_retention_days=_int_env("AUDIT_SERVICE_QUERY_RETENTION_DAYS", 0, minimum=0),
+            query_retention_days=_int_env("AUDIT_SERVICE_QUERY_RETENTION_DAYS", 7, minimum=0),
             local_path=os.getenv("AUDIT_SERVICE_LOCAL_PATH", "/var/lib/caipe-audit-service"),
             local_gzip=_bool_env("AUDIT_SERVICE_LOCAL_GZIP", True),
             local_retention_days=_int_env("AUDIT_SERVICE_LOCAL_RETENTION_DAYS", 1),

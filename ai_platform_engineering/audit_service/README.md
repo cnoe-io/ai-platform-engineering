@@ -23,7 +23,8 @@ CAS ──append──► BFF audit client ◄──queryPage── BFF audit AP
 - Archive: existing `AUDIT_SERVICE_BACKEND=local|s3` and its existing storage settings.
 - `AUDIT_SERVICE_INGEST_MAX_BATCH_SIZE=10000`: maximum events per POST; replaces `AUDIT_SERVICE_QUEUE_MAX_SIZE`.
 - `AUDIT_SERVICE_FLUSH_BATCH_SIZE=500` and `AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS=1`: archive worker batching.
-- `AUDIT_SERVICE_QUERY_RETENTION_DAYS=0`: no query expiry by default. A positive value expires newly archived/imported records after that many days, not after the event timestamp. Pending archives never receive an expiry. Changing the setting does not rewrite existing expiry dates.
+- `AUDIT_SERVICE_QUERY_RETENTION_DAYS=7`: newly archived/imported MongoDB records expire seven days after archival/import, not after the event timestamp. Set `0` to disable query expiry. Pending archives never receive an expiry. Changing the setting does not rewrite existing records or expiry dates.
+- S3 archive retention is independent: `AUDIT_SERVICE_S3_RETENTION_DAYS=0` leaves lifecycle management to the operator. Existing bucket rules still apply; keep them longer than the query window. MongoDB expiry never deletes archive objects. S3-only history needs an explicit backfill, not an automatic query fallback. Local archive retention remains one day by default.
 - `AUDIT_SERVICE_READ_MAX_DAYS=31`: maximum span per query, independent of archive/query retention.
 - Verbosity filtering is unchanged. A time window such as `48h` selects records; it does not delete them.
 

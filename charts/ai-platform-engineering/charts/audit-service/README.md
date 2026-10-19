@@ -91,7 +91,7 @@ helm show values oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0
 | podSecurityContext.runAsGroup | int | `1001` |  |
 | podSecurityContext.runAsNonRoot | bool | `true` |  |
 | podSecurityContext.runAsUser | int | `1001` |  |
-| query.retentionDays | int | `0` |  |
+| query.retentionDays | int | `7` |  |
 | read.defaultLimit | int | `1000` |  |
 | read.maxDays | int | `31` |  |
 | read.maxLimit | int | `10000` |  |

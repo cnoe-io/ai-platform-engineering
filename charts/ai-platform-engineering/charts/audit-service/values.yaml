@@ -35,9 +35,9 @@ mongodb:
     passwordKey: MONGO_INITDB_ROOT_PASSWORD
 
 query:
-  # 0 keeps query records indefinitely. Positive values expire newly archived
-  # records this many days after archival/import; pending archives never expire.
-  retentionDays: 0
+  # Query records expire 7 days after archival/import by default, independently
+  # of archive retention. 0 disables query expiry; pending archives never expire.
+  retentionDays: 7
 
 storage:
   # Backend can be "auto", "local", or "s3".

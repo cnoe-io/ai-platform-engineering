@@ -26,7 +26,8 @@ flowchart LR
 - Each request returns one bounded page. The BFF no longer downloads earlier pages or scans S3 for every click.
 - BFF audit reads and writes use `ui/src/lib/audit/client.ts`, not separate backend/reader factories or route-local event fetches. CAS builds its typed decision, grant and reconciliation events; transport preserves them.
 - Next/Previous retain the query's time range and ingestion cutoff. Refresh starts a new query. ZIP export follows the same cursor contract.
-- A `48h` filter is a viewing window, not retention. Query retention defaults to no expiry; archive retention remains separately configured.
+- A `48h` filter is a viewing window, not retention. MongoDB records expire seven days after archival/import by default; unarchived events never expire. Set query retention to `0` to disable expiry.
+- S3 archive retention is independent, with no CAIPE-managed expiry by default; existing bucket lifecycle rules still apply. MongoDB expiry never deletes the archive copy. S3-only history needs an explicit backfill, not an automatic query fallback.
 - An empty result is not proof that an operation never happened. Producer delivery remains best-effort; read outages are shown explicitly.
 - Component provenance and signed caller context are **not** added by this change.
 - The diagram focuses on CAS. Remaining service adoption and retirement of their independent decision writers are tracked under #2884; this is not a claim that all authorization is already centralized.

@@ -266,6 +266,40 @@ def test_mongo_secret_components_are_url_encoded(monkeypatch: pytest.MonkeyPatch
     assert Settings.from_env().mongodb_uri == "mongodb://example-user:test%20%2F%3A%3F@data-store:27017/?authSource=admin"
 
 
+@pytest.mark.parametrize(("override", "expected"), [(None, 7), ("0", 0), ("30", 30)])
+def test_query_retention_defaults_to_seven_days_independently_of_archive_retention(
+    override: str | None, expected: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AUDIT_SERVICE_QUERY_RETENTION_DAYS", raising=False)
+    monkeypatch.delenv("AUDIT_SERVICE_S3_RETENTION_DAYS", raising=False)
+    if override is not None:
+        monkeypatch.setenv("AUDIT_SERVICE_QUERY_RETENTION_DAYS", override)
+    assert Settings().query_retention_days == 7
+    settings = Settings.from_env()
+    assert settings.query_retention_days == expected
+    assert settings.s3_retention_days == 0
+
+
+@pytest.mark.parametrize("days", [0, 7])
+def test_query_expiry_is_applied_after_archival_or_import_not_event_time(store: MongoAuditStore, days: int) -> None:
+    store.retention_days = days
+    old_ts = (NOW - timedelta(days=30)).isoformat()
+    store.insert([event("pending", ts=old_ts)])
+    assert "expires_at" not in store.events.find_one({"_id": "pending"})
+    archive = Mock(backend_name="s3")
+    worker = ArchiveWorker(store, archive, batch_size=2, interval=1, retention_days=days)
+    assert worker.flush_once() == 1
+    archive.write_batch.assert_called_once()
+    assert store.insert([event("imported", ts=old_ts)], archived=True) == 1
+    for event_id in ("pending", "imported"):
+        record = store.events.find_one({"_id": event_id})
+        assert record["archived"] is True
+        if days:
+            assert record["expires_at"] == NOW + timedelta(days=days)
+        else:
+            assert "expires_at" not in record
+
+
 def test_s3_backfill_preserves_payload_without_archive_writes(store: MongoAuditStore, monkeypatch: pytest.MonkeyPatch) -> None:
     client = Mock()
     client.get_paginator.return_value.paginate.return_value = [{"Contents": [{"Key": "audit/primary.parquet"}]}, {"Contents": [{"Key": "audit/secondary.parquet"}]}]
