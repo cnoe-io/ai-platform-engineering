@@ -60,12 +60,17 @@ Create the name of the service account to use.
 {{- end }}
 
 {{/*
-Service account for the migrate pre-install hook. The release's main
-ServiceAccount is not created until after pre-install hooks finish, so when the
-chart owns the service account the hook gets its own, created as an earlier hook.
+Service account for the migrate hook. On a fresh install the release's main
+ServiceAccount is not created until pre-install hooks finish, so when the chart
+owns the service account the hook gets its own, created as an earlier hook.
+Upgrades keep using the main account, which already exists.
 */}}
+{{- define "openfga.migrateUsesHookServiceAccount" -}}
+{{- if and .Values.serviceAccount.create .Release.IsInstall }}true{{ end }}
+{{- end }}
+
 {{- define "openfga.migrateServiceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
+{{- if include "openfga.migrateUsesHookServiceAccount" . }}
 {{- printf "%s-migrate" (include "openfga.serviceAccountName" .) | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- include "openfga.serviceAccountName" . }}

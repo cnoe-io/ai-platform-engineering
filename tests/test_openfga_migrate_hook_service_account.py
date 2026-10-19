@@ -16,10 +16,12 @@ CHART = ROOT / "charts/ai-platform-engineering/charts/openfga"
 POSTGRES = ("datastore.engine=postgres", "datastore.uri=postgres://example.test/openfga")
 
 
-def render(*settings: str) -> list[dict[str, Any]]:
+def render(*settings: str, upgrade: bool = False) -> list[dict[str, Any]]:
     if not shutil.which("helm"):
         pytest.skip("helm is required")
     command = ["helm", "template", "example", str(CHART)]
+    if upgrade:
+        command.append("--is-upgrade")
     for setting in settings:
         command.extend(["--set", setting])
     output = subprocess.run(command, check=True, capture_output=True, text=True).stdout
@@ -47,9 +49,16 @@ def test_migrate_job_uses_service_account_created_by_an_earlier_hook() -> None:
     account = named(documents, "ServiceAccount", account_name)
     assert account is not None
     annotations = account["metadata"]["annotations"]
-    assert "pre-install" in annotations["helm.sh/hook"]
-    assert "pre-upgrade" in annotations["helm.sh/hook"]
+    assert annotations["helm.sh/hook"] == "pre-install"
     assert hook_weight(account) < hook_weight(job)
+
+
+def test_upgrade_renders_migrate_job_unchanged() -> None:
+    documents = render(*POSTGRES, upgrade=True)
+    job = named(documents, "Job", "example-openfga-migrate")
+    assert job is not None
+    assert job["spec"]["template"]["spec"]["serviceAccountName"] == "example-openfga"
+    assert named(documents, "ServiceAccount", "example-openfga-migrate") is None
 
 
 def test_main_workload_service_account_is_unchanged() -> None:
