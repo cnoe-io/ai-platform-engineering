@@ -141,6 +141,12 @@ LOCAL_USER_PASSWORD="${LOCAL_USER_PASSWORD:-}"
 # --no-shared-postgres to fall back to the old ephemeral H2/in-memory stores.
 ENABLE_SHARED_POSTGRES="${ENABLE_SHARED_POSTGRES:-true}"
 SHARED_PG_SERVICE="caipe-postgres"
+# Shared Postgres serves Keycloak and OpenFGA together; the bitnami chart's
+# default resourcesPreset (192Mi) gets it OOM-killed under that load.
+SHARED_PG_CPU_REQUEST="${SHARED_PG_CPU_REQUEST:-100m}"
+SHARED_PG_MEMORY_REQUEST="${SHARED_PG_MEMORY_REQUEST:-256Mi}"
+SHARED_PG_CPU_LIMIT="${SHARED_PG_CPU_LIMIT:-1}"
+SHARED_PG_MEMORY_LIMIT="${SHARED_PG_MEMORY_LIMIT:-1Gi}"
 SHARED_PG_ADMIN_PASSWORD=""
 KEYCLOAK_DB_PASSWORD=""
 OPENFGA_DB_PASSWORD=""
@@ -5197,7 +5203,7 @@ deploy_shared_postgres() {
   # initdb bootstrap: create a login role + owned database per consumer. Only
   # runs when the PVC is empty (first install); harmless to define on re-runs.
   local initdb_file
-  initdb_file=$(mktemp /tmp/caipe-pg-initdb-XXXXXX.sql)
+  initdb_file=$(mktemp "${TMPDIR:-/tmp}/caipe-pg-initdb-XXXXXX")
   cat > "$initdb_file" <<PGINIT
 CREATE ROLE keycloak WITH LOGIN PASSWORD '${KEYCLOAK_DB_PASSWORD}';
 CREATE DATABASE keycloak OWNER keycloak;
@@ -5220,6 +5226,10 @@ PGINIT
     --set architecture=standalone \
     --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
     --set primary.persistence.size=4Gi \
+    --set "primary.resources.requests.cpu=${SHARED_PG_CPU_REQUEST}" \
+    --set "primary.resources.requests.memory=${SHARED_PG_MEMORY_REQUEST}" \
+    --set "primary.resources.limits.cpu=${SHARED_PG_CPU_LIMIT}" \
+    --set "primary.resources.limits.memory=${SHARED_PG_MEMORY_LIMIT}" \
     --set-file "primary.initdb.scripts.caipe-init\.sql=${initdb_file}" \
     --timeout 5m 2>&1 | while IFS= read -r line; do log "$line"; done; then
     rm -f "$initdb_file"
@@ -6766,6 +6776,10 @@ DAEOF
       )
       log "RAG stack enabled, vector-only (embeddings: ${EMBEDDINGS_PROVIDER}/${EMBEDDINGS_MODEL})"
     fi
+  else
+    # The UI treats an unset RAG_ENABLED as on and shows Knowledge Bases
+    # backed by a rag-server that was never deployed.
+    helm_args+=(--set caipe-ui.config.RAG_ENABLED=false)
   fi
 
   if $ENABLE_TRACING; then
