@@ -61,7 +61,8 @@ describe("shared application installation", () => {
   }
 
   it("one compiled manifest supports selecting either UI with the same services and capabilities", () => {
-    installedAgenticAppManifests.push(validateAgenticAppManifest(example));
+    installedAgenticAppManifests.push(validateAgenticAppManifest({ ...example, ui: { ...example.ui,
+      assistant: { agentId: "example-agent", label: "Ask example", name: "Example assistant" } } }));
     for (const profile of ["native", "hosted"]) {
       const [app] = configured(undefined, {
         selected_ui_profile: profile,
@@ -80,6 +81,11 @@ describe("shared application installation", () => {
       );
       expect(buildPublicAgenticApp(app, true)).not.toHaveProperty("bindings");
     }
+  });
+
+  it.each(["../invalid", "agent with spaces"])("rejects an invalid bound assistant identity %s", id => {
+    const manifest = { ...example, ui: { ...example.ui, assistant: { agentId: "example-agent", label: "Ask", name: "Example" } } };
+    expect(() => configured(manifest, { selected_ui_profile: "hosted", bindings: { resources: { assistant: id } } })).toThrow(/invalid assistant agent ID/);
   });
 
   it("rejects a runtime request to enable native code missing from the image", () => {

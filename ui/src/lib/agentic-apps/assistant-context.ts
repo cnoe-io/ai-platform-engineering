@@ -107,7 +107,9 @@ export function validateAssistantContextMessage(
         ? { selection: context.selection.slice(0, 2048) }
         : {}),
       ...(Array.isArray(context.resourceRefs)
-        ? { resourceRefs: context.resourceRefs.slice(0, 20) }
+        ? { resourceRefs: context.resourceRefs.slice(0, 20).map(ref => Object.fromEntries(
+            Object.entries(ref).slice(0, 16).map(([key, value]) => [key.slice(0, 80), String(value).slice(0, 2048)]),
+          )) }
         : {}),
       ...(Array.isArray(context.suggestedPrompts)
         ? { suggestedPrompts: context.suggestedPrompts.slice(0, 8) }

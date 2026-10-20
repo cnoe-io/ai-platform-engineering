@@ -21,7 +21,8 @@ describe("app chat session recovery", () => {
   beforeEach(() => {
     jest.useFakeTimers(); jest.clearAllMocks();
     mockState.streamingConversations.clear();
-    mockState.conversations[0].messages[0].isFinal = false;
+    mockState.conversations = [{ id: "example-conversation", participants: [{ type: "agent", id: "agent-example" }],
+      messages: [{ role: "assistant", isFinal: false, turnId: "example-turn" }] }];
     global.fetch = jest.fn(); mockLoad.mockResolvedValue(undefined);
   });
   afterEach(() => { jest.useRealTimers(); });
@@ -49,6 +50,23 @@ describe("app chat session recovery", () => {
     (fetch as jest.Mock).mockResolvedValue({ ok: false, status: 403 });
     const view = renderHook(useChatSessionRecovery); await tick(); await tick(30_000);
     expect(fetch).toHaveBeenCalledTimes(1); expect(mockLoad).not.toHaveBeenCalled(); view.unmount();
+  });
+  it("does not lock the composer or show saving for an inactive stale reply", async () => {
+    (fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ running: false }) });
+    const view = renderHook(useChatSessionRecovery); await tick(); await tick(40_000);
+    expect(mockLoad).not.toHaveBeenCalled();
+    expect(mockSetActivity.mock.calls.every(([, activity]) => activity === null)).toBe(true);
+    view.unmount();
+  });
+  it("does not re-add activity after a pending status request's conversation is removed", async () => {
+    let finish!: (value: unknown) => void;
+    (fetch as jest.Mock).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const view = renderHook(useChatSessionRecovery); await tick();
+    mockState.conversations = []; await tick(1000);
+    await act(async () => { finish({ ok: true, json: async () => ({ running: true }) }); });
+    expect(mockLoad).not.toHaveBeenCalled();
+    expect(mockSetActivity.mock.calls.every(([, activity]) => activity === null)).toBe(true);
+    view.unmount();
   });
   it("bounds recovery and clears activity when its view is disposed", async () => {
     (fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ running: true }) });

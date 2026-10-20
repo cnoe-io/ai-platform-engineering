@@ -180,6 +180,27 @@ describe("AgenticAppAssistantOverlay", () => {
     expect(mockLoadMessagesFromServer).toHaveBeenCalledWith("latest");
   });
 
+  it("unmounts a deleted chat and shows replacement failure, then retries safely", async () => {
+    jest.spyOn(window, "confirm").mockReturnValue(true);
+    mockCreateConversation.mockResolvedValueOnce("assistant-conversation").mockRejectedValueOnce(new Error("Replacement unavailable"));
+    mockDeleteConversation.mockImplementation(async () => { mockChatStoreState.activeConversationId = null; });
+    renderExampleOverlay(); await screen.findByTestId("chat-panel");
+    fireEvent.click(screen.getByRole("button", { name: "Clear assistant chat" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Replacement unavailable");
+    expect(screen.queryByTestId("chat-panel")).toBeNull();
+    mockCreateConversation.mockResolvedValueOnce("replacement-chat");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "replacement-chat"));
+  });
+
+  it("shows a failed New chat action instead of silently leaving the old panel", async () => {
+    mockCreateConversation.mockResolvedValueOnce("assistant-conversation").mockRejectedValueOnce(new Error("New chat unavailable"));
+    renderExampleOverlay(); await screen.findByTestId("chat-panel");
+    fireEvent.click(screen.getByRole("button", { name: "Start new assistant chat" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("New chat unavailable");
+    expect(screen.queryByTestId("chat-panel")).toBeNull();
+  });
+
   it("starts a new chat while retaining the prior conversation in history", async () => {
     mockCreateConversation
       .mockResolvedValueOnce("assistant-conversation")

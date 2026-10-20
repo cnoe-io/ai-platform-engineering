@@ -60,7 +60,8 @@ function validPath(path) {
 }
 
 export function validateManifest(moduleName, manifest) {
-  if (manifest?.apiVersion === "2.0") {
+  const apiVersion = manifest?.apiVersion;
+  if (apiVersion === "2.0") {
     const app = validateAgenticAppManifest(manifest);
     const profile = app.ui.profiles.find((candidate) => candidate.mode === "native-package");
     if (!profile || (moduleName.startsWith("@") && profile.package !== moduleName)) throw new Error(`${moduleName}: native package binding mismatch`);
@@ -104,6 +105,9 @@ export function validateManifest(moduleName, manifest) {
     }
     if (assistant.overlay !== undefined && !["host", "app"].includes(assistant.overlay)) {
       fail("assistant overlay must be host or app");
+    }
+    if (apiVersion !== "2.0" && ["streamPath", "resumePath", "cancelPath", "statusPath"].some(field => assistant[field] !== undefined)) {
+      fail("assistant paths require an apiVersion 2.0 manifest");
     }
     for (const field of ["streamPath", "resumePath", "cancelPath", "statusPath"]) {
       if (assistant[field] !== undefined && (!validPath(assistant[field])

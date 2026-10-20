@@ -2313,7 +2313,8 @@ export function ChatPanel({
 
                     {allMessages.map((msg, index, arr) => {
                       const isLastMessage = index === arr.length - 1;
-                      const isAssistantStreaming = (isThisConversationStreaming || isRemoteResponse) && msg.role === "assistant" && isLastMessage;
+                      const remoteMessage = isRemoteResponse && !msg.isFinal && (!externalActivity?.turnId || externalActivity.turnId === msg.turnId);
+                      const isAssistantStreaming = (isThisConversationStreaming || remoteMessage) && msg.role === "assistant" && isLastMessage;
                       const messageOwner = msg.senderEmail ?? conversation?.owner_id;
                       const isOwnMessage = !messageOwner || !session?.user?.email ||
                         messageOwner === session.user.email;
@@ -2339,7 +2340,7 @@ export function ChatPanel({
                       // - For completed messages: use msg.streamEvents (persisted with the message)
                       // - For streaming (latest message): use conversation.streamEvents (live buffer)
                       // - Fall back to timestamp-based filtering if msg.streamEvents is not available
-                      const isStreaming = isLastAssistantMessage && (isThisConversationStreaming || isRemoteResponse);
+                      const isStreaming = isLastAssistantMessage && isAssistantStreaming;
                       let turnEvents: StreamEvent[];
                       
                       if (msg.role !== "assistant") {
@@ -2363,7 +2364,7 @@ export function ChatPanel({
                       return (
                         <ChatMessage
                           key={msg.id}
-                          message={isRemoteResponse ? { ...msg, isInterrupted: false } : msg}
+                          message={remoteMessage ? { ...msg, isInterrupted: false } : msg}
                           onCopy={handleCopy}
                           canEdit={canEditMessage}
                           isEditing={editingMessageId === msg.id}

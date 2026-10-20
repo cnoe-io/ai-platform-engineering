@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { AuthResult } from "@/lib/da-proxy";
 import { getAgentId } from "@/types/a2a";
 import type { Conversation } from "@/types/mongodb";
-import { loadConfiguredAgenticApps } from "./config";
+import { getAgenticAppRoutingSnapshot } from "./config";
 import { proxyAgenticAppRequest } from "./proxy";
 
 export type AssistantStreamOperation = "start" | "resume" | "cancel" | "status";
@@ -18,7 +18,7 @@ export function findAgenticAppAssistantStream(
   agentId: string,
   operation: AssistantStreamOperation = "start",
 ): AgenticAppAssistantStream | null {
-  const matches = loadConfiguredAgenticApps().filter((app) =>
+  const matches = getAgenticAppRoutingSnapshot().filter((app) =>
     app.manifest.ui.assistant?.agentId === agentId && app.manifest.ui.assistant.streamPath,
   );
   if (matches.length > 1) throw new Error("Multiple installed apps claim the assistant");

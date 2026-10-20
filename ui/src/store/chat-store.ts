@@ -314,7 +314,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
       externalActivity: {},
       setExternalActivity: (id, activity) => set(state => {
         const next = { ...state.externalActivity };
-        if (activity) next[id] = activity;
+        if (activity && state.conversations.some(c => c.id === id)) next[id] = activity;
         else delete next[id];
         return { externalActivity: next };
       }),
@@ -415,7 +415,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
         const state = get();
         const conversation = state.conversations.find((c: Conversation) => c.id === conversationId);
         const isFirstUserMessage = conversation && conversation.messages.length === 0 && message.role === "user";
-        const newTitle = isFirstUserMessage
+        const newTitle = isFirstUserMessage && conversation.title === "New Conversation"
           ? message.content.substring(0, 50).trim() || "New Conversation"
           : undefined;
 
@@ -723,6 +723,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
           // If this was the active conversation, select the next one intelligently
           let newActiveId = state.activeConversationId;
+          if (wasActiveConversation && options?.selectNext === false) newActiveId = null;
           if (wasActiveConversation && options?.selectNext !== false) {
             if (newConversations.length === 0) {
               // No conversations left
@@ -738,6 +739,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
           return {
             conversations: newConversations,
+            externalActivity: Object.fromEntries(Object.entries(state.externalActivity).filter(([key]) => key !== id)),
             activeConversationId: newActiveId,
             contextUsageByConversation: Object.fromEntries(
               Object.entries(state.contextUsageByConversation).filter(([conversationId]) => conversationId !== id),
@@ -789,6 +791,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
           conversations: [],
           activeConversationId: null,
           contextUsageByConversation: {},
+          externalActivity: {},
         });
         persistLastActiveConversationId(null);
       },

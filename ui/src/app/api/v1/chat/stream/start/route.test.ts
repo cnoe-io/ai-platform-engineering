@@ -30,7 +30,7 @@ jest.mock("../../_conversation-authz", () => ({
 }));
 jest.mock("@/lib/agentic-apps/config", () => ({
   isAgenticAppsEnabled: () => true,
-  loadConfiguredAgenticApps: () => mockLoadApps(),
+  getAgenticAppRoutingSnapshot: () => mockLoadApps(),
   getConfiguredAgenticApp: () => mockGetApp(),
 }));
 

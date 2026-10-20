@@ -110,6 +110,22 @@ describe('chat-store', () => {
     resetStore();
   });
 
+  it('preserves an explicit title when the first user message arrives', async () => {
+    const id = await useChatStore.getState().createConversation('example-agent', { title: 'Example assistant' });
+    useChatStore.getState().addMessage(id, { role: 'user', content: 'First question' });
+    expect(useChatStore.getState().conversations.find(c => c.id === id)?.title).toBe('Example assistant');
+  });
+  it('clears selection and external activity when deleting without auto-selection', async () => {
+    const c = makeConversation();
+    useChatStore.setState({ conversations: [c], activeConversationId: c.id });
+    useChatStore.getState().setExternalActivity(c.id, { agentId: 'example-agent', state: 'running' });
+    await useChatStore.getState().deleteConversation(c.id, { selectNext: false });
+    expect(useChatStore.getState().activeConversationId).toBeNull();
+    expect(useChatStore.getState().externalActivity).toEqual({});
+    useChatStore.getState().setExternalActivity(c.id, { agentId: 'example-agent', state: 'running' });
+    expect(useChatStore.getState().externalActivity).toEqual({});
+  });
+
   describe('truncateConversationFromMessage', () => {
     it('removes the selected message and every later message', () => {
       const conversation = makeConversation({

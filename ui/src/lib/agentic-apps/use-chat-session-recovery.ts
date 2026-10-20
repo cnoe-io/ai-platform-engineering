@@ -20,6 +20,8 @@ export function useChatSessionRecovery(): void {
       running: boolean; savingSince?: number; turnId?: string; busy: boolean }>();
     const unsupported = new Set<string>();
     async function check(id: string, watch: NonNullable<ReturnType<typeof watches.get>>) {
+      const currentWatch = () => !controller.signal.aborted && watches.get(id) === watch &&
+        useChatStore.getState().conversations.some(c => c.id === id);
       watch.busy = true;
       const request = new AbortController();
       const abort = () => request.abort();
@@ -31,10 +33,6 @@ export function useChatSessionRecovery(): void {
           state.setExternalActivity(id, null);
           watch.next = Date.now() + 2000;
           return;
-        }
-        const latest = state.conversations.find(c => c.id === id)?.messages.at(-1);
-        if (!watch.running && latest?.role === "assistant" && !latest.isFinal) {
-          state.setExternalActivity(id, { agentId: watch.agentId, state: "checking" });
         }
         const response = await fetch("/api/v1/chat/stream/status", {
           method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
@@ -50,7 +48,7 @@ export function useChatSessionRecovery(): void {
         const data = await response.json();
         if (typeof data.running !== "boolean" || data.turnId !== undefined &&
             (typeof data.turnId !== "string" || data.turnId.length > 128)) throw new Error("Invalid app turn status");
-        if (controller.signal.aborted || Date.now() > watch.deadline) return;
+        if (!currentWatch() || Date.now() > watch.deadline || useChatStore.getState().streamingConversations.has(id)) return;
         if (data.running) {
           watch.running = true;
           watch.turnId = data.turnId;
@@ -59,10 +57,11 @@ export function useChatSessionRecovery(): void {
           await useChatStore.getState().loadMessagesFromServer(id, { force: true });
           watch.next = Date.now() + 2000;
         } else {
-          if (watch.running || latest?.role === "assistant" && !latest.isFinal) {
+          if (watch.running) {
             watch.savingSince ??= Date.now();
             useChatStore.getState().setExternalActivity(id, { agentId: watch.agentId, state: "saving", turnId: watch.turnId });
             await useChatStore.getState().loadMessagesFromServer(id, { force: true });
+            if (!currentWatch()) return;
             const messages = useChatStore.getState().conversations.find(c => c.id === id)?.messages ?? [];
             const answer = watch.turnId ? messages.find(m => m.role === "assistant" && m.turnId === watch.turnId) : messages.at(-1);
             if (!answer?.isFinal && Date.now() - watch.savingSince < SAVE_GRACE_MS) {
@@ -92,7 +91,10 @@ export function useChatSessionRecovery(): void {
       if (id && agentId && !unsupported.has(id) && !watches.has(id)) watches.set(id,
         { agentId, deadline: Date.now() + MAX_WATCH_MS, next: 0, busy: false, running: false });
       for (const [key, watch] of watches) {
-        if (unsupported.has(key) || Date.now() > watch.deadline) {
+        if (!state.conversations.some(c => c.id === key)) {
+          watches.delete(key);
+          state.setExternalActivity(key, null);
+        } else if (unsupported.has(key) || Date.now() > watch.deadline) {
           unsupported.add(key);
           watches.delete(key);
           state.setExternalActivity(key, null);

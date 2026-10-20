@@ -149,3 +149,12 @@ The host polls active status and authorized saved messages, with a bounded watch
 and a short final-save grace period. It never resubmits the question. Apps that
 omit status keep their existing behavior. This capability does not promise durable
 SSE replay after the browser owning the request closes.
+
+### Assistant routing snapshot
+
+Startup validates the deployment catalog and records its assistant bindings. Routing
+uses that last successfully validated snapshot for the same catalog path. A failed
+catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
+agents. App proxy calls still validate the live catalog and fail closed when it
+is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
+the snapshot; a UI restart revalidates it before serving traffic.

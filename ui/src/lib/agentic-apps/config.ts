@@ -21,6 +21,19 @@ import type {
 import { MAX_AGENTIC_APP_REQUEST_BODY_BYTES } from "@/types/agentic-app";
 
 const APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const routingState = globalThis as typeof globalThis & {
+  __caipeAgenticAppRoutingSnapshot?: { path: string; apps: ConfiguredAgenticApp[] };
+};
+
+/** Latest successful validation at this deployment path; refresh by loading the catalog. */
+export function getAgenticAppRoutingSnapshot(): ConfiguredAgenticApp[] {
+  if (!isAgenticAppsEnabled()) return [];
+  const path = process.env.AGENTIC_APPS_CONFIG_PATH?.trim();
+  const snapshot = routingState.__caipeAgenticAppRoutingSnapshot;
+  if (!snapshot || snapshot.path !== path) return loadConfiguredAgenticApps();
+  return snapshot.apps;
+}
+
 const HTTP_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
 const AUTH_MODES = new Set<AgenticAppAuthMode>([
   "app-scoped-token",
@@ -250,6 +263,7 @@ export function loadConfiguredAgenticApps(
       );
     // Resource identities belong to the installation, not the publisher artifact.
     const assistantId = installation.bindings?.resources?.assistant;
+    if (assistantId && !APP_ID_PATTERN.test(assistantId)) throw new Error(`${path}: invalid assistant agent ID`);
     if (assistantId && !manifest.ui.assistant) {
       throw new Error(`${path}: assistant binding requires a declared assistant`);
     }
@@ -260,9 +274,13 @@ export function loadConfiguredAgenticApps(
     return { manifest: boundManifest, installation };
   });
 
+  const assistantIds = new Set<string>();
   const appIds = new Set<string>();
   const mountPaths = new Map<string, string>();
   for (const app of apps) {
+    const assistantId = app.manifest.ui.assistant?.agentId;
+    if (assistantId && app.manifest.ui.assistant?.streamPath && assistantIds.has(assistantId)) throw new Error("Multiple installed apps claim the assistant");
+    if (assistantId && app.manifest.ui.assistant?.streamPath) assistantIds.add(assistantId);
     if (appIds.has(app.installation.appId)) {
       throw new Error(
         `Duplicate External App installation: ${app.installation.appId}`,
@@ -320,7 +338,7 @@ export function loadConfiguredAgenticApps(
     }),
   );
 
-  return apps.sort((left, right) => {
+  const sorted = apps.sort((left, right) => {
     const leftOrder =
       left.manifest.surfaces.navOrder ?? Number.MAX_SAFE_INTEGER;
     const rightOrder =
@@ -330,6 +348,8 @@ export function loadConfiguredAgenticApps(
       left.manifest.displayName.localeCompare(right.manifest.displayName)
     );
   });
+  routingState.__caipeAgenticAppRoutingSnapshot = { path: configPath, apps: sorted };
+  return sorted;
 }
 
 export function getConfiguredAgenticApp(

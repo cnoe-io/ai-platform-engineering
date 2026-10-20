@@ -70,7 +70,9 @@ export async function proxyAgenticAppRequest(
   }
 
   const { appId, path = [] } = await context.params;
-  const app = getConfiguredAgenticApp(appId);
+  let app: ReturnType<typeof getConfiguredAgenticApp>;
+  try { app = getConfiguredAgenticApp(appId); }
+  catch { return Response.json({ error: "app_configuration_unavailable" }, { status: 503 }); }
   if (!app || !app.installation.installed || !app.installation.enabled) {
     return Response.json({ error: "app_not_found" }, { status: 404 });
   }

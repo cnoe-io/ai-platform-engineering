@@ -88,9 +88,10 @@ export function AgenticAppAssistantOverlay({
     if (!open) return;
     const session = { previous: useChatStore.getState().activeConversationId, owned: null as string | null };
     selectionSessionRef.current = session;
+    queueMicrotask(() => { if (selectionSessionRef.current === session) setConversationError(null); });
     return () => {
       selectionSessionRef.current = null;
-      if (session.owned && useChatStore.getState().activeConversationId === session.owned)
+      if (useChatStore.getState().activeConversationId === session.owned)
         setActiveConversation(session.previous);
     };
   }, [open, conversationKey, setActiveConversation]);
@@ -136,7 +137,7 @@ export function AgenticAppAssistantOverlay({
   ]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || conversationActionPending || conversationError?.key === conversationKey) return;
     let cancelled = false;
     const session = selectionSessionRef.current;
 
@@ -179,6 +180,8 @@ export function AgenticAppAssistantOverlay({
   }, [
     assistantAgentId,
     assistantConversation,
+    conversationActionPending,
+    conversationError,
     conversationKey,
     findOrCreateAppConversation,
     activate,
@@ -227,8 +230,13 @@ export function AgenticAppAssistantOverlay({
     setConversationActionPending(true);
     setConversationError(null);
     try {
+      const priorRequest = conversationRequestRef.current;
       await deleteConversation(assistantConversation.id, { selectNext: false });
+      if (conversationRequestRef.current === priorRequest) conversationRequestRef.current = null;
+      setAssistantConversation(previous => previous?.id === assistantConversation.id ? null : previous);
       if (selectionSessionRef.current !== session) return;
+      // Deletion leaves no active conversation; this operation owns that transition.
+      if (session && useChatStore.getState().activeConversationId === null) session.owned = null;
       const id = await createAppConversation();
       if (selectionSessionRef.current !== session) return;
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
@@ -397,17 +405,18 @@ export function AgenticAppAssistantOverlay({
           </div>
 
           <div className="min-h-0 flex-1 [&>div]:bg-transparent">
-            {assistantConversation?.key === conversationKey ? (
+            {conversationError?.key === conversationKey ? (
+              <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-red-200">
+                {conversationError.message}
+                <button type="button" className="underline" onClick={() => setConversationError(null)}>Retry</button>
+              </div>
+            ) : assistantConversation?.key === conversationKey ? (
               <ChatPanel
                 key={assistantConversation.id}
                 conversationId={assistantConversation.id}
                 agentId={assistantAgentId}
                 clientContext={clientContext}
               />
-            ) : conversationError?.key === conversationKey ? (
-              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-200">
-                {conversationError.message}
-              </div>
             ) : (
               <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-300">
                 <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
