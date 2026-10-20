@@ -103,6 +103,7 @@ jest.mock('@/store/chat-store', () => {
 })
 
 jest.mock('lucide-react', () => ({
+  ...jest.requireActual('lucide-react'),
   ArrowUp: (props: React.ComponentProps<'span'>) => <span data-testid="icon-arrow-up" {...props} />,
   ArrowDown: (props: React.ComponentProps<'span'>) => <span data-testid="icon-arrow-down" {...props} />,
   GripVertical: (props: React.ComponentProps<'span'>) => <span data-testid="icon-grip" {...props} />,
