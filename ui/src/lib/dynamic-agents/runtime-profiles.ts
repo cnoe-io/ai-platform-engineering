@@ -53,20 +53,16 @@ function parseProfiles(value: unknown): AgentRuntimeProfile[] {
 export function parseRuntimeCatalog(value: unknown): AgentRuntimeCatalog {
   const profiles = parseProfiles(value);
   if (!record(value) || value.tiers === undefined) return { profiles };
-  if (!Array.isArray(value.tiers) || value.tiers.length > 4) return invalidCatalog();
+  if (!Array.isArray(value.tiers) || value.tiers.length > 2) return invalidCatalog();
   const ids = new Set<string>();
   const tiers: AgentRuntimeTier[] = value.tiers.map((entry: unknown) => {
-    if (!record(entry) || !["1", "2", "2.5", "3"].includes(String(entry.tier)) || typeof entry.tier !== "string" || ids.has(entry.tier) ||
+    if (!record(entry) || (entry.tier !== "1" && entry.tier !== "3") || ids.has(entry.tier) ||
         typeof entry.name !== "string" || !entry.name.trim() || entry.name.length > 200 || typeof entry.selectable !== "boolean" ||
-        (entry.reason !== undefined && (typeof entry.reason !== "string" || !entry.reason.trim() || entry.reason.length > 500))) return invalidCatalog();
+        entry.status !== "supported") return invalidCatalog();
     ids.add(entry.tier);
-    const supported = entry.tier === "1" || entry.tier === "3";
-    if (supported ? entry.status !== "supported" || entry.runtime_contract === undefined
-      : !["planned", "research"].includes(String(entry.status)) || entry.selectable || typeof entry.reason !== "string" || entry.runtime_contract !== undefined) return invalidCatalog();
     if (entry.tier === "1" && !entry.selectable || entry.tier === "3" && entry.selectable !== (profiles.length > 0)) return invalidCatalog();
-    return { tier: entry.tier as AgentRuntimeTier["tier"], name: entry.name, status: entry.status as AgentRuntimeTier["status"], selectable: entry.selectable,
-      ...(entry.reason === undefined ? {} : { reason: entry.reason as string }),
-      ...(supported ? { runtime_contract: parseRuntimeContract(entry.runtime_contract, entry.tier as "1" | "3") } : {}) };
+    return { tier: entry.tier, name: entry.name, status: entry.status, selectable: entry.selectable,
+      runtime_contract: parseRuntimeContract(entry.runtime_contract, entry.tier) };
   });
   return { profiles, tiers };
 }

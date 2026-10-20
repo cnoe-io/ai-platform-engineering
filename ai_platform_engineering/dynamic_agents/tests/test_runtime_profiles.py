@@ -23,17 +23,17 @@ PROFILE = {"id": "primary", "name": "Primary", "revision": "v1", "harness": "cla
            "capabilities": {"mcp": True, "skills": True, "attachments": False}, "state_contract": STATE_CONTRACT}
 
 
-async def test_unconfigured_catalog_retains_native_default_and_marks_other_tiers_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_catalog_lists_only_supported_runtimes_and_retains_native_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_profiles, "get_settings", lambda: Settings(sandbox_service_url=""))
     catalog = await runtime_profiles.runtime_profiles(UserContext(email="caller@example.com"))
     assert catalog["profiles"] == []
     tiers = {item["tier"]: item for item in catalog["tiers"]}
-    assert set(tiers) == {"1", "2", "2.5", "3"}
+    assert set(tiers) == {"1", "3"}
+    assert [item["name"] for item in catalog["tiers"]] == ["Managed Agent", "Private Coding Sandbox"]
+    assert all(item["status"] == "supported" for item in catalog["tiers"])
     assert [tier for tier, value in tiers.items() if value["selectable"]] == ["1"]
     assert tiers["1"]["runtime_contract"] == MANAGED_AGENT_RUNTIME.model_dump()
     assert tiers["3"]["runtime_contract"] == PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()
-    assert tiers["2"]["status"] == "planned" and "checkpoint" in tiers["2"]["reason"]
-    assert tiers["2.5"]["status"] == "research" and "tools" in tiers["2.5"]["reason"]
     assert AgentExecutionConfig().model_dump() == {"kind": "native", "profile_id": None}
 
 

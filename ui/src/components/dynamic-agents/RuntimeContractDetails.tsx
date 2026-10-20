@@ -7,7 +7,6 @@ export function RuntimeContractDetails({ execution, profile, tiers }: {
 }) {
   const native = execution.kind === "native";
   const contract = native ? tiers.find((tier) => tier.tier === "1")?.runtime_contract : profile?.runtime_contract;
-  const unavailable = tiers.filter((tier) => (tier.tier === "2" || tier.tier === "2.5") && !tier.selectable);
 
   return <div className="space-y-2 text-xs text-muted-foreground">
     <p>{native
@@ -23,15 +22,5 @@ export function RuntimeContractDetails({ execution, profile, tiers }: {
     {!native && profile && !contract && <p>Workspace and policy details are not reported by this server.</p>}
     {!native && contract && <p>Approved workflow artifacts can be synchronized separately.</p>}
     <p>Agent sharing controls access to its definition. Conversation access and workspace policies are separate. Runtime changes apply to new conversations; existing sessions keep their binding.</p>
-    {unavailable.length > 0 && <details className="border-t pt-2">
-      <summary className="cursor-pointer font-medium">Other runtime paths</summary>
-      <ul className="mt-1 space-y-1">
-        {unavailable.map((tier) => <li key={tier.tier}>
-          <span className="font-medium">{tier.name}</span>{" "}
-          <span>({tier.status === "research" ? "Research" : "Planned"}, unavailable)</span>
-          {tier.reason && <p>{tier.reason}</p>}
-        </li>)}
-      </ul>
-    </details>}
   </div>;
 }

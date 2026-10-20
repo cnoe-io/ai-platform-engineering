@@ -440,12 +440,11 @@ export type AgentRuntimeContract =
       isolation: "private-sandbox"; policy_authority: "caipe-and-operator-profile" };
 
 export interface AgentRuntimeTier {
-  tier: "1" | "2" | "2.5" | "3";
+  tier: "1" | "3";
   name: string;
-  status: "supported" | "planned" | "research";
+  status: "supported";
   selectable: boolean;
-  reason?: string;
-  runtime_contract?: AgentRuntimeContract;
+  runtime_contract: AgentRuntimeContract;
 }
 
 export interface AgentRuntimeCatalog {

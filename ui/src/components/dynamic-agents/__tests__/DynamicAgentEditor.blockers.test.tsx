@@ -374,13 +374,11 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(payload.model).toBeUndefined();
   });
 
-  it("explains the admitted workspace contract without offering unsupported runtime paths", async () => {
+  it("explains supported runtime workspace and policy bindings", async () => {
     const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
     const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
     mockApi({ profiles: [{ id: "primary", name: "Primary", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true }, runtime_contract: privateContract }], tiers: [
       { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
-      { tier: "2", name: "Shared workspace", status: "planned", selectable: false, reason: "Shared workspace admission is not available." },
-      { tier: "2.5", name: "Virtual workspace", status: "research", selectable: false, reason: "Virtual filesystem qualification is not available." },
       { tier: "3", name: "Private runtime", status: "supported", selectable: true, runtime_contract: privateContract },
     ] });
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
@@ -391,16 +389,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(screen.getByText(/Approved workflows or namespace settings can share logical artifacts/)).toBeInTheDocument();
     expect(screen.getByText("Default workspace")).toBeInTheDocument();
     expect(screen.getByText("Conversation")).toBeInTheDocument();
-    const otherRuntimePaths = screen.getByText("Other runtime paths");
-    const runtimeDetails = otherRuntimePaths.closest("details");
-    expect(runtimeDetails).not.toHaveAttribute("open");
-    fireEvent.click(otherRuntimePaths);
-    expect(runtimeDetails).toHaveAttribute("open");
     expect(screen.getByText("Logical filesystem")).toBeInTheDocument();
-    expect(screen.getByText("Shared workspace")).toBeInTheDocument();
-    expect(screen.getByText("(Planned, unavailable)")).toBeInTheDocument();
-    expect(screen.getByText("(Research, unavailable)")).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /Shared workspace|Virtual workspace/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
     expect(screen.getByText(/private sandbox for each caller-owned conversation/)).toBeInTheDocument();
     expect(screen.getByText("Real sandbox filesystem")).toBeInTheDocument();

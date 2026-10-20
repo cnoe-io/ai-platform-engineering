@@ -14,10 +14,6 @@ def _runtime_tiers(private_available: bool) -> list[dict]:
     return [
         {"tier": "1", "name": "Managed Agent", "status": "supported", "selectable": True,
          "runtime_contract": MANAGED_AGENT_RUNTIME.model_dump()},
-        {"tier": "2", "name": "Team Sandbox", "status": "planned", "selectable": False,
-         "reason": "Shared team workspaces require a compatible checkpoint and authorization contract."},
-        {"tier": "2.5", "name": "Virtual Coding Harness", "status": "research", "selectable": False,
-         "reason": "Native coding tools must be restricted to a qualified virtual filesystem."},
         {"tier": "3", "name": "Private Coding Sandbox", "status": "supported", "selectable": private_available,
          "runtime_contract": PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()},
     ]

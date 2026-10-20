@@ -68,12 +68,10 @@ const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical
 const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
 const tiers = (privateAvailable = true) => [
   { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
-  { tier: "2", name: "Shared workspace", status: "planned", selectable: false, reason: "Shared workspace admission is not available." },
-  { tier: "2.5", name: "Virtual workspace", status: "research", selectable: false, reason: "Virtual filesystem qualification is not available." },
   { tier: "3", name: "Private runtime", status: "supported", selectable: privateAvailable, runtime_contract: privateContract },
 ];
 
-it("projects descriptive runtime contracts and unavailable paths without private provider fields", async () => {
+it("projects supported runtime contracts without private provider fields", async () => {
   const catalog = { profiles: [{ ...profile, runtime_contract: { ...privateContract, command: "private" } }], tiers: tiers().map(tier => ({ ...tier, endpoint: "private" })) };
   (global.fetch as jest.Mock).mockResolvedValue(Response.json(catalog));
   expect(await loadRuntimeCatalog(request())).toEqual({ profiles: [{ ...profile, runtime_contract: privateContract }], tiers: tiers() });
@@ -97,10 +95,19 @@ it.each([
   expect(() => parseRuntimeCatalog({ profiles: [{ ...profile, runtime_contract: { ...privateContract, ...override } }] })).toThrow();
 });
 
-it("cannot advertise planned runtime paths as executable", () => {
+it.each(["2", "2.5", "4", "unknown", 1, null])("rejects unimplemented or unknown runtime tier %p", (tier) => {
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...tiers()[0], tier }] })).toThrow();
+});
+
+it.each(["planned", "research", "unknown"])("rejects unsupported runtime status %p", (status) => {
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...tiers()[0], status }] })).toThrow();
+});
+
+it("rejects inconsistent admission, duplicate tiers and oversized tier catalogs", () => {
   const catalog = tiers();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: catalog.map(tier => tier.tier === "2" ? { ...tier, selectable: true } : tier) })).toThrow();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: catalog.map(tier => tier.tier === "2.5" ? { ...tier, status: "supported" } : tier) })).toThrow();
   expect(() => parseRuntimeCatalog({ profiles: [], tiers: catalog })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...catalog[0], selectable: false }, catalog[1]] })).toThrow();
   expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [catalog[0], catalog[0]] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [...catalog, catalog[0]] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...catalog[0], runtime_contract: privateContract }] })).toThrow();
 });
