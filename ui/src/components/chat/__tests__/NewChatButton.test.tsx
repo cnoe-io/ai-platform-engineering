@@ -122,8 +122,9 @@ describe("NewChatButton", () => {
     });
     fireEvent.mouseEnter(button);
 
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("New chat");
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Platform Helper");
+    const tooltip = (await screen.findByText("New chat")).closest('[role="tooltip"]');
+    expect(tooltip).toHaveTextContent("New chat");
+    expect(tooltip).toHaveTextContent("Platform Helper");
     expect(
       screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore"),
     ).toBeInTheDocument();
