@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { NextRequest, NextResponse } from "next/server";
-import { loadRuntimeProfiles, normalizeAgentExecution, parseRuntimeProfiles, validateAgentExecution } from "../runtime-profiles";
+import { loadRuntimeCatalog, loadRuntimeProfiles, normalizeAgentExecution, parseRuntimeCatalog, parseRuntimeProfiles, validateAgentExecution } from "../runtime-profiles";
 
 const mockAuthenticate = jest.fn();
 jest.mock("@/lib/da-proxy", () => ({
@@ -62,4 +62,45 @@ it("bounds catalog bytes and refuses redirects while forwarding authority", asyn
 
 it("rejects saved skills unsupported by the admitted profile", async () => {
   await expect(validateAgentExecution(request(), { kind: "sandbox", profile_id: "primary" }, ["example-skill"])).rejects.toMatchObject({ code: "RUNTIME_SKILLS_UNSUPPORTED" });
+});
+
+const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
+const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
+const tiers = (privateAvailable = true) => [
+  { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
+  { tier: "2", name: "Shared workspace", status: "planned", selectable: false, reason: "Shared workspace admission is not available." },
+  { tier: "2.5", name: "Virtual workspace", status: "research", selectable: false, reason: "Virtual filesystem qualification is not available." },
+  { tier: "3", name: "Private runtime", status: "supported", selectable: privateAvailable, runtime_contract: privateContract },
+];
+
+it("projects descriptive runtime contracts and unavailable paths without private provider fields", async () => {
+  const catalog = { profiles: [{ ...profile, runtime_contract: { ...privateContract, command: "private" } }], tiers: tiers().map(tier => ({ ...tier, endpoint: "private" })) };
+  (global.fetch as jest.Mock).mockResolvedValue(Response.json(catalog));
+  expect(await loadRuntimeCatalog(request())).toEqual({ profiles: [{ ...profile, runtime_contract: privateContract }], tiers: tiers() });
+});
+
+it("keeps a legacy catalog and its saved execution shape unchanged", () => {
+  expect(parseRuntimeCatalog({ profiles: [profile] })).toEqual({ profiles: [profile] });
+  expect(normalizeAgentExecution({ kind: "sandbox", profile_id: "primary" })).toEqual({ kind: "sandbox", profile_id: "primary" });
+  expect(() => normalizeAgentExecution({ kind: "sandbox", profile_id: "primary", runtime_contract: privateContract })).toThrow();
+  expect(() => normalizeAgentExecution({ kind: "native", tier: "2" })).toThrow();
+});
+
+it("retains the managed contract when no private profile is admitted", () => {
+  expect(parseRuntimeCatalog({ profiles: [], tiers: tiers(false) })).toEqual({ profiles: [], tiers: tiers(false) });
+});
+
+it.each([
+  { workspace_scope: "user" }, { workspace_scope: "team" }, { workspace_scope: "global" },
+  { tier: "2" }, { runtime: "deepagents" }, { filesystem: "logical" },
+])("refuses unsupported or mixed execution claims %p", (override) => {
+  expect(() => parseRuntimeCatalog({ profiles: [{ ...profile, runtime_contract: { ...privateContract, ...override } }] })).toThrow();
+});
+
+it("cannot advertise planned runtime paths as executable", () => {
+  const catalog = tiers();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: catalog.map(tier => tier.tier === "2" ? { ...tier, selectable: true } : tier) })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: catalog.map(tier => tier.tier === "2.5" ? { ...tier, status: "supported" } : tier) })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [], tiers: catalog })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [catalog[0], catalog[0]] })).toThrow();
 });

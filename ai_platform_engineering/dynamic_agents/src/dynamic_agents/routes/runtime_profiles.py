@@ -4,25 +4,39 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.config import get_settings
-from dynamic_agents.models import UserContext
+from dynamic_agents.models import MANAGED_AGENT_RUNTIME, PRIVATE_CODING_SANDBOX_RUNTIME, UserContext
 from dynamic_agents.services.sandbox_client import SandboxClient, SandboxError
 
 router = APIRouter(prefix="/runtime-profiles", tags=["agents"])
+
+
+def _runtime_tiers(private_available: bool) -> list[dict]:
+    return [
+        {"tier": "1", "name": "Managed Agent", "status": "supported", "selectable": True,
+         "runtime_contract": MANAGED_AGENT_RUNTIME.model_dump()},
+        {"tier": "2", "name": "Team Sandbox", "status": "planned", "selectable": False,
+         "reason": "Shared team workspaces require a compatible checkpoint and authorization contract."},
+        {"tier": "2.5", "name": "Virtual Coding Harness", "status": "research", "selectable": False,
+         "reason": "Native coding tools must be restricted to a qualified virtual filesystem."},
+        {"tier": "3", "name": "Private Coding Sandbox", "status": "supported", "selectable": private_available,
+         "runtime_contract": PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()},
+    ]
 
 
 @router.get("")
 async def runtime_profiles(_user: UserContext = Depends(get_user_context)) -> dict:
     settings = get_settings()
     if not settings.sandbox_service_url:
-        return {"profiles": []}
+        return {"profiles": [], "tiers": _runtime_tiers(False)}
     try:
         profiles = await SandboxClient(settings).profiles()
     except SandboxError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {"profiles": [{
-        **profile.model_dump(), "capabilities": {
+    admitted = [{
+        **profile.model_dump(), "runtime_contract": PRIVATE_CODING_SANDBOX_RUNTIME.model_dump(), "capabilities": {
             "mcp": profile.capabilities.get("mcp", False) and bool(settings.harness_tools_public_url),
             "skills": profile.capabilities.get("skills", False),
             "attachments": profile.capabilities.get("attachments", False),
         },
-    } for profile in profiles if profile.capabilities.get("mcp", False) and settings.harness_tools_public_url]}
+    } for profile in profiles if profile.capabilities.get("mcp", False) and settings.harness_tools_public_url]
+    return {"profiles": admitted, "tiers": _runtime_tiers(bool(admitted))}

@@ -9,35 +9,45 @@ workflow engine. ACP connects that platform to the runtime executing an agent.
 A logical DeepAgents agent and a sandboxed CLI harness use the same CAIPE chat,
 run journal and human-input lifecycle; their native state remains different.
 
-The initial phase of the [metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877)
-established the native ACP path and detached execution. The current changes add
-Claude Code sandbox profiles, remote ACP transport, a platform tool/workspace
-bridge and canonical native-state checkpoints.
+The [native ACP foundation #2883](https://github.com/caipe-io/ai-platform-engineering/pull/2883) supplies the common native path and detached execution.
+The [sandbox extension #2982](https://github.com/caipe-io/ai-platform-engineering/pull/2982) adds Claude Code profiles,
+remote ACP transport, a platform tool/workspace bridge and canonical native-state checkpoints.
+This design and source update makes no deployment or SRE runtime change.
 **These additions are under review. Remote deployment, provider authentication,
 network policy and complete skills qualification remain pending approval.**
 This document does not imply that a deployed agent has changed runtimes.
 
-## What changes with runtime placement
+## Execution tiers: one agent definition, explicit workspace boundaries
 
-| Area | Native foundation | Sandbox integration under review |
-|---|---|---|
-| Execution | Existing DeepAgents/LangGraph runtime behind a logical ACP agent. Default, SRE and custom agents remain shared logical agents. | A configured Claude Code ACP process in a provider-managed environment. Codex is deferred until its persistence integration is qualified. |
-| Agent definition | Native model, prompt, tools and skills use existing configuration. | `execution.kind=sandbox` selects a configured `profile_id`; its deployment owns image, command, model route and credentials. |
-| Files | Existing simulated filesystem and checkpoint/GridFS storage. | A real workspace restored from canonical native-state checkpoints, plus bounded text and binary artifact exchange with CAIPE's existing file store. |
-| Session | Original LangGraph thread and admitted storage coordinates. | Pinned environment identity and native provider session ID, stored in the same CAIPE binding. |
-| Platform services | Native tools, human input, subagents and the existing workflow engine. | A run-scoped tool broker reuses those services without giving the harness the caller's bearer. |
+Keep the current DeepAgents runtime and Dynamic Agents definitions as the compatibility path. New runtime investment targets coding harnesses through ACP, starting with Claude Code, rather than building another SDK agent engine. Harness implementations may internally use an SDK; CAIPE delegates the reasoning loop instead of maintaining another one. Sandbox use is opt-in: an existing agent or conversation never changes runtime because a new profile becomes available. New agents can choose an admitted coding profile in the same editor; there is no second agent product or separate chat experience.
 
-A sandbox is an execution choice, not an ACP enablement flag. Existing agents
-remain native by default. A saved conversation retains its first execution and
-storage binding even when its agent definition later changes placement.
+| Tier and name | User experience | Workspace and security boundary | Delivery position |
+| --- | --- | --- | --- |
+| **1 · Managed Agent** | Existing DeepAgents agent with its saved prompt, tools, skills and logical files. No environment to manage. | Shared service; each conversation retains its own admitted checkpoint/file namespace and caller-scoped tools. A logical filesystem is not an OS sandbox. | Existing runtime retained behind logical ACP. No new SDK engine is introduced. |
+| **2 · Team Sandbox** | The existing SDK agent can use one approved sandbox and shared working directory for an agent/team. Users keep separate conversations but intentionally collaborate on the same files. | One explicit trust domain. Workspace membership, not agent visibility alone, grants access to shared files. No per-user directories are presented as a security boundary. | Proposed, not selectable in this phase. Requires a qualified sandbox backend and shared-workspace checkpoint/concurrency semantics. |
+| **2.5 · Virtual Coding Harness** | Explore a coding harness restricted to brokered tools and a simulated filesystem, without offering a shell or general local file tools. | Logical isolation only. The harness still needs host runtime files; ACP filesystem callbacks cannot virtualize its built-in tools. | Research option, not an admitted runtime or a claim of full Claude Code parity. |
+| **3 · Private Coding Sandbox** | Select an approved Claude Code profile and use ordinary CAIPE chat, tools, approvals and files. Provisioning is automatic. | Shared agent definition; a user-owned conversation gets the whole isolated environment and native session. Another caller or conversation cannot reuse its HOME/workspace. | Implemented in the sandbox PR for review; provider deployment and live policy qualification are still required. |
 
-Bedrock AgentCore or another SDK runtime still needs its own qualified adapter.
-A shared SDK adapter must preserve CAIPE's simulated filesystem; an SDK working
-directory does not supply that contract. This integration does not add OpenShell
-or another sandbox implementation, cross-environment discovery, or arbitrary
-remote endpoint registration.
+For tier 3, start with **one sandbox per conversation, owned by its initiating user**. This supplies per-user isolation without adding per-user folders inside a shared sandbox, and separates two unrelated chats from the same user. Reusing one environment across all of a user's conversations is a later optimization, not an implicit property of this implementation. Reuse images, immutable tools and provider worker pools; do not share writable HOME, native sessions or credentials between callers.
 
-## One execution service, two placements
+For tier 2, prefer **one shared agent/team workspace** over a complicated hierarchy of private user workspaces. Sharing is deliberate: participants may read each other's files and affect later work. Keep private credentials and personal evidence out of that workspace. Model context and canonical transcripts remain conversation-scoped; this does not make shared files private. Start with one mutable run at a time under a workspace lease. Restoring one conversation's whole-environment snapshot would overwrite another user's work, so the current private-sandbox checkpoint contract must not be relabelled as a team sandbox. Team workspace versions, conversation state and deletion need separate ownership rules before admission.
+
+Tier 2.5 is attractive only if it retains useful coding behavior. A tools-only Claude runtime with custom logical-file tools may be feasible, but the [Claude tool configuration](https://code.claude.com/docs/en/agent-sdk/python#claudeagentoptions) distinguishes auto-approval from tool availability: `allowed_tools` is not a tool-removal boundary. Built-in shell/file tools, settings, plugins and unapproved MCP servers would have to be disabled, and all file operations routed through authorized logical storage. Native Git/shell/skills behavior cannot then be assumed to work unchanged. **The recommended new-agent path remains tier 3**, while tier 2.5 is evaluated independently; do not put an unrestricted coding CLI on a shared application host and call its filesystem simulated.
+
+### Agent, user, conversation and workspace are different identities
+
+| Identity | Meaning in every tier |
+| --- | --- |
+| Agent definition | A shared, versioned configuration: instructions, skills, tool/resource selections and an approved runtime profile. Creating one agent does not create one agent per user. |
+| Caller | The independently authenticated principal using CAIPE. Agent-use permission and workflow authorization remain required. Channel names, email addresses and chat-room membership cannot substitute for this identity. |
+| Conversation and run | Canonical history plus the admitted native session, turn identity, pending decisions and execution lease. A shared definition does not merge conversations. |
+| Workspace | Logical files in tier 1, an explicitly shared team directory in tier 2, or the private conversation environment in tier 3. Its grant and lifecycle are distinct from viewing a transcript. |
+
+The tier 1 catalog describes interactive defaults. Existing server-admitted workflow artifact namespaces remain run-scoped; they do not turn a tier 3 environment into a shared physical workspace.
+
+An authorized viewer of history does not automatically receive shell access, the native session or permission to continue as its owner. Sharing work means an explicit workspace grant or approved artifact export. The existing owner checks and durable session binding remain authoritative; a new UI label is not an authorization control.
+
+## One execution service, admitted runtime placements
 
 ```mermaid
 flowchart TB
@@ -72,10 +82,12 @@ workflow engine or authorization system.
 | Protocol boundary | Behavior |
 |---|---|
 | CAIPE clients | Existing AG-UI/custom SSE and invoke contracts; stable turn IDs and sequenced reconnect. |
-| Native ACP | Released Python SDK `0.12.1`, wire protocol `1`; acknowledged `caipe.io/native-acp` events preserve existing native progress and checkpointed approvals. |
+| Native ACP | Released Python SDK `0.12.1`, stable wire protocol `1`; acknowledged `caipe.io/native-acp` events preserve existing native progress and checkpointed approvals. |
 | External ACP | The same pinned SDK and wire protocol, standard initialization, new/load, prompt, updates, permission requests and cancellation. A saved native session must load successfully; failure never falls back to a fresh conversation. |
 | Form elicitation | A narrow validated shim covers newer schema form messages missing from the SDK callback surface. It accepts session-bound supported fields/choices and bounded decisions; URL elicitation and unsupported schemas are rejected. It does not enable the unstable protocol. |
 | Transport | One bounded JSON-RPC object per non-TTY WebSocket message. Stderr and lifecycle controls are separate from ACP. Redirects cannot forward the caller's bearer to another destination. |
+
+The [released ACP schema 1.26.0](https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v1.26.0) is the current coverage reference; stable v1 and unstable methods remain distinct. SDK major versions do not determine the wire version. Additional methods are advertised only after the pinned adapter and CAIPE client qualify them.
 
 Typed events remain the internal boundary. The ACP client renders progress
 through existing encoders, including separate reasoning, tools, warnings and
@@ -268,6 +280,66 @@ The Linux supervisor also adopts and stops detached descendants. Container
 policy remains the security boundary against deliberately hostile same-UID code.
 Filesystem, egress, model routing and lifecycle guarantees need qualification in
 the selected provider, not just protocol tests.
+
+## How Dynamic Agent prompts and skills reach the harness
+
+Keep the existing **system prompt** field, agent editor and saved definition. CAIPE resolves the admitted configuration through the same resource preparation used by native agents; it does not create a second prompt editor or ask a model to translate the agent definition.
+
+```mermaid
+flowchart LR
+  Definition[Saved Dynamic Agent definition] --> Prepare[Existing resource preparation]
+  Prepare --> Instructions[Resolved system instructions]
+  Prepare --> Skills[Approved skill files]
+  Prepare --> Tools[Caller-scoped tool selection]
+  Instructions --> Native[DeepAgents configuration]
+  Instructions --> Harness[Claude session instructions]
+  Skills --> Workspace[Managed skill directory]
+  Workspace --> Harness
+  Tools --> Broker[Run-scoped CAIPE broker]
+  Broker --> Harness
+```
+
+The sandbox integration passes the resolved prompt as Claude's session `systemPrompt` and materializes the managed `CLAUDE.md`/`AGENTS.md` and selected `.claude/skills` files. The run-scoped MCP catalog exposes permitted platform tools. Managed-file reconciliation removes revoked skills; a saved session keeps its admitted binding, and the existing refresh/resume rules govern configuration updates. Unsupported middleware semantics must be mapped explicitly, reported as a limitation or rejected before execution. Native SDK/DeepAgents checkpoints do not become Claude native state by copying their messages.
+
+Instructions guide behavior; they do not grant filesystem, network, credential or tool authority. A conversation message, repository instruction or generated skill cannot widen the admitted environment policy. New development should add harness-neutral definition/resource mappings and coding-harness support rather than another parallel SDK stack.
+
+## Policy management across every entry point
+
+Apply policy in CAIPE's common admission and execution services, independently of the browser, CLI, hosted app, bot or webhook that submitted the request. Entry points authenticate and normalize identity; they do not own a separate allowlist or grant privileges from an external room, channel or email address. Scheduled and webhook runs use their verified owner/service principal and approved execution scope.
+
+Effective access is the **intersection** of caller/resource grants, the saved agent's selected tools and data, the operator-admitted runtime/environment profile, and any narrower run or workflow constraints. Denial wins. A tool approval can authorize the requested operation within that boundary; it cannot override a denied destination, mount, connector or data scope.
+
+| Policy area | Control and enforcement |
+| --- | --- |
+| Agent and data access | Existing CAIPE authentication/RBAC and resource checks before execution and tool use. Keep connection tokens in trusted services. Wider delegation follows [CAS #1778](https://github.com/orgs/caipe-io/discussions/1778) and [shared authorization #2406](https://github.com/orgs/caipe-io/discussions/2406); a bot-specific authorization system is not introduced. |
+| Runtime admission | Operator-managed profile selects the harness, immutable image, policy revision, permitted tool mechanisms, model route, limits and workspace scope. Definitions reference that profile; users cannot inject a command or weaken policy with JSON or a prompt. |
+| Filesystem | Tier 1 uses authorized logical storage without claiming OS containment. Tier 2 permits intentional team files only. Tier 3 permits the private environment's approved working paths and read-only inputs; mount, host-path and credential boundaries must be enforced below the model. |
+| Network | Deny by default and allow required model/tool/service destinations through enforceable network policy or a mandatory proxy. Restrict metadata/control-plane access and unapproved internal services. Native CLI tools must not bypass these controls. |
+| Tool execution | The CAIPE broker applies current caller, definition, run/lease and approval checks. A sandbox's egress permission is not a grant to a downstream MCP service. Per-user connector credentials are not written to a shared workspace. |
+| Budgets and lifecycle | Bound runtime, resources, storage, model spend and tool requests. Persist the admitted profile revision with the binding. Revocation must stop further access; a profile widening requires new admission, not an in-place surprise to an existing session. |
+| Audit and exceptions | Record principal, agent/conversation/run, profile/policy revision and decision without logging secrets. Exceptions are operator-approved, scoped and expiring. User-facing UI can explain them, but enforcement remains server-side for every client. |
+
+Use existing policy and resource authorities rather than adding another policy database or engine for ACP. The reviewed implementation already has caller/profile admission, lease fencing and the run-scoped broker. A consolidated policy-management UI, organization-wide exception workflow and additional provider enforcement are further work; they are not implied by a policy label in the runtime catalog.
+
+ACP capability negotiation and permission requests express supported interactions and user decisions. They do not sandbox an agent's own local tools. Disabling ACP filesystem/terminal callbacks does not disable Claude's built-in file or shell tools. [ACP filesystem](https://agentclientprotocol.com/protocol/v1/file-system) and [terminal](https://agentclientprotocol.com/protocol/v1/terminals) methods need separate caller/workspace checks when enabled. [DeepAgents backend selection](https://docs.langchain.com/oss/python/deepagents/backends) and [OpenShell policy enforcement](https://docs.nvidia.com/openshell/latest/how-it-works/policies/overview) describe different storage/enforcement mechanisms; neither is supplied merely by choosing ACP.
+
+## Kagent comparison and controller ownership
+
+Kagent is relevant, and an agent definition spanning prompts, networking and sandboxes does **not by itself justify writing another low-level sandbox controller**. Keep CAIPE as the owner of its definition and policy contract, with a small reconciliation layer that projects admitted desired state into a sandbox provider. Reuse provider lifecycle, worker pooling, isolation and snapshot machinery where it meets that contract; one controller must own each underlying resource.
+
+| Option | What it offers | Fit and trade-off |
+| --- | --- | --- |
+| [Kagent 0.10.3](https://github.com/kagent-dev/kagent/releases/tag/v0.10.3) | Agent and AgentHarness resources; its [OpenClaw/Hermes harness path](https://kagent.dev/docs/kagent/0.x/concepts/agent-harness/) already uses ACP internally. | Existing CRs do not mean every coding harness or caller-isolation model is supported. A shared Actor for one harness can multiplex conversations without isolating their writable files or credentials. |
+| [Kagent 1.0.0-alpha16](https://github.com/kagent-dev/kagent/releases/tag/v1.0.0-alpha16) | Agent/AgentTemplate, Harness, SandboxTemplate and EgressPolicy resources, Claude/Codex/BYO harness choices, and [per-session Actors on pooled Substrate workers](https://kagent.dev/docs/kagent/1.x/about/core-concepts/). | Strong candidate for reuse, but it is an alpha API/runtime line. Qualify native ACP interaction, persistence, policy and upgrade behavior rather than coupling CAIPE to its whole stack immediately. |
+| [Kubernetes SIGs Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox/releases/tag/v1.0.7) | Sandbox lifecycle, claims/templates, warm pools and runtime/file APIs. | A smaller candidate when CAIPE needs environment infrastructure rather than another agent/session service. It still needs a qualified provider adapter and enforcement configuration. |
+| CAIPE reconciler over a provider | Resolve the canonical agent, runtime profile and effective policy; request lifecycle operations and project status into CAIPE. | Preserves CAIPE's definition, tools, approvals and one canonical database. It does not need to duplicate worker scheduling, isolation or networking controllers. |
+| A new complete CAIPE sandbox controller | Direct ownership of Pods/VMs, pools, storage, policy and recovery. | Consider only for a demonstrated gap that cannot be covered through a provider. It adds a security/upgrade burden and duplicates existing infrastructure. |
+
+**Recommended:** retain the provider-neutral contract and current integration, and evaluate kagent/Substrate as another provider through a small prototype before committing to its alpha CRDs. If CAIPE needs an agent CR, treat it as a projection/reference to the canonical definition and profile; do not put per-user tokens, conversation transcripts or independently editable duplicate prompts into it. Policy reconciliation can select the provider's admitted network/sandbox profile without two controllers rewriting the same Pod or NetworkPolicy.
+
+Adopting the complete kagent agent/session service is a larger decision: its [persistence contract](https://github.com/kagent-dev/kagent/blob/v1.0.0-alpha16/docs/architecture/persistence-checkpoints-and-forks.md) owns PostgreSQL session/task state and Substrate snapshot storage. That would not automatically satisfy CAIPE's canonical MongoDB design. Reusing only the environment substrate can avoid a second agent-history authority, but canonical native-state export/restore and consistent backup semantics still need qualification. Kagent's internal ACP use does not establish compatibility with CAIPE's broker, durable binding and authorization contract.
+
+Version-specific references and maturity are checked as of 20 October 2026. The [kagent egress contract](https://github.com/kagent-dev/kagent/blob/v1.0.0-alpha16/docs/architecture/egress-policies.md) is also useful provider work to reuse, rather than another CAIPE policy engine. The comparison is a reuse decision, not a claim that a kagent provider or a new CAIPE controller has been implemented here.
 
 ## Conversation management
 

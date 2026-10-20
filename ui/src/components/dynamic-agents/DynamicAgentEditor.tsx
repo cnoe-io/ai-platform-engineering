@@ -37,6 +37,7 @@ import type {
   AgentUIConfig,
   AgentExecution,
   AgentRuntimeProfile,
+  AgentRuntimeTier,
   BuiltinToolsConfig,
   CustomThemeConfig,
   DynamicAgentConfig,
@@ -68,6 +69,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
+import { RuntimeContractDetails } from "./RuntimeContractDetails";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { DatasourcePicker } from "./DatasourcePicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
@@ -449,6 +451,7 @@ export function DynamicAgentEditor({
 
   const [execution, setExecution] = React.useState<AgentExecution>(source?.execution ?? { kind: "native" });
   const [runtimeProfiles, setRuntimeProfiles] = React.useState<AgentRuntimeProfile[]>([]);
+  const [runtimeTiers, setRuntimeTiers] = React.useState<AgentRuntimeTier[]>([]);
   const [runtimeProfilesLoading, setRuntimeProfilesLoading] = React.useState(true);
   const [runtimeProfilesError, setRuntimeProfilesError] = React.useState(false);
   const [runtimeProfilesRetry, setRuntimeProfilesRetry] = React.useState(0);
@@ -467,7 +470,10 @@ export function DynamicAgentEditor({
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok || !data.success || !Array.isArray(data.data?.profiles)) throw new Error("RuntimeProfileCatalogError");
-        if (!cancelled) setRuntimeProfiles(data.data.profiles);
+        if (!cancelled) {
+          setRuntimeProfiles(data.data.profiles);
+          setRuntimeTiers(Array.isArray(data.data.tiers) ? data.data.tiers : []);
+        }
       })
       .catch((error: unknown) => {
         console.warn("Runtime profile catalog unavailable", { errorType: error instanceof Error ? error.name : "Unknown" });
@@ -1607,13 +1613,11 @@ export function DynamicAgentEditor({
                       setExecution(value === "native" ? { kind: "native" } : { kind: "sandbox", profile_id: value.slice(8) });
                     }}
                   >
-                    <option value="native">DeepAgents (shared runtime)</option>
+                    <option value="native">Managed Agent (DeepAgents)</option>
                     {sandbox && !selectedRuntimeProfile && <option value={`sandbox:${execution.profile_id}`} disabled>Unavailable profile: {execution.profile_id}</option>}
-                    {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} (Claude Code)</option>)}
+                    {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} (Private Coding Sandbox, Claude Code)</option>)}
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {sandbox ? "Runs over ACP in the selected sandbox. Its profile manages the model, credentials and isolation. Runtime changes apply to new conversations; existing sessions keep their binding." : "Runs in the shared DeepAgents runtime with a logical filesystem. Choose a sandbox profile for isolated ACP execution."}
-                  </p>
+                  <RuntimeContractDetails execution={execution} profile={selectedRuntimeProfile} tiers={runtimeTiers} />
                   {sandbox && !skillsAvailable && skills.length > 0 && <div role="status" className="text-sm text-muted-foreground">
                     This profile does not support the selected skills. Choose a qualified profile or clear the selection before saving.
                     <Button type="button" variant="link" size="sm" disabled={loading || !!readOnly} onClick={() => setSkills([])}>Clear selected skills</Button>

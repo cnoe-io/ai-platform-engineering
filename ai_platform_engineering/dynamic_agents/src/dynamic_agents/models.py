@@ -561,6 +561,43 @@ class AgentExecutionConfig(BaseModel):
         return self
 
 
+class AgentRuntimeContract(BaseModel):
+    """Interactive execution defaults, derived rather than saved in definitions.
+
+    Policy authority identifies the enforcing services; it does not attest to
+    an environment's particular filesystem or network policy configuration.
+    The managed runtime retains admitted logical namespace overrides and
+    workflow artifact scopes; this catalog never rewrites their storage.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    tier: Literal["1", "3"]
+    runtime: Literal["deepagents", "coding-harness"]
+    filesystem: Literal["logical", "sandbox"]
+    workspace_scope: Literal["conversation"] = Field(description="Interactive workspace default; admitted logical storage and workflow artifact scopes remain unchanged")
+    isolation: Literal["shared-runtime", "private-sandbox"]
+    policy_authority: Literal["caipe", "caipe-and-operator-profile"]
+
+    @model_validator(mode="after")
+    def supported_combination(self) -> "AgentRuntimeContract":
+        actual = (self.runtime, self.filesystem, self.isolation, self.policy_authority)
+        expected = (("deepagents", "logical", "shared-runtime", "caipe") if self.tier == "1" else
+                    ("coding-harness", "sandbox", "private-sandbox", "caipe-and-operator-profile"))
+        if actual != expected:
+            raise ValueError("The execution tier does not support this runtime and workspace contract")
+        return self
+
+
+MANAGED_AGENT_RUNTIME = AgentRuntimeContract(
+    tier="1", runtime="deepagents", filesystem="logical", workspace_scope="conversation",
+    isolation="shared-runtime", policy_authority="caipe",
+)
+PRIVATE_CODING_SANDBOX_RUNTIME = AgentRuntimeContract(
+    tier="3", runtime="coding-harness", filesystem="sandbox", workspace_scope="conversation", isolation="private-sandbox",
+    policy_authority="caipe-and-operator-profile",
+)
+
+
 class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 

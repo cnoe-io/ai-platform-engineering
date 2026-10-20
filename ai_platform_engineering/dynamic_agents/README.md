@@ -62,6 +62,24 @@ approval. No existing agent is automatically switched.**
 | Native (default) | `execution.kind=native`, existing model/tools/skills | Original LangGraph thread, checkpoints and logical filesystem. |
 | Sandbox | `execution.kind=sandbox`, deployment-owned `profile_id` | Pinned environment identity and provider session ID; real working filesystem restored from canonical native checkpoints, with bounded canonical text and binary artifacts. |
 
+The runtime catalog names **Managed Agent**, **Team Sandbox**, **Virtual Coding
+Harness** and **Private Coding Sandbox**. Only Managed Agent and admitted private
+Claude Code profiles can currently execute; Team Sandbox is planned and Virtual
+Coding Harness is research. The same agent definition can serve many callers;
+the private sandbox owns one caller's conversation environment, not a shared
+HOME split into user directories.
+
+`GET /api/v1/runtime-profiles` adds descriptive `tiers` and per-profile
+`runtime_contract` metadata for workspace, files and policy authority. These
+fields are not writable agent configuration or proof of live policy enforcement.
+Definitions still save only `execution.kind` and `profile_id`; legacy profile
+snapshots and existing session bindings do not change. Provider claims of a
+shared/user-wide workspace or unsupported runtime are rejected rather than
+mislabelled as a private conversation environment. The native contract describes
+interactive defaults; existing admitted workflow artifact scopes remain intact.
+See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
+for tier boundaries, prompt mapping, policy and controller reuse.
+
 - The pinned released Python ACP SDK is `0.12.1`, wire protocol `1`. Native
   `caipe.io/native-acp` events preserve current progress and checkpointed human
   input. External ACP uses standard new/load/prompt/progress/permission/cancel;

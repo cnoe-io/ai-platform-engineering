@@ -22,11 +22,12 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, uuid5
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from websockets.asyncio.client import connect
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.config import Settings
+from dynamic_agents.models import PRIVATE_CODING_SANDBOX_RUNTIME, AgentRuntimeContract
 from dynamic_agents.services.native_state_protocol import (
     MAX_STATE_BYTES,
     MAX_STATE_CHUNK,
@@ -75,6 +76,17 @@ class SandboxProfile(SandboxProfileReference):
     harness: Literal["claude-code"]
     capabilities: dict[str, bool] = Field(default_factory=dict)
     state_contract: dict[str, Any]
+
+    @model_validator(mode="before")
+    @classmethod
+    def supported_runtime_contract(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "runtime_contract" in value:
+            declared = AgentRuntimeContract.model_validate(value["runtime_contract"])
+            if declared != PRIVATE_CODING_SANDBOX_RUNTIME:
+                raise ValueError("This profile requires a private conversation sandbox")
+        # Keep derived catalog metadata out of saved profile identity. Existing
+        # admitted profiles must not acquire a new field or require migration.
+        return value
 
     @field_validator("state_contract")
     @classmethod

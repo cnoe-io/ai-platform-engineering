@@ -432,12 +432,35 @@ export type AgentExecution =
   | { kind: "native" }
   | { kind: "sandbox"; profile_id: string };
 
+/** Public descriptions of supported execution contracts, not caller-supplied policy. */
+export type AgentRuntimeContract =
+  | { tier: "1"; runtime: "deepagents"; filesystem: "logical"; workspace_scope: "conversation";
+      isolation: "shared-runtime"; policy_authority: "caipe" }
+  | { tier: "3"; runtime: "coding-harness"; filesystem: "sandbox"; workspace_scope: "conversation";
+      isolation: "private-sandbox"; policy_authority: "caipe-and-operator-profile" };
+
+export interface AgentRuntimeTier {
+  tier: "1" | "2" | "2.5" | "3";
+  name: string;
+  status: "supported" | "planned" | "research";
+  selectable: boolean;
+  reason?: string;
+  runtime_contract?: AgentRuntimeContract;
+}
+
+export interface AgentRuntimeCatalog {
+  profiles: AgentRuntimeProfile[];
+  /** Absent on older servers; execution admission continues to use profiles. */
+  tiers?: AgentRuntimeTier[];
+}
+
 /** Public, server-admitted execution choices. Deployment details stay server-side. */
 export interface AgentRuntimeProfile {
   id: string;
   name: string;
   harness: "claude-code";
   revision: string;
+  runtime_contract?: Extract<AgentRuntimeContract, { tier: "3" }>;
   capabilities: { mcp: boolean; skills: boolean; attachments: boolean };
 }
 

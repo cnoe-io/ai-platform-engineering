@@ -1,7 +1,7 @@
 import { ApiError } from "@/lib/api-middleware";
 import { authenticateRequest, buildBackendHeaders, getDynamicAgentsConfig } from "@/lib/da-proxy";
 import { readBoundedBody } from "@/lib/dynamic-agents/bounded-body";
-import type { AgentExecution, AgentRuntimeProfile } from "@/types/dynamic-agent";
+import type { AgentExecution, AgentRuntimeCatalog, AgentRuntimeContract, AgentRuntimeProfile, AgentRuntimeTier } from "@/types/dynamic-agent";
 import { NextRequest, NextResponse } from "next/server";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -10,8 +10,23 @@ function record(value: unknown): value is Record<string, unknown> {
 
 export { normalizeAgentExecution } from "./execution-config";
 
+function invalidCatalog(): never {
+  throw new ApiError("Runtime profiles are temporarily unavailable", 502, "INVALID_RUNTIME_PROFILES");
+}
+
+function parseRuntimeContract(value: unknown, tier: "1" | "3"): AgentRuntimeContract {
+  if (!record(value)) return invalidCatalog();
+  const expected: AgentRuntimeContract = tier === "1"
+    ? { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation",
+        isolation: "shared-runtime", policy_authority: "caipe" }
+    : { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation",
+        isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
+  if (Object.entries(expected).some(([key, entry]) => value[key] !== entry)) return invalidCatalog();
+  return expected;
+}
+
 /** Project the public catalog explicitly; never forward provider commands or credentials. */
-export function parseRuntimeProfiles(value: unknown): AgentRuntimeProfile[] {
+function parseProfiles(value: unknown): AgentRuntimeProfile[] {
   if (!record(value) || !Array.isArray(value.profiles) || value.profiles.length > 100) {
     throw new ApiError("Runtime profiles are temporarily unavailable", 502, "INVALID_RUNTIME_PROFILES");
   }
@@ -27,12 +42,39 @@ export function parseRuntimeProfiles(value: unknown): AgentRuntimeProfile[] {
     ids.add(entry.id);
     return {
       id: entry.id, name: entry.name, harness: entry.harness as AgentRuntimeProfile["harness"], revision: entry.revision,
+      ...(entry.runtime_contract === undefined ? {} : { runtime_contract: parseRuntimeContract(entry.runtime_contract, "3") as Extract<AgentRuntimeContract, { tier: "3" }> }),
       capabilities: { mcp: entry.capabilities.mcp as boolean, skills: entry.capabilities.skills as boolean, attachments: entry.capabilities.attachments as boolean },
     };
   });
 }
 
-export async function loadRuntimeProfiles(request: NextRequest): Promise<AgentRuntimeProfile[]> {
+
+/** Preserve legacy profiles while projecting only bounded, descriptive tier metadata. */
+export function parseRuntimeCatalog(value: unknown): AgentRuntimeCatalog {
+  const profiles = parseProfiles(value);
+  if (!record(value) || value.tiers === undefined) return { profiles };
+  if (!Array.isArray(value.tiers) || value.tiers.length > 4) return invalidCatalog();
+  const ids = new Set<string>();
+  const tiers: AgentRuntimeTier[] = value.tiers.map((entry: unknown) => {
+    if (!record(entry) || !["1", "2", "2.5", "3"].includes(String(entry.tier)) || typeof entry.tier !== "string" || ids.has(entry.tier) ||
+        typeof entry.name !== "string" || !entry.name.trim() || entry.name.length > 200 || typeof entry.selectable !== "boolean" ||
+        (entry.reason !== undefined && (typeof entry.reason !== "string" || !entry.reason.trim() || entry.reason.length > 500))) return invalidCatalog();
+    ids.add(entry.tier);
+    const supported = entry.tier === "1" || entry.tier === "3";
+    if (supported ? entry.status !== "supported" || entry.runtime_contract === undefined
+      : !["planned", "research"].includes(String(entry.status)) || entry.selectable || typeof entry.reason !== "string" || entry.runtime_contract !== undefined) return invalidCatalog();
+    if (entry.tier === "1" && !entry.selectable || entry.tier === "3" && entry.selectable !== (profiles.length > 0)) return invalidCatalog();
+    return { tier: entry.tier as AgentRuntimeTier["tier"], name: entry.name, status: entry.status as AgentRuntimeTier["status"], selectable: entry.selectable,
+      ...(entry.reason === undefined ? {} : { reason: entry.reason as string }),
+      ...(supported ? { runtime_contract: parseRuntimeContract(entry.runtime_contract, entry.tier as "1" | "3") } : {}) };
+  });
+  return { profiles, tiers };
+}
+
+export function parseRuntimeProfiles(value: unknown): AgentRuntimeProfile[] {
+  return parseRuntimeCatalog(value).profiles;
+}
+export async function loadRuntimeCatalog(request: NextRequest): Promise<AgentRuntimeCatalog> {
   const auth = await authenticateRequest(request);
   if (auth instanceof NextResponse) throw new ApiError("Runtime profile access denied", auth.status, "RUNTIME_PROFILE_ACCESS_DENIED");
   const config = getDynamicAgentsConfig();
@@ -47,11 +89,15 @@ export async function loadRuntimeProfiles(request: NextRequest): Promise<AgentRu
     throw new ApiError("Runtime profiles are temporarily unavailable", 503, "RUNTIME_PROFILES_UNAVAILABLE");
   }
   if (!response.ok) throw new ApiError("Runtime profiles are temporarily unavailable", response.status === 401 || response.status === 403 ? response.status : 503, "RUNTIME_PROFILES_UNAVAILABLE");
-  try { return parseRuntimeProfiles(JSON.parse(await readBoundedBody(response.body, 256 * 1024))); }
+  try { return parseRuntimeCatalog(JSON.parse(await readBoundedBody(response.body, 256 * 1024))); }
   catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError("Runtime profiles are temporarily unavailable", 502, "INVALID_RUNTIME_PROFILES");
   }
+}
+
+export async function loadRuntimeProfiles(request: NextRequest): Promise<AgentRuntimeProfile[]> {
+  return (await loadRuntimeCatalog(request)).profiles;
 }
 
 export async function validateAgentExecution(request: NextRequest, execution: AgentExecution, skills?: unknown): Promise<void> {

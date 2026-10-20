@@ -137,11 +137,11 @@ function jsonResponse(body: unknown) {
  * "missing" to "filled" and edit-mode transfers can switch teams without
  * rerendering).
  */
-function mockApi(options: { profiles?: unknown[]; noModels?: boolean } = {}) {
+function mockApi(options: { profiles?: unknown[]; tiers?: unknown[]; noModels?: boolean } = {}) {
   const fetchMock = jest.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("/api/dynamic-agents/runtime-profiles")) return jsonResponse({ success: true, data: { profiles: options.profiles ?? [] } });
+      if (u.includes("/api/dynamic-agents/runtime-profiles")) return jsonResponse({ success: true, data: { profiles: options.profiles ?? [], ...(options.tiers ? { tiers: options.tiers } : {}) } });
       if (u.includes("/api/dynamic-agents/models") && options.noModels) return jsonResponse({ success: true, data: [] });
       if (u.includes("/api/dynamic-agents/models")) {
         return jsonResponse({
@@ -359,6 +359,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     await pickTeam(/Owner Team/i, "platform");
     fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
     expect(screen.queryByLabelText(/LLM Model/)).not.toBeInTheDocument();
+    expect(screen.getByText("Workspace and policy details are not reported by this server.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add instructions" }));
     fireEvent.change(await screen.findByTestId("codemirror-mock"), { target: { value: "Use the permitted tools." } });
     const create = screen.getByRole("button", { name: "Create Agent" });
@@ -368,7 +369,46 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     const submission = fetchMock.mock.calls.find(([url, init]) => url === "/api/dynamic-agents" && init?.method === "POST");
     const payload = JSON.parse(String(submission?.[1]?.body));
     expect(payload.execution).toEqual({ kind: "sandbox", profile_id: "primary" });
+    expect(payload).not.toHaveProperty("runtime_contract");
+    expect(payload).not.toHaveProperty("tier");
     expect(payload.model).toBeUndefined();
+  });
+
+  it("explains the admitted workspace contract without offering unsupported runtime paths", async () => {
+    const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
+    const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
+    mockApi({ profiles: [{ id: "primary", name: "Primary", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true }, runtime_contract: privateContract }], tiers: [
+      { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
+      { tier: "2", name: "Shared workspace", status: "planned", selectable: false, reason: "Shared workspace admission is not available." },
+      { tier: "2.5", name: "Virtual workspace", status: "research", selectable: false, reason: "Virtual filesystem qualification is not available." },
+      { tier: "3", name: "Private runtime", status: "supported", selectable: true, runtime_contract: privateContract },
+    ] });
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+    expect(screen.getByRole("option", { name: "Managed Agent (DeepAgents)" })).toBeInTheDocument();
+    expect(screen.getByText(/No sandbox is created/)).toBeInTheDocument();
+    expect(screen.getByText(/scoped to the conversation by default/)).toBeInTheDocument();
+    expect(screen.getByText(/Approved workflows or namespace settings can share logical artifacts/)).toBeInTheDocument();
+    expect(screen.getByText("Default workspace")).toBeInTheDocument();
+    expect(screen.getByText("Conversation")).toBeInTheDocument();
+    const otherRuntimePaths = screen.getByText("Other runtime paths");
+    const runtimeDetails = otherRuntimePaths.closest("details");
+    expect(runtimeDetails).not.toHaveAttribute("open");
+    fireEvent.click(otherRuntimePaths);
+    expect(runtimeDetails).toHaveAttribute("open");
+    expect(screen.getByText("Logical filesystem")).toBeInTheDocument();
+    expect(screen.getByText("Shared workspace")).toBeInTheDocument();
+    expect(screen.getByText("(Planned, unavailable)")).toBeInTheDocument();
+    expect(screen.getByText("(Research, unavailable)")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Shared workspace|Virtual workspace/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
+    expect(screen.getByText(/private sandbox for each caller-owned conversation/)).toBeInTheDocument();
+    expect(screen.getByText("Real sandbox filesystem")).toBeInTheDocument();
+    expect(screen.getByText("Caller-owned conversation")).toBeInTheDocument();
+    expect(screen.getByText("CAIPE and the operator profile")).toBeInTheDocument();
+    expect(screen.getByText(/Agent sharing controls access to its definition. Conversation access and workspace policies are separate/)).toBeInTheDocument();
+    expect(screen.getByText(/Approved workflow artifacts can be synchronized separately/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent runtime")).toHaveValue("sandbox:primary");
   });
 
   it("preserves broker-qualified features while retaining harness-owned middleware configuration", async () => {
