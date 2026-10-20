@@ -3,7 +3,7 @@
  */
 
 import React from "react";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 
 jest.mock("@uiw/react-codemirror", () => ({
   __esModule: true,
@@ -96,7 +96,7 @@ const editAgent = {
   updated_at: "2026-04-29T00:00:00Z",
 };
 
-function mockFetch(platformDefaultId: string | null) {
+function mockFetch(platformDefaultId: string | null, includeHarnesses = false) {
   const fetchMock = jest.fn(async (url: RequestInfo | URL) => {
     const u = typeof url === "string" ? url : url.toString();
     if (u.includes("/api/dynamic-agents/models")) {
@@ -119,10 +119,43 @@ function mockFetch(platformDefaultId: string | null) {
         data: platformDefaultId ? { default_agent_id: platformDefaultId } : {},
       });
     }
+    if (u.endsWith("/api/harness-engine/harnesses")) {
+      return jsonResponse({
+        success: true,
+        data: {
+          catalog_revision: "catalog-1",
+          harnesses: includeHarnesses ? [{
+            id: "claude_agent_sdk",
+            display_name: "Claude Agent SDK",
+            adapter_version: "1.0.0",
+            contract_version: 1,
+            execution_mode: "in_process",
+            availability: "available",
+            certification: "experimental",
+            profiles: [{
+              id: "safe",
+              harness_id: "claude_agent_sdk",
+              display_name: "Safe",
+              description: "",
+              available: true,
+            }],
+            options_schema: {
+              type: "object",
+              properties: {
+                max_turns: { type: "integer", title: "Maximum turns", default: 20 },
+              },
+            },
+            ui_schema: {},
+            capabilities: {},
+          }] : [],
+        },
+      });
+    }
     return jsonResponse({ success: true, data: {} });
   });
   // @ts-expect-error test override
   global.fetch = fetchMock;
+  return fetchMock;
 }
 
 async function flushAsync() {
@@ -160,4 +193,166 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(preview).not.toHaveTextContent("user:*");
     expect(preview).not.toHaveTextContent("OpenFGA");
   });
+
+  it("renders provider options from the selected harness descriptor", async () => {
+    mockFetch(null, true);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "claude_agent_sdk" },
+    });
+
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("safe");
+    expect(screen.getByLabelText("Maximum turns")).toHaveValue(20);
+    expect(screen.getByText(/browser never receives credentials/)).toBeInTheDocument();
+
+    fireEvent.focus(screen.getByRole("button", { name: "About operator profiles" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "An operator profile is an administrator-managed execution configuration",
+    );
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "without exposing credentials or infrastructure identifiers",
+    );
+  });
+
+  it("validates a provider blueprint before updating existing agent metadata", async () => {
+    const fetchMock = mockFetch(null, true);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "claude_agent_sdk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Changes/i }));
+    await flushAsync();
+
+    const validationCallIndex = fetchMock.mock.calls.findIndex(
+      ([url, init]) =>
+        String(url).endsWith("/api/harness-engine/agent-drafts/validate") &&
+        init?.method === "POST",
+    );
+    const metadataMutationIndex = fetchMock.mock.calls.findIndex(
+      ([url, init]) =>
+        String(url).startsWith("/api/dynamic-agents?id=") &&
+        init?.method === "PUT",
+    );
+
+    expect(validationCallIndex).toBeGreaterThanOrEqual(0);
+    expect(metadataMutationIndex).toBe(-1);
+    expect(await screen.findByText(/agent was not saved/i)).toBeInTheDocument();
+  });
+
+  it("rolls back a newly created agent when its provider blueprint cannot be persisted", async () => {
+    mockFetch(null, true);
+    const onSave = jest.fn();
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={onSave} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), {
+      target: { value: "Provider Agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Global/ }));
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "claude_agent_sdk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^2 Instructions$/ }));
+    fireEvent.change(await screen.findByTestId("codemirror-mock"), {
+      target: { value: "You are a provider-backed agent." },
+    });
+
+    const saveFetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(url);
+      if (path.endsWith("/api/harness-engine/agent-drafts/validate")) {
+        const request = JSON.parse(String(init?.body)) as { blueprint: AgentBlueprint };
+        return jsonResponse({
+          success: true,
+          data: {
+            valid: true,
+            normalized_blueprint: request.blueprint,
+            catalog_revision: "catalog-1",
+            config_fingerprint: "fingerprint-1",
+          },
+        });
+      }
+      if (path === "/api/dynamic-agents" && init?.method === "POST") {
+        return jsonResponse({ success: true, data: { _id: "agent-provider-agent" } });
+      }
+      if (path.includes("/api/harness-engine/agents/") && init?.method === "PUT") {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ success: false, error: "provider unavailable" }),
+          text: async () => "provider unavailable",
+        };
+      }
+      if (path.startsWith("/api/dynamic-agents?id=") && init?.method === "DELETE") {
+        return jsonResponse({ success: true });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+    // @ts-expect-error test override
+    global.fetch = saveFetch;
+
+    fireEvent.click(screen.getByRole("button", { name: /Create Agent/i }));
+    await flushAsync();
+
+    const writes = saveFetch.mock.calls.map(([url, init]) => [String(url), init?.method]);
+    expect(writes).toEqual([
+      ["/api/harness-engine/agent-drafts/validate", "POST"],
+      ["/api/dynamic-agents", "POST"],
+      ["/api/harness-engine/agents/agent-provider-agent", "PUT"],
+      ["/api/dynamic-agents?id=agent-provider-agent", "DELETE"],
+    ]);
+    expect(await screen.findByText(/creation was rolled back/i)).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("selects an SDK through the shared control and clears a parked sandbox selection", async () => {
+    mockFetch(null, true);
+    const onSave = jest.fn();
+    render(<DynamicAgentEditor agent={{ ...editAgent, execution: { kind: "sandbox", profile_id: "retired" } }} onCancel={jest.fn()} onSave={onSave} />);
+    await flushAsync();
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("sandbox:retired");
+    expect(screen.queryByLabelText("Agent runtime")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Execution harness"), { target: { value: "claude_agent_sdk" } });
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("safe");
+    expect(screen.queryByLabelText(/LLM Model/)).toBeNull();
+    const writes = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/agent-drafts/validate")) {
+        const { blueprint } = JSON.parse(String(init?.body));
+        return jsonResponse({ success: true, data: { valid: true, normalized_blueprint: blueprint, catalog_revision: "catalog-1", config_fingerprint: "example" } });
+      }
+      return jsonResponse({ success: true, data: { record: { revision: 1 } } });
+    });
+    // @ts-expect-error test override
+    global.fetch = writes;
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const update = writes.mock.calls.find(([url]) => String(url).startsWith("/api/dynamic-agents?id="));
+    expect(JSON.parse(String(update?.[1]?.body))).toMatchObject({ execution_harness_id: "claude_agent_sdk", execution: { kind: "native" } });
+    expect(JSON.parse(String(update?.[1]?.body)).model).toBeUndefined();
+  });
+
+  it("labels the native execution owner without changing its saved ID", async () => {
+    mockFetch(null);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    expect(
+      screen.getByRole("option", { name: "Native ACP" }),
+    ).toHaveValue("dynamic_agents");
+    expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
+    expect(
+      screen.getByText(/DeepAgents uses a logical workspace/),
+    ).toBeInTheDocument();
+  });
+  it("normalizes a saved native compatibility ID without loading an SDK overlay", async () => {
+    mockFetch(null);
+    render(<DynamicAgentEditor agent={{ ...editAgent, execution_harness_id: "langchain-deepagents" }} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+    expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining("/api/harness-engine/agents/"));
+  });
+
 });

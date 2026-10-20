@@ -12,6 +12,8 @@ authenticateRequest,
 getDynamicAgentsConfig,
 proxyRequest,
 } from "@/lib/da-proxy";
+import { authorizeConversationWriteAccess, resolveConversationRuntimeId } from "@/app/api/v1/chat/_conversation-authz";
+import { requireNativeHarnessOperation } from "@/lib/harness-conversation-operation";
 import { NextRequest,NextResponse } from "next/server";
 
 /**
@@ -38,13 +40,21 @@ export async function POST(
   });
   if (authResult instanceof NextResponse) return authResult;
 
+  const access = await authorizeConversationWriteAccess(authResult, conversationId);
+  if (access.denial) return access.denial;
+  const agentId = access.conversation.participants?.find((participant) => participant.type === "agent")?.id;
+  if (!agentId) return NextResponse.json({ success: false, error: "Conversation has no agent binding" }, { status: 409 });
+  const runtimeId = await resolveConversationRuntimeId(access.conversation);
+  const unsupported = await requireNativeHarnessOperation(agentId, runtimeId, "native checkpoint clear");
+  if (unsupported) return unsupported;
+
   // Check DA config
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
   // Build backend URL
   const backendUrl = new URL(
-    `/api/v1/conversations/${conversationId}/clear`,
+    `/api/v1/conversations/${encodeURIComponent(runtimeId)}/clear`,
     daConfig.dynamicAgentsUrl,
   );
 

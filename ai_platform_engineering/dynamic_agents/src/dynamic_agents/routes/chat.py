@@ -32,6 +32,7 @@ from dynamic_agents.services.runtime_cache import (
     RuntimeInitError,
 )
 from dynamic_agents.services.sandbox_client import SandboxError
+from dynamic_agents.services.session_bindings import ExecutionOwnerConflictError
 from dynamic_agents.services.session_runs import SessionRunBusyError
 from dynamic_agents.services.stream_encoders import StreamEncoder
 from dynamic_agents.services.stream_encoders.events import RunError
@@ -53,6 +54,7 @@ async def _enforce_chat_authz(*, agent_id: str, user_sub: str | None, autonomous
 # Fields that CANNOT be overridden via config_override
 _REJECTED_OVERRIDE_FIELDS: set[str] = {
     "execution",
+    "execution_harness_id",
     "ui",
     "name",
     "description",
@@ -289,7 +291,7 @@ async def _generate_sse_events(
 
 
 def _run_http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (NativeRunBusyError, NativeRunConflictError)):
+    if isinstance(exc, (NativeRunBusyError, NativeRunConflictError, ExecutionOwnerConflictError)):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, NativeReplayUnavailableError):
         return HTTPException(status_code=410, detail=str(exc))
@@ -312,7 +314,7 @@ async def _durable_stream_response(
 
     try:
         run = await service.start_run(turn, protocol, producer=producer)
-    except (NativeRunBusyError, NativeRunConflictError, NativeRunStorageError) as exc:
+    except (NativeRunBusyError, NativeRunConflictError, NativeRunStorageError, ExecutionOwnerConflictError) as exc:
         raise _run_http_error(exc) from exc
     return StreamingResponse(
         service.run_events(run, run.first_sequence), media_type="text/event-stream", headers={
@@ -545,6 +547,8 @@ async def chat_invoke(
         ))
         return _invoke_response(result, request)
 
+    except ExecutionOwnerConflictError as exc:
+        return JSONResponse(status_code=409, content={"success": False, "error": str(exc), "code": "RUNTIME_BINDING_CONFLICT"})
     except (RuntimeCapacityError, SessionRunBusyError) as e:
         logger.warning(f"Agent runtime at capacity for invoke: {e}")
         return JSONResponse(

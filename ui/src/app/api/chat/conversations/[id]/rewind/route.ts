@@ -15,7 +15,8 @@ import { getCollection } from "@/lib/mongodb";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import type { Conversation, Message, Turn } from "@/types/mongodb";
 import { NextRequest, NextResponse } from "next/server";
-import { authorizeConversationWriteAccess } from "@/app/api/v1/chat/_conversation-authz";
+import { requireNativeHarnessOperation } from "@/lib/harness-conversation-operation";
+import { authorizeConversationWriteAccess, resolveConversationRuntimeId } from "@/app/api/v1/chat/_conversation-authz";
 
 interface RewindRequest {
   agent_id?: string;
@@ -223,9 +224,12 @@ export async function POST(
     );
   }
 
+  const runtimeId = await resolveConversationRuntimeId(conversation);
+  const unsupported = await requireNativeHarnessOperation(body.agent_id, runtimeId, "conversation rewind");
+  if (unsupported) return unsupported;
   const dynamicAgentsConfig = getDynamicAgentsConfig();
   if (dynamicAgentsConfig instanceof NextResponse) return dynamicAgentsConfig;
-  const backendUrl = new URL(`/api/v1/conversations/${conversationId}/rewind`, dynamicAgentsConfig.dynamicAgentsUrl);
+  const backendUrl = new URL(`/api/v1/conversations/${encodeURIComponent(runtimeId)}/rewind`, dynamicAgentsConfig.dynamicAgentsUrl);
   const epoch = conversation.native_rewind_epoch ?? 0;
   const existing = conversation.native_rewind;
   if (existing && existing.epoch !== epoch) {

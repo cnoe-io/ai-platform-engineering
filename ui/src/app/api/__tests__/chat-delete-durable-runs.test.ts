@@ -10,7 +10,7 @@ it("erases only the deleted conversation journals, removing metadata before repl
   mockGetCollection.mockImplementation(async (collection: string) => ({
     find: (query: unknown) => {
       calls.push({ collection, operation: "find", query });
-      return { toArray: async () => [{ run_id: "target-run" }] };
+      return { toArray: async () => collection === "harness_sessions" ? [] : [{ run_id: "target-run" }] };
     },
     deleteMany: async (query: unknown) => {
       calls.push({ collection, operation: "delete", query });
@@ -37,7 +37,7 @@ it("limits autonomous deletion to its explicit execution binding rather than eve
   mockGetCollection.mockImplementation(async (collection: string) => ({
     find: (query: unknown) => {
       calls.push({ collection, query });
-      return { toArray: async () => [{ run_id: "target-run" }] };
+      return { toArray: async () => collection === "harness_sessions" ? [] : [{ run_id: "target-run" }] };
     },
     deleteMany: async (query: unknown) => calls.push({ collection, query }),
     updateOne: async () => undefined,
@@ -51,4 +51,26 @@ it("limits autonomous deletion to its explicit execution binding rather than eve
   expect(calls).toContainEqual({ collection: "native_acp_execution_runs", query: {
     session_id: { $in: ["task-conversation", "latest-context"] },
   } });
+});
+
+
+it("retains visible history when the owning provider has not acknowledged deletion", async () => {
+  process.env.HARNESS_ENGINE_URL = "http://engine.example.test";
+  process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "test-internal-token";
+  const deletes: string[] = [];
+  const tombstones: string[] = [];
+  mockGetCollection.mockImplementation(async (collection: string) => ({
+    find: () => ({ toArray: async () => collection === "harness_sessions"
+      ? [{ agent_id: "agent-example", conversation_id: "target-conversation", owner_subject: "owner-example" }] : [] }),
+    updateOne: async () => { tombstones.push(collection); },
+    deleteMany: async () => { deletes.push(collection); },
+  }));
+  const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "Producer is stopping" }), { status: 409 }));
+  await expect(deleteConversationsPermanently([{ _id: "target-conversation", participants: [] }])).rejects.toMatchObject({ statusCode: 409 });
+  expect(tombstones).toEqual(["native_acp_deleted_sessions"]);
+  expect(deletes).toEqual([]);
+  expect(fetchMock).toHaveBeenCalledWith("http://engine.example.test/api/v1/sessions/delete", expect.objectContaining({
+    method: "POST", headers: expect.objectContaining({ "X-Harness-Engine-Subject": "owner-example" }),
+  }));
+  fetchMock.mockRestore();
 });

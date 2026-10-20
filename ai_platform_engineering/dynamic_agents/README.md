@@ -71,6 +71,16 @@ claims for shared/user-wide workspaces or unsupported runtimes are rejected.
 Sharing an agent definition or transcript does not transfer its private native
 session or shell ownership.
 
+The [Harness Gateway](https://github.com/caipe-io/ai-platform-engineering/pull/2401)
+is the canonical BFF front door for the
+[metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877).
+It resolves the saved execution owner before consulting a mutable agent default.
+Managed agents retain this native ACP execution service, coordinator and journal;
+existing SDK/AgentCore descriptors route to Engine's provider coordinator. There
+is one producer and authoritative journal per run, with both owners using
+canonical CAIPE MongoDB. Engine does not wrap native detached execution or
+replace native tools, checkpoint or approval handling.
+
 | Contract | Behavior |
 | --- | --- |
 | ACP | Released Python SDK `0.12.1`, stable wire protocol `1`. Typed `caipe.io/native-acp` events retain native progress and checkpointed human input. Coding harnesses use standard new/load/prompt/update/permission/cancel. A validated form shim rejects unsupported schemas and URL elicitation. |
@@ -87,6 +97,9 @@ enforced filesystem/network boundaries below the model. Codex admission,
 cross-harness checkpoint migration and native-parent-to-sandbox-child delegation
 are excluded. Configured native children of a sandbox parent remain available
 through their own admitted execution contexts.
+
+See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
+for the shared gateway, session ownership and environment policy contract.
 
 #### Canonical native state and recovery
 

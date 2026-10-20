@@ -12,6 +12,7 @@ export interface ResolvedChatAgent {
   id: string;
   name: string;
   source: "user-default" | "platform-default" | "first-available";
+  agent?: DynamicAgentConfig;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -99,6 +100,7 @@ export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
       return {
         id: userAgent._id,
         name: userAgent.name,
+        agent: userAgent,
         source: "user-default",
       };
     }
@@ -110,6 +112,7 @@ export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
       return {
         id: defaultAgent._id,
         name: defaultAgent.name,
+        agent: defaultAgent,
         source: "platform-default",
       };
     }
@@ -128,6 +131,7 @@ export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
     return {
       id: fallbackAgent._id,
       name: fallbackAgent.name,
+      agent: fallbackAgent,
       source: "first-available",
     };
   }

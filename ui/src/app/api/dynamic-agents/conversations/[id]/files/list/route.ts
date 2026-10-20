@@ -11,6 +11,7 @@ authenticateRequest,
 getDynamicAgentsConfig,
 proxyRequest,
 } from "@/lib/da-proxy";
+import { authorizeNativeConversationOperation } from "@/lib/harness-conversation-operation";
 import { NextRequest,NextResponse } from "next/server";
 
 export async function GET(
@@ -42,13 +43,18 @@ export async function GET(
   });
   if (authResult instanceof NextResponse) return authResult;
 
+  const authorized = await authorizeNativeConversationOperation(
+    authResult, conversationId, agentId, "logical file access",
+  );
+  if (authorized instanceof NextResponse) return authorized;
+
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
   const backendUrl = new URL("/api/v1/files/list", daConfig.dynamicAgentsUrl);
   backendUrl.searchParams.set(
     "fs_namespace",
-    JSON.stringify([agentId, conversationId, "filesystem"]),
+    JSON.stringify([agentId, authorized.runtimeId, "filesystem"]),
   );
 
   return proxyRequest(backendUrl.toString(), "GET", authResult, "[conversation-files/list]");

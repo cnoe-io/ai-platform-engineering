@@ -10,6 +10,9 @@ import {
   buildLastReview,
   useAiReview,
 } from "@/components/ai-review";
+import { normalizeHarnessId } from "@/lib/agent-presentation";
+import { nativeHarnessDescriptor, nativeHarnessProfileKey } from "@/lib/native-harness-catalog";
+import { HarnessOptionsForm } from "@/components/harness-engine/HarnessOptionsForm";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
@@ -27,6 +30,12 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { gradientThemes } from "@/lib/gradient-themes";
@@ -36,8 +45,6 @@ import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type {
   AgentUIConfig,
   AgentExecution,
-  AgentRuntimeProfile,
-  AgentRuntimeOption,
   BuiltinToolsConfig,
   CustomThemeConfig,
   DynamicAgentConfig,
@@ -49,6 +56,7 @@ import type {
   SubAgentRef,
   VisibilityType,
 } from "@/types/dynamic-agent";
+import type { AgentBlueprint, HarnessDescriptor } from "@/types/harness-engine";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -59,6 +67,7 @@ import {
   Eye,
   Globe,
   GripHorizontal,
+  Info,
   Loader2,
   Pencil,
   Sparkles,
@@ -449,40 +458,9 @@ export function DynamicAgentEditor({
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
 
-  const [execution, setExecution] = React.useState<AgentExecution>(source?.execution ?? { kind: "native" });
-  const [runtimeProfiles, setRuntimeProfiles] = React.useState<AgentRuntimeProfile[]>([]);
-  const [runtimeOptions, setRuntimeOptions] = React.useState<AgentRuntimeOption[]>([]);
-  const [runtimeProfilesLoading, setRuntimeProfilesLoading] = React.useState(true);
-  const [runtimeProfilesError, setRuntimeProfilesError] = React.useState(false);
-  const [runtimeProfilesRetry, setRuntimeProfilesRetry] = React.useState(0);
-  const sandbox = execution.kind === "sandbox";
-  const selectedRuntimeProfile = execution.kind === "sandbox"
-    ? runtimeProfiles.find((profile) => profile.id === execution.profile_id)
-    : undefined;
-  const mcpAvailable = !sandbox || selectedRuntimeProfile?.capabilities.mcp === true;
-  const skillsAvailable = !sandbox || selectedRuntimeProfile?.capabilities.skills === true;
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setRuntimeProfilesLoading(true);
-    setRuntimeProfilesError(false);
-    fetch("/api/dynamic-agents/runtime-profiles")
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.success || !Array.isArray(data.data?.profiles)) throw new Error("RuntimeProfileCatalogError");
-        if (!cancelled) {
-          setRuntimeProfiles(data.data.profiles);
-          setRuntimeOptions(Array.isArray(data.data.runtimes) ? data.data.runtimes : []);
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn("Runtime profile catalog unavailable", { errorType: error instanceof Error ? error.name : "Unknown" });
-        if (!cancelled) setRuntimeProfilesError(true);
-      })
-      .finally(() => { if (!cancelled) setRuntimeProfilesLoading(false); });
-    return () => { cancelled = true; };
-  }, [runtimeProfilesRetry]);
-
+  const [execution, setExecution] = React.useState<AgentExecution>(normalizeHarnessId(source?.execution_harness_id) === "dynamic_agents" ? source?.execution ?? { kind: "native" } : { kind: "native" });
+  const [harnessId, setHarnessId] = React.useState(normalizeHarnessId(source?.execution_harness_id));
+  const [catalogRetry, setCatalogRetry] = React.useState(0);
   // Form state - when cloning, append " (New)" to name
   const [name, setName] = React.useState(
     isCloning && source ? `${source.name} (New)` : source?.name || "",
@@ -582,6 +560,61 @@ export function DynamicAgentEditor({
       },
     );
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
+
+  // Harness Engine persists a complete, immutable blueprint independently of
+  // the legacy Dynamic Agents document. The catalog drives this form.
+  const [harnessProfileId, setHarnessProfileId] = React.useState(
+    normalizeHarnessId(source?.execution_harness_id) === "dynamic_agents" ? nativeHarnessProfileKey(source?.execution ?? { kind: "native" }) : "",
+  );
+  const [harnessOptions, setHarnessOptions] = React.useState<
+    Record<string, unknown>
+  >({});
+  const [harnessDescriptors, setHarnessDescriptors] = React.useState<
+    HarnessDescriptor[]
+  >([nativeHarnessDescriptor()]);
+  const [catalogRevision, setCatalogRevision] = React.useState<string | null>(
+    null,
+  );
+  const [harnessRevision, setHarnessRevision] = React.useState<number | null>(
+    null,
+  );
+  const [harnessLoading, setHarnessLoading] = React.useState(true);
+  const selectedHarness = React.useMemo(
+    () => harnessDescriptors.find((descriptor) => descriptor.id === harnessId),
+    [harnessDescriptors, harnessId],
+  );
+
+  const nativeDescriptor = harnessDescriptors.find((descriptor) => descriptor.id === "dynamic_agents");
+  const runtimeProfiles = nativeDescriptor?.native_runtime_catalog?.profiles ?? [];
+  const runtimeOptions = nativeDescriptor?.native_runtime_catalog?.runtimes ?? [];
+  const runtimeProfilesLoading = harnessLoading;
+  const runtimeProfilesError = nativeDescriptor?.runtime_catalog_unavailable === true;
+  const sandbox = harnessId === "dynamic_agents" && execution.kind === "sandbox";
+  const managed = harnessId === "dynamic_agents" && !sandbox;
+  const selectedRuntimeProfile = execution.kind === "sandbox"
+    ? runtimeProfiles.find((profile) => profile.id === execution.profile_id) : undefined;
+  const mcpAvailable = !sandbox || selectedRuntimeProfile?.capabilities.mcp === true;
+  const skillsAvailable = !sandbox || selectedRuntimeProfile?.capabilities.skills === true;
+  const selectProfile = (profileId: string) => {
+    setHarnessProfileId(profileId);
+    const admitted = selectedHarness?.profiles.find((profile) => profile.id === profileId);
+    if (harnessId === "dynamic_agents" && admitted?.native_execution) setExecution(admitted.native_execution);
+  };
+
+  const selectHarness = React.useCallback(
+    (nextHarnessId: string) => {
+      setHarnessId(nextHarnessId);
+      setExecution({ kind: "native" });
+      setHarnessOptions({});
+      const descriptor = harnessDescriptors.find(
+        (item) => item.id === nextHarnessId,
+      );
+      setHarnessProfileId(
+        descriptor?.profiles.find((profile) => profile.available)?.id ?? "",
+      );
+    },
+    [harnessDescriptors],
+  );
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt =
@@ -773,7 +806,7 @@ export function DynamicAgentEditor({
   }, [isEditing]);
 
   React.useEffect(() => {
-    if (sandbox || !modelId || !modelProvider) {
+    if (!managed || !modelId || !modelProvider) {
       setSupportedReasoningEfforts([]);
       return;
     }
@@ -796,7 +829,56 @@ export function DynamicAgentEditor({
     return () => {
       cancelled = true;
     };
-  }, [modelId, modelProvider, sandbox]);
+  }, [modelId, modelProvider, managed]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function fetchHarnessConfiguration() {
+      setHarnessLoading(true);
+      try {
+        const catalogResponse = await fetch("/api/harness-engine/harnesses");
+        const catalog = await catalogResponse.json();
+        const descriptors = Array.isArray(catalog.data?.harnesses)
+          ? (catalog.data.harnesses as HarnessDescriptor[])
+          : [];
+        if (cancelled) return;
+        setHarnessDescriptors(descriptors.some((item) => item.id === "dynamic_agents") ? descriptors : [nativeHarnessDescriptor(), ...descriptors]);
+        setCatalogRevision(catalog.data?.catalog_revision ?? null);
+
+        if (catalogRetry > 0) return;
+        const persistedHarnessId = normalizeHarnessId(source?.execution_harness_id);
+        if (persistedHarnessId) setHarnessId(persistedHarnessId);
+        if (source?._id && persistedHarnessId !== "dynamic_agents") {
+          const overlayResponse = await fetch(
+            `/api/harness-engine/agents/${encodeURIComponent(source._id)}`,
+          );
+          if (overlayResponse.ok) {
+            const overlay = await overlayResponse.json();
+            const saved = overlay.data?.version?.blueprint;
+            if (!cancelled && saved?.harness?.id) {
+              setHarnessId(saved.harness.id);
+              setHarnessProfileId(saved.harness.profile_id);
+              setHarnessOptions(saved.harness.options ?? {});
+              setHarnessRevision(overlay.data.record?.revision ?? null);
+            }
+          }
+        }
+      } catch (err) {
+        // Harness Engine is opt-in. Its absence must not affect the existing
+        // Dynamic Agents creation/edit path.
+        console.info(
+          "Harness Engine is unavailable; using Dynamic Agents",
+          err,
+        );
+      } finally {
+        if (!cancelled) setHarnessLoading(false);
+      }
+    }
+    void fetchHarnessConfiguration();
+    return () => {
+      cancelled = true;
+    };
+  }, [source?._id, source?.execution_harness_id, catalogRetry]);
 
   // Fetch available models on mount
   React.useEffect(() => {
@@ -948,6 +1030,9 @@ export function DynamicAgentEditor({
       modelProvider,
       reasoningEffort,
       gradientTheme,
+      harnessId,
+      harnessProfileId,
+      harnessOptions,
     }),
     [
       name,
@@ -970,6 +1055,9 @@ export function DynamicAgentEditor({
       modelProvider,
       reasoningEffort,
       gradientTheme,
+      harnessId,
+      harnessProfileId,
+      harnessOptions,
     ],
   );
 
@@ -1053,7 +1141,7 @@ export function DynamicAgentEditor({
                 : undefined,
           },
           execution,
-          ...(!sandbox ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
+          ...(managed ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
           ...(instruction ? { instruction } : {}),
           ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
         }),
@@ -1216,12 +1304,12 @@ export function DynamicAgentEditor({
     }
 
     // Validate required fields
-    if (!sandbox && (!modelId || !modelProvider)) {
+    if (managed && (!modelId || !modelProvider)) {
       setError("Model selection is required");
       setLoading(false);
       return;
     }
-    if (!isEditing && !ownerTeamSlug) {
+    if (!isEditing && visibility === "team" && !ownerTeamSlug) {
       setError("Owner team is required");
       setLoading(false);
       return;
@@ -1269,12 +1357,89 @@ export function DynamicAgentEditor({
           ? { datasource_ids: null, rag_collection_ids: null }
           : {};
 
+      if (harnessId !== "dynamic_agents" && !harnessProfileId) {
+        throw new Error(
+          "Select an operator profile for the execution harness before saving",
+        );
+      }
+
+      const targetAgentId = isEditing ? agent._id : generatedId;
+      let preparedHarnessSave: {
+        blueprint: AgentBlueprint;
+        catalog_revision: string;
+        config_fingerprint: string;
+      } | null = null;
+
+      // Validate the independent blueprint before mutating the legacy agent
+      // document. This keeps an invalid provider configuration from changing
+      // an existing Dynamic Agent or creating a half-configured new one.
+      if (harnessId !== "dynamic_agents") {
+        const toolBindings = Object.entries(allowedTools).flatMap(
+          ([serverId, tools]) =>
+            Array.isArray(tools)
+              ? tools.map((toolName) => ({
+                  tool_id: `${serverId}.${toolName}`,
+                }))
+              : [],
+        );
+        const blueprint: AgentBlueprint = {
+          id: targetAgentId,
+          name,
+          description,
+          harness: {
+            id: harnessId,
+            profile_id: harnessProfileId,
+            options: harnessOptions,
+          },
+          prompt: { system: systemPrompt, variables: {}, context_sources: [] },
+          // The selected operator profile owns the provider model in this
+          // vertical slice. Model compatibility/filtering is a follow-up.
+          model: { policy: "harness_default" },
+          tools: { bindings: toolBindings, approval_policy: "sensitive_only" },
+          thread: { persistence: "durable" },
+          memory: { enabled: false },
+          workspace: { persistence: "none" },
+          streaming: { protocol: "canonical", replay: "required" },
+          delegation: {
+            agents: subagents.map((subagent) => subagent.agent_id),
+            max_depth: subagents.length > 0 ? 1 : 0,
+            max_parallel: 1,
+          },
+        };
+        const validationResponse = await fetch(
+          "/api/harness-engine/agent-drafts/validate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              blueprint,
+              catalog_revision: catalogRevision,
+            }),
+          },
+        );
+        const validation = await validationResponse.json();
+        if (!validationResponse.ok || !validation.data?.valid) {
+          const reason = validation.data?.issues
+            ?.map((issue: { message: string }) => issue.message)
+            .join("; ");
+          throw new Error(
+            `Harness blueprint is invalid; the agent was not saved: ${reason || validation.error || "unknown error"}`,
+          );
+        }
+        preparedHarnessSave = {
+          blueprint: validation.data.normalized_blueprint,
+          catalog_revision: validation.data.catalog_revision,
+          config_fingerprint: validation.data.config_fingerprint,
+        };
+      }
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate & {
           owner_team_slug?: string;
           confirm_not_member?: boolean;
         } = {
+          execution_harness_id: harnessId,
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
@@ -1289,7 +1454,7 @@ export function DynamicAgentEditor({
           skills,
           ...knowledgeFields,
           execution,
-          ...(!sandbox ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
+          ...(managed ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
@@ -1327,6 +1492,7 @@ export function DynamicAgentEditor({
         // Create new agent
         const createData: DynamicAgentConfigCreate = {
           id: generatedId,
+          execution_harness_id: harnessId,
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
@@ -1342,7 +1508,7 @@ export function DynamicAgentEditor({
           skills,
           ...knowledgeFields,
           execution,
-          ...(!sandbox ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
+          ...(managed ? { model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort } } : {}),
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
@@ -1359,6 +1525,64 @@ export function DynamicAgentEditor({
         if (!data.success) {
           throw new Error(data.error || "Failed to create agent");
         }
+      }
+
+      if (preparedHarnessSave) {
+        let harnessSaveError: string | null = null;
+        let savedHarnessRevision: number | null = null;
+        try {
+          const harnessResponse = await fetch(
+            `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...preparedHarnessSave,
+                ...(harnessRevision
+                  ? { expected_revision: harnessRevision }
+                  : {}),
+              }),
+            },
+          );
+          const harness = await harnessResponse.json();
+          if (!harnessResponse.ok || !harness.success) {
+            harnessSaveError = harness.error || "unknown error";
+          } else {
+            savedHarnessRevision = harness.data.record.revision;
+          }
+        } catch (harnessError) {
+          harnessSaveError = getErrorMessage(
+            harnessError,
+            "Harness Engine is unavailable",
+          );
+        }
+
+        if (harnessSaveError) {
+          if (!isEditing) {
+            let rollbackSucceeded = false;
+            try {
+              const rollbackResponse = await fetch(
+                `/api/dynamic-agents?id=${encodeURIComponent(targetAgentId)}`,
+                { method: "DELETE" },
+              );
+              rollbackSucceeded = rollbackResponse.ok;
+              const rollback = await rollbackResponse.json();
+              rollbackSucceeded = rollbackResponse.ok && rollback.success !== false;
+            } catch {
+              // The error below explicitly tells the operator that manual
+              // cleanup may be required when compensation cannot complete.
+            }
+            throw new Error(
+              rollbackSucceeded
+                ? `Agent creation was rolled back because its harness blueprint could not be saved: ${harnessSaveError}`
+                : `Harness blueprint save failed and the newly created agent could not be rolled back: ${harnessSaveError}`,
+            );
+          }
+          throw new Error(
+            `The agent was saved, but its harness blueprint was not: ${harnessSaveError}`,
+          );
+        }
+        setHarnessRevision(savedHarnessRevision);
       }
 
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will
@@ -1390,7 +1614,7 @@ export function DynamicAgentEditor({
   };
 
   // One validation list drives the button, submit guard and required-field guidance.
-  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+  const ownerTeamMissing = !isEditing && visibility === "team" && !ownerTeamSlug;
 
   const blockers: { field: string; label: string; step: StepId }[] =
     React.useMemo(() => {
@@ -1398,7 +1622,7 @@ export function DynamicAgentEditor({
       if (!name.trim()) {
         list.push({ field: "name", label: "Agent name", step: "basic" });
       }
-      if (!sandbox && availableModels.length === 0) {
+      if (managed && availableModels.length === 0) {
         // Distinct from "model not picked" — the user can't pick anything
         // because nothing is configured. Surfacing this separately tells the
         // operator the problem is upstream (no providers configured).
@@ -1407,8 +1631,11 @@ export function DynamicAgentEditor({
           label: "At least one model provider must be configured",
           step: "basic",
         });
-      } else if (!sandbox && !modelId) {
+      } else if (managed && !modelId) {
         list.push({ field: "model", label: "Model", step: "basic" });
+      }
+      if (harnessId !== "dynamic_agents" && (!selectedHarness || !harnessProfileId || !selectedHarness.profiles.some((profile) => profile.id === harnessProfileId && profile.available))) {
+        list.push({ field: "harnessProfile", label: "Select an available execution harness and operator profile", step: "basic" });
       }
       if (sandbox && selectedRuntimeProfile && !skillsAvailable && skills.length > 0) {
         list.push({ field: "runtimeSkills", label: "Runtime support for selected skills", step: "basic" });
@@ -1452,6 +1679,10 @@ export function DynamicAgentEditor({
       name,
       systemPrompt,
       sandbox,
+      managed,
+      harnessId,
+      harnessProfileId,
+      selectedHarness,
       selectedRuntimeProfile,
       runtimeProfilesLoading,
       skillsAvailable,
@@ -1565,6 +1796,105 @@ export function DynamicAgentEditor({
             {activeStep === "basic" && (
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
+                  <Label htmlFor="harnessId">Execution harness</Label>
+                  <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
+                    <Select
+                      id="harnessId"
+                      value={harnessId}
+                      onChange={(event) => selectHarness(event.target.value)}
+                      disabled={loading || harnessLoading || !!readOnly}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {!harnessDescriptors.some((descriptor) => descriptor.id === harnessId) && <option value={harnessId} disabled>Unavailable harness: {harnessId}</option>}
+                      {harnessDescriptors.map((descriptor) => (
+                        <option
+                          key={descriptor.id}
+                          value={descriptor.id}
+                          disabled={
+                            descriptor.availability !== "available" ||
+                            descriptor.certification === "blocked"
+                          }
+                        >
+                          {descriptor.display_name}
+                        </option>
+                      ))}
+                    </Select>
+                    {selectedHarness && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="harnessProfile">Operator profile</Label>
+                          <TooltipProvider delayDuration={0}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="About operator profiles"
+                                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                sideOffset={6}
+                                className="max-w-xs whitespace-normal px-3 py-2 text-left text-xs font-normal leading-relaxed"
+                              >
+                                An operator profile is an administrator-managed execution
+                                configuration. It selects approved provider resources,
+                                security settings, and limits without exposing credentials or
+                                infrastructure identifiers to agent authors.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <Select
+                          id="harnessProfile"
+                          value={harnessProfileId}
+                          onChange={(event) =>
+                            selectProfile(event.target.value)
+                          }
+                          disabled={loading || !!readOnly}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          {!selectedHarness.profiles.some((profile) => profile.id === harnessProfileId) && <option value={harnessProfileId} disabled>{harnessProfileId ? `Unavailable profile: ${execution.kind === "sandbox" ? execution.profile_id : harnessProfileId}` : "Select an operator profile"}</option>}
+                          {selectedHarness.profiles.map((profile) => (
+                            <option
+                              key={profile.id}
+                              value={profile.id}
+                              disabled={!profile.available}
+                            >
+                              {profile.display_name}
+                            </option>
+                          ))}
+                        </Select>
+                        <HarnessOptionsForm
+                          schema={selectedHarness.options_schema}
+                          value={harnessOptions}
+                          onChange={setHarnessOptions}
+                          disabled={loading || !!readOnly}
+                        />
+                        {harnessId !== "dynamic_agents" && <p className="text-xs text-muted-foreground">
+                          {selectedHarness.execution_mode.replaceAll("_", " ")}{" "}
+                          · {selectedHarness.certification}. Profiles map to
+                          operator-managed resources; the browser never receives
+                          credentials, commands, images, or provider resource
+                          IDs.
+                        </p>}
+                      </div>
+                    )}
+                    {harnessId === "dynamic_agents" && <>
+                      <RuntimeContractDetails execution={execution} profile={selectedRuntimeProfile} runtimes={runtimeOptions} />
+                      {sandbox && !skillsAvailable && skills.length > 0 && <div role="status" className="text-sm text-muted-foreground">
+                        This profile does not support the selected skills. Choose a qualified profile or clear the selection before saving.
+                        <Button type="button" variant="link" size="sm" disabled={loading || !!readOnly} onClick={() => setSkills([])}>Clear selected skills</Button>
+                      </div>}
+                      {runtimeProfilesLoading && <p className="text-xs text-muted-foreground">Loading runtime profiles…</p>}
+                      {runtimeProfilesError && <p className="text-xs text-muted-foreground">Runtime profiles could not be loaded. Managed Agent remains available. <button type="button" className="underline" onClick={() => setCatalogRetry((value) => value + 1)}>Retry profiles</button></p>}
+                      {!runtimeProfilesLoading && !runtimeProfilesError && runtimeProfiles.length === 0 && <p className="text-xs text-muted-foreground">No sandbox profiles are admitted in this environment.</p>}
+                    </>}
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="name">
                     Agent Name <span className="text-destructive">*</span>
                   </Label>
@@ -1602,34 +1932,8 @@ export function DynamicAgentEditor({
                   ) : null}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="agent-runtime">Agent runtime</Label>
-                  <Select
-                    id="agent-runtime"
-                    value={execution.kind === "native" ? "native" : `sandbox:${execution.profile_id}`}
-                    disabled={loading || !!readOnly}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setExecution(value === "native" ? { kind: "native" } : { kind: "sandbox", profile_id: value.slice(8) });
-                    }}
-                  >
-                    <option value="native">Managed Agent (DeepAgents)</option>
-                    {sandbox && !selectedRuntimeProfile && <option value={`sandbox:${execution.profile_id}`} disabled>Unavailable profile: {execution.profile_id}</option>}
-                    {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} (Private Coding Sandbox, Claude Code)</option>)}
-                  </Select>
-                  <RuntimeContractDetails execution={execution} profile={selectedRuntimeProfile} runtimes={runtimeOptions} />
-                  {sandbox && !skillsAvailable && skills.length > 0 && <div role="status" className="text-sm text-muted-foreground">
-                    This profile does not support the selected skills. Choose a qualified profile or clear the selection before saving.
-                    <Button type="button" variant="link" size="sm" disabled={loading || !!readOnly} onClick={() => setSkills([])}>Clear selected skills</Button>
-                  </div>}
-                  {runtimeProfilesLoading && <p className="text-xs text-muted-foreground">Loading sandbox profiles…</p>}
-                  {runtimeProfilesError && <p className="text-xs text-muted-foreground">Sandbox profiles could not be loaded. DeepAgents remains available. <button type="button" className="underline" onClick={() => setRuntimeProfilesRetry((value) => value + 1)}>Retry profiles</button></p>}
-                  {!runtimeProfilesLoading && !runtimeProfilesError && runtimeProfiles.length === 0 && <p className="text-xs text-muted-foreground">No sandbox profiles are admitted in this environment.</p>}
-                  {selectedRuntimeProfile && <p className="text-xs text-muted-foreground">Profile revision: {selectedRuntimeProfile.revision}. MCP {selectedRuntimeProfile.capabilities.mcp ? "available" : "not yet qualified"}; skills {selectedRuntimeProfile.capabilities.skills ? "available" : "not yet qualified"}; attachments {selectedRuntimeProfile.capabilities.attachments ? "available" : "not yet qualified"}.</p>}
-                </div>
-
                 {/* Native model settings are retained when another runtime is selected. */}
-                {!sandbox && <>
+                {managed && <>
                 {/* LLM Model - right after name so AI Suggest buttons can use it */}
                 <div className="space-y-2">
                   <Label htmlFor="modelId">
@@ -2043,7 +2347,7 @@ export function DynamicAgentEditor({
                   ownerTeamSlug={ownerTeamSlug}
                   sharedTeamSlugs={sharedWithTeams}
                   isEditing={isEditing}
-                  ownerRequired
+                  ownerRequired={visibility === "team"}
                   allowTransfer={isEditing}
                   resourceNoun="agent"
                   disabled={loading || !!readOnly}
@@ -2103,7 +2407,9 @@ export function DynamicAgentEditor({
                     </>
                   }
                   ownerExtra={
-                    !isEditing && availableTeams.length === 0 ? (
+                    !isEditing &&
+                    visibility === "team" &&
+                    availableTeams.length === 0 ? (
                       <p className="text-xs text-destructive">
                         You must belong to at least one team to create a
                         team-owned agent.

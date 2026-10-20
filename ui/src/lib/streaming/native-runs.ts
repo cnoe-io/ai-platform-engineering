@@ -11,6 +11,7 @@ export type NativeRunStatus =
 
 export interface NativeRun {
   run_id: string;
+  harness_id?: string;
   turn_id: string;
   agent_id: string;
   session_id: string;
@@ -45,7 +46,7 @@ export async function getLatestNativeRun(
   });
   if (!response.ok) throw await buildStreamErrorFromResponse(response);
   const result = await response.json() as { run: NativeRun | null };
-  return result.run;
+  return result.run ? { ...result.run, harness_id: response.headers.get("X-Harness-ID") ?? result.run.harness_id } : null;
 }
 
 /** Match a durable frame to its admitted run before advancing the replay cursor. */

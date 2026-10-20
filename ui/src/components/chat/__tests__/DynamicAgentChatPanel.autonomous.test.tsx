@@ -345,3 +345,14 @@ it("does not fetch or offer private edit recovery in a shared read-only view", a
   expect(mockGetConversation).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Finish conversation edit" })).toBeNull();
 });
+
+it("shows the retained execution harness even when the agent default has changed", async () => {
+  mockConversation = { ...mockConversation, source: "web", messages: [] };
+  mockLatestRun.mockResolvedValue({
+    run_id: "run-1", turn_id: "turn-1", protocol: "agui", status: "completed",
+    harness_id: "claude_agent_sdk",
+  });
+  render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
+  expect(await screen.findByLabelText("Execution harness: Claude Agent SDK")).toBeInTheDocument();
+  expect(mockReattachStream).not.toHaveBeenCalled();
+});

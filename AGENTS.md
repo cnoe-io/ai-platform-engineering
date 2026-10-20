@@ -36,6 +36,7 @@ until you have checked the shared locations below.
 | Application manifest or native UI package | `ui/app-sdk/agentic-app-manifest.mjs` | CAIPE App Contract: shared `AgenticAppManifest` types/validation, `ui/src/lib/agentic-apps/` installation adapters, and the native component interface |
 | MCP integration | `ai_platform_engineering/mcp/<provider>/` | `ai_platform_engineering/mcp/common/` |
 | Slack or Webex behavior | `ai_platform_engineering/integrations/{slack_bot,webex_bot}/` | The BFF/API contract and shared auth utilities |
+| Harness routing or SDK/provider runtime | `ui/src/lib/harness-gateway.ts` and `ai_platform_engineering/harness_engine/` | Existing runtime descriptors and session/provider adapters; resolve retained execution bindings before current agent defaults |
 | Dynamic/custom-agent runtime | `ai_platform_engineering/dynamic_agents/` | Its `src/` modules and tests |
 | RAG/ingestion | `ai_platform_engineering/knowledge_bases/rag/` | `common/`, `server/`, or `ingestors/` as applicable |
 | Authentication, authorization, or audit helpers | `ai_platform_engineering/utils/{auth,audit_backends}/`, `ui/src/lib/authz/`, `ui/src/lib/rbac/`, and `ui/src/lib/audit/` | Use the existing domain boundary; do not add direct OpenFGA checks outside an approved adapter |
@@ -141,3 +142,8 @@ Do not add Slack/Webex bots to that default path.
 - Python + Slack Bolt, Slack SDK, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
 - MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
 - Service accounts: dynamic Keycloak confidential clients + OpenFGA `service_account` tuples + Mongo `service_accounts` collection; BFF (Next.js) orchestrates create/rotate/revoke/scope; caller-keyed tool authz added to the OpenFGA ext_authz bridge (2026-06-05-service-accounts)
+- Harness Gateway is the canonical BFF runtime router. Native ACP retains Dynamic Agents execution and its durable coordinator; existing SDK/AgentCore descriptors use Harness Engine. One execution owner and journal per run; both use canonical CAIPE MongoDB.
+- Engine owns provider revisions, `harness_sessions`, `harness_runs` and `harness_events`; native ACP owns its existing bindings, producer leases, runs and frame journal. Reuse these owners rather than nesting detached pumps or adding a second event store for one run.
+
+## Recent Changes
+- 2026-08-17-harness-engine: Added an independent AgentCore Harness Engine with detached runs, replayable sessions, and W3C trace propagation

@@ -54,11 +54,13 @@ from dynamic_agents.services.sandbox_client import SandboxError
 from dynamic_agents.services.sandbox_lifecycle import clear_sandbox_session, restart_sandbox_session
 from dynamic_agents.services.sandbox_runtime import SandboxRuntime, sandbox_runtime
 from dynamic_agents.services.session_bindings import (
+    ExecutionOwnerConflictError,
     clear_delegated_sessions,
     get_delegated_sessions,
     get_native_binding,
     get_sandbox_binding,
     link_delegated_session,
+    require_native_execution_owner,
     resolve_native_binding,
 )
 from dynamic_agents.services.session_runs import (
@@ -142,6 +144,10 @@ class AgentExecutionService:
         retain_result: bool = False,
     ) -> NativeExecutionRun:
         """Admit one durable request; a retry attaches instead of repeating tools."""
+        if self.mongo is not None:
+            await await_session_operation(require_native_execution_owner, self.mongo, turn.agent, turn.session_id)
+        elif turn.agent.execution_harness_id != "dynamic_agents":
+            raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
         turn = replace(turn, turn_id=turn.turn_id or str(uuid4()))
         saved = await self._saved_agent(turn.agent.id, turn.session_id)
         if (saved or turn.agent).execution.kind == "sandbox":
@@ -250,6 +256,10 @@ class AgentExecutionService:
         async with self._session(turn.agent.id, turn.session_id, execute=True):
             external_child = inline_harness_admission.get() is not None
             agent = turn.agent
+            if self.mongo is not None and mode is _RuntimeMode.EPHEMERAL:
+                await await_session_operation(require_native_execution_owner, self.mongo, agent, turn.session_id)
+            if self.mongo is None and agent.execution_harness_id != "dynamic_agents":
+                raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
             if self.mongo is not None and mode is not _RuntimeMode.EPHEMERAL:
                 agent = await await_session_operation(
                     resolve_native_binding, self.mongo, agent, turn.session_id, resume=turn.resume_data is not None

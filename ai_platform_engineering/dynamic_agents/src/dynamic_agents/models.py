@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -602,6 +602,18 @@ class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 
     name: str = Field(..., description="Display name")
+    execution_harness_id: str = Field("dynamic_agents", pattern=r"^[a-z][a-z0-9_]{1,63}$")
+
+    @field_validator("execution_harness_id", mode="before")
+    @classmethod
+    def normalize_execution_harness(cls, value: Any) -> str:
+        if value is None:
+            return "dynamic_agents"
+        if not isinstance(value, str):
+            raise ValueError("execution_harness_id must be a string")
+        normalized = value.strip().lower()
+        return "dynamic_agents" if normalized in {"", "dynamic_agents", "langchain-deepagents", "langchain_deepagents"} else normalized
+
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
     execution: AgentExecutionConfig = Field(default_factory=AgentExecutionConfig)

@@ -2,10 +2,12 @@
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { ContextUsageIndicator } from "@/components/chat/ContextUsageIndicator";
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
@@ -734,6 +736,8 @@ export function ChatPanel({
   const [recoveringMessageId, setRecoveringMessageId] = useState<string | null>(null);
   const [runDisplayStatus, setRunDisplayStatus] = useState<NativeRunStatus | "reconnecting" | "disconnected" | "cancelling" | null>(null);
   const [runRecoveryError, setRunRecoveryError] = useState<string | null>(null);
+  const [boundHarness, setBoundHarness] = useState<{ conversationId: string; harnessId: string } | null>(null);
+  const activeBoundHarness = boundHarness?.conversationId === conversationId ? boundHarness.harnessId : undefined;
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const recoveredConversationsRef = useRef(new Set<string>());
 
@@ -1108,6 +1112,10 @@ export function ChatPanel({
         setRunRecoveryError(null);
       }
     },
+    onHarnessResolved(harnessId) {
+      // Bind presentation to the admitted run, not the agent's editable default.
+      setBoundHarness({ conversationId: convId, harnessId });
+    },
     onRunStatus(status) {
       loopState.hitlFormRequested = status === "awaiting_input";
       if (status === "awaiting_input") interruptCheckedRef.current.delete(convId);
@@ -1370,6 +1378,7 @@ export function ChatPanel({
         const run = await getLatestNativeRun({ conversationId, agentId }, { accessToken, signal: controller.signal });
         if (cancelled) return;
         recoveredConversationsRef.current.add(key);
+        if (run?.harness_id) setBoundHarness({ conversationId, harnessId: run.harness_id });
         if (!run || useChatStore.getState().isConversationStreaming(conversationId)) return;
         const current = useChatStore.getState().conversations.find((item) => item.id === conversationId);
         // Clear/rewind deliberately removes turns. An older retained journal
@@ -2463,6 +2472,36 @@ export function ChatPanel({
 
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
+      <div
+        className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
+        aria-label={`Talking to ${agentName || agentId}`}
+      >
+        <AgentAvatar
+          agent={agent}
+          agentId={agentId}
+          rounded="rounded-lg"
+          size="h-9 w-9"
+          iconSize="h-4 w-4"
+          isLoading={!agent && !readOnly}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Talking to
+          </p>
+          <p className="truncate text-sm font-semibold" title={agentName || agentId}>
+            {agentName || agentId}
+          </p>
+        </div>
+        {activeBoundHarness || agent ? (
+          <AgentHarnessBadge
+            harnessId={activeBoundHarness ?? agent?.execution_harness_id}
+            context={activeBoundHarness ? "execution" : "configured"}
+          />
+        ) : (
+          <Skeleton className="h-6 w-24 rounded-full" />
+        )}
+      </div>
+
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>

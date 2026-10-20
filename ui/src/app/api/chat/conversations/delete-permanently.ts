@@ -1,7 +1,8 @@
+import { ApiError } from '@/lib/api-middleware';
+import { getHarnessEngineConfig, proxyHarnessEngine } from '@/lib/harness-engine-proxy';
 import { getCollection } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
 import { resolveConversationRuntimeId } from '@/app/api/v1/chat/_conversation-authz';
-import { ApiError } from '@/lib/api-error';
 import { authenticateRequest, buildBackendHeaders, getDynamicAgentsConfig } from '@/lib/da-proxy';
 import { readBoundedBody } from '@/lib/dynamic-agents/bounded-body';
 import { NextRequest, NextResponse } from 'next/server';
@@ -82,8 +83,8 @@ export async function deleteConversationsPermanently(
     throw new ApiError('Stop the active agent run before permanently deleting this conversation. History has been retained.', 409);
   }
 
-  const bindings = await getCollection<SandboxSessionBinding>('native_acp_sessions');
-  const saved = (await bindings.find({
+  const sandboxBindings = await getCollection<SandboxSessionBinding>('native_acp_sessions');
+  const saved = (await sandboxBindings.find({
     session_id: { $in: [...runtimeIds] }, runtime_kind: 'sandbox',
   }).toArray()).filter((binding) => binding.runtime_kind === 'sandbox');
   if (saved.length > 0) {
@@ -122,6 +123,36 @@ export async function deleteConversationsPermanently(
     }
   }
 
+  // Provider deletion must complete before visible history disappears. The
+  // canonical tombstone already prevents any previously authorized late start.
+  const engineSessions = await getCollection<{
+    agent_id: string; conversation_id: string; owner_subject: string;
+  }>('harness_sessions');
+  const bindings = await engineSessions.find(
+    { conversation_id: { $in: [...runtimeIds] } },
+    { projection: { _id: 0, agent_id: 1, conversation_id: 1, owner_subject: 1 } },
+  ).toArray();
+  if (bindings.length > 0) {
+    const config = getHarnessEngineConfig();
+    if (config instanceof NextResponse) throw new ApiError('Harness Engine is unavailable; retry deletion after it recovers.', 503);
+    const visited = new Set<string>();
+    for (const binding of bindings) {
+      if (!binding.owner_subject || !binding.agent_id || !runtimeIds.has(binding.conversation_id)) {
+        throw new ApiError('Provider session identity is invalid; deletion was stopped.', 503);
+      }
+      const key = JSON.stringify([binding.owner_subject, binding.agent_id, binding.conversation_id]);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      // These identities come only from provider-owned stored bindings after
+      // the caller's conversation-delete grant was checked by the owning route.
+      const response = await proxyHarnessEngine(config, { subject: binding.owner_subject }, '/api/v1/sessions/delete', {
+        method: 'POST', body: JSON.stringify({ agent_id: binding.agent_id, conversation_id: binding.conversation_id }),
+      });
+      if (!response.ok) throw new ApiError('Provider execution has not finished stopping; retry permanent deletion.', response.status === 409 ? 409 : 503);
+    }
+  }
+  const routing = await getCollection('harness_gateway_bindings');
+  await routing.deleteMany({ session_id: { $in: [...runtimeIds] } });
 
   const conversations = await getCollection<Conversation>('conversations');
   await conversations.deleteMany({ _id: { $in: ids } });
@@ -145,7 +176,7 @@ export async function deleteConversationsPermanently(
   });
   const toolRequests = await getCollection('native_acp_tool_requests');
   await toolRequests.deleteMany({ session_id: { $in: [...runtimeIds] } });
-  await bindings.deleteMany({ session_id: { $in: [...runtimeIds] } });
+  await sandboxBindings.deleteMany({ session_id: { $in: [...runtimeIds] } });
 
   const agentIds = items
     .filter((c) => c.participants?.some((p: { type: string }) => p.type === 'agent'))

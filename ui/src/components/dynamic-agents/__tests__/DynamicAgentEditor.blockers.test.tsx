@@ -116,6 +116,8 @@ jest.mock("framer-motion", () => ({
 // ============================================================================
 
 import { DynamicAgentEditor } from "../DynamicAgentEditor";
+import { nativeHarnessDescriptor } from "@/lib/native-harness-catalog";
+import type { AgentRuntimeCatalog } from "@/types/dynamic-agent";
 import { pickTeam } from "@/__test-utils__/team-picker";
 
 // ============================================================================
@@ -141,6 +143,7 @@ function mockApi(options: { profiles?: unknown[]; runtimes?: unknown[]; noModels
   const fetchMock = jest.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const u = typeof url === "string" ? url : url.toString();
+      if (u.includes("/api/harness-engine/harnesses")) return jsonResponse({ success: true, data: { catalog_revision: "engine-v1", harnesses: [nativeHarnessDescriptor({ profiles: options.profiles ?? [], runtimes: options.runtimes } as AgentRuntimeCatalog)] } });
       if (u.includes("/api/dynamic-agents/runtime-profiles")) return jsonResponse({ success: true, data: { profiles: options.profiles ?? [], ...(options.runtimes ? { runtimes: options.runtimes } : {}) } });
       if (u.includes("/api/dynamic-agents/models") && options.noModels) return jsonResponse({ success: true, data: [] });
       if (u.includes("/api/dynamic-agents/models")) {
@@ -263,6 +266,26 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not require an owner team when creating a global agent", async () => {
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), {
+      target: { value: "global-agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Global/ }));
+
+    const createButton = screen.getByRole("button", { name: /Create Agent/i });
+    expect(screen.getByLabelText(/Owner Team/i)).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(createButton).not.toHaveAttribute(
+      "title",
+      expect.stringContaining("Owner Team is required") as unknown as string,
+    );
+  });
+
   it("starts on the deep-linked setup step and reports subsequent step changes", async () => {
     const onStepChange = jest.fn();
     render(
@@ -357,7 +380,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     await flushAsync();
     fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), { target: { value: "Example sandbox" } });
     await pickTeam(/Owner Team/i, "platform");
-    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
+    fireEvent.change(screen.getByLabelText("Operator profile"), { target: { value: "sandbox:primary" } });
     expect(screen.queryByLabelText(/LLM Model/)).not.toBeInTheDocument();
     expect(screen.getByText("Workspace and policy details are not reported by this server.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add instructions" }));
@@ -389,14 +412,14 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(screen.getByText("Default workspace")).toBeInTheDocument();
     expect(screen.getByText("Conversation")).toBeInTheDocument();
     expect(screen.getByText("Logical filesystem")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
+    fireEvent.change(screen.getByLabelText("Operator profile"), { target: { value: "sandbox:primary" } });
     expect(screen.getByText(/private sandbox for each caller-owned conversation/)).toBeInTheDocument();
     expect(screen.getByText("Real sandbox filesystem")).toBeInTheDocument();
     expect(screen.getByText("Caller-owned conversation")).toBeInTheDocument();
     expect(screen.getByText("CAIPE and the operator profile")).toBeInTheDocument();
     expect(screen.getByText(/Agent sharing controls access to its definition. Conversation access and workspace policies are separate/)).toBeInTheDocument();
     expect(screen.getByText(/Approved workflow artifacts can be synchronized separately/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Agent runtime")).toHaveValue("sandbox:primary");
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("sandbox:primary");
   });
 
   it("preserves broker-qualified features while retaining harness-owned middleware configuration", async () => {
@@ -405,7 +428,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     const onSave = jest.fn();
     render(<DynamicAgentEditor cloneFrom={source} onCancel={jest.fn()} onSave={onSave} />);
     await flushAsync();
-    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
+    fireEvent.change(screen.getByLabelText("Operator profile"), { target: { value: "sandbox:primary" } });
     fireEvent.click(screen.getByRole("button", { name: /Tools/ }));
     expect(screen.getByTestId("builtin-tools-picker")).toBeEnabled();
     expect(screen.getByTestId("allowed-tools-picker")).toBeEnabled();
@@ -428,10 +451,10 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     const source = { _id: "agent-primary", name: "Example", system_prompt: "Instructions", execution: { kind: "sandbox", profile_id: "retired" }, visibility: "team", owner_team_slug: "platform", allowed_tools: {}, subagents: [], skills: [], enabled: true, owner_id: "owner@example.test", is_system: false, created_at: "", updated_at: "" } as import("@/types/dynamic-agent").DynamicAgentConfig;
     render(<DynamicAgentEditor agent={source} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
-    expect(screen.getByLabelText("Agent runtime")).toHaveValue("sandbox:retired");
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("sandbox:retired");
     expect(screen.getByRole("option", { name: "Unavailable profile: retired" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "native" } });
+    fireEvent.change(screen.getByLabelText("Operator profile"), { target: { value: "native" } });
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled();
   });
 
@@ -555,7 +578,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     const source = { _id: "agent-primary", name: "Example", system_prompt: "Use permitted tools", visibility: "team", owner_team_slug: "platform", allowed_tools: {}, subagents: [], skills: ["skill-primary"], enabled: true, owner_id: "owner@example.test", is_system: false, created_at: "", updated_at: "" } as import("@/types/dynamic-agent").DynamicAgentConfig;
     render(<DynamicAgentEditor cloneFrom={source} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
-    fireEvent.change(screen.getByLabelText("Agent runtime"), { target: { value: "sandbox:primary" } });
+    fireEvent.change(screen.getByLabelText("Operator profile"), { target: { value: "sandbox:primary" } });
     expect(screen.getByText(/This profile does not support the selected skills/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create Agent" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Clear selected skills" }));
