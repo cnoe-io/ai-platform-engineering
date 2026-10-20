@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { FolderPlus } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
+import { ChevronDown, FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchablePicker } from "@/components/ui/searchable-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import type { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
@@ -12,25 +12,51 @@ type Organization = ReturnType<typeof useChatHistoryOrganization>;
 export type OrganizationDialog = { kind: "create" } | { kind: "rename"; id: string; name: string }
   | { kind: "move"; id: string; title: string };
 
-export function ChatHistoryOrganizationControls({ state, dialog, onDialog, children, allowFolders = true }: {
+export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sources, source, onSourceChange, allowFolders = true }: {
   state: Organization; dialog: OrganizationDialog | null; onDialog: (value: OrganizationDialog | null) => void;
-  children: ReactNode; allowFolders?: boolean;
+  sources: ReadonlyArray<{ value: string; label: string; content: ReactNode }>;
+  source: string; onSourceChange: (value: string) => void; allowFolders?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const selectedSource = sources.find(option => option.value === source) ?? sources[0];
   return <>
     <div className="flex items-center gap-1">
-      <div className="min-w-0 flex-1">{children}</div>
+      <Popover open={open} onOpenChange={setOpen} className="min-w-0 flex-1">
+        <PopoverTrigger asChild>
+          <button type="button" aria-label="Filter chat history" aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-menu`}
+            className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-background px-3 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {selectedSource?.content}<ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[280px] max-w-[calc(100vw-16px)] p-2">
+          <div id={`${id}-menu`} role="dialog" aria-label="Chat history options">
+            <fieldset>
+              <legend className="px-2 py-1 text-xs font-medium text-muted-foreground">Chat source</legend>
+              {sources.map(option => <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent focus-within:bg-accent">
+                <input type="radio" name={`${id}-source`} value={option.value} aria-label={option.label}
+                  checked={option.value === source} autoFocus={option.value === source}
+                  className="h-3.5 w-3.5 shrink-0 accent-primary" onChange={() => onSourceChange(option.value)} />
+                {option.content}
+              </label>)}
+            </fieldset>
+            {allowFolders && <fieldset className="mt-2 border-t border-border pt-2" disabled={!state.ready || state.saving}>
+              <legend className="px-2 text-xs font-medium text-muted-foreground">Group by</legend>
+              {([{ value: "ungrouped", label: "Ungrouped" }, { value: "agents", label: "Agent" }, { value: "folders", label: "Folders" }] as const).map(option =>
+                <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent focus-within:bg-accent has-[:disabled]:cursor-default has-[:disabled]:opacity-50">
+                  <input type="radio" name={`${id}-group`} value={option.value} checked={state.value.view === option.value}
+                    className="h-3.5 w-3.5 shrink-0 accent-primary" onChange={() => void state.update(value => ({ ...value, view: option.value }))} />
+                  {option.label}
+                </label>)}
+            </fieldset>}
+          </div>
+        </PopoverContent>
+      </Popover>
       {allowFolders && <Button size="icon" variant="ghost" aria-label="New chat folder" title="New chat folder" className="h-8 w-8 shrink-0"
         disabled={!state.ready || state.saving || state.value.folders.length >= 100} onClick={() => onDialog({ kind: "create" })}>
         <FolderPlus className="h-4 w-4" />
       </Button>}
     </div>
-    {allowFolders && <Select aria-label="Group chat history" className="mt-2 h-8 min-w-0 text-xs" value={state.value.view}
-      disabled={!state.ready || state.saving} onChange={event => {
-        const view = event.target.value as typeof state.value.view;
-        void state.update(value => ({ ...value, view }));
-      }}>
-      <option value="ungrouped">Ungrouped</option><option value="agents">Group by agent</option><option value="folders">Folders</option>
-    </Select>}
     {state.error && <p role="alert" className="pt-1 text-xs text-destructive">{state.error} {!state.ready && <button type="button" className="underline" onClick={state.retry}>Retry</button>}</p>}
     <Dialog open={!!dialog} onOpenChange={open => { if (!open && !state.saving) onDialog(null); }}>
       {dialog && <OrganizationForm key={JSON.stringify(dialog)} state={state} dialog={dialog} close={() => onDialog(null)} />}

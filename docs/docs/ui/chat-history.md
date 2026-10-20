@@ -4,8 +4,9 @@ sidebar_position: 6
 
 # Organize chat history
 
-The chat sidebar has two independent dropdowns: chat source and grouping.
-Choose a source such as Web chats, then one of these grouping views:
+The chat sidebar has one menu with independent **Chat source** and **Group by** sections.
+The button shows only the selected source, such as **Web chats**.
+Choose one of these grouping views inside the menu:
 
 - **Ungrouped**: the current conversation list, including chats assigned to folders.
 - **Group by agent**: a collapsible group for each agent represented in the loaded history.

@@ -11,7 +11,6 @@ import { ShareButton } from "@/components/chat/ShareButton";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SearchablePicker } from "@/components/ui/searchable-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { autonomousApi } from "@/components/autonomous/api";
@@ -709,31 +708,16 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           {!collapsed && (
             <div className="px-2 pb-2 shrink-0">
               <ChatHistoryOrganizationControls state={organization} dialog={organizationDialog}
-                onDialog={setOrganizationDialog} allowFolders={historyFilter !== "webhook"}>
-                <SearchablePicker
-                  options={availableHistoryFilters}
-                  selected={selectedHistoryFilter}
-                  onSelect={filter => handleHistoryFilterChange(filter.value)}
-                  getOptionKey={filter => filter.value}
-                  getOptionLabel={filter => filter.label}
-                  renderValue={filter => {
-                    const Icon = filter.icon;
-                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span></>;
-                  }}
-                  renderOption={filter => {
-                    const Icon = filter.icon;
-                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span></>;
-                  }}
-                  placeholder="Filter chats"
-                  searchPlaceholder="Search chat types..."
-                  emptyLabel="No chat types match"
-                  ariaLabel="Filter chat history"
-                  required
-                  prioritizeSelected={false}
-                  triggerClassName="h-8 py-1 text-xs"
-                  contentClassName="w-[300px]"
-                />
-              </ChatHistoryOrganizationControls>
+                onDialog={setOrganizationDialog} allowFolders={historyFilter !== "webhook"}
+                source={selectedHistoryFilter.value}
+                onSourceChange={value => handleHistoryFilterChange(value as ConversationHistoryFilter)}
+                sources={availableHistoryFilters.map(filter => {
+                  const Icon = filter.icon;
+                  return { value: filter.value, label: filter.label, content: <>
+                    <Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span>
+                  </> };
+                })}
+              />
             </div>
           )}
           <ScrollArea
