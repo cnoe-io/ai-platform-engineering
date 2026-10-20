@@ -146,7 +146,8 @@ jobs:
             tests/test_bedrock_family.py -q
 
   run-dynamic-agents-tests:
-    runs-on: ubuntu-latest
+    # MongoDB 8 rejects Linux kernels 6.19+: https://jira.mongodb.org/browse/SERVER-121912
+    runs-on: ubuntu-24.04
     services:
       mongodb:
         image: mongo:8
@@ -209,7 +210,7 @@ jobs:
         continue-on-error: true
 
   run-harness-engine-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mongodb:
         image: mongo:8
