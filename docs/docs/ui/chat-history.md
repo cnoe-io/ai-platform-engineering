@@ -19,9 +19,17 @@ to move it; drop onto **Unfiled** to remove its folder assignment. Drop targets
 highlight while dragging, and a collapsed destination opens after a successful move.
 The move button remains available for keyboard and touch use.
 Folder headers support collapse, rename and removal.
+
+Reorder folder or agent groups using the grip beside a group heading. Drag it
+above or below another heading, or click it for **Move up** / **Move down**.
+Keyboard users can focus the grip and press **Alt + Arrow Up/Down**.
+Each grouping view keeps its own order, including Unfiled. Collapse state and
+chat assignments stay attached to their groups. Groups hidden by a source filter
+retain their saved positions; newly encountered groups appear after saved groups.
+Ungrouped keeps the existing conversation order.
 Removing a folder returns its chats to Unfiled; it does not archive chats.
 
-Folders, assignments, view selection and collapsed groups are saved in the
+Folders, assignments, view selection, group order and collapsed groups are saved in the
 signed-in user's `user_settings.preferences.chat_history`. They do not change
 conversation ownership, sharing or agent access. Browser-only installations
 store the same preferences locally, scoped to the current account.

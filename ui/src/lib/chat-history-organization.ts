@@ -4,6 +4,7 @@ export interface ChatHistoryOrganization {
   folders: Array<{ id: string; name: string }>;
   assignments: Record<string, string>;
   collapsed: string[];
+  groupOrder?: string[];
 }
 export const EMPTY_CHAT_ORGANIZATION: ChatHistoryOrganization = {
   view: "ungrouped", folders: [], assignments: {}, collapsed: [],
@@ -34,5 +35,23 @@ export function parseChatHistoryOrganization(input: unknown): ChatHistoryOrganiz
     return [id, folder];
   }));
   if (v.collapsed.some(k => typeof k !== "string" || !/^[a-zA-Z0-9:_-]{1,240}$/.test(k))) throw new Error("Invalid collapsed group");
-  return { view: v.view, folders, assignments, collapsed: [...new Set(v.collapsed)] };
+  if (v.groupOrder !== undefined && (!Array.isArray(v.groupOrder) || v.groupOrder.length > 1100 ||
+      v.groupOrder.some(key => typeof key !== "string" || !/^(agent|folder):[a-zA-Z0-9:_-]{1,230}$/.test(key)) ||
+      new Set(v.groupOrder).size !== v.groupOrder.length)) throw new Error("Invalid chat group order");
+  return { view: v.view, folders, assignments, collapsed: [...new Set(v.collapsed)],
+    ...(v.groupOrder !== undefined ? { groupOrder: [...v.groupOrder] } : {}) };
+
+}
+
+/** Reorder visible groups without discarding positions for other filters or grouping views. */
+export function reorderChatHistoryGroups(saved: readonly string[], visible: readonly string[], source: string,
+  target: string, position: "before" | "after"): string[] {
+  const order = [...new Set([...saved, ...visible])];
+  if (source === target || !visible.includes(source) || !visible.includes(target)) return order;
+  const visibleSet = new Set(visible);
+  const moved = order.filter(key => visibleSet.has(key) && key !== source);
+  const destination = moved.indexOf(target) + (position === "after" ? 1 : 0);
+  moved.splice(destination, 0, source);
+  let index = 0;
+  return order.map(key => visibleSet.has(key) ? moved[index++] : key);
 }

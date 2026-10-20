@@ -3,6 +3,8 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { ChatHistoryOrganizationControls, type OrganizationDialog } from "@/components/chat/ChatHistoryOrganizationControls";
+import { ChatHistoryGroupReorder, type GroupDrop } from "@/components/chat/ChatHistoryGroupReorder";
+import { reorderChatHistoryGroups } from "@/lib/chat-history-organization";
 import { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
 import { NewChatButton } from "@/components/chat/NewChatButton";
 import { ConversationListSkeleton } from "@/components/chat/ConversationListSkeleton";
@@ -267,6 +269,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
       return { ...value, assignments, collapsed: value.collapsed.filter(k => k !== key) };
     });
   };
+  const [groupDrop, setGroupDrop] = useState<GroupDrop | null>(null);
+  const [groupMoveAnnouncement, setGroupMoveAnnouncement] = useState("");
   const [organizationDialog, setOrganizationDialog] = useState<OrganizationDialog | null>(null);
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
@@ -644,12 +648,25 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
       groups.get(key)!.conversations.push(conversation);
     });
     conversationListItems.length = 0;
-    for (const [key, group] of groups) {
+    const ranks = new Map((organization.value.groupOrder ?? []).map((key, index) => [key, index]));
+    const orderedGroups = [...groups].sort(([a], [b]) => (ranks.get(a) ?? Infinity) - (ranks.get(b) ?? Infinity));
+    for (const [key, group] of orderedGroups) {
       conversationListItems.push({ kind: "group", key, label: group.label, count: group.conversations.length, folderId: group.folderId });
       if (!organization.value.collapsed.includes(key)) conversationListItems.push(...group.conversations.map(
         (conversation): ConversationListItem => ({ kind: "conversation", conversation })));
     }
   }
+  const groupKeys = conversationListItems.flatMap(item => item.kind === "group" ? [item.key] : []);
+  const moveHistoryGroup = (source: string, target: GroupDrop) => {
+    if (!organization.ready || organization.saving || !groupKeys.includes(source) || !groupKeys.includes(target.key)) return;
+    const order = reorderChatHistoryGroups(organization.value.groupOrder ?? [], groupKeys, source, target.key, target.position);
+    if (order.filter(key => groupKeys.includes(key)).every((key, index) => key === groupKeys[index])) return;
+    const label = conversationListItems.find(item => item.kind === "group" && item.key === source);
+    const destination = conversationListItems.find(item => item.kind === "group" && item.key === target.key);
+    void organization.update(value => ({ ...value,
+      groupOrder: reorderChatHistoryGroups(value.groupOrder ?? [], groupKeys, source, target.key, target.position),
+    })).then(saved => { if (saved && label?.kind === "group") setGroupMoveAnnouncement(`Moved ${label.label} ${target.position} ${destination?.kind === "group" ? destination.label : "the destination group"}.`); });
+  };
   if (historyFilter === 'autonomous' && webhookTasks.length > 0) {
     conversationListItems.push({ kind: 'webhook-section' });
     if (webhooksExpanded) {
@@ -727,6 +744,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           >
             {/* Replace filter contents synchronously: exiting headers/rows must not
                 linger over the newly selected history. */}
+            <div role="status" aria-live="polite" className="sr-only">{groupMoveAnnouncement}</div>
             <div key={historyFilter} className="px-2 space-y-1 pb-4">
               {isLoadingConversations && conversationListItems.length === 0 ? (
                 <ConversationListSkeleton collapsed={collapsed} />
@@ -736,10 +754,16 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   if (item.kind === "group") {
                     const expanded = !organization.value.collapsed.includes(item.key);
                     return <div key={item.key}
+                      data-chat-group-key={item.key}
                       data-chat-folder-drop-target={organization.value.view === "folders" ? item.key : undefined}
                       className={cn("group flex items-center gap-1 rounded-lg pt-2 transition-colors",
-                        dropFolderKey === item.key && "bg-primary/15 ring-2 ring-inset ring-primary")}
+                        dropFolderKey === item.key && "bg-primary/15 ring-2 ring-inset ring-primary",
+                        groupDrop?.key === item.key && (groupDrop.position === "before" ? "shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : "shadow-[inset_0_-2px_0_0_hsl(var(--primary))]"))}
                     >
+                      <ChatHistoryGroupReorder groupKey={item.key} label={item.label} keys={groupKeys}
+                        scope={`${organizationIdentity}:${historyFilter}:${organization.value.view}`}
+                        disabled={!organization.ready || organization.saving} viewport={conversationScrollViewportRef.current}
+                        onMove={moveHistoryGroup} onTarget={setGroupDrop} />
                       <button type="button" aria-expanded={expanded} disabled={organization.saving}
                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
                         onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
@@ -755,7 +779,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           aria-label={`Remove folder ${item.label}`} title="Remove folder; keep chats in Unfiled" disabled={organization.saving}
                           onClick={() => void organization.update(v => ({ ...v, folders: v.folders.filter(f => f.id !== item.folderId),
                             assignments: Object.fromEntries(Object.entries(v.assignments).filter(([, id]) => id !== item.folderId)),
-                            collapsed: v.collapsed.filter(k => k !== item.key) }))}><X className="h-3 w-3" /></Button>
+                            collapsed: v.collapsed.filter(k => k !== item.key),
+                            ...(v.groupOrder ? { groupOrder: v.groupOrder.filter(k => k !== item.key) } : {}) }))}><X className="h-3 w-3" /></Button>
                       </>}
                     </div>;
                   }

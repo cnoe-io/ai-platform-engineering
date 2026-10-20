@@ -67,7 +67,9 @@ export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sourc
 function OrganizationForm({ state, dialog, close }: { state: Organization; dialog: OrganizationDialog; close: () => void }) {
   const [name, setName] = useState(dialog.kind === "rename" ? dialog.name : "");
   const [folder, setFolder] = useState(dialog.kind === "move" ? state.value.assignments[dialog.id] ?? "" : "");
-  const options = [{ id: "", name: "Unfiled" }, ...state.value.folders];
+  const folderRanks = new Map((state.value.groupOrder ?? []).map((key, index) => [key, index]));
+  const options = [{ id: "", name: "Unfiled" }, ...state.value.folders].sort((a, b) =>
+    (folderRanks.get(`folder:${a.id || "unfiled"}`) ?? Infinity) - (folderRanks.get(`folder:${b.id || "unfiled"}`) ?? Infinity));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const saved = await state.update(v => {
