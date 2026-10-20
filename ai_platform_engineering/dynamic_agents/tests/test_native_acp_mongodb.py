@@ -324,3 +324,43 @@ def test_direct_native_and_gateway_claims_choose_one_owner(
             winner = gateway.result(timeout=10)
             assert native.result(timeout=10) is (winner == "dynamic_agents")
         assert state.db.harness_gateway_bindings.count_documents({"_id": key}) == 1
+
+
+@pytest.mark.parametrize("harness_id", ["agentcore", "claude_agent_sdk"])
+def test_direct_native_rejects_legacy_owner_keyed_engine_choice(
+    native_database: SimpleNamespace, harness_id: str,
+) -> None:
+    state = native_database
+    key = hashlib.sha256(json.dumps(
+        ["owner-example", state.agent.id, state.session_id], separators=(",", ":"),
+    ).encode()).hexdigest()
+    state.db.harness_gateway_bindings.insert_one({
+        "_id": key, "owner_subject": "owner-example", "agent_id": state.agent.id,
+        "conversation_id": state.session_id, "harness_id": harness_id,
+    })
+    with pytest.raises(ExecutionOwnerConflictError, match="saved execution owner"):
+        require_native_execution_owner(state.mongo, state.agent, state.session_id)
+    assert state.db.native_acp_sessions.count_documents({}) == 0
+    assert state.db.harness_gateway_bindings.count_documents({"session_id": state.session_id}) == 0
+
+
+def test_direct_native_adopts_legacy_native_alias_without_ignoring_conflicting_owners(
+    native_database: SimpleNamespace,
+) -> None:
+    state = native_database
+    for owner, harness_id in [("owner-example", "langchain-deepagents"), ("other-owner", "dynamic_agents")]:
+        key = hashlib.sha256(json.dumps(
+            [owner, state.agent.id, state.session_id], separators=(",", ":"),
+        ).encode()).hexdigest()
+        state.db.harness_gateway_bindings.insert_one({
+            "_id": key, "owner_subject": owner, "agent_id": state.agent.id,
+            "conversation_id": state.session_id, "harness_id": harness_id,
+        })
+    require_native_execution_owner(state.mongo, state.agent, state.session_id)
+    reference = state.db.harness_gateway_bindings.find_one({"session_id": state.session_id})
+    assert reference is not None and reference["harness_id"] == "dynamic_agents"
+    state.db.harness_gateway_bindings.update_one(
+        {"owner_subject": "other-owner"}, {"$set": {"harness_id": "agentcore"}},
+    )
+    with pytest.raises(ExecutionOwnerConflictError, match="saved execution owner"):
+        require_native_execution_owner(state.mongo, state.agent, state.session_id)

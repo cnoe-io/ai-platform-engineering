@@ -106,7 +106,6 @@ jest.mock('lucide-react', () => ({
   Loader2: (props: unknown) => <span data-testid="icon-loader" {...props} />,
   Cpu: (props: unknown) => <span data-testid="icon-cpu" {...props} />,
   History: (props: unknown) => <span data-testid="icon-history" {...props} />,
-  Loader2: (props: unknown) => <span data-testid="icon-loader" {...props} />,
   Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
   ArchiveRestore: (props: unknown) => <span data-testid="icon-archive-restore" {...props} />,

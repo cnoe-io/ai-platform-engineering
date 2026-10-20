@@ -2898,17 +2898,17 @@ routes:
         status: 403
         reason: pdp_denied
 
-  - id: ui-bff-post-api-harness-engine-sessions-clear-openfga-agent-use
+  - id: ui-bff-post-api-harness-engine-sessions-clear-openfga-conversation-write
     surface: ui_bff
     method: POST
     path: /api/harness-engine/sessions/clear
     authorization_system: openfga
-    resource: agent
-    scope: use
-    relation: can_use
-    object_type: agent
+    resource: conversation
+    scope: write
+    relation: can_write
+    object_type: conversation
     migration_status: migrated
-    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before clearing the caller's Harness Engine session binding.
+    notes: Conversation write authorization before clearing the caller's saved Engine session; revoked agent use does not block cleanup. The saved runtime binding is resolved before the mutable agent default.
     expectations:
       alice_admin:
         status: 200
@@ -2929,3 +2929,206 @@ routes:
 
   # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
   # added as pending until the corresponding user-story endpoints land.
+
+  - id: ui-bff-get-api-dynamic-agents-conversations-id-files-list-openfga-agent-use
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations/[id]/files/list
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for logical files; conversation read and native-capability checks also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-get-api-dynamic-agents-conversations-id-files-content-openfga-agent-use
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations/[id]/files/content
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for logical file reads; conversation read and native-capability checks also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-delete-api-dynamic-agents-conversations-id-files-content-openfga-agent-use
+    surface: ui_bff
+    method: DELETE
+    path: /api/dynamic-agents/conversations/[id]/files/content
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for logical file deletion; conversation write and native-capability checks also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-post-api-dynamic-agents-chat-restart-runtime-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/dynamic-agents/chat/restart-runtime
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for runtime restart; the existing stricter agent-manage gate also applies before this agent-use gate. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-get-api-harness-engine-runs-runid-openfga-agent-use
+    surface: ui_bff
+    method: GET
+    path: /api/harness-engine/runs/[runId]
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for Engine status; conversation read and exact owner/agent/context matching also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-get-api-harness-engine-runs-runid-events-openfga-agent-use
+    surface: ui_bff
+    method: GET
+    path: /api/harness-engine/runs/[runId]/events
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for Engine event reads; conversation read and exact owner/agent/context matching also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-get-api-harness-engine-runs-runid-events-stream-openfga-agent-use
+    surface: ui_bff
+    method: GET
+    path: /api/harness-engine/runs/[runId]/events/stream
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Agent-use decision for Engine event subscription; conversation read and exact owner/agent/context matching also apply. These expectations describe this gate; additional operation checks retain their independent denials.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied

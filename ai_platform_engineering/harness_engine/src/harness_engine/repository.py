@@ -19,6 +19,7 @@ from harness_engine.models import (
     AgentBlueprint,
     AgentRecord,
     AgentVersion,
+    CreateRunRequest,
     ProviderResource,
     RunEvent,
     RunRecord,
@@ -50,12 +51,13 @@ _RUN_INTERNAL = {
     "_owner_token",
     "_producer_stopped",
     "_provider_started",
+    "_provider_drained",
     "_producer_expires_at",
     "_admission_deadline",
     "_pending_event",
     "_cancel_requested",
 }
-_SESSION_INTERNAL = {"_active_run_id", "_producer_id", "_lease_expires_at"}
+_SESSION_INTERNAL = {"_active_run_id", "_producer_id", "_lease_expires_at", "active_run", "dispatch_started"}
 _EVENT_MAX_BYTES = 1_048_576
 _PAGE_MAX_BYTES = 8_388_608
 
@@ -64,13 +66,23 @@ def _event_bytes(document: dict[str, Any]) -> int:
     return len(json.dumps(document, default=str, ensure_ascii=False, separators=(",", ":")).encode())
 
 
+def _provider_drained(document: dict[str, Any]) -> bool:
+    # Before explicit drain acknowledgments, only successful completion after
+    # adapter iteration proves a stopped producer finished its provider work.
+    return bool(document.get("_provider_drained", document.get("_producer_stopped") and document["status"] == "completed"))
+
+
 def _run_record(document: dict[str, Any]) -> RunRecord:
+    if "_cancel_requested" in document:
+        document = {**document, "cancellation_requested": bool(document.get("cancellation_requested") or document["_cancel_requested"])}
     return RunRecord.model_validate(
         {key: value for key, value in document.items() if key not in _RUN_INTERNAL | {"_id"}}
     )
 
 
 def _session_record(document: dict[str, Any]) -> SessionBinding:
+    if document.get("active_run") is not None or document.get("dispatch_started", False) is not False:
+        raise RunAdmissionConflict("Legacy execution owner requires drained-session migration")
     return SessionBinding.model_validate(
         {key: value for key, value in document.items() if key not in _SESSION_INTERNAL | {"_id"}}
     )
@@ -86,6 +98,9 @@ def _matches(document: dict[str, Any], expected: dict[str, Any]) -> bool:
                 return False
         elif isinstance(wanted, dict) and "$in" in wanted:
             if current not in wanted["$in"]:
+                return False
+        elif isinstance(wanted, dict) and "$ne" in wanted:
+            if current == wanted["$ne"]:
                 return False
         elif current != wanted:
             return False
@@ -161,13 +176,62 @@ class RunLifecycle:
             raise RevisionConflictError(run.run_id)
         return run
 
-    async def lookup_request(self, run_id: str, fingerprint: str) -> RunRecord | None:
+    async def lookup_request(
+        self,
+        run_id: str,
+        fingerprint: str,
+        *,
+        owner_subject: str | None = None,
+        request: CreateRunRequest | None = None,
+    ) -> RunRecord | None:
         existing = await self._read_run(run_id)
+        if existing is None and request and request.client_request_id and owner_subject:
+            # Earlier Engine releases assigned UUID run IDs. The accepted request
+            # tuple remains authoritative across an upgrade, before any session
+            # resolution or provider preparation can repeat its side effects.
+            existing = await self._find_run(
+                owner_subject, request.agent_id, request.conversation_id, False, request.client_request_id
+            )
         if existing is None:
             return None
-        if existing.get("_request_fingerprint") != fingerprint:
+        if "request_fingerprint" in existing:
+            if not request or not owner_subject or not existing.get("request_fingerprint"):
+                raise RunAdmissionConflict("Legacy accepted request requires explicit migration")
+            legacy_input = request.model_dump(
+                mode="json", include={"agent_id", "conversation_id", "message", "context", "client_request_id"}
+            )
+            legacy_fingerprint = hashlib.sha256(
+                json.dumps(legacy_input, ensure_ascii=False, separators=(",", ":")).encode()
+            ).hexdigest()
+            if (
+                existing.get("request_fingerprint") != legacy_fingerprint
+                or request.protocol != "agui"
+                or request.expected_harness_id not in (None, existing["harness_id"])
+            ):
+                raise RunAdmissionConflict("client_request_id was already used with different input")
+            if existing["status"] not in TERMINAL_RUN_STATUSES:
+                raise RunAdmissionConflict("Legacy accepted request requires drained-session migration")
+            await self._normalize_legacy_terminal(existing)
+            await self._change_run(
+                existing["run_id"], {"request_fingerprint": legacy_fingerprint},
+                {"_request_fingerprint": fingerprint}, ("request_fingerprint",),
+            )
+        elif existing.get("_request_fingerprint") != fingerprint:
+            if not existing.get("_request_fingerprint"):
+                raise RunAdmissionConflict("Accepted request has no input proof; explicit migration required")
             raise RunAdmissionConflict("client_request_id was already used with different input")
-        return await self.get_run(run_id)
+        return await self.get_run(existing["run_id"])
+
+    async def _normalize_legacy_terminal(self, document: dict[str, Any]) -> None:
+        if document["status"] not in TERMINAL_RUN_STATUSES:
+            raise RunAdmissionConflict("Legacy execution owner requires drained-session migration")
+        pending = document.get("pending_event")
+        if pending:
+            event = RunEvent.model_validate(pending)
+            if event.run_id != document["run_id"] or event.sequence != document["last_sequence"]:
+                raise ReplayUnavailableError("Legacy pending event does not match its committed head")
+            await self._store_event(event.model_dump(mode="python"))
+            await self._change_run(document["run_id"], {"pending_event": pending}, {}, ("pending_event",))
 
     async def admit_run(
         self, run: RunRecord, fingerprint: str, producer_id: str, lease_seconds: float
@@ -177,6 +241,9 @@ class RunLifecycle:
         gateway_owner = await self.gateway_harness(run.agent_id, run.conversation_id)
         if gateway_owner is not None and gateway_owner != run.harness_id:
             raise RunAdmissionConflict("Execution context is bound to a different harness")
+        binding = await self._read_binding(run.binding_id)
+        if binding and (binding.get("active_run") is not None or binding.get("dispatch_started", False) is not False):
+            raise RunAdmissionConflict("Legacy execution owner requires drained-session migration")
         deadline = utc_now() + timedelta(seconds=lease_seconds)
         inserted = await self._insert_run(
             {
@@ -186,9 +253,10 @@ class RunLifecycle:
                 "_owner_token": producer_id,
                 "_producer_stopped": False,
                 "_provider_started": False,
+                "_provider_drained": False,
                 "_producer_expires_at": deadline,
                 "_admission_deadline": deadline,
-                "_cancel_requested": False,
+
             }
         )
         if not inserted:
@@ -237,13 +305,26 @@ class RunLifecycle:
         initial = await self._read_run(run_id)
         if initial is None or await self.is_context_deleted(initial["conversation_id"]):
             return None
+        if "_cancel_requested" in initial:
+            # Rewrite the earlier private flag once; all new state uses the
+            # public Engine cancellation contract, without losing a pending Stop.
+            await self._change_run(
+                run_id, {"_cancel_requested": initial["_cancel_requested"]},
+                {"cancellation_requested": bool(initial.get("cancellation_requested") or initial["_cancel_requested"])},
+                ("_cancel_requested",),
+            )
+        if "request_fingerprint" in initial or "pending_event" in initial:
+            await self._normalize_legacy_terminal(initial)
         document = await self._publish_pending(run_id)
         if not document:
             return None
+        # The legacy public fingerprint is compatibility input only, not a
+        # second authority for newly admitted runs.
+        document.pop("request_fingerprint", None)
         run = _run_record(document)
         producer = document.get("_producer_id")
         if run.status in TERMINAL_RUN_STATUSES:
-            if producer and document.get("_producer_stopped"):
+            if producer and document.get("_producer_stopped") and (not document.get("_provider_started") or _provider_drained(document)):
                 await self._release_binding(run.binding_id, run_id, producer)
             elif producer:
                 binding = await self._read_binding(run.binding_id)
@@ -285,7 +366,7 @@ class RunLifecycle:
             fenced = await self._change_run(
                 run_id,
                 {"_producer_id": producer_id, "status": document["status"], "_pending_event": {"$exists": False}},
-                {"_producer_id": fence, "_cancel_requested": True},
+                {"_producer_id": fence, "cancellation_requested": True},
             )
             if fenced:
                 await self.append_event(
@@ -323,7 +404,7 @@ class RunLifecycle:
         if (
             not document
             or document.get("_producer_id") != producer_id
-            or document.get("_cancel_requested")
+            or ((document.get("cancellation_requested") or document.get("_cancel_requested")) and not document.get("_provider_started"))
             or document["status"] in TERMINAL_RUN_STATUSES
         ):
             return False
@@ -335,8 +416,10 @@ class RunLifecycle:
         renewed = await self._renew_binding(document["binding_id"], run_id, producer_id, now, deadline)
         return renewed and not await self.is_context_deleted(document["conversation_id"])
 
-    async def request_cancel(self, run_id: str) -> RunRecord | None:
-        await self._change_run(run_id, {"status": {"$in": ["queued", "running"]}}, {"_cancel_requested": True})
+    async def request_cancellation(self, run_id: str) -> RunRecord | None:
+        await self._change_run(
+            run_id, {"status": {"$in": ["queued", "running"]}}, {"cancellation_requested": True}, ("_cancel_requested",)
+        )
         return await self.get_run(run_id)
 
     async def begin_provider(self, run_id: str, producer_id: str, lease_seconds: float) -> bool:
@@ -345,7 +428,7 @@ class RunLifecycle:
             return False
         marked = await self._change_run(
             run_id,
-            {"_producer_id": producer_id, "status": "running", "_cancel_requested": False},
+            {"_producer_id": producer_id, "status": "running", "cancellation_requested": {"$ne": True}, "_cancel_requested": {"$ne": True}, "_provider_started": False},
             {"_provider_started": True},
         )
         # This atomic binding renewal is provider admission's linearization
@@ -354,18 +437,32 @@ class RunLifecycle:
 
     async def cancellation_requested(self, run_id: str) -> bool:
         document = await self._read_run(run_id)
-        return bool(document and document.get("_cancel_requested"))
+        return bool(document and (document.get("cancellation_requested") or document.get("_cancel_requested")))
 
-    async def release_run(self, run_id: str, producer_id: str) -> None:
+    async def provider_has_started(self, run_id: str) -> bool:
+        document = await self._read_run(run_id)
+        return bool(document and document.get("_provider_started"))
+
+    async def release_run(self, run_id: str, producer_id: str, *, provider_drained: bool = False) -> None:
         document = await self._read_run(run_id)
         if document:
-            await self._change_run(run_id, {"_owner_token": producer_id}, {"_producer_stopped": True})
-            if document["status"] in TERMINAL_RUN_STATUSES:
+            acknowledged = await self._change_run(
+                run_id, {"_owner_token": producer_id},
+                {"_producer_stopped": True, "_provider_drained": provider_drained or _provider_drained(document)},
+            )
+            if acknowledged and document["status"] in TERMINAL_RUN_STATUSES and (
+                not document.get("_provider_started") or _provider_drained(acknowledged)
+            ):
                 await self._release_binding(document["binding_id"], run_id, producer_id)
+
+    async def context_run_binding_ids(self, owner_subject: str, agent_id: str, conversation_id: str) -> set[str]:
+        return {run["binding_id"] for run in await self._context_runs(owner_subject, agent_id, conversation_id)}
 
     async def context_is_drained(self, owner_subject: str, agent_id: str, conversation_id: str) -> bool:
         for run in await self._context_runs(owner_subject, agent_id, conversation_id):
-            if run.get("_producer_stopped") or (run.get("_owner_token") and not run.get("_provider_started")):
+            if (
+                run.get("_producer_stopped") and (not run.get("_provider_started") or _provider_drained(run))
+            ) or (run.get("_owner_token") and not run.get("_provider_started")):
                 continue
             if run.get("_owner_token") or run.get("status") not in TERMINAL_RUN_STATUSES:
                 return False
@@ -387,7 +484,7 @@ class RunLifecycle:
         *,
         producer_id: str | None = None,
     ) -> RunEvent:
-        for _ in range(4):
+        for _ in range(64):
             document = await self._publish_pending(run_id)
             if not document:
                 raise KeyError(run_id)
@@ -429,6 +526,11 @@ class RunLifecycle:
             (events and events[0].sequence != after + 1)
             or any(right.sequence != left.sequence + 1 for left, right in zip(events, events[1:]))
             or (not events and after < run.last_sequence)
+            or (
+                events and events[-1].sequence < run.last_sequence
+                and len(events) < 256
+                and sum(_event_bytes(document) for document in documents) + _EVENT_MAX_BYTES <= _PAGE_MAX_BYTES
+            )
         ):
             raise ReplayUnavailableError("Committed event history has expired or is incomplete")
         return events
@@ -449,6 +551,8 @@ class RunRepository(Protocol):
     async def context_sessions(
         self, owner_subject: str, agent_id: str, conversation_id: str
     ) -> list[SessionBinding]: ...
+
+    async def context_run_binding_ids(self, owner_subject: str, agent_id: str, conversation_id: str) -> set[str]: ...
 
     async def context_is_drained(self, owner_subject: str, agent_id: str, conversation_id: str) -> bool: ...
 
@@ -492,7 +596,10 @@ class RunRepository(Protocol):
 
     async def create_run(self, run: RunRecord) -> RunRecord: ...
 
-    async def lookup_request(self, run_id: str, fingerprint: str) -> RunRecord | None: ...
+    async def lookup_request(
+        self, run_id: str, fingerprint: str, *, owner_subject: str | None = None,
+        request: CreateRunRequest | None = None,
+    ) -> RunRecord | None: ...
 
     async def admit_run(
         self, run: RunRecord, fingerprint: str, producer_id: str, lease_seconds: float
@@ -500,13 +607,15 @@ class RunRepository(Protocol):
 
     async def renew_run(self, run_id: str, producer_id: str, lease_seconds: float) -> bool: ...
 
-    async def request_cancel(self, run_id: str) -> RunRecord | None: ...
+    async def request_cancellation(self, run_id: str) -> RunRecord | None: ...
 
     async def begin_provider(self, run_id: str, producer_id: str, lease_seconds: float) -> bool: ...
 
     async def cancellation_requested(self, run_id: str) -> bool: ...
 
-    async def release_run(self, run_id: str, producer_id: str) -> None: ...
+    async def provider_has_started(self, run_id: str) -> bool: ...
+
+    async def release_run(self, run_id: str, producer_id: str, *, provider_drained: bool = False) -> None: ...
 
     async def interrupt_run(self, run_id: str, producer_id: str, *, closed: bool = False) -> RunRecord | None: ...
 
@@ -609,8 +718,6 @@ class InMemoryRunRepository(RunLifecycle):
             existed = self._agents.pop(agent_id, None) is not None
             for key in [key for key in self._versions if key[0] == agent_id]:
                 del self._versions[key]
-            for key in [key for key, session in self._sessions.items() if session.agent_id == agent_id]:
-                del self._sessions[key]
             return existed
 
     async def get_provider_resource(self, agent_id: str) -> ProviderResource | None:
@@ -900,7 +1007,6 @@ class MongoRunRepository(RunLifecycle):
         def delete() -> bool:
             result = self._db.harness_agents.delete_one({"agent_id": agent_id})
             self._db.harness_agent_versions.delete_many({"agent_id": agent_id})
-            self._db.harness_sessions.delete_many({"agent_id": agent_id})
             return result.deleted_count > 0
 
         return await asyncio.to_thread(delete)
@@ -934,7 +1040,7 @@ class MongoRunRepository(RunLifecycle):
         expected_revision: int | None,
     ) -> tuple[AgentRecord, AgentVersion]:
         def write() -> tuple[dict[str, object], dict[str, object]]:
-            current_doc = self._db.harness_agents.find_one({"agent_id": blueprint.id})
+            current_doc = self._db.harness_agents.find_one({"agent_id": blueprint.id}, {"_id": 0})
             current = AgentRecord.model_validate(current_doc) if current_doc else None
             if expected_revision is not None and (current is None or current.revision != expected_revision):
                 raise RevisionConflictError(blueprint.id)
@@ -1010,7 +1116,6 @@ class MongoRunRepository(RunLifecycle):
                 "$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()},
                 "$inc": {"revision": 1},
             },
-            projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
         if not doc:
@@ -1022,7 +1127,6 @@ class MongoRunRepository(RunLifecycle):
             self._db.harness_sessions.find_one_and_update,
             {"binding_id": binding_id, "status": {"$ne": "closed"}},
             {"$set": {"status": "closed", "updated_at": utc_now()}, "$inc": {"revision": 1}},
-            projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
         if doc:
@@ -1052,7 +1156,6 @@ class MongoRunRepository(RunLifecycle):
             self._db.harness_runs.find_one_and_update,
             {"run_id": run_id, **expected},
             update,
-            projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
 
@@ -1117,7 +1220,7 @@ class MongoRunRepository(RunLifecycle):
     async def _claim_binding(self, binding_id: str, run_id: str, producer_id: str, deadline: datetime) -> bool:
         result = await asyncio.to_thread(
             self._db.harness_sessions.update_one,
-            {"binding_id": binding_id, "status": "active", "_active_run_id": None},
+            {"binding_id": binding_id, "status": "active", "_active_run_id": None, "active_run": None, "dispatch_started": {"$ne": True}},
             {"$set": {"_active_run_id": run_id, "_producer_id": producer_id, "_lease_expires_at": deadline}},
         )
         return result.modified_count == 1
@@ -1172,7 +1275,7 @@ class MongoRunRepository(RunLifecycle):
             lambda: list(
                 self._db.harness_runs.find(
                     {"owner_subject": owner_subject, "agent_id": agent_id, "conversation_id": conversation_id},
-                    {"run_id": 1, "status": 1, "_owner_token": 1, "_producer_stopped": 1, "_provider_started": 1},
+                    {"run_id": 1, "binding_id": 1, "status": 1, "_owner_token": 1, "_producer_stopped": 1, "_provider_started": 1, "_provider_drained": 1},
                 )
             )
         )

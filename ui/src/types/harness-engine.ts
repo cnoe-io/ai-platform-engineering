@@ -87,7 +87,7 @@ export interface HarnessOptionSchema {
 
 export interface HarnessCatalog {
   contract_version: number;
-  catalog_revision: string;
+  catalog_revision: string | null;
   harnesses: HarnessDescriptor[];
 }
 

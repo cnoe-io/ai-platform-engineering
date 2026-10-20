@@ -151,6 +151,22 @@ def require_native_execution_owner(
         raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
     key = hashlib.sha256(f"{agent.id}\0{session_id}".encode()).hexdigest()
     references = database[GATEWAY_BINDINGS_COLLECTION]
+    # Legacy gateways stored owner-keyed references in this collection. They
+    # must not be ignored at a direct native endpoint after a definition edit.
+    legacy_query = {"agent_id": agent.id, "conversation_id": session_id}
+    legacy_reference = references.find_one(legacy_query)
+    if legacy_reference is not None:
+        owner = legacy_reference.get("owner_subject")
+        legacy_key = hashlib.sha256(json.dumps(
+            [owner, agent.id, session_id], separators=(",", ":"), ensure_ascii=False,
+        ).encode()).hexdigest()
+        if (
+            not isinstance(owner, str) or not owner.strip() or legacy_reference.get("_id") != legacy_key
+            or references.find_one({**legacy_query, "harness_id": {"$nin": [
+                "dynamic_agents", "langchain-deepagents", "langchain_deepagents",
+            ]}}) is not None
+        ):
+            raise ExecutionOwnerConflictError("The saved execution owner requires the canonical gateway or an explicit migration")
     query = {"_id": key}
     try:
         reference = references.find_one_and_update(

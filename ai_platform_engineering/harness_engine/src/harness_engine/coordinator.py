@@ -18,6 +18,7 @@ from harness_engine.models import (
     CanonicalEventDraft,
     ClearAgentSessionResult,
     CreateRunRequest,
+    ExecutionMode,
     RunContext,
     RunRecord,
     RunStatus,
@@ -76,7 +77,7 @@ class RunCoordinator:
             separators=(",", ":"),
         )
         run_id = "run-" + hashlib.sha256(request_identity.encode()).hexdigest()
-        existing = await self._repository.lookup_request(run_id, fingerprint)
+        existing = await self._repository.lookup_request(run_id, fingerprint, owner_subject=owner_subject, request=request)
         if existing:
             return existing
         try:
@@ -124,16 +125,27 @@ class RunCoordinator:
         return admitted
 
     async def _watch_claim(self, run_id: str, producer_id: str, task: asyncio.Task[None]) -> None:
+        next_renewal = asyncio.get_running_loop().time() + self._lease_seconds / 4
         try:
             while True:
-                await asyncio.sleep(self._lease_seconds / 4)
-                if not await self._repository.renew_run(run_id, producer_id, self._lease_seconds):
+                await asyncio.sleep(min(0.1, self._lease_seconds / 4))
+                # Observe Stop promptly during potentially slow prompt compilation,
+                # without running a second execution owner or renewing every poll.
+                if await self._repository.cancellation_requested(run_id) and not await self._repository.provider_has_started(run_id):
                     task.cancel()
                     return
+                if asyncio.get_running_loop().time() < next_renewal:
+                    continue
+                if not await self._repository.renew_run(run_id, producer_id, self._lease_seconds):
+                    # A dispatched remote provider drains without further writes;
+                    # loss of transport authority is not proof external work stopped.
+                    if not await self._repository.provider_has_started(run_id):
+                        task.cancel()
+                    return
+                next_renewal = asyncio.get_running_loop().time() + self._lease_seconds / 4
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # A worker must stop producing when it cannot renew authority.
             logger.error("Run claim renewal failed for %s (%s)", run_id, type(exc).__name__)
             task.cancel()
 
@@ -155,6 +167,9 @@ class RunCoordinator:
         assert task is not None
         heartbeat = asyncio.create_task(self._watch_claim(run.run_id, producer_id, task))
         provider_stream: AsyncIterator[CanonicalEventDraft] | None = None
+        provider_drained = False
+        adapter = None
+        drain_only = False
         try:
             await self._require_claim(run.run_id, producer_id)
             rendered_prompt = await self._prompt_compiler.compile(version.blueprint)
@@ -196,14 +211,21 @@ class RunCoordinator:
             adapter = self._registry.adapter(run.harness_id)
             provider_stream = adapter.stream(context)
             async for event in provider_stream:
-                await self._require_claim(run.run_id, producer_id)
+                if not drain_only:
+                    drain_only = not await self._repository.renew_run(run.run_id, producer_id, self._lease_seconds)
+                if drain_only:
+                    continue
                 updated_binding = await self._session_manager.observe_provider_event(context.binding, event)
                 if updated_binding.provider_session_id != context.binding.provider_session_id:
                     context = context.model_copy(update={"binding": updated_binding})
                     if updated_binding.provider_session_id:
                         await self._repository.update_run_provider_id(run.run_id, updated_binding.provider_session_id)
-                await self._repository.append_event(run.run_id, event.event_type, event.data, producer_id=producer_id)
+                if not await self._repository.cancellation_requested(run.run_id):
+                    await self._repository.append_event(run.run_id, event.event_type, event.data, producer_id=producer_id)
+            provider_drained = True
             await self._require_claim(run.run_id, producer_id)
+            if await self._repository.cancellation_requested(run.run_id):
+                raise asyncio.CancelledError
             await self._session_manager.ensure_active(context.binding)
             await self._terminal(run.run_id, producer_id, "run.completed", RunStatus.COMPLETED)
         except asyncio.CancelledError:
@@ -236,25 +258,42 @@ class RunCoordinator:
                 await heartbeat
             if provider_stream is not None and (close_stream := getattr(provider_stream, "aclose", None)):
                 await close_stream()
+                # In-process adapters await their local process/callback cleanup.
+                # A closed remote transport alone is not external stop proof.
+                if adapter is not None and adapter.descriptor.execution_mode == ExecutionMode.IN_PROCESS:
+                    provider_drained = True
             # A failed terminal append keeps its lease until bounded read-side
             # reconciliation reports interruption; it must not admit overlap.
-            await self._repository.release_run(run.run_id, producer_id)
+            await self._repository.release_run(run.run_id, producer_id, provider_drained=provider_drained)
 
     async def cancel(self, run_id: str) -> RunRecord | None:
-        await self._repository.request_cancel(run_id)
+        run = await self._repository.request_cancellation(run_id)
+        if run is None or run.status in TERMINAL_RUN_STATUSES:
+            return run
         task = self._tasks.get(run_id)
         producer_id = self._producers.get(run_id)
-        if task and not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-            # A task cancelled before its first await never enters its finally
-            # block. Its local producer is stopped, so acknowledge that cancel.
+        if task:
+            if not task.done() and not task.cancelling() and not await self._repository.provider_has_started(run_id):
+                task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+            except TimeoutError:
+                return await self._repository.get_run(run_id)
+            except asyncio.CancelledError:
+                if not task.done():
+                    raise
+            # A task cancelled before its first await never enters its finally.
             current = await self._repository.get_run(run_id)
             if producer_id and current and current.status not in TERMINAL_RUN_STATUSES:
                 await self._terminal(run_id, producer_id, "run.cancelled", RunStatus.CANCELLED)
-            if producer_id:
+            if producer_id and not await self._repository.provider_has_started(run_id):
                 await self._repository.release_run(run_id, producer_id)
+        else:
+            for _ in range(20):
+                current = await self._repository.get_run(run_id)
+                if current is None or current.status in TERMINAL_RUN_STATUSES:
+                    return current
+                await asyncio.sleep(0.025)
         return await self._repository.get_run(run_id)
 
     async def cancel_active(
@@ -266,7 +305,7 @@ class RunCoordinator:
         cancelled = await self.cancel(run.run_id)
         return CancelActiveRunResult(
             cancelled=cancelled is not None and cancelled.status == RunStatus.CANCELLED,
-            cancellation_requested=True,
+            cancellation_requested=cancelled is not None and cancelled.cancellation_requested,
             run_id=run.run_id,
         )
 
@@ -292,6 +331,9 @@ class RunCoordinator:
         if not await self._repository.is_context_deleted(conversation_id):
             raise RunAdmissionConflict("Permanent deletion must first fence the canonical conversation")
         bindings = await self._repository.context_sessions(owner_subject, agent_id, conversation_id)
+        run_bindings = await self._repository.context_run_binding_ids(owner_subject, agent_id, conversation_id)
+        if run_bindings - {binding.binding_id for binding in bindings}:
+            raise RunAdmissionConflict("Retained execution has no binding; provider cleanup requires reconciliation")
         for binding in bindings:
             if binding.status != "closed":
                 await self._repository.close_session(binding.binding_id)
@@ -313,7 +355,8 @@ class RunCoordinator:
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())
         for task in tasks:
-            task.cancel()
+            if not task.cancelling():
+                task.cancel()
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task

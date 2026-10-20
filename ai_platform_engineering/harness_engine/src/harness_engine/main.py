@@ -11,7 +11,7 @@ from typing import Annotated
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from harness_engine.adapters import AgentCoreAdapter, ClaudeSDKAdapter
 from harness_engine.adapters.base import HarnessAdapter
@@ -92,6 +92,10 @@ def create_app(
     app.state.session_manager = session_manager
     app.state.coordinator = coordinator
     app.state.agentcore_provisioner = resolved_agentcore_provisioner
+
+    @app.exception_handler(RunAdmissionConflict)
+    async def admission_conflict(_: Request, exc: RunAdmissionConflict) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": str(exc)})
 
     async def caller_subject(
         authorization: Annotated[str | None, Header()] = None,
@@ -258,6 +262,19 @@ def create_app(
         except (RunAdmissionConflict, RunFencedError) as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         return {"success": True, "data": run}
+
+    @app.post("/api/v1/sessions/lookup")
+    async def lookup_session(
+        body: ClearAgentSessionRequest,
+        subject: str = Depends(caller_subject),
+    ) -> dict[str, object]:
+        try:
+            active = await resolved_repository.get_active_run(subject, body.agent_id, body.conversation_id)
+            binding = await resolved_repository.get_latest_session(subject, body.agent_id, body.conversation_id)
+        except RunAdmissionConflict as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        harness_id = active.harness_id if active else binding.harness_id if binding and binding.status == "active" else None
+        return {"success": True, "data": {"harness_id": harness_id}}
 
     @app.post("/api/v1/sessions/clear")
     async def clear_session(

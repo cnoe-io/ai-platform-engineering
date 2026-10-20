@@ -8,11 +8,12 @@ const findNative = jest.fn();
 const findEngine = jest.fn();
 const findCheckpoint = jest.fn();
 const findClaim = jest.fn();
+const findLegacyClaim = jest.fn();
 const findDeleted = jest.fn();
 const claimOwner = jest.fn();
 jest.mock("@/lib/mongodb", () => ({ getCollection: async (name: string) => ({
   findOneAndUpdate: claimOwner,
-  findOne: name === "harness_gateway_bindings" ? findClaim : name === "native_acp_deleted_sessions" ? findDeleted : name === "native_acp_sessions" ? findNative : name === "harness_sessions" ? findEngine : name === "dynamic_agents" ? findAgent : findCheckpoint,
+  findOne: name === "harness_gateway_bindings" ? (query: { conversation_id?: string }) => query.conversation_id ? findLegacyClaim(query) : findClaim(query) : name === "native_acp_deleted_sessions" ? findDeleted : name === "native_acp_sessions" ? findNative : name === "harness_sessions" ? findEngine : name === "dynamic_agents" ? findAgent : findCheckpoint,
 }) }));
 const auth = { subject: "test-user" };
 const context = { conversationId: "approved-runtime" };
@@ -30,6 +31,7 @@ beforeEach(() => {
   findEngine.mockResolvedValue(null);
   findCheckpoint.mockResolvedValue(null);
   findClaim.mockResolvedValue(null);
+  findLegacyClaim.mockResolvedValue(null);
   findDeleted.mockResolvedValue(null);
   claimOwner.mockImplementation(async (_query, update) => update.$setOnInsert);
 });

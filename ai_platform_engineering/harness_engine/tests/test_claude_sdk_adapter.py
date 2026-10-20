@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -125,12 +126,15 @@ async def test_claude_adapter_maps_messages_and_resumes_session(settings) -> Non
     assert transcript_store.scopes[0].prepared and transcript_store.scopes[0].closed
     assert options.session_store_flush == "eager"
     assert not Path(options.env["CLAUDE_CONFIG_DIR"]).exists()
+    assert options.setting_sources == []
     assert options.tools == []
     # This verifies the pinned SDK actually disables CLI built-ins; an empty
     # allowed_tools list or permission mode alone does not do that.
-    options.cli_path = "/example/claude"
-    command = SubprocessCLITransport("example", options)._build_command()
+    command = SubprocessCLITransport(
+        prompt=captured["prompt"], options=replace(options, cli_path="/example/claude")
+    )._build_command()
     assert command[command.index("--tools") + 1] == ""
+    assert "--allowedTools" not in command
 
 
 def test_claude_descriptor_and_validation_are_declarative(settings) -> None:
@@ -208,6 +212,11 @@ def test_claude_native_session_is_persisted_and_resumed_by_caipe(settings) -> No
         assert sdk_options[1].resume == "claude-session-persisted"
         assert sdk_options[0].env["CLAUDE_CONFIG_DIR"] != sdk_options[1].env["CLAUDE_CONFIG_DIR"]
         assert all(not Path(options.env["CLAUDE_CONFIG_DIR"]).exists() for options in sdk_options)
+        for options in sdk_options:
+            command = SubprocessCLITransport(
+                prompt="hello", options=replace(options, cli_path="/example/claude")
+            )._build_command()
+            assert command[command.index("--tools") + 1] == ""
 
 
 async def test_claude_reports_partial_provider_identity_before_final_result(settings) -> None:

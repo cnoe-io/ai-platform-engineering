@@ -1621,6 +1621,8 @@ openfga:
     pullPolicy: IfNotPresent
   init:
     enabled: true
+    # -- Existing same-namespace ConfigMap containing the complete composed authorization-model.json. Empty uses the bundled model.
+    existingModelConfigMap: ""
     storeName: caipe-openfga
     seedTuples: []
     platformClient:

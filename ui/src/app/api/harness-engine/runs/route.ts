@@ -31,17 +31,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     isServiceAccount: auth.isServiceAccount,
   });
   if (authz) return authz;
-  if (!body.conversation_id) {
-    return NextResponse.json(
-      { success: false, error: "Missing required field: conversation_id" },
-      { status: 400 },
-    );
-  }
   const conversationAuthz = await authorizeConversationWriteAccess(
     auth,
     String(body.conversation_id),
   );
   if (conversationAuthz.denial) return conversationAuthz.denial;
+  if (Array.isArray(body.files) && body.files.length > 0) return NextResponse.json(
+    { success: false, code: "HARNESS_CAPABILITY_UNSUPPORTED", error: "The selected harness does not support file attachments" }, { status: 409 },
+  );
   body.conversation_id = await resolveConversationRuntimeId(conversationAuthz.conversation);
   const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id), admit: true });
   if (target instanceof NextResponse) return target;

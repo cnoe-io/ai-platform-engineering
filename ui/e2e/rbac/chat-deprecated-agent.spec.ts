@@ -120,7 +120,7 @@ async function bootUnlinkedConversation(
 
 /**
  * Boot mocks for a conversation that DOES have an agent participant, but that
- * agent returns 404 from the agent-info endpoint (deleted/deprecated).
+ * agent is absent from the available list and returns 404 from the detail endpoint.
  */
 async function bootDeletedAgentConversation(
   page: import("@playwright/test").Page,
@@ -132,12 +132,20 @@ async function bootDeletedAgentConversation(
   const env = minimalSessionEnv();
 
   // installChatBootMocks WITH agentId → participants has the agent entry.
-  // Its **/api/dynamic-agents** handler returns 200 for the agent — we override
-  // the specific per-agent path below to return 404 instead.
+  // Override both catalog membership and detail lookup to represent deletion.
   await installChatBootMocks(page, env, { conversationId, agentId });
 
-  // Register messages and 404-agent route AFTER installChatBootMocks — LIFO wins.
+  // Register overrides AFTER installChatBootMocks — LIFO wins.
   await mockMessages(page, conversationId, messages);
+
+  // A detail 404 alone may mask missing read permission for an otherwise usable agent.
+  await page.route("**/api/dynamic-agents/available", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [] }),
+    });
+  });
 
   // Override the per-agent lookup to 404 — simulates a deleted/deprecated agent.
   await page.route(`**/api/dynamic-agents/agents/${agentId}`, async (route) => {
@@ -145,6 +153,16 @@ async function bootDeletedAgentConversation(
       status: 404,
       contentType: "application/json",
       body: JSON.stringify({ success: false, error: "Agent not found" }),
+    });
+  });
+
+  // A deleted agent is absent from the use-authorized catalog as well as
+  // the detail endpoint. Chat also uses this catalog for viewers without read access.
+  await page.route("**/api/dynamic-agents/available", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [] }),
     });
   });
 

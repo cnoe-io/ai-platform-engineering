@@ -4,6 +4,7 @@ export interface HarnessPresentation {
   id: string;
   label: string;
   shortLabel: string;
+  logoSrc?: string;
   badgeClassName: string;
   dotClassName: string;
 }
@@ -21,6 +22,7 @@ const HARNESS_PRESENTATIONS: Record<string, HarnessPresentation> = {
     id: "agentcore",
     label: "Amazon Bedrock AgentCore",
     shortLabel: "AgentCore",
+    logoSrc: "/provider-logos/agentcore.svg",
     badgeClassName:
       "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
     dotClassName: "bg-orange-500",
@@ -29,6 +31,7 @@ const HARNESS_PRESENTATIONS: Record<string, HarnessPresentation> = {
     id: "claude_agent_sdk",
     label: "Claude Agent SDK",
     shortLabel: "Claude SDK",
+    logoSrc: "/provider-logos/claude.svg",
     badgeClassName:
       "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
     dotClassName: "bg-violet-500",

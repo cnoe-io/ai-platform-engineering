@@ -26,6 +26,17 @@ export interface HarnessGatewayTarget {
   harnessId: string;
 }
 
+interface GatewayBinding {
+  _id: string;
+  agent_id: string;
+  session_id?: string;
+  conversation_id?: string;
+  owner_subject?: string;
+  harness_id: string;
+}
+
+const NATIVE_HARNESS_ALIASES = [DEFAULT_HARNESS_ID, "langchain-deepagents", "langchain_deepagents"];
+
 interface Envelope<T> {
   success: boolean;
   data?: T;
@@ -64,7 +75,7 @@ export async function resolveHarnessGatewayTarget(
 ): Promise<HarnessGatewayTarget | NextResponse> {
   try {
     const claimId = context ? createHash("sha256").update(`${agentId}\0${context.conversationId}`).digest("hex") : "";
-    const claims = context ? await getCollection<{ _id: string; agent_id: string; session_id: string; harness_id: string }>("harness_gateway_bindings") : null;
+    const claims = context ? await getCollection<GatewayBinding>("harness_gateway_bindings") : null;
     const deleted = context ? await getCollection<{ _id: string }>("native_acp_deleted_sessions") : null;
     const claim = claims && await claims.findOne({ _id: claimId });
     if (claim && (claim.agent_id !== agentId || claim.session_id !== context?.conversationId || typeof claim.harness_id !== "string")) {
@@ -74,12 +85,30 @@ export async function resolveHarnessGatewayTarget(
       { success: false, error: "Conflicting runtime bindings require an explicit migration", code: "RUNTIME_BINDING_CONFLICT" },
       { status: 409 },
     );
+    // Older gateways keyed this same collection by owner. Reconcile those
+    // stored choices across the authorized context instead of creating another
+    // execution owner when the caller or shared definition changes.
+    const legacy = claims && await claims.findOne({ agent_id: agentId, conversation_id: context!.conversationId });
+    let legacyHarnessId: string | undefined;
+    if (legacy) {
+      if (typeof legacy.owner_subject !== "string" || !legacy.owner_subject.trim() ||
+          typeof legacy.harness_id !== "string" || !legacy.harness_id.trim() ||
+          legacy._id !== createHash("sha256").update(JSON.stringify([legacy.owner_subject, agentId, context!.conversationId])).digest("hex")) {
+        throw new Error("Invalid legacy gateway execution owner reference");
+      }
+      legacyHarnessId = normalizeHarnessId(legacy.harness_id);
+      const aliases = legacyHarnessId === DEFAULT_HARNESS_ID ? NATIVE_HARNESS_ALIASES : [legacy.harness_id];
+      if ((claim && normalizeHarnessId(claim.harness_id) !== legacyHarnessId) || await claims!.findOne({
+        agent_id: agentId, conversation_id: context!.conversationId, harness_id: { $nin: aliases },
+      })) return conflict();
+    }
     const wasDeleted = async () => Boolean(deleted && await deleted.findOne({ _id: context!.conversationId }, { projection: { _id: 1 } }));
     const deletedResponse = () => NextResponse.json({ success: false, error: "This execution context was permanently deleted" }, { status: 409 });
     if (await wasDeleted()) return deletedResponse();
     const selected = async (harnessId: string, authoritative = false): Promise<HarnessGatewayTarget | NextResponse> => {
-      if (claim && authoritative && normalizeHarnessId(claim.harness_id) !== harnessId) return conflict();
-      let admitted = claim ? normalizeHarnessId(claim.harness_id) : harnessId;
+      if ((claim && authoritative && normalizeHarnessId(claim.harness_id) !== harnessId) ||
+          (legacyHarnessId !== undefined && authoritative && legacyHarnessId !== harnessId)) return conflict();
+      let admitted = claim ? normalizeHarnessId(claim.harness_id) : legacyHarnessId ?? harnessId;
       if (admitted !== DEFAULT_HARNESS_ID) {
         const config = getHarnessEngineConfig();
         if (config instanceof NextResponse) return config;
@@ -100,7 +129,7 @@ export async function resolveHarnessGatewayTarget(
           throw new Error("Gateway execution owner admission failed");
         }
         const winner = normalizeHarnessId(stored.harness_id);
-        if (authoritative && winner !== harnessId) return conflict();
+        if ((authoritative && winner !== harnessId) || (legacyHarnessId !== undefined && winner !== legacyHarnessId)) return conflict();
         admitted = winner;
       }
       // A permanent deletion can race a request authorized before its tombstone.
@@ -135,18 +164,19 @@ export async function resolveHarnessGatewayTarget(
         return selected(harnessId, true);
       }
     }
-    if (claim) return selected(normalizeHarnessId(claim.harness_id));
     const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
     const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1, execution: 1, backend: 1 } });
-    if (!agent) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
-    const harnessId = normalizeHarnessId(agent.execution_harness_id);
+    if (!agent && !claim && legacyHarnessId === undefined) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
     // Existing legacy custom-checkpointer threads remain native before ACP admission.
-    const legacyCollection = agent.backend?.config?.checkpoint_collection;
+    const legacyCollection = agent?.backend?.config?.checkpoint_collection;
     if (context && legacyCollection && legacyCollection !== (process.env.CHECKPOINT_COLLECTION || "checkpoints_conversation")) {
       const checkpoints = await getCollection(legacyCollection);
       if (await checkpoints.findOne({ thread_id: context.conversationId }, { projection: { _id: 1 } })) return selected(DEFAULT_HARNESS_ID, true);
     }
-    if (harnessId !== DEFAULT_HARNESS_ID && agent.execution?.kind === "sandbox") return NextResponse.json(
+    if (claim) return selected(normalizeHarnessId(claim.harness_id));
+    if (legacyHarnessId !== undefined) return selected(legacyHarnessId, true);
+    const harnessId = normalizeHarnessId(agent?.execution_harness_id);
+    if (harnessId !== DEFAULT_HARNESS_ID && agent?.execution?.kind === "sandbox") return NextResponse.json(
       { success: false, error: "Choose one execution provider; SDK and ACP sandbox selections cannot be combined", code: "RUNTIME_SELECTION_CONFLICT" }, { status: 409 },
     );
     return selected(harnessId);
@@ -641,6 +671,10 @@ export async function invokeHarnessGatewayRun(
         { status: response.status || 502 },
       );
     }
+    if (!Number.isSafeInteger(envelope.data.run.last_sequence) || envelope.data.run.last_sequence < 0 ||
+        !Number.isSafeInteger(envelope.data.next_cursor) || envelope.data.next_cursor < cursor) {
+      return NextResponse.json({ success: false, error: "Harness Engine returned an invalid event cursor", run_id: started.run.run_id }, { status: 502 });
+    }
     for (const event of envelope.data.events) {
       if (event.event_type === "content.delta") content += stringField(event.data, "text", "delta");
       if (event.event_type === "reasoning.delta") thinking += stringField(event.data, "text", "delta");
@@ -694,7 +728,7 @@ export async function cancelHarnessGatewayRun(
     }),
   });
   if (response instanceof NextResponse) return response;
-  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string }>(response);
+  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string; cancellation_requested?: boolean }>(response);
   if (!response.ok || !envelope.success || !envelope.data) {
     return NextResponse.json(
       { success: false, error: engineErrorMessage(envelope, "Harness run could not be cancelled") },
@@ -704,6 +738,7 @@ export async function cancelHarnessGatewayRun(
   return NextResponse.json({
     success: true,
     cancelled: envelope.data.cancelled,
+    cancellation_requested: envelope.data.cancellation_requested ?? false,
     run_id: envelope.data.run_id,
     agent_id: body.agent_id,
     conversation_id: body.conversation_id,

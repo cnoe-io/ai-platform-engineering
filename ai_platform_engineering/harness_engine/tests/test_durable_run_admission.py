@@ -219,7 +219,11 @@ async def test_cancel_is_bound_to_requested_turn_and_works_from_other_replica(
         current = await stores[0].get_run(run.run_id)
         assert current is not None and current.status == RunStatus.RUNNING
         right = await second.cancel_active("test-owner", "agent-example", "conversation-example", "turn-example")
-        assert right.cancellation_requested
+        assert right.cancellation_requested and not right.cancelled
+        await asyncio.sleep(2.1)
+        draining = await stores[1].get_run(run.run_id)
+        assert draining and draining.status == RunStatus.RUNNING and draining.cancellation_requested
+        adapter.release.set()
         await asyncio.wait_for(asyncio.gather(*list(first._tasks.values()), return_exceptions=True), 2)
         current = await stores[1].get_run(run.run_id)
         assert current is not None and current.status == RunStatus.CANCELLED
@@ -528,6 +532,7 @@ async def test_permanent_delete_requires_tombstone_drains_and_preserves_other_ow
         assert await stores[1]._read_run(run.run_id) is not None
         with pytest.raises(RunAdmissionConflict, match="deleted"):
             await second.start_run(request_turn("late-turn"), "test-owner")
+        adapter.release.set()
         await asyncio.wait_for(asyncio.gather(*list(first._tasks.values()), return_exceptions=True), 2)
         await second.delete_session("test-owner", "agent-example", "conversation-example")
         assert adapter.deleted == [run.binding_id]
@@ -623,6 +628,10 @@ async def test_unknown_expired_provider_owner_requires_ack_before_destructive_pu
         await coordinator.delete_session("test-owner", "agent-example", "conversation-example")
     assert await stores[1]._read_run(run.run_id) is not None
     await stores[0].release_run(run.run_id, producer)
+    with pytest.raises(RunAdmissionConflict, match="unknown owner"):
+        await coordinator.delete_session("test-owner", "agent-example", "conversation-example")
+    # Explicit provider-drain confirmation is stronger than a stopped local task.
+    await stores[0].release_run(run.run_id, producer, provider_drained=True)
     await coordinator.delete_session("test-owner", "agent-example", "conversation-example")
     assert await stores[1]._read_run(run.run_id) is None
 
@@ -711,4 +720,35 @@ async def test_engine_admission_honors_the_existing_canonical_gateway_owner(
         await first.start_run(request_turn(), "test-owner")
     assert adapter.calls == [] and first._tasks == {}
     await first.shutdown()
+    await second.shutdown()
+
+
+async def test_pending_private_stop_migrates_to_public_contract_without_dispatch(
+    stores: tuple[Repository, Repository],
+) -> None:
+    run, producer = await make_claim(stores[0])
+    await stores[0]._change_run(run.run_id, {}, {"_cancel_requested": True}, ("cancellation_requested",))
+    migrated = await stores[1].get_run(run.run_id)
+    assert migrated and migrated.cancellation_requested
+    raw = await stores[0]._read_run(run.run_id)
+    assert raw and raw["cancellation_requested"] and "_cancel_requested" not in raw
+    assert not await stores[0].renew_run(run.run_id, producer, 30)
+    await stores[0].append_event(run.run_id, "run.started", {}, RunStatus.RUNNING, producer_id=producer)
+    assert not await stores[0].begin_provider(run.run_id, producer, 30)
+
+
+async def test_stopped_local_iterator_is_not_remote_provider_drain_proof(
+    stores: tuple[Repository, Repository],
+) -> None:
+    adapter = PausedAdapter()
+    first, second = await setup_coordinators(stores, adapter)
+    run = await first.start_run(request_turn(), "test-owner")
+    await asyncio.wait_for(adapter.started.wait(), 2)
+    await first.shutdown()
+    raw = await stores[0]._read_run(run.run_id)
+    assert raw and raw["_producer_stopped"] and raw["_provider_started"] and not raw["_provider_drained"]
+    await tombstone(stores[0])
+    with pytest.raises(RunAdmissionConflict, match="unknown owner"):
+        await second.delete_session("test-owner", "agent-example", "conversation-example")
+    assert await stores[0]._read_run(run.run_id) is not None
     await second.shutdown()

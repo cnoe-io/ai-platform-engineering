@@ -25,7 +25,7 @@ interface AgentOption {
  *
  * The backing endpoint and document IDs intentionally remain unchanged so
  * legacy Dynamic Agents continue to resolve exactly as before. Agents without
- * an execution_harness_id are presented as the LangChain Deep Agents
+ * an execution_harness_id are presented as the Native ACP execution owner
  * compatibility runtime.
  */
 export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentPickerProps) {
@@ -163,7 +163,6 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
                     <AgentHarnessBadge
                       compact
                       harnessId={selectedOption.harnessId}
-                      className="hidden sm:inline-flex"
                     />
                   )}
                   {disabled ? (

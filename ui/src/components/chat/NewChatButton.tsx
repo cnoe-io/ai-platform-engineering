@@ -47,6 +47,20 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         setDefaultAgentName(agent.name);
         setDefaultAgent(agent.agent ?? null);
         setUserDefaultAgentId(agent.source === "user-default" ? agent.id : null);
+        if (agent.id) {
+          try {
+            const agentResponse = await fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agent.id)}`);
+            if (agentResponse.ok) {
+              const agentData = await agentResponse.json();
+              if (!cancelled && agentData.success && agentData.data?.name) {
+                setDefaultAgentName(agentData.data.name);
+                setDefaultAgent(agentData.data as DynamicAgentConfig);
+              }
+            }
+          } catch {
+            // Keep the generic label; the agent id still routes the chat correctly.
+          }
+        }
       } catch {
         if (!cancelled) {
           setDefaultAgentId(null);
@@ -157,6 +171,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
       setUserDefaultAgentId(agent._id);
       setDefaultAgentId(agent._id);
       setDefaultAgentName(agent.name);
+      setDefaultAgent(agent);
       toast(`${agent.name} is now your Web default agent.`, "success");
     } catch (reason) {
       toast(

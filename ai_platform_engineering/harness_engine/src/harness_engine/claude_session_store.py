@@ -190,8 +190,10 @@ class MongoScopedClaudeSessionStore:
                     "conversation_id": binding.conversation_id,
                     "_owner_token": self._producer_token,
                     "_producer_id": self._producer_token,
+                    # Pending cancellation drains the admitted provider. Its
+                    # transcript must remain resumable until cleanup finishes;
+                    # closed bindings, tombstones and stop ack still fence it.
                     "status": {"$in": ["queued", "running"]},
-                    "_cancel_requested": {"$ne": True},
                     "_producer_stopped": {"$ne": True},
                 },
                 {"_id": 1},

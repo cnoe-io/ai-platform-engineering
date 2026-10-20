@@ -27,9 +27,11 @@ describe("fetchAgentInfoForChat", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to use-authorized metadata when the detail route is forbidden", async () => {
+  // The detail endpoint deliberately masks denied read access as 404, while
+  // the available catalog independently authorizes agent use.
+  it.each([403, 404])("falls back to use-authorized metadata when detail returns %s", async (status) => {
     fetchMock
-      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValueOnce({ ok: false, status })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true, data: [agentcoreAgent] }),

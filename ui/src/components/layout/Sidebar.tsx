@@ -976,9 +976,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           ) : isInputRequired ? (
                             <MessageCircleQuestion className="h-4 w-4 animate-pulse text-amber-500" />
                           ) : (
-                            <MessageSquare className={cn(
+                            <ConversationIcon className={cn(
                               "h-4 w-4",
-                              isUnviewed ? "text-blue-500" : "text-muted-foreground",
+                              isUnviewed ? "text-blue-500" : activeConversationId === conv.id ? "text-primary" : conv.source === "api" ? "text-sky-500" : runKind === "autonomous" ? "text-violet-500" : runKind === "scheduled" ? "text-cyan-500" : "text-muted-foreground",
                             )} />
                           )}
                         </div>

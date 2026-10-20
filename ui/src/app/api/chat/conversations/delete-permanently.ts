@@ -125,13 +125,18 @@ export async function deleteConversationsPermanently(
 
   // Provider deletion must complete before visible history disappears. The
   // canonical tombstone already prevents any previously authorized late start.
-  const engineSessions = await getCollection<{
-    agent_id: string; conversation_id: string; owner_subject: string;
-  }>('harness_sessions');
-  const bindings = await engineSessions.find(
-    { conversation_id: { $in: [...runtimeIds] } },
-    { projection: { _id: 0, agent_id: 1, conversation_id: 1, owner_subject: 1 } },
-  ).toArray();
+  type ProviderContext = { agent_id: string; conversation_id: string; owner_subject: string };
+  const bindings: ProviderContext[] = [];
+  for (const collectionName of ['harness_sessions', 'harness_runs']) {
+    const collection = await getCollection<ProviderContext>(collectionName);
+    bindings.push(...await collection.find(
+      { conversation_id: { $in: [...runtimeIds] } },
+      { projection: { _id: 0, agent_id: 1, conversation_id: 1, owner_subject: 1 } },
+    ).toArray());
+  }
+  // Older definition deletion could remove bindings before provider history.
+  // Include retained runs so that the Engine can reject unresolved orphaned
+  // state instead of silently leaving it behind a completed deletion.
   if (bindings.length > 0) {
     const config = getHarnessEngineConfig();
     if (config instanceof NextResponse) throw new ApiError('Harness Engine is unavailable; retry deletion after it recovers.', 503);
@@ -152,7 +157,11 @@ export async function deleteConversationsPermanently(
     }
   }
   const routing = await getCollection('harness_gateway_bindings');
-  await routing.deleteMany({ session_id: { $in: [...runtimeIds] } });
+  await routing.deleteMany({ $or: [
+    { session_id: { $in: [...runtimeIds] } },
+    // Retire references written by the older owner-keyed gateway too.
+    { conversation_id: { $in: [...runtimeIds] } },
+  ] });
 
   const conversations = await getCollection<Conversation>('conversations');
   await conversations.deleteMany({ _id: { $in: ids } });
