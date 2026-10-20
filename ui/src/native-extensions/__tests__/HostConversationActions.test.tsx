@@ -8,8 +8,6 @@ jest.mock("../host-chat", () => ({ loadHostConversation: (...args: unknown[]) =>
 jest.mock("@/store/chat-store", () => ({ useChatStore: { getState: () => ({ deleteConversation: mockArchive }) } }));
 jest.mock("@/components/chat/ShareButton", () => ({ ShareButton: ({ conversationId }: { conversationId: string }) =>
   <button>Share {conversationId}</button> }));
-jest.mock("@/components/chat/RecycleBinDialog", () => ({ RecycleBinDialog: ({ open, onRestored }: { open: boolean; onRestored?: () => void }) =>
-  open ? <div role="dialog" aria-label="Shared archive"><button onClick={onRestored}>Restore</button></div> : null }));
 
 const props = { appId: "example-app", agentId: "example-agent", conversationId: "example-chat",
   onArchived: jest.fn(), onHistoryChange: jest.fn() };
@@ -19,14 +17,12 @@ beforeEach(() => {
   mockArchive.mockResolvedValue(undefined);
 });
 
-it("uses the host share control and the shared archive overlay", async () => {
+it("uses the host share control without an archive browser", async () => {
   render(<HostConversationActions {...props} />);
   await screen.findByRole("button", { name: "Share example-chat" });
   expect(mockLoad).toHaveBeenCalledWith("example-app", "example-agent", "example-chat");
-  fireEvent.click(screen.getByRole("button", { name: "Open archive" }));
-  expect(screen.getByRole("dialog", { name: "Shared archive" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-  expect(props.onHistoryChange).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Open archive" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 it("archives through the host store and only then notifies the app", async () => {
@@ -47,7 +43,7 @@ it("keeps the selected chat when the archive request fails", async () => {
 it("does not show owner controls for a shared conversation", async () => {
   mockLoad.mockResolvedValue({ saved: { access_level: "shared" } });
   render(<HostConversationActions {...props} />);
-  await screen.findByRole("button", { name: "Open archive" });
+  await waitFor(() => expect(mockLoad).toHaveBeenCalled());
   expect(screen.queryByRole("button", { name: /Share|Archive conversation/ })).toBeNull();
 });
 

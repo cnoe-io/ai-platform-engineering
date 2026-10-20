@@ -33,7 +33,7 @@ export interface NativeExtensionModule {
 /** Host owns streaming, history persistence and activity across native screens. */
 export interface NativeHostChat {
   Panel: ComponentType<NativeHostChatPanelProps>;
-  /** Optional host controls reuse GRID sharing and recoverable archive dialogs. */
+  /** Optional per-conversation history controls reuse GRID sharing and recoverable archive. */
   ConversationActions?: ComponentType<NativeHostConversationActionsProps>;
 }
 export interface NativeHostConversationActionsProps {
@@ -41,6 +41,7 @@ export interface NativeHostConversationActionsProps {
   agentId: string;
   disabled?: boolean;
   onArchived: () => void;
+  /** Legacy hook for hosts that also expose archive restoration. */
   onHistoryChange?: () => void;
 }
 export interface NativeHostChatPanelProps {

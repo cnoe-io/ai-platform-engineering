@@ -136,10 +136,11 @@ native screen does not abort its turn. Native packages should not render their
 bundled chat consumer alongside this panel.
 
 Hosts may also expose `props.chat.ConversationActions`. Feature-detect this
-optional component and pass the same conversation/agent IDs, `onArchived` (select
-or create the next app chat) and `onHistoryChange` (refresh app history after a
-restore). It reuses GRID's share control and archive dialog. Only owners see
-share/archive actions; all mutations still use host conversation authorization.
+optional component in each history row and pass that row's conversation/agent IDs
+and `onArchived` (refresh history; select or create another chat only when the
+archived chat was active). It reuses GRID's share control and recoverable archive
+API without adding an archive browser. Only owners see share/archive actions;
+all mutations still use host conversation authorization.
 Apps must not add a second sharing or archive implementation.
 
 Apps may supply a composer header and bounded per-question `requestOptions`; these

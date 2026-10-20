@@ -1,20 +1,18 @@
 "use client";
 
-import { Archive, ArchiveRestore } from "lucide-react";
+import { Archive } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { NativeHostConversationActionsProps } from "../../app-sdk";
-import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { loadHostConversation } from "./host-chat";
 
-export default function HostConversationActions({ appId, conversationId, agentId, disabled, onArchived, onHistoryChange }:
+export default function HostConversationActions({ appId, conversationId, agentId, disabled, onArchived }:
   NativeHostConversationActionsProps & { appId: string }) {
   const [conversation, setConversation] = useState<Awaited<ReturnType<typeof loadHostConversation>>["saved"] | null>(null);
-  const [archiveOpen, setArchiveOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -50,16 +48,11 @@ export default function HostConversationActions({ appId, conversationId, agentId
         <ShareButton conversationId={conversationId} conversationTitle={conversation.title}
           isOwner sharing={conversation.sharing} accessLevel="owner" />
       </div>
-      <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"
+      <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6"
         aria-label="Archive conversation" disabled={disabled || pending} onClick={() => void archive()}>
-        <Archive className="h-4 w-4" aria-hidden />
+        <Archive className="h-3 w-3" aria-hidden />
       </Button></TooltipTrigger><TooltipContent>Archive conversation</TooltipContent></Tooltip>
     </>}
-    {conversation && <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"
-      aria-label="Open archive" disabled={disabled || pending} onClick={() => setArchiveOpen(true)}>
-      <ArchiveRestore className="h-4 w-4" aria-hidden />
-    </Button></TooltipTrigger><TooltipContent>Open archive</TooltipContent></Tooltip>}
     {error && <p role="alert" className="max-w-48 text-xs text-destructive">{error}</p>}
-    <RecycleBinDialog open={archiveOpen} onOpenChange={setArchiveOpen} onRestored={onHistoryChange} />
   </div>;
 }
