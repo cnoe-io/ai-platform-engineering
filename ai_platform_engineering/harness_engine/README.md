@@ -178,6 +178,11 @@ after asynchronous preparation and before dispatch; clear and permanent deletion
 share that fence. Worker loss reports interruption and degrades the binding; it
 does not replay an uncertain provider mutation.
 
+Stop persists `cancellation_requested`. Before dispatch, the owner can stop
+preparation; a dispatched provider drains before its reservation is released.
+`cancelled: false, cancellation_requested: true` reports a pending stop, never
+proof that an external invocation has ended.
+
 A recoverable event intent is materialized idempotently before exposing its
 committed cursor/outcome, without requiring MongoDB replica-set transactions.
 Events are bounded and paged; a missing/expired prefix returns an explicit replay

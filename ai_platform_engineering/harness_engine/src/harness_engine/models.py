@@ -295,6 +295,7 @@ class RunRecord(StrictModel):
     last_sequence: int = 0
     client_request_id: str | None = None
     protocol: Literal["agui", "custom"] = "agui"
+    cancellation_requested: bool = False
     error_code: str | None = None
     traceparent: str | None = None
     created_at: datetime = Field(default_factory=utc_now)

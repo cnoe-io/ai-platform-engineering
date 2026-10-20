@@ -18,7 +18,7 @@ from harness_engine.claude_session_store import MongoClaudeSessionStore
 from harness_engine.coordinator import RunCoordinator
 from harness_engine.models import CreateRunRequest, utc_now
 from harness_engine.registry import HarnessRegistry
-from harness_engine.repository import MongoRunRepository, RunFencedError
+from harness_engine.repository import MongoRunRepository, RunAdmissionConflict, RunFencedError
 from harness_engine.sessions import CAIPEAgentSessionManager
 from tests.test_claude_sdk_adapter import sdk_context
 
@@ -57,7 +57,7 @@ def admit(store: MongoClaudeSessionStore, *, provider_session_id: str | None = N
             "conversation_id": context.binding.conversation_id,
             "_owner_token": context.producer_token,
             "_producer_id": context.producer_token,
-            "_cancel_requested": False,
+            "cancellation_requested": False,
             "_producer_stopped": False,
             "status": "running",
         }
@@ -178,7 +178,6 @@ async def test_closed_or_stale_binding_cannot_write(transcript_store, change: di
     "change",
     [
         {"status": "cancelled"},
-        {"_cancel_requested": True},
         {"_producer_stopped": True},
         {"_owner_token": "producer-secondary"},
         {"_producer_id": "producer-secondary"},
@@ -190,6 +189,19 @@ async def test_cancelled_or_forged_run_cannot_write(transcript_store, change: di
     with pytest.raises(RunFencedError):
         await transcript_store.for_run(context).append(KEY, ENTRIES)
     assert transcript_store._collection.count_documents({}) == 0
+
+
+async def test_pending_cancellation_keeps_mirroring_the_admitted_provider_until_drain(transcript_store) -> None:
+    context = admit(transcript_store, provider_session_id=KEY["session_id"])
+    transcript_store._db.harness_runs.update_one(
+        {"run_id": context.turn.run_id}, {"$set": {"cancellation_requested": True}}
+    )
+    scope = transcript_store.for_run(context)
+    await scope.ready()
+    await scope.append(KEY, ENTRIES)
+    assert await scope.load(KEY) == ENTRIES
+    await scope.close()
+    assert transcript_store._collection.count_documents({"binding_id": context.binding.binding_id}) == len(ENTRIES)
 
 
 async def test_tombstone_fences_ready_and_writes_even_with_otherwise_live_claim(transcript_store) -> None:
@@ -362,6 +374,8 @@ def test_missing_producer_token_cannot_create_scoped_store() -> None:
 
 async def test_engine_delete_cleans_sdk_partial_mirror_without_final_provider_id(transcript_store, settings) -> None:
     stored = asyncio.Event()
+    waiting = asyncio.Event()
+    release = asyncio.Event()
     scopes = []
 
     async def fake_query(**kwargs: Any) -> AsyncIterator[Any]:
@@ -370,7 +384,8 @@ async def test_engine_delete_cleans_sdk_partial_mirror_without_final_provider_id
         await scope.append(KEY, ENTRIES)
         stored.set()
         yield AssistantMessage(content=[TextBlock(text="partial")], model="claude-example")
-        await asyncio.Event().wait()
+        waiting.set()
+        await release.wait()
 
     adapter = ClaudeSDKAdapter(settings, query_fn=fake_query, transcript_store=transcript_store)
     registry = HarnessRegistry([adapter])
@@ -387,20 +402,32 @@ async def test_engine_delete_cleans_sdk_partial_mirror_without_final_provider_id
             "test-user",
         )
         await asyncio.wait_for(stored.wait(), 2)
+        await asyncio.wait_for(waiting.wait(), 2)
+        producer = coordinator._tasks[run.run_id]
         binding = await repository.get_session(run.binding_id)
         assert binding is not None and binding.provider_session_id is None
         assert transcript_store._collection.count_documents({"binding_id": binding.binding_id}) == 2
         transcript_store._db.native_acp_deleted_sessions.insert_one({"_id": "conversation-example"})
 
+        with pytest.raises(RunAdmissionConflict, match="waiting"):
+            await coordinator.delete_session("test-user", definition.id, "conversation-example")
+        assert await repository.get_session(run.binding_id) is not None
+        assert transcript_store._db.harness_runs.count_documents({"run_id": run.run_id}) == 1
+        assert transcript_store._db.harness_events.count_documents({"run_id": run.run_id}) > 0
+        assert transcript_store._collection.count_documents({"binding_id": binding.binding_id}) == 2
+        release.set()
+        await asyncio.wait_for(asyncio.gather(producer, return_exceptions=True), 2)
         await coordinator.delete_session("test-user", definition.id, "conversation-example")
 
         assert await repository.get_session(run.binding_id) is None
         assert await repository.get_run(run.run_id) is None
+        assert transcript_store._db.harness_runs.count_documents({"run_id": run.run_id}) == 0
         assert transcript_store._db.harness_events.count_documents({"run_id": run.run_id}) == 0
         assert transcript_store._collection.count_documents({}) == 0
         with pytest.raises(RunFencedError):
             await scopes[0].append(KEY, ENTRIES)
         assert transcript_store._collection.count_documents({}) == 0
     finally:
+        release.set()
         await coordinator.shutdown()
         await repository.close()

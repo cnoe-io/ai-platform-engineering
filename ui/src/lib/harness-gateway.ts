@@ -671,6 +671,10 @@ export async function invokeHarnessGatewayRun(
         { status: response.status || 502 },
       );
     }
+    if (!Number.isSafeInteger(envelope.data.run.last_sequence) || envelope.data.run.last_sequence < 0 ||
+        !Number.isSafeInteger(envelope.data.next_cursor) || envelope.data.next_cursor < cursor) {
+      return NextResponse.json({ success: false, error: "Harness Engine returned an invalid event cursor", run_id: started.run.run_id }, { status: 502 });
+    }
     for (const event of envelope.data.events) {
       if (event.event_type === "content.delta") content += stringField(event.data, "text", "delta");
       if (event.event_type === "reasoning.delta") thinking += stringField(event.data, "text", "delta");
@@ -724,7 +728,7 @@ export async function cancelHarnessGatewayRun(
     }),
   });
   if (response instanceof NextResponse) return response;
-  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string }>(response);
+  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string; cancellation_requested?: boolean }>(response);
   if (!response.ok || !envelope.success || !envelope.data) {
     return NextResponse.json(
       { success: false, error: engineErrorMessage(envelope, "Harness run could not be cancelled") },
@@ -734,6 +738,7 @@ export async function cancelHarnessGatewayRun(
   return NextResponse.json({
     success: true,
     cancelled: envelope.data.cancelled,
+    cancellation_requested: envelope.data.cancellation_requested ?? false,
     run_id: envelope.data.run_id,
     agent_id: body.agent_id,
     conversation_id: body.conversation_id,

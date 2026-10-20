@@ -51,6 +51,7 @@ _RUN_INTERNAL = {
     "_owner_token",
     "_producer_stopped",
     "_provider_started",
+    "_provider_drained",
     "_producer_expires_at",
     "_admission_deadline",
     "_pending_event",
@@ -65,7 +66,15 @@ def _event_bytes(document: dict[str, Any]) -> int:
     return len(json.dumps(document, default=str, ensure_ascii=False, separators=(",", ":")).encode())
 
 
+def _provider_drained(document: dict[str, Any]) -> bool:
+    # Before explicit drain acknowledgments, only successful completion after
+    # adapter iteration proves a stopped producer finished its provider work.
+    return bool(document.get("_provider_drained", document.get("_producer_stopped") and document["status"] == "completed"))
+
+
 def _run_record(document: dict[str, Any]) -> RunRecord:
+    if "_cancel_requested" in document:
+        document = {**document, "cancellation_requested": bool(document.get("cancellation_requested") or document["_cancel_requested"])}
     return RunRecord.model_validate(
         {key: value for key, value in document.items() if key not in _RUN_INTERNAL | {"_id"}}
     )
@@ -89,6 +98,9 @@ def _matches(document: dict[str, Any], expected: dict[str, Any]) -> bool:
                 return False
         elif isinstance(wanted, dict) and "$in" in wanted:
             if current not in wanted["$in"]:
+                return False
+        elif isinstance(wanted, dict) and "$ne" in wanted:
+            if current == wanted["$ne"]:
                 return False
         elif current != wanted:
             return False
@@ -241,9 +253,10 @@ class RunLifecycle:
                 "_owner_token": producer_id,
                 "_producer_stopped": False,
                 "_provider_started": False,
+                "_provider_drained": False,
                 "_producer_expires_at": deadline,
                 "_admission_deadline": deadline,
-                "_cancel_requested": False,
+
             }
         )
         if not inserted:
@@ -292,6 +305,14 @@ class RunLifecycle:
         initial = await self._read_run(run_id)
         if initial is None or await self.is_context_deleted(initial["conversation_id"]):
             return None
+        if "_cancel_requested" in initial:
+            # Rewrite the earlier private flag once; all new state uses the
+            # public Engine cancellation contract, without losing a pending Stop.
+            await self._change_run(
+                run_id, {"_cancel_requested": initial["_cancel_requested"]},
+                {"cancellation_requested": bool(initial.get("cancellation_requested") or initial["_cancel_requested"])},
+                ("_cancel_requested",),
+            )
         if "request_fingerprint" in initial or "pending_event" in initial:
             await self._normalize_legacy_terminal(initial)
         document = await self._publish_pending(run_id)
@@ -303,7 +324,7 @@ class RunLifecycle:
         run = _run_record(document)
         producer = document.get("_producer_id")
         if run.status in TERMINAL_RUN_STATUSES:
-            if producer and document.get("_producer_stopped"):
+            if producer and document.get("_producer_stopped") and (not document.get("_provider_started") or _provider_drained(document)):
                 await self._release_binding(run.binding_id, run_id, producer)
             elif producer:
                 binding = await self._read_binding(run.binding_id)
@@ -345,7 +366,7 @@ class RunLifecycle:
             fenced = await self._change_run(
                 run_id,
                 {"_producer_id": producer_id, "status": document["status"], "_pending_event": {"$exists": False}},
-                {"_producer_id": fence, "_cancel_requested": True},
+                {"_producer_id": fence, "cancellation_requested": True},
             )
             if fenced:
                 await self.append_event(
@@ -383,7 +404,7 @@ class RunLifecycle:
         if (
             not document
             or document.get("_producer_id") != producer_id
-            or document.get("_cancel_requested")
+            or ((document.get("cancellation_requested") or document.get("_cancel_requested")) and not document.get("_provider_started"))
             or document["status"] in TERMINAL_RUN_STATUSES
         ):
             return False
@@ -395,8 +416,10 @@ class RunLifecycle:
         renewed = await self._renew_binding(document["binding_id"], run_id, producer_id, now, deadline)
         return renewed and not await self.is_context_deleted(document["conversation_id"])
 
-    async def request_cancel(self, run_id: str) -> RunRecord | None:
-        await self._change_run(run_id, {"status": {"$in": ["queued", "running"]}}, {"_cancel_requested": True})
+    async def request_cancellation(self, run_id: str) -> RunRecord | None:
+        await self._change_run(
+            run_id, {"status": {"$in": ["queued", "running"]}}, {"cancellation_requested": True}, ("_cancel_requested",)
+        )
         return await self.get_run(run_id)
 
     async def begin_provider(self, run_id: str, producer_id: str, lease_seconds: float) -> bool:
@@ -405,7 +428,7 @@ class RunLifecycle:
             return False
         marked = await self._change_run(
             run_id,
-            {"_producer_id": producer_id, "status": "running", "_cancel_requested": False, "_provider_started": False},
+            {"_producer_id": producer_id, "status": "running", "cancellation_requested": {"$ne": True}, "_cancel_requested": {"$ne": True}, "_provider_started": False},
             {"_provider_started": True},
         )
         # This atomic binding renewal is provider admission's linearization
@@ -414,13 +437,22 @@ class RunLifecycle:
 
     async def cancellation_requested(self, run_id: str) -> bool:
         document = await self._read_run(run_id)
-        return bool(document and document.get("_cancel_requested"))
+        return bool(document and (document.get("cancellation_requested") or document.get("_cancel_requested")))
 
-    async def release_run(self, run_id: str, producer_id: str) -> None:
+    async def provider_has_started(self, run_id: str) -> bool:
+        document = await self._read_run(run_id)
+        return bool(document and document.get("_provider_started"))
+
+    async def release_run(self, run_id: str, producer_id: str, *, provider_drained: bool = False) -> None:
         document = await self._read_run(run_id)
         if document:
-            await self._change_run(run_id, {"_owner_token": producer_id}, {"_producer_stopped": True})
-            if document["status"] in TERMINAL_RUN_STATUSES:
+            acknowledged = await self._change_run(
+                run_id, {"_owner_token": producer_id},
+                {"_producer_stopped": True, "_provider_drained": provider_drained or _provider_drained(document)},
+            )
+            if acknowledged and document["status"] in TERMINAL_RUN_STATUSES and (
+                not document.get("_provider_started") or _provider_drained(acknowledged)
+            ):
                 await self._release_binding(document["binding_id"], run_id, producer_id)
 
     async def context_run_binding_ids(self, owner_subject: str, agent_id: str, conversation_id: str) -> set[str]:
@@ -428,7 +460,9 @@ class RunLifecycle:
 
     async def context_is_drained(self, owner_subject: str, agent_id: str, conversation_id: str) -> bool:
         for run in await self._context_runs(owner_subject, agent_id, conversation_id):
-            if run.get("_producer_stopped") or (run.get("_owner_token") and not run.get("_provider_started")):
+            if (
+                run.get("_producer_stopped") and (not run.get("_provider_started") or _provider_drained(run))
+            ) or (run.get("_owner_token") and not run.get("_provider_started")):
                 continue
             if run.get("_owner_token") or run.get("status") not in TERMINAL_RUN_STATUSES:
                 return False
@@ -573,13 +607,15 @@ class RunRepository(Protocol):
 
     async def renew_run(self, run_id: str, producer_id: str, lease_seconds: float) -> bool: ...
 
-    async def request_cancel(self, run_id: str) -> RunRecord | None: ...
+    async def request_cancellation(self, run_id: str) -> RunRecord | None: ...
 
     async def begin_provider(self, run_id: str, producer_id: str, lease_seconds: float) -> bool: ...
 
     async def cancellation_requested(self, run_id: str) -> bool: ...
 
-    async def release_run(self, run_id: str, producer_id: str) -> None: ...
+    async def provider_has_started(self, run_id: str) -> bool: ...
+
+    async def release_run(self, run_id: str, producer_id: str, *, provider_drained: bool = False) -> None: ...
 
     async def interrupt_run(self, run_id: str, producer_id: str, *, closed: bool = False) -> RunRecord | None: ...
 
@@ -1239,7 +1275,7 @@ class MongoRunRepository(RunLifecycle):
             lambda: list(
                 self._db.harness_runs.find(
                     {"owner_subject": owner_subject, "agent_id": agent_id, "conversation_id": conversation_id},
-                    {"run_id": 1, "binding_id": 1, "status": 1, "_owner_token": 1, "_producer_stopped": 1, "_provider_started": 1},
+                    {"run_id": 1, "binding_id": 1, "status": 1, "_owner_token": 1, "_producer_stopped": 1, "_provider_started": 1, "_provider_drained": 1},
                 )
             )
         )

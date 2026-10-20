@@ -111,3 +111,15 @@ it("does not let a legacy Engine choice override an approved custom checkpoint c
   expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(409);
   expect(canonical()).toBeUndefined();
 });
+
+
+it.each(["checkpoints_conversation", "approved_checkpoints"])("keeps known native state in %s usable without Engine after a mutable SDK edit", async (collection) => {
+  rows("dynamic_agents").get(agentId)!.execution_harness_id = "agentcore";
+  if (collection !== "checkpoints_conversation") {
+    rows("dynamic_agents").get(agentId)!.backend = { config: { checkpoint_collection: collection } };
+  }
+  rows(collection).set("checkpoint-example", { _id: "checkpoint-example", thread_id: context.conversationId });
+  delete process.env.HARNESS_ENGINE_URL;
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(native);
+  expect(canonical()).toMatchObject({ harness_id: "dynamic_agents" });
+});
