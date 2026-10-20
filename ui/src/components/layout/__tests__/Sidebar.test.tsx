@@ -16,6 +16,10 @@ import { act, render, screen, fireEvent, waitFor, within } from '@testing-librar
 // Mocks — must be before imports
 // ============================================================================
 
+const mockOrganization: { value: { view: string; folders: Array<{ id: string; name: string }>; assignments: Record<string, string>; collapsed: string[] }; ready: boolean; saving: boolean; error: string; update: jest.Mock; retry: jest.Mock } = { value: { view: "ungrouped", folders: [], assignments: {}, collapsed: [] }, ready: true,
+  saving: false, error: "", update: jest.fn(), retry: jest.fn() };
+jest.mock("@/hooks/use-chat-history-organization", () => ({ useChatHistoryOrganization: () => mockOrganization }));
+
 const mockSession = {
   data: { user: { name: 'Test User', email: 'test@test.com' } } as unknown,
   status: 'authenticated' as const,
@@ -119,6 +123,8 @@ jest.mock('lucide-react', () => ({
   Zap: (props: unknown) => <span data-testid="icon-zap" {...props} />,
   Database: (props: unknown) => <span data-testid="icon-database" {...props} />,
   Globe: (props: React.ComponentProps<'span'>) => <span data-testid="icon-globe" {...props} />,
+  Folder: (props: unknown) => <span data-testid="icon-folder" {...props} />,
+  FolderPlus: (props: unknown) => <span data-testid="icon-folder-plus" {...props} />,
   HardDrive: (props: unknown) => <span data-testid="icon-hard-drive" {...props} />,
   Users2: (props: unknown) => <span data-testid="icon-users2" {...props} />,
   Shield: (props: unknown) => <span data-testid="icon-shield" {...props} />,
@@ -731,7 +737,7 @@ describe('Sidebar — Live Status Indicator', () => {
         ['Scheduled runs', 'icon-calendar-clock', 'text-cyan-500'],
         ['Webhook runs', 'icon-webhook', 'text-orange-500'],
       ]
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(
         options.map(([label]) => label),
       )
       for (const [label, icon, color] of options) {
@@ -740,13 +746,13 @@ describe('Sidebar — Live Status Indicator', () => {
       selectConversationFilter('API')
       expect(within(picker).getByTestId('icon-code')).toHaveClass('text-sky-500')
       fireEvent.click(picker)
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(
         options.map(([label]) => label),
       )
       fireEvent.change(screen.getByPlaceholderText('Search chat types...'), {
         target: { value: 'webhook' },
       })
-      expect(screen.getAllByRole('option')).toHaveLength(1)
+      expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(1)
       expect(screen.getByRole('option', { name: 'Webhook runs' })).toBeInTheDocument()
     })
 
@@ -1227,4 +1233,19 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByTestId('icon-radio')).toBeInTheDocument()
     })
   })
+  it('shows collapsible groups by agent and preserves the ungrouped option', async () => {
+    mockOrganization.value = { view: 'agents', folders: [], assignments: {}, collapsed: ['agent:example-one'] };
+    mockConversations = [makeConv('example-first', 'First chat', { participants: [{ type: 'agent', id: 'example-one' }] }),
+      makeConv('example-second', 'Second chat', { participants: [{ type: 'agent', id: 'example-two' }] })];
+    const view = render(<Sidebar {...defaultProps} />);
+    expect(screen.queryByText('First chat')).toBeNull();
+    expect(screen.getByText('Second chat')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { expanded: false }).length).toBeGreaterThan(0);
+    mockOrganization.value = { ...mockOrganization.value, view: 'ungrouped' };
+    view.rerender(<Sidebar {...defaultProps} />);
+    expect(screen.getByText('First chat')).toBeInTheDocument();
+    expect(screen.queryByText('MongoDB Mode')).toBeNull();
+    mockOrganization.value = { view: 'ungrouped', folders: [], assignments: {}, collapsed: [] };
+  });
+
 })
