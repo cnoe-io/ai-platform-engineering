@@ -72,8 +72,41 @@ the JSON may be at the package root or in a compiled directory such as `dist/`.
 An optional `assistant` claim (`agentId`, `label`, `name`) lets the host render
 its own floating chat for a config-driven agent. The host fetches the agent
 through its RBAC-protected API and sends bounded route context with turns. The
-app must seed the agent and its MCP server separately; the native package does
-not receive credentials or create agents at runtime.
+app must register its agent separately; Dynamic Agents assistants also configure
+their tools separately. The native package does not receive credentials or create
+agents at runtime.
+
+An installed app may declare `ui.assistant.streamPath` as a safe `/api/`
+path on its private runtime. Browser chat, the app assistant overlay and
+linked-user bot conversations use the same host chat routes and conversation ID.
+The host resolves the saved agent against installed app declarations; client
+metadata cannot choose a backend origin or substitute an agent.
+
+| Assistant declaration | Host operation | App response |
+|---|---|---|
+| `streamPath` | `/api/v1/chat/stream/start` | AG-UI SSE |
+| `resumePath` (optional) | `/api/v1/chat/stream/resume` | AG-UI SSE |
+| `cancelPath` (optional) | `/api/v1/chat/stream/cancel` | JSON with `cancelled: boolean` |
+
+Use the host's default `agui` chat protocol for app streams. Each path must have an
+allowed POST policy; resume/cancel declarations require `streamPath`. The host
+forwards the existing operation body unchanged, including the authorized
+conversation ID and untrusted client context. Apps implement their own runtime,
+session mapping, deadlines, source access and optional verification controls.
+Keep runtime origins and private services server-side.
+
+Agent-use and conversation-write checks run first. The same resolved user then
+passes through the app gateway's launch and HTTP policy checks and configured
+token mode. Service accounts cannot substitute for an interactive user.
+Declaring a stream grants no access. A conflicting/unavailable app configuration,
+a denial, or an upstream failure does not invoke a different agent runtime.
+
+A missing resume/cancel capability returns `501`; it never resumes or cancels a
+Dynamic Agents run. Without an app stream claim, existing Dynamic Agents behavior
+continues. Start/resume permit up to 16 minutes at the host boundary; applications
+must enforce their own bounded deadline, emit SSE heartbeats and honor aborts.
+The host preserves AG-UI events and cancellation acknowledgements. It does not
+implement SDK-specific sessions, automatic retries or durable stream replay.
 
 The `2.0` release retains the existing component props and trust model; the
 aligned numbering is not a new rendering engine, sandbox, or permission grant.
@@ -82,3 +115,46 @@ The host rejects mismatches and unknown versions before mounting a component.
 The browser-safe `./contract-version` export exposes the supported versions.
 A breaking interface change requires a new contract version and a matching
 SDK major version. App package versions remain independently versioned.
+
+### Installed assistant identity
+
+A deployment may bind `installations[].bindings.resources.assistant` to its
+registered agent ID. This replaces the manifest assistant's logical `agentId`
+for discovery and stream routing. It does not change stream paths, authorization
+policies, or the pinned publisher artifact. The app must declare `ui.assistant`.
+
+Native packages that render their own assistant UI declare
+`ui.assistant.overlay: "app"`. The host skips its default launcher while retaining
+assistant discovery and stream routing. Omitting this field retains the host UI.
+
+### Host-owned native chat sessions
+
+Declare required `host.chat@1.0` and render `props.chat.Panel` with the saved
+conversation ID and deployment-bound agent ID. The host owns the request, shared
+chat store, persistence, stop action and green live-response bar. Removing the
+native screen does not abort its turn. Native packages should not render their
+bundled chat consumer alongside this panel.
+
+Apps may supply a composer header and bounded per-question `requestOptions`; these
+are forwarded as `forwarded_props` and must be validated by the app. Agent binding
+and authorization remain server-owned.
+
+For another tab to observe an active response, declare `ui.assistant.statusPath`.
+It is an authenticated POST accepting `conversation_id` and `agent_id`, returning
+`{running: boolean, turnId?: string}`. Return only the caller's current turn; never
+include SDK IDs, credentials or retained model context. Status uses the same app
+gateway and conversation-write/agent-use authorization boundary as start.
+
+The host polls active status and authorized saved messages, with a bounded watch
+and a short final-save grace period. It never resubmits the question. Apps that
+omit status keep their existing behavior. This capability does not promise durable
+SSE replay after the browser owning the request closes.
+
+### Assistant routing snapshot
+
+Startup validates the deployment catalog and records its assistant bindings. Routing
+uses that last successfully validated snapshot for the same catalog path. A failed
+catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
+agents. App proxy calls still validate the live catalog and fail closed when it
+is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
+the snapshot; a UI restart revalidates it before serving traffic.

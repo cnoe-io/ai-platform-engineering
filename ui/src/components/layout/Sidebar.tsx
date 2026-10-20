@@ -2,6 +2,10 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
+import { ChatHistoryOrganizationControls, type OrganizationDialog } from "@/components/chat/ChatHistoryOrganizationControls";
+import { ChatHistoryGroupReorder, type GroupDrop } from "@/components/chat/ChatHistoryGroupReorder";
+import { reorderChatHistoryGroups } from "@/lib/chat-history-organization";
+import { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
 import { NewChatButton } from "@/components/chat/NewChatButton";
 import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import { ConversationListSkeleton } from "@/components/chat/ConversationListSkeleton";
@@ -11,7 +15,6 @@ import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SearchablePicker } from "@/components/ui/searchable-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { autonomousApi } from "@/components/autonomous/api";
@@ -38,7 +41,7 @@ ChevronLeft,
 ChevronRight,
 Code2,
 Database,
-HardDrive,
+Folder,
 Loader2,
 ListFilter,
 MessageCircleQuestion,
@@ -151,6 +154,7 @@ function persistHistoryFilter(filter: ConversationHistoryFilter): void {
 }
 
 type ConversationListItem =
+  | { kind: "group"; key: string; label: string; count: number; folderId?: string }
   | { kind: "webhook-section" }
   | {
       kind: "conversation";
@@ -246,6 +250,39 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     isConversationInputRequired,
   } = useChatStore();
   const { data: session } = useSession();
+  const organizationIdentity = session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined);
+  const [historyFilter, setHistoryFilter] = useState<ConversationHistoryFilter>('all');
+  const organizationScope = historyFilter === "autonomous" || historyFilter === "scheduled" ? historyFilter : "chats";
+  const allowChatFolders = !["autonomous", "scheduled", "webhook"].includes(historyFilter);
+  const organization = useChatHistoryOrganization(organizationIdentity, organizationScope);
+  const draggedChat = useRef<{ id: string; identity: string; pointerId: number; x: number; y: number; moved: boolean } | null>(null);
+  const ignoreChatClick = useRef(false);
+  const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [dropFolderKey, setDropFolderKey] = useState<string | null>(null);
+  const clearChatDrag = () => { draggedChat.current = null; setDraggedChatId(null); setDropFolderKey(null); };
+  const canDropChat = () => allowChatFolders && organization.ready && !organization.saving && organization.value.view === "folders" &&
+    draggedChat.current?.identity === organizationIdentity && conversations.some(c => c.id === draggedChat.current?.id && getConversationRunKind(c) === null);
+  const folderAtPointer = (event: ReactPointerEvent) => event.currentTarget.ownerDocument
+    .elementFromPoint(event.clientX, event.clientY)?.closest("[data-chat-folder-drop-target]")
+    ?.getAttribute("data-chat-folder-drop-target") ?? null;
+  const dropChatIntoFolder = (key: string | null) => {
+    const source = draggedChat.current;
+    const valid = canDropChat() && source?.moved && key;
+    clearChatDrag();
+    if (!valid || !source || !key) return;
+    const folderId = key === "folder:unfiled" ? undefined : key.slice("folder:".length);
+    if (folderId && !organization.value.folders.some(f => f.id === folderId)) return;
+    const id = source.id;
+    if (organization.value.assignments[id] === folderId) return;
+    void organization.update(value => {
+      const assignments = { ...value.assignments };
+      if (folderId) assignments[id] = folderId; else delete assignments[id];
+      return { ...value, assignments, collapsed: value.collapsed.filter(k => k !== key) };
+    });
+  };
+  const [groupDrop, setGroupDrop] = useState<GroupDrop | null>(null);
+  const [groupMoveAnnouncement, setGroupMoveAnnouncement] = useState("");
+  const [organizationDialog, setOrganizationDialog] = useState<OrganizationDialog | null>(null);
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isLoadingConversations, setIsLoadingConversations] = useState(
@@ -258,7 +295,6 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
-  const [historyFilter, setHistoryFilter] = useState<ConversationHistoryFilter>('all');
   const [historyFilterHydrated, setHistoryFilterHydrated] = useState(false);
   const [webhooksExpanded, setWebhooksExpanded] = useState(false);
   const [webhookTasks, setWebhookTasks] = useState<AutonomousTask[]>([]);
@@ -608,6 +644,39 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const conversationListItems: ConversationListItem[] = historyFilter === 'webhook'
     ? webhookTasks.map((task) => ({ kind: 'webhook-task', task }))
     : visibleConversations.map((conversation) => ({ kind: 'conversation', conversation }));
+  if (!collapsed && historyFilter !== "webhook" && organization.value.view !== "ungrouped") {
+    const groups = new Map<string, { label: string; folderId?: string; conversations: Conversation[] }>();
+    if (organization.value.view === "folders") {
+      organization.value.folders.forEach(f => groups.set(`folder:${f.id}`, { label: f.name, folderId: f.id, conversations: [] }));
+      groups.set("folder:unfiled", { label: "Unfiled", conversations: [] });
+    }
+    visibleConversations.forEach(conversation => {
+      const agentId = getAgentId(conversation);
+      const folderId = getConversationRunKind(conversation) ? undefined : organization.value.assignments[conversation.id];
+      const key = organization.value.view === "folders" ? folderId ? `folder:${folderId}` : "folder:unfiled" : `agent:${agentId ?? "none"}`;
+      if (!groups.has(key)) groups.set(key, { label: agentId ? agentNameMap[agentId] ?? "Unavailable agent" : "No agent", conversations: [] });
+      groups.get(key)!.conversations.push(conversation);
+    });
+    conversationListItems.length = 0;
+    const ranks = new Map((organization.value.groupOrder ?? []).map((key, index) => [key, index]));
+    const orderedGroups = [...groups].sort(([a], [b]) => (ranks.get(a) ?? Infinity) - (ranks.get(b) ?? Infinity));
+    for (const [key, group] of orderedGroups) {
+      conversationListItems.push({ kind: "group", key, label: group.label, count: group.conversations.length, folderId: group.folderId });
+      if (!organization.value.collapsed.includes(key)) conversationListItems.push(...group.conversations.map(
+        (conversation): ConversationListItem => ({ kind: "conversation", conversation })));
+    }
+  }
+  const groupKeys = conversationListItems.flatMap(item => item.kind === "group" ? [item.key] : []);
+  const moveHistoryGroup = (source: string, target: GroupDrop) => {
+    if (!organization.ready || organization.saving || !groupKeys.includes(source) || !groupKeys.includes(target.key)) return;
+    const order = reorderChatHistoryGroups(organization.value.groupOrder ?? [], groupKeys, source, target.key, target.position);
+    if (order.filter(key => groupKeys.includes(key)).every((key, index) => key === groupKeys[index])) return;
+    const label = conversationListItems.find(item => item.kind === "group" && item.key === source);
+    const destination = conversationListItems.find(item => item.kind === "group" && item.key === target.key);
+    void organization.update(value => ({ ...value,
+      groupOrder: reorderChatHistoryGroups(value.groupOrder ?? [], groupKeys, source, target.key, target.position),
+    })).then(saved => { if (saved && label?.kind === "group") setGroupMoveAnnouncement(`Moved ${label.label} ${target.position} ${destination?.kind === "group" ? destination.label : "the destination group"}.`); });
+  };
   if (historyFilter === 'autonomous' && webhookTasks.length > 0) {
     conversationListItems.push({ kind: 'webhook-section' });
     if (webhooksExpanded) {
@@ -618,7 +687,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   }
 
   const selectedHistoryFilter = availableHistoryFilters.find(
-    (filter) => filter.value === historyFilter,
+    filter => filter.value === historyFilter,
   ) ?? availableHistoryFilters[0];
 
   return (
@@ -650,95 +719,14 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           title="Drag to resize sidebar"
         />
       )}
-      {/* Collapse Toggle */}
-      <div className="flex items-center justify-end p-2 h-12 shrink-0">
-        <TooltipProvider delayDuration={150}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label={collapsed ? "Expand conversation history" : "Collapse conversation history"}
-                variant="ghost"
-                size="icon"
-                onClick={() => onCollapse(!collapsed)}
-                className="h-8 w-8 hover:bg-muted shrink-0"
-              >
-                {collapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronLeft className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side={collapsed ? "right" : "left"} sideOffset={8}>
-              <p className="text-xs">
-                {collapsed ? "Expand conversation history" : "Collapse conversation history"}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
 
       {/* New Chat Button */}
       {activeTab === "chat" && (
-        <div className="px-2 pb-2 shrink-0">
+        <div className="px-2 pt-2 pb-2 shrink-0">
           <NewChatButton
             collapsed={collapsed}
             onNewChat={handleNewChat}
           />
-        </div>
-      )}
-
-      {/* Bottom-right indicators: Archive + Storage Mode */}
-      {activeTab === "chat" && !collapsed && (
-        <div className="absolute bottom-2 right-2 z-10 overflow-visible flex items-center gap-1.5">
-          {/* Archive button — only in MongoDB mode */}
-          {storageMode === 'mongodb' && (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setRecycleBinOpen(true)}
-                    className="p-1.5 rounded-md bg-muted/50 border border-border/50 hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <ArchiveRestore className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8}>
-                  <p className="font-medium text-xs">Archive</p>
-                  <p className="text-[10px] mt-0.5 opacity-70">Restore deleted conversations</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-
-          {/* Storage Mode Indicator */}
-          <TooltipProvider delayDuration={200}>
-            {storageMode === 'localStorage' ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-help">
-                    <HardDrive className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8} className="bg-amber-600 dark:bg-amber-500 text-white border-amber-700">
-                  <p className="font-medium">Local Storage Mode</p>
-                  <p className="text-amber-100 text-[10px] mt-0.5">Browser-only • Not shareable</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-1.5 rounded-md bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 transition-colors cursor-help">
-                    <Database className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8} className="bg-green-600 dark:bg-green-500 text-white border-green-700">
-                  <p className="font-medium">MongoDB Mode</p>
-                  <p className="text-green-100 text-[10px] mt-0.5">Persistent • Shareable • Teams</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
         </div>
       )}
 
@@ -747,38 +735,16 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         <div className="flex-1 overflow-hidden flex flex-col min-w-0 min-h-0">
           {!collapsed && (
             <div className="px-2 pb-2 shrink-0">
-              <SearchablePicker
-                options={availableHistoryFilters}
-                selected={selectedHistoryFilter}
-                onSelect={(filter) => handleHistoryFilterChange(filter.value)}
-                getOptionKey={(filter) => filter.value}
-                getOptionLabel={(filter) => filter.label}
-                renderValue={(filter) => {
-                  const FilterIcon = filter.icon;
-                  return (
-                    <>
-                      <FilterIcon className={cn("h-3.5 w-3.5", filter.iconClassName)} />
-                      <span className="truncate">{filter.label}</span>
-                    </>
-                  );
-                }}
-                renderOption={(filter) => {
-                  const FilterIcon = filter.icon;
-                  return (
-                    <>
-                      <FilterIcon className={cn("h-3.5 w-3.5", filter.iconClassName)} />
-                      <span className="truncate">{filter.label}</span>
-                    </>
-                  );
-                }}
-                placeholder="Filter chats"
-                searchPlaceholder="Search chat types..."
-                emptyLabel="No chat types match"
-                ariaLabel="Filter chat history"
-                required
-                prioritizeSelected={false}
-                triggerClassName="h-8 py-1 text-xs"
-                contentClassName="w-[280px]"
+              <ChatHistoryOrganizationControls state={organization} dialog={organizationDialog}
+                onDialog={setOrganizationDialog} allowFolders={allowChatFolders} allowGrouping={historyFilter !== "webhook"}
+                source={selectedHistoryFilter.value}
+                onSourceChange={value => handleHistoryFilterChange(value as ConversationHistoryFilter)}
+                sources={availableHistoryFilters.map(filter => {
+                  const Icon = filter.icon;
+                  return { value: filter.value, label: filter.label, content: <>
+                    <Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span>
+                  </> };
+                })}
               />
             </div>
           )}
@@ -789,12 +755,46 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           >
             {/* Replace filter contents synchronously: exiting headers/rows must not
                 linger over the newly selected history. */}
+            <div role="status" aria-live="polite" className="sr-only">{groupMoveAnnouncement}</div>
             <div key={historyFilter} className="px-2 space-y-1 pb-4">
               {isLoadingConversations && conversationListItems.length === 0 ? (
                 <ConversationListSkeleton collapsed={collapsed} />
               ) : (
                 <>
                   {conversationListItems.map((item) => {
+                  if (item.kind === "group") {
+                    const expanded = !organization.value.collapsed.includes(item.key);
+                    return <div key={item.key}
+                      data-chat-group-key={item.key}
+                      data-chat-folder-drop-target={organization.value.view === "folders" ? item.key : undefined}
+                      className={cn("group flex items-center gap-1 rounded-lg pt-2 transition-colors",
+                        dropFolderKey === item.key && "bg-primary/15 ring-2 ring-inset ring-primary",
+                        groupDrop?.key === item.key && (groupDrop.position === "before" ? "shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : "shadow-[inset_0_-2px_0_0_hsl(var(--primary))]"))}
+                    >
+                      <ChatHistoryGroupReorder groupKey={item.key} label={item.label} keys={groupKeys}
+                        scope={`${organizationIdentity}:${historyFilter}:${organization.value.view}`}
+                        disabled={!organization.ready || organization.saving} viewport={conversationScrollViewportRef.current}
+                        onMove={moveHistoryGroup} onTarget={setGroupDrop} />
+                      <button type="button" aria-expanded={expanded} disabled={organization.saving}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
+                        onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
+                        {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                        {organization.value.view === "folders" && <Folder className="h-3.5 w-3.5 shrink-0" />}
+                        <span className="truncate" title={item.label}>{item.label}</span><span className="ml-auto tabular-nums text-muted-foreground">{item.count}</span>
+                      </button>
+                      {item.folderId && <>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          aria-label={`Rename folder ${item.label}`} disabled={organization.saving}
+                          onClick={() => setOrganizationDialog({ kind: "rename", id: item.folderId!, name: item.label })}><Pencil className="h-3 w-3" /></Button>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          aria-label={`Remove folder ${item.label}`} title="Remove folder; keep chats in Unfiled" disabled={organization.saving}
+                          onClick={() => void organization.update(v => ({ ...v, folders: v.folders.filter(f => f.id !== item.folderId),
+                            assignments: Object.fromEntries(Object.entries(v.assignments).filter(([, id]) => id !== item.folderId)),
+                            collapsed: v.collapsed.filter(k => k !== item.key),
+                            ...(v.groupOrder ? { groupOrder: v.groupOrder.filter(k => k !== item.key) } : {}) }))}><X className="h-3 w-3" /></Button>
+                      </>}
+                    </div>;
+                  }
                   if (item.kind === "webhook-section") {
                     return (
                       <button
@@ -911,14 +911,44 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   return (
                   <div
                     key={conv.id}
-                    className="group/conv"
+                    className={cn("group/conv", draggedChatId === conv.id && "opacity-50")}
+                    data-chat-conversation-id={conv.id}
                   >
                     <TooltipProvider delayDuration={150}>
                     <Tooltip className="block w-full">
                     <TooltipTrigger asChild>
                     <div
+                      onPointerDown={event => {
+                        ignoreChatClick.current = false;
+                        if (event.button !== 0 || event.pointerType === "touch" || !organizationIdentity || !allowChatFolders || getConversationRunKind(conv) !== null ||
+                          collapsed || organization.value.view !== "folders" || !organization.ready ||
+                          organization.saving || isEditingTitle || (event.target as Element).closest("button, input, textarea")) return;
+                        draggedChat.current = { id: conv.id, identity: organizationIdentity, pointerId: event.pointerId,
+                          x: event.clientX, y: event.clientY, moved: false };
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={event => {
+                        const source = draggedChat.current;
+                        if (!source || source.pointerId !== event.pointerId || !canDropChat()) return;
+                        if (!source.moved && Math.hypot(event.clientX - source.x, event.clientY - source.y) < 6) return;
+                        source.moved = true; ignoreChatClick.current = true; event.preventDefault();
+                        setDraggedChatId(source.id); setDropFolderKey(folderAtPointer(event));
+                        const viewport = conversationScrollViewportRef.current;
+                        if (viewport) {
+                          const bounds = viewport.getBoundingClientRect();
+                          if (event.clientY < bounds.top + 24) viewport.scrollTop -= 12;
+                          else if (event.clientY > bounds.bottom - 24) viewport.scrollTop += 12;
+                        }
+                      }}
+                      onPointerUp={event => {
+                        if (draggedChat.current?.pointerId === event.pointerId) dropChatIntoFolder(folderAtPointer(event));
+                      }}
+                      onPointerCancel={clearChatDrag}
+                      onLostPointerCapture={clearChatDrag}
+                      onDragStart={event => event.preventDefault()}
                       className={cn(
                         "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
+                        organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing select-none",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
                           : isInputRequired
@@ -936,13 +966,17 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         : undefined}
                       role={collapsed ? "button" : undefined}
                       tabIndex={collapsed ? 0 : undefined}
-                      onClick={openConversation}
+                      onClick={event => {
+                        if (ignoreChatClick.current) { ignoreChatClick.current = false; event.preventDefault(); return; }
+                        openConversation();
+                      }}
                       onKeyDown={collapsed ? (event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           openConversation();
                         }
                       } : undefined}
+
                     >
                     <div className="relative shrink-0">
                       {conversationAgentId ? (
@@ -1092,6 +1126,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
+                          {allowChatFolders && !runKind && !isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            aria-label="Move conversation to folder" title="Move to folder" disabled={!organization.ready || organization.saving}
+                            onClick={event => { event.stopPropagation(); setOrganizationDialog({ kind: "move", id: conv.id, title: conv.title }); }}>
+                            <Folder className="h-3 w-3" />
+                          </Button>}
                           {isEditingTitle ? (
                             <>
                               <TooltipProvider delayDuration={200}>
@@ -1158,9 +1197,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               <div
                                 className={cn(
                                   "transition-opacity",
-                                  activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                  hasSharingConfig || isSharedWithViewer
                                     ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100",
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                                 )}
                               >
                                 <ShareButton
@@ -1311,6 +1350,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                 </>
               )}
 
+              {conversationHasMore && conversationFilter === historyFilter && !isLoadingMoreConversations && (
+                <Button variant="ghost" className="w-full text-xs" onClick={() => void loadConversationsFromServer({ filter: conversationFilter, append: true })}>Load older chats</Button>
+              )}
               {isLoadingMoreConversations && conversationFilter === historyFilter && (
                 <div className="flex justify-center py-3" aria-label="Loading more chats">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -1477,6 +1519,23 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           )}
         </div>
       )}
+
+      <div className="mt-auto flex shrink-0 items-center justify-between px-2 py-1">
+        <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={() => onCollapse(!collapsed)}
+            aria-label={collapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}
+            className="h-8 w-8 hover:bg-muted shrink-0">
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
+        </TooltipTrigger><TooltipContent side="top">{collapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}</TooltipContent></Tooltip></TooltipProvider>
+        {activeTab === "chat" && !collapsed && storageMode === "mongodb" && (
+          <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Archive" onClick={() => setRecycleBinOpen(true)} className="h-8 w-8">
+              <ArchiveRestore className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          </TooltipTrigger><TooltipContent side="top">Restore deleted conversations</TooltipContent></Tooltip></TooltipProvider>
+        )}
+      </div>
 
       {/* Use Case Builder Dialog */}
       <UseCaseBuilderDialog

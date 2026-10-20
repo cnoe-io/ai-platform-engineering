@@ -16,6 +16,10 @@ import { act, render, screen, fireEvent, waitFor, within } from '@testing-librar
 // Mocks — must be before imports
 // ============================================================================
 
+const mockOrganization: { value: { view: string; folders: Array<{ id: string; name: string }>; assignments: Record<string, string>; collapsed: string[] }; ready: boolean; saving: boolean; error: string; update: jest.Mock; retry: jest.Mock } = { value: { view: "ungrouped", folders: [], assignments: {}, collapsed: [] }, ready: true,
+  saving: false, error: "", update: jest.fn(), retry: jest.fn() };
+jest.mock("@/hooks/use-chat-history-organization", () => ({ useChatHistoryOrganization: () => mockOrganization }));
+
 const mockSession = {
   data: { user: { name: 'Test User', email: 'test@test.com' } } as unknown,
   status: 'authenticated' as const,
@@ -99,6 +103,9 @@ jest.mock('@/store/chat-store', () => {
 })
 
 jest.mock('lucide-react', () => ({
+  ArrowUp: (props: React.ComponentProps<'span'>) => <span data-testid="icon-arrow-up" {...props} />,
+  ArrowDown: (props: React.ComponentProps<'span'>) => <span data-testid="icon-arrow-down" {...props} />,
+  GripVertical: (props: React.ComponentProps<'span'>) => <span data-testid="icon-grip" {...props} />,
   MessageSquare: (props: unknown) => <span data-testid="icon-message-square" {...props} />,
   MessageCircleQuestion: (props: unknown) => <span data-testid="icon-message-circle-question" {...props} />,
   Radio: (props: unknown) => <span data-testid="icon-radio" {...props} />,
@@ -121,6 +128,8 @@ jest.mock('lucide-react', () => ({
   Zap: (props: unknown) => <span data-testid="icon-zap" {...props} />,
   Database: (props: unknown) => <span data-testid="icon-database" {...props} />,
   Globe: (props: React.ComponentProps<'span'>) => <span data-testid="icon-globe" {...props} />,
+  Folder: (props: unknown) => <span data-testid="icon-folder" {...props} />,
+  FolderPlus: (props: unknown) => <span data-testid="icon-folder-plus" {...props} />,
   HardDrive: (props: unknown) => <span data-testid="icon-hard-drive" {...props} />,
   Users2: (props: unknown) => <span data-testid="icon-users2" {...props} />,
   Shield: (props: unknown) => <span data-testid="icon-shield" {...props} />,
@@ -267,9 +276,10 @@ function selectConversationFilter(label: string) {
     Chat: 'Web chats', Scheduled: 'Scheduled runs', Autonomous: 'Autonomous runs',
     All: 'All chats', API: 'API chats', Webhook: 'Webhook runs',
   }
-  const picker = screen.getByRole('combobox', { name: 'Filter chat history' })
+  const picker = screen.getByRole('button', { name: 'Filter chat history' })
   if (picker.getAttribute('aria-expanded') !== 'true') fireEvent.click(picker)
-  fireEvent.click(screen.getByRole('option', { name: labels[label] }))
+  fireEvent.click(screen.getByRole('radio', { name: labels[label] }))
+  fireEvent.keyDown(document, { key: 'Escape' })
 }
 
 // ============================================================================
@@ -632,11 +642,11 @@ describe('Sidebar — Live Status Indicator', () => {
       mockAutonomousAgentsEnabled = false
       window.localStorage.setItem('caipe-chat-history-filter', 'autonomous')
       render(<Sidebar {...defaultProps} />)
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('All chats')
-      fireEvent.click(screen.getByRole('combobox', { name: 'Filter chat history' }))
-      expect(screen.queryByRole('option', { name: 'Autonomous runs' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('option', { name: 'Scheduled runs' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('option', { name: 'Webhook runs' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('All chats')
+      fireEvent.click(screen.getByRole('button', { name: 'Filter chat history' }))
+      expect(screen.queryByRole('radio', { name: 'Autonomous runs' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('radio', { name: 'Scheduled runs' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('radio', { name: 'Webhook runs' })).not.toBeInTheDocument()
       expect(mockListAutonomousTasks).not.toHaveBeenCalled()
       expect(mockLoadConversationsFromServer).toHaveBeenCalledWith({ filter: 'all' })
     })
@@ -655,13 +665,13 @@ describe('Sidebar — Live Status Indicator', () => {
       ]
       render(<Sidebar {...defaultProps} />)
 
-      const picker = screen.getByRole('combobox', { name: 'Filter chat history' })
+      const picker = screen.getByRole('button', { name: 'Filter chat history' })
       expect(picker.tagName).toBe('BUTTON')
       expect(picker).toHaveTextContent('Web chats')
       fireEvent.click(picker)
-      expect(screen.getByRole('option', { name: 'All chats' })).toBeInTheDocument()
-      expect(screen.getByRole('option', { name: 'API chats' })).toBeInTheDocument()
-      expect(screen.getByRole('option', { name: 'Webhook runs' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'All chats' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'API chats' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Webhook runs' })).toBeInTheDocument()
       expect(screen.queryByText('History')).not.toBeInTheDocument()
       expect(screen.getByText('Normal Chat')).toBeInTheDocument()
       expect(screen.queryByText('Review alerts')).not.toBeInTheDocument()
@@ -670,7 +680,7 @@ describe('Sidebar — Live Status Indicator', () => {
       // These assertions are synchronous: there must be no outgoing title or
       // conversation retained by an exit animation during filter switches.
       selectConversationFilter('Autonomous')
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('Autonomous runs')
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('Autonomous runs')
       expect(screen.queryByText('History')).not.toBeInTheDocument()
       expect(screen.getByText('Review alerts')).toBeInTheDocument()
       expect(screen.queryByText('Normal Chat')).not.toBeInTheDocument()
@@ -698,7 +708,7 @@ describe('Sidebar — Live Status Indicator', () => {
         makeConv('api-chat', 'API conversation', { source: 'api' }),
       ]
       render(<Sidebar {...defaultProps} />)
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('All chats')
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('All chats')
       expect(screen.getByText('Web conversation')).toBeInTheDocument()
       expect(screen.getByText('API conversation')).toBeInTheDocument()
       expect(mockLoadConversationsFromServer).toHaveBeenLastCalledWith({ filter: 'all' })
@@ -717,10 +727,10 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(mockLoadConversationsFromServer).toHaveBeenLastCalledWith({ filter: 'all' })
     })
 
-    it('renders the themed picker with the original option order, icons, and search', () => {
+    it('renders separate source and grouping sections with source icons', () => {
       window.localStorage.clear()
       render(<Sidebar {...defaultProps} />)
-      const picker = screen.getByRole('combobox', { name: 'Filter chat history' })
+      const picker = screen.getByRole('button', { name: 'Filter chat history' })
       expect(picker.tagName).toBe('BUTTON')
       expect(picker).toHaveClass('h-8', 'text-xs', 'bg-background')
       expect(within(picker).getByTestId('icon-list-filter')).toBeInTheDocument()
@@ -734,23 +744,21 @@ describe('Sidebar — Live Status Indicator', () => {
         ['Scheduled runs', 'icon-calendar-clock', 'text-cyan-500'],
         ['Webhook runs', 'icon-webhook', 'text-orange-500'],
       ]
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect(within(screen.getByRole('group', { name: 'Chat source' })).getAllByRole('radio').map(option => option.getAttribute('aria-label'))).toEqual(
         options.map(([label]) => label),
       )
       for (const [label, icon, color] of options) {
-        expect(within(screen.getByRole('option', { name: label })).getByTestId(icon)).toHaveClass(color)
+        expect(within(screen.getByRole('radio', { name: label }).parentElement!).getByTestId(icon)).toHaveClass(color)
       }
       selectConversationFilter('API')
       expect(within(picker).getByTestId('icon-code')).toHaveClass('text-sky-500')
       fireEvent.click(picker)
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect(within(screen.getByRole('group', { name: 'Chat source' })).getAllByRole('radio').map(option => option.getAttribute('aria-label'))).toEqual(
         options.map(([label]) => label),
       )
-      fireEvent.change(screen.getByPlaceholderText('Search chat types...'), {
-        target: { value: 'webhook' },
-      })
-      expect(screen.getAllByRole('option')).toHaveLength(1)
-      expect(screen.getByRole('option', { name: 'Webhook runs' })).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'Group by' })).toBeInTheDocument()
+      expect(picker).toHaveTextContent('API chats')
+      expect(picker).not.toHaveTextContent('Ungrouped')
     })
 
     it.each(['api', 'webhook', 'all'])('preserves the original %s preference ahead of the tab preference', (filter) => {
@@ -758,14 +766,14 @@ describe('Sidebar — Live Status Indicator', () => {
       window.localStorage.setItem('caipe-chat-history-tab', 'scheduled')
       render(<Sidebar {...defaultProps} />)
       const labels = { api: 'API chats', webhook: 'Webhook runs', all: 'All chats' }
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent(labels[filter as keyof typeof labels])
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent(labels[filter as keyof typeof labels])
     })
 
     it('preserves a tab preference when no original dropdown preference exists', () => {
       window.localStorage.removeItem('caipe-chat-history-filter')
       window.localStorage.setItem('caipe-chat-history-tab', 'scheduled')
       render(<Sidebar {...defaultProps} />)
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('Scheduled runs')
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('Scheduled runs')
       selectConversationFilter('API')
       expect(window.localStorage.getItem('caipe-chat-history-filter')).toBe('api')
     })
@@ -773,7 +781,7 @@ describe('Sidebar — Live Status Indicator', () => {
     it('defaults to all chats for an unsupported saved preference', () => {
       window.localStorage.setItem('caipe-chat-history-filter', 'unsupported')
       render(<Sidebar {...defaultProps} />)
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('All chats')
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('All chats')
     })
 
     it('restores the selected conversation filter from browser storage', () => {
@@ -789,7 +797,7 @@ describe('Sidebar — Live Status Indicator', () => {
       mockLoadConversationsFromServer.mockClear()
       render(<Sidebar {...defaultProps} />)
 
-      expect(screen.getByRole('combobox', { name: 'Filter chat history' })).toHaveTextContent('Autonomous runs')
+      expect(screen.getByRole('button', { name: 'Filter chat history' })).toHaveTextContent('Autonomous runs')
       expect(screen.getByText('Review alerts')).toBeInTheDocument()
       expect(screen.queryByText('Normal Chat')).not.toBeInTheDocument()
       expect(mockLoadConversationsFromServer).toHaveBeenCalledWith({ filter: 'autonomous' })
@@ -1253,4 +1261,19 @@ describe('Sidebar — Live Status Indicator', () => {
       ).toBeInTheDocument()
     })
   })
+  it('shows collapsible groups by agent and preserves the ungrouped option', async () => {
+    mockOrganization.value = { view: 'agents', folders: [], assignments: {}, collapsed: ['agent:example-one'] };
+    mockConversations = [makeConv('example-first', 'First chat', { participants: [{ type: 'agent', id: 'example-one' }] }),
+      makeConv('example-second', 'Second chat', { participants: [{ type: 'agent', id: 'example-two' }] })];
+    const view = render(<Sidebar {...defaultProps} />);
+    expect(screen.queryByText('First chat')).toBeNull();
+    expect(screen.getByText('Second chat')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { expanded: false }).length).toBeGreaterThan(0);
+    mockOrganization.value = { ...mockOrganization.value, view: 'ungrouped' };
+    view.rerender(<Sidebar {...defaultProps} />);
+    expect(screen.getByText('First chat')).toBeInTheDocument();
+    expect(screen.queryByText('MongoDB Mode')).toBeNull();
+    mockOrganization.value = { view: 'ungrouped', folders: [], assignments: {}, collapsed: [] };
+  });
+
 })
