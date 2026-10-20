@@ -763,6 +763,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   // Generate slug from name with agent- prefix
   const agentId = `agent-${slugify(body.name)}`;
+  // Agent IDs must fit the persisted chat-history group keys.
+  if (agentId.length > 230) {
+    throw new ApiError(
+      "Agent name is too long: generated ID must be at most 230 characters",
+      400,
+    );
+  }
   if (!agentId) {
     throw new ApiError(
       "Agent name must contain at least one alphanumeric character",
