@@ -470,7 +470,7 @@ class MongoRunRepository:
         expected_revision: int | None,
     ) -> tuple[AgentRecord, AgentVersion]:
         def write() -> tuple[dict[str, object], dict[str, object]]:
-            current_doc = self._db.harness_agents.find_one({"agent_id": blueprint.id})
+            current_doc = self._db.harness_agents.find_one({"agent_id": blueprint.id}, {"_id": 0})
             current = AgentRecord.model_validate(current_doc) if current_doc else None
             if expected_revision is not None and (
                 current is None or current.revision != expected_revision
