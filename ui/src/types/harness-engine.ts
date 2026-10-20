@@ -1,3 +1,5 @@
+import type { AgentExecution, AgentRuntimeCatalog } from "@/types/dynamic-agent";
+
 export type HarnessRunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface HarnessRun {
@@ -49,6 +51,8 @@ export interface HarnessProfile {
   display_name: string;
   description: string;
   available: boolean;
+  /** BFF projection for native ACP; never submitted as an Engine profile. */
+  native_execution?: AgentExecution;
 }
 
 export interface HarnessDescriptor {
@@ -67,6 +71,8 @@ export interface HarnessDescriptor {
   };
   ui_schema: Record<string, unknown>;
   capabilities: Record<string, HarnessCapability>;
+  native_runtime_catalog?: AgentRuntimeCatalog;
+  runtime_catalog_unavailable?: boolean;
 }
 
 export interface HarnessOptionSchema {
@@ -81,7 +87,7 @@ export interface HarnessOptionSchema {
 
 export interface HarnessCatalog {
   contract_version: number;
-  catalog_revision: string;
+  catalog_revision: string | null;
   harnesses: HarnessDescriptor[];
 }
 

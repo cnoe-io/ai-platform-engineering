@@ -83,7 +83,7 @@ describe("GET /api/user/accessible-agents", () => {
         name: "Agent X",
         description: "X does X",
         harness_id: "dynamic_agents",
-        harness_name: "LangChain Deep Agents",
+        harness_name: "Native ACP",
       },
       {
         id: "agent-y",

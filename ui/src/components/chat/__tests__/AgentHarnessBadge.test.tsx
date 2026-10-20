@@ -4,7 +4,6 @@ import { AgentHarnessBadge } from "../AgentHarnessBadge";
 
 describe("AgentHarnessBadge", () => {
   it.each([
-    ["dynamic_agents", "LangChain Deep Agents", "deepagents.svg"],
     ["agentcore", "Amazon Bedrock AgentCore", "agentcore.svg"],
     ["claude_agent_sdk", "Claude Agent SDK", "claude.svg"],
   ])("shows a logo and names %s in its tooltip", async (harnessId, label, asset) => {
@@ -16,12 +15,15 @@ describe("AgentHarnessBadge", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent(`Execution harness: ${label}`);
   });
 
-  it("shows the default runtime for legacy agents", () => {
+  it("shows the native execution owner with a neutral icon until its runtime is known", async () => {
     render(<AgentHarnessBadge compact />);
 
-    const logo = screen.getByRole("img", { name: "Execution harness: LangChain Deep Agents" });
-    expect(logo.querySelector("img")).toHaveAttribute("src", "/provider-logos/deepagents.svg");
+    const logo = screen.getByRole("img", { name: "Execution harness: Native ACP" });
+    expect(logo.querySelector("img")).toBeNull();
+    expect(logo.querySelector("svg")).toBeInTheDocument();
     expect(logo).toHaveClass("h-4", "w-4");
+    fireEvent.mouseEnter(logo);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Execution harness: Native ACP");
   });
 
   it("keeps custom harnesses identifiable without using another provider's logo", async () => {

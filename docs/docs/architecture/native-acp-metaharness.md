@@ -7,9 +7,37 @@ sidebar_position: 9
 The [CAIPE metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877)
 extends the existing [Harness Gateway](https://github.com/caipe-io/ai-platform-engineering/pull/2401)
 rather than introducing another router. The authenticated BFF selects the execution
-owner and translates its output into the existing client APIs. Default, SRE and
-custom agents remain logical agents in the shared DeepAgents/LangGraph runtime;
-their start, human-input resume and invoke paths all cross native ACP.
+owner and translates its output into the existing client APIs. Managed default,
+SRE and custom agents retain DeepAgents/LangGraph; an admitted private coding
+profile selects Claude Code through the same native owner. Their start,
+human-input resume and invoke paths all cross native ACP.
+
+## Native ACP execution models
+
+| Model | Definition and user experience | Workspace and state |
+| --- | --- | --- |
+| **Managed Agent** | Existing default/custom DeepAgents agent; `execution.kind=native` remains the default. The saved prompt, model, tools, skills and current native features are retained. | Shared service with admitted logical files and LangGraph checkpoints. Interactive storage defaults to the conversation; existing authorized namespace and workflow-artifact scopes remain intact. Logical files do not provide OS containment. |
+| **Private Coding Sandbox** | Opt-in Claude Code profile; `execution.kind=sandbox` and an operator-owned `profile_id`. Provisioning is automatic through the same editor and chat. | One whole private environment and native session per caller-owned conversation. HOME, writable workspace and credentials are not shared across callers or conversations. Committed native state lives in canonical MongoDB/GridFS. |
+
+Existing agents and conversations keep their runtime binding. A shared agent definition does not create an agent per user, merge their conversations or grant access to another caller's workspace. Private coding runtimes use the native ACP execution owner. The existing provider-specific SDK adapters retain their separate Harness Engine owner; one run never executes through both coordinators.
+
+| Identity | Authority |
+| --- | --- |
+| Agent definition | Shared, versioned instructions, selected resources and admitted runtime profile. |
+| Caller | Independently authenticated principal with current agent/resource permissions. Scheduled owner runs and admitted service accounts retain their verified identities. |
+| Conversation and run | Canonical history, native session, pending decisions, stable turn identity and execution lease. |
+| Workspace | Admitted logical namespace or private conversation environment, with a lifecycle separate from transcript visibility. |
+
+Viewing shared history does not grant shell access, transfer a native session or authorize continuation as its owner. The private model isolates the whole environment; user subdirectories in a shared HOME are not an equivalent boundary. Images and immutable tools can be shared without sharing writable state.
+
+### Alternatives not adopted
+
+| Alternative | Decision and reason |
+| --- | --- |
+| Shared team SDK sandbox | Excluded from this implementation. A shared directory is an intentional data-sharing boundary, and one conversation's whole-environment restore could overwrite another's work. It does not satisfy the private owner-bound checkpoint contract. |
+| Coding harness with simulated files only | Excluded from this implementation. Optional ACP file/terminal callbacks cannot virtualize a CLI's built-in tools. Restricting all native shell/file tools would change the coding feature set; Claude's `allowed_tools` setting is auto-approval, not a tool-removal boundary. |
+
+These alternatives are absent from the executable runtime catalog. DeepAgents already provides the retained logical-filesystem model; Claude Code uses a real isolated environment.
 
 ## One front door, one owner per run
 
@@ -17,10 +45,15 @@ their start, human-input resume and invoke paths all cross native ACP.
 flowchart TB
   Clients[Browser, apps, bots and automation] --> BFF[Existing authenticated CAIPE APIs]
   BFF --> Gateway[Harness Gateway and runtime descriptors]
-  Gateway -->|Saved managed binding| Native[Native execution service and coordinator]
+  Gateway -->|Saved native ACP binding| Native[Native execution service and coordinator]
   Gateway -->|Saved SDK binding| Engine[Harness Engine and provider coordinator]
   Native --> ACP[Logical ACP agent]
   ACP --> Deep[DeepAgents and LangGraph]
+  Native -->|Remote ACP| Coding[Private Claude Code harness]
+  Native --> Lifecycle[Environment lifecycle provider]
+  Lifecycle --> Coding
+  Coding --> Archive[Quiescent native checkpoint]
+  Archive --> DB
   Engine --> Providers[Existing SDK and AgentCore adapters]
   Native --> DB[(Canonical CAIPE MongoDB)]
   Engine --> DB
@@ -48,7 +81,7 @@ cannot redirect an active or retained conversation into another runtime. Missing
 provider configuration and inconsistent bindings fail explicitly.
 
 The gateway reuses its existing descriptor catalog, editor, harness badges and
-SDK/AgentCore adapters. Those adapters retain their qualified provider contracts;
+SDK/AgentCore adapters. Those adapters retain their declared provider contracts;
 appearing in the same catalog does not make them ACP implementations. Native
 DeepAgents uses ACP by default, without an enablement flag. The separate
 [coding-sandbox extension](https://github.com/caipe-io/ai-platform-engineering/pull/2982)
@@ -169,8 +202,8 @@ the conversation or automated execution context.
 
 Existing chat-management requests retain their BFF conversation authorization.
 Stopping an active run keeps the existing cancellation semantics, including
-when agent-use permission has been revoked. This stage adds no remote ACP
-endpoint with a separate authentication contract.
+when agent-use permission has been revoked. The native in-service ACP connection adds no public agent endpoint. The private
+coding relay uses the admitted environment identity and policy described below.
 
 Cached runtimes are refreshed when the admitted configuration, current caller,
 client context or bearer changes. Each request therefore uses its current
@@ -182,11 +215,10 @@ MongoDB file store. The ACP wrapper does not grant access to the host filesystem
 or create a per-agent sandbox. Existing tool-level network controls still apply;
 ACP itself does not enforce an operating-system network policy.
 
-Future SDK agents in the shared service must use that same simulated filesystem
-contract. Their agent-visible file operations need to use the session-scoped
-logical store, with built-in host file and shell tools disabled. SDK-private
-transcript scratch, if required by a provider, is distinct from the filesystem
-available to agent tools. A remote provider must enforce its approved tool/file
+Shared Claude SDK execution disables its built-in host file and shell tools. No
+logical file-tool broker is advertised until that contract is connected. SDK-private
+transcript scratch is disposable and distinct from the filesystem available to
+agent tools. Managed DeepAgents retains the existing logical file-tool contract. A remote provider must enforce its approved tool/file
 profile at the runtime or a trusted broker; ACP negotiation alone cannot impose
 those restrictions on remote code.
 
@@ -278,10 +310,9 @@ No automatic journal expiry is introduced; these collections participate in the
 canonical database's retention and backup policy. This phase does not implement
 automatic recovery of execution after worker loss or exactly-once tool effects.
 
-Remote ACP transport, agent discovery across environments and sandbox policy
-enforcement are later stages. Separate sandboxed runtimes will require enforced
-filesystem and network boundaries before admission. This implementation does
-not add OpenShell or NemoClaw execution.
+The sandbox extension adds an authenticated remote ACP relay, owner-bound native
+checkpoints and environment lifecycle integration under this same native owner.
+Cross-environment discovery and OpenShell/NemoClaw execution are outside this implementation.
 
 ## Deployment and rollback
 
@@ -297,3 +328,134 @@ than selecting another execution path inside this implementation.
 
 See the [Dynamic Agents configuration reference](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/dynamic_agents#configuration-reference)
 for component settings.
+
+
+A sandbox binding pins the original caller, configured connection, profile revision, namespace, environment UID, cwd and native session ID. A changed profile, image, policy or incompatible runtime needs explicit migration or a new conversation. A transcript is not a portable checkpoint, and DeepAgents state is not imported as Claude state.
+
+## One runtime selection in the existing editor
+
+The Harness Gateway catalog includes Native ACP alongside the provider-specific SDK descriptors. Native ACP profiles project the admitted Managed Agent and Private Coding Sandbox choices from the existing runtime catalog. The editor uses one harness selection and its dependent operator profile; no independently editable second runtime selector exists.
+
+| Selection | Saved authority | Validation |
+| --- | --- | --- |
+| Managed Agent | `execution_harness_id=dynamic_agents`, `execution.kind=native` | Existing native model and resource checks. |
+| Private Coding Sandbox | `execution_harness_id=dynamic_agents`, `execution.kind=sandbox`, admitted `profile_id` | Existing operator profile, revision and capability checks; selected skills and tool settings remain visible. |
+| Provider-specific SDK | Existing Engine harness ID and immutable blueprint/profile | The original Engine catalog revision remains its draft-validation revision. Choosing an SDK clears the native sandbox selection. |
+
+Native profiles remain available when Harness Engine is unconfigured. A native profile outage leaves Managed Agent available, preserves a saved unavailable coding profile as a blocker, and offers an explicit retry. Conversation badges distinguish execution ownership from runtime identity: an owner ID alone is shown as Native ACP, never assumed to mean DeepAgents.
+
+## Native checkpoints for coding harnesses
+
+Claude Code keeps its native file layout while running. Quiescent archives preserve native transcripts, child state, compaction, file history, settings, workspace files and local database/WAL files without translating them into CAIPE messages or replacing native file checkpointing with an experimental external session-store API.
+
+| Boundary | Guarantee |
+| --- | --- |
+| Settled successful turn | Close/drain ACP, validate the complete archive and persisted hash, then publish its head under the current live lease before success. A capture/storage failure cannot become a completed turn. |
+| Subsequent load | Restore the committed head before `session/load`, even on a healthy volume. Each hydration has a new restore identity; uncommitted working files cannot replace canonical state. |
+| Lost environment | Recover only from a committed checkpoint with the same owner, profile/native versions and session ID. Persist recovery intent, verify the exact restore receipt and fence the replacement binding before execution. |
+| Stop or graceful failure | Attempt bounded quiescent capture while the worker owns its lease. Failure retains the previous committed head and remains visible. |
+| Before the first checkpoint | The journal is durable, but total working-storage loss can lose the unfinished first native state. A fresh state is not fabricated from displayed history. |
+| Hard loss during an external effect | Report interruption. The last checkpoint does not establish whether an external mutation completed. |
+
+Uploads remain unpublished until fully validated. The checkpoint head shares the existing lease document, preventing stale workers from publishing over a new owner. An unfinished restore blocks execution.
+
+Archives retain the managed-file manifest so revoked skills and inputs can be removed. Fixed exclusions omit operational scratch/locks and known native login files; deployment credentials are supplied again. Tool-produced secrets can still enter workspace/native archives, so their access, encryption and backup controls match other sensitive CAIPE state.
+
+The archive contract bounds both archive and expanded state to 256 MiB, each file to 128 MiB and entries to 20,000. Capacity includes the whole working HOME and repository/native history. Active snapshots retain three recent recovery versions plus restore provenance; retained edit boundaries pin additional native state for conversation history. Clear/delete removes live records/blobs, and bounded cleanup retires interrupted uploads. Backup expiry remains an operator policy.
+
+## Prompts, skills and platform tools
+
+```mermaid
+flowchart LR
+  Definition[Saved agent definition] --> Prepare[Existing resource preparation]
+  Prepare --> Prompt[Resolved system instructions]
+  Prepare --> Skills[Approved skill files]
+  Prepare --> Selection[Caller-scoped tools]
+  Prompt --> Managed[DeepAgents configuration]
+  Prompt --> Claude[Claude session instructions]
+  Skills --> Files[Managed skill directory]
+  Files --> Claude
+  Selection --> Broker[Run-scoped CAIPE broker]
+  Broker --> Claude
+```
+
+The saved system-prompt field remains the editor and source of instructions. Resource preparation resolves the admitted configuration without asking a model to translate it. Claude receives the resolved `systemPrompt`, managed `CLAUDE.md`/`AGENTS.md` and selected `.claude/skills` files. Managed-file reconciliation removes revoked skills; existing refresh/resume rules and immutable placement still apply.
+
+The sandbox receives a random run capability for one configured CAIPE MCP endpoint. Caller bearers and downstream connected-provider tokens stay in trusted producer-side tool closures. Any API replica may validate and queue the request; only the lease-owning producer executes it.
+
+| Integration | Behavior and limit |
+| --- | --- |
+| Tools, knowledge and workflows | Existing resource preparation, built-ins, selected MCP/remote tools and workflow services remain authoritative. Each call rechecks current agent use, configuration and resource admission. |
+| Native children | Configured native children have their own execution context, admission and lease. References and evidence boundaries are rechecked, including after pauses. A child cannot borrow its parent's capability. |
+| Human input | Native approvals, ACP permissions and supported forms use persisted exact options/schema. Model-authored values do not become human decisions. Replies are idempotent and resume the waiting producer. |
+| Model retries | The pinned SDK retries within one ACP prompt; CAIPE never resends the whole prompt to imitate inference retries. Differing middleware semantics are reported. |
+| Model budget | The native `maxTurns` budget maps the configured per-run limit. Exhaustion is not success. Thread-wide middleware limits are explicitly rejected. |
+| Platform retries and budgets | Existing retry middleware applies only to server-declared read-only/idempotent tools; each attempt rechecks grants/configuration/lease. Counts live in the durable run record. Uncertain mutations are not automatically repeated. |
+
+Native parents delegating to sandbox children and Codex admission are excluded. Native shell/file tools remain governed by the admitted runtime/environment policy. Instructions and repository skills do not widen filesystem, network, credential or tool authority.
+
+## Workspace and policy boundaries
+
+DeepAgents retains its logical filesystem. The private coding runtime requires an isolated real filesystem and enforced network policy. ACP permissions and capability flags supply neither OS containment nor egress enforcement; disabling client callbacks does not disable a harness's built-in shell/file tools.
+
+| Workspace operation | Implemented boundary |
+| --- | --- |
+| Prepare instructions, skills and inputs | One managed snapshot; at most 128 files, 1 MiB total and 256 KiB/file. Preparation is locked against active execution and removes stale managed files. |
+| Copy canonical inputs | Permission-checked text/binary inputs become `inputs/<safe relative path>`. The CAIPE bridge allows 64 files, 512 KiB total and 256 KiB/file. Required workflow inputs fail if over budget; interactive omissions produce visible warnings. |
+| Read and export | Ordinary regular files only; private metadata, credentials, symlinks, hardlinks and special files are excluded. Provider listing is bounded to 1,000 results/4,096 visited entries. CAIPE content reads allow 512 KiB/file and output export totals 4 MiB. |
+| Edit, upload and format | Ordinary fixed-cwd atomic writes are bounded to 256 KiB. `format_file` remains text-only and mirrors its formatted result back into the real workspace. Instruction/native-state paths are not exposed as ordinary writable artifacts. |
+| Binary exchange | Strict base64, decoded byte counts and SHA-256 receipts. Existing canonical GridFS records use `encoding=base64`; downloads preserve original bytes. Text previews remain text-only. |
+
+Artifact reads/writes can operate during ACP; managed preparation is exclusive. Artifact publication excludes instructions, skills, inputs, credentials and private native state. Omitted/oversized files are not represented as complete exports.
+
+Effective access is the intersection of caller/resource grants, saved agent selections, the admitted runtime/environment profile and narrower workflow/run constraints. Browser, CLI, app, bot and webhook entry points normalize independently verified identity and enter the same admission path. Channel names and email headers do not grant a human's identity or resources. Existing CAIPE/CAS authorization remains authoritative; no ACP-specific policy database is added.
+
+| Authority | Responsibility |
+| --- | --- |
+| CAIPE | Caller, agent, conversation and resource admission; approvals; tool budgets; leases and current grants. A user approval cannot override a denied profile/resource boundary. |
+| Operator profile | Pinned harness/image/policy revision, model route, limits and workspace scope. Definitions contain no caller-selected commands, images, URLs or secrets. Catalog metadata describes this contract rather than attesting to live enforcement. |
+| Environment provider | Independent CAIPE issuer/audience/JWKS validation, owner/generation checks, process identity and OS filesystem/network enforcement. Denied mounts, metadata/control-plane access and unapproved destinations remain blocked below the model. |
+
+A run-bound capture grant keeps bounded workspace exchange and native-state export available after the handshake bearer expires, up to the admitted deadline plus capture grace. The provider stores only its hash and rechecks identity, policy and expiry. The grant cannot provision, restore, start ACP or operate lifecycle controls, and is revoked after capture. Neither it nor the caller's bearer reaches the agent. Reconnect reauthenticates; operator deadlines and revocation still apply.
+
+The harness may receive a scoped deployment-owned model credential. Process groups, session labels and per-user paths are not a boundary against hostile same-UID code; containment belongs to the provider. [ACP files](https://agentclientprotocol.com/protocol/v1/file-system), [terminals](https://agentclientprotocol.com/protocol/v1/terminals) and [DeepAgents storage backends](https://docs.langchain.com/oss/python/deepagents/backends) describe interaction/storage interfaces, not OS enforcement.
+
+## Provider ownership and reuse
+
+CAIPE uses a thin integration with the configured environment provider. The provider owns allocation, worker pools, isolation, network enforcement and snapshots; CAIPE owns its canonical definition, policy admission and state binding. There is no new complete CAIPE Pod/VM controller or second independently editable agent definition. A Kubernetes projection can reference admitted CAIPE/profile identity without containing user tokens, history or duplicate prompts.
+
+| Comparison, as of 20 October 2026 | Decision |
+| --- | --- |
+| [Kagent 0.10.3](https://github.com/kagent-dev/kagent/releases/tag/v0.10.3) | Its OpenClaw/Hermes harness path uses ACP internally, but a shared Actor does not provide private writable-state isolation per caller. It is not the selected Claude provider contract. |
+| [Kagent 1.0.0-alpha16](https://github.com/kagent-dev/kagent/releases/tag/v1.0.0-alpha16) | Claude/Codex/BYO and per-session Actors provide useful infrastructure, but the API/runtime line is alpha. Its complete session service owns PostgreSQL/task state and Substrate snapshots, so adopting that stack would introduce a separate state authority. It is not adopted here. |
+| [SIGs Agent Sandbox 1.0.7](https://github.com/kubernetes-sigs/agent-sandbox/releases/tag/v1.0.7) | Lifecycle, templates, claims and warm pools are infrastructure rather than a replacement CAIPE history service. It is not an implemented provider in this change. |
+
+The selected boundary reuses the existing provider through the narrow lifecycle/state contract. Provider internals are interchangeable only when their identity, ACP, policy and verified native export/restore behavior match that contract. Internal ACP use alone establishes none of those guarantees. The [kagent persistence contract](https://github.com/kagent-dev/kagent/blob/v1.0.0-alpha16/docs/architecture/persistence-checkpoints-and-forks.md) explains why wholesale session-service adoption differs from environment reuse.
+
+## Conversation operations and recovery
+
+| Operation | Managed runtime | Private coding sandbox |
+| --- | --- | --- |
+| Reconnect/reload | Replay retained output and continue checkpointed state. | Same journal; restore committed native state before the next native load. |
+| Stop | Cancel the owning turn and wait for cleanup. | Cancel the actual ACP prompt and its producer/tool/input work; retain committed context. |
+| Clear | Retire obsolete replay and admitted checkpoints/files. | Delete the exact pinned environment, purge owned checkpoints, then reset its provider reference/files. Failures remain visible and retryable. |
+| Permanent deletion | Fence late admission, clear state and remove canonical history through existing authorization. | Same fence plus owner-bound generation/version-checked remote cleanup. |
+| Rewind | Existing checkpoint rewind. | Restore the selected turn's pre-prompt native state and linked native-child checkpoints. A durable edit intent gates later prompts until UI history is reconciled. First-turn edit creates genuinely fresh native state; a missing retained boundary fails explicitly. |
+| Restart runtime | Rebuild cached runtime/resources. | Reconnect ACP/MCP and reload the same native session/workspace; no deletion or repeated prompt. |
+
+The minimal deletion ledger prevents late requests recreating a permanently removed context. Soft deletion retains archive/restore behavior. Clear/delete does not prove physical erasure of retained provider volumes or backups.
+
+All canonical services use the same `MONGODB_URI`/`MONGODB_DATABASE`. A consistent backup includes conversation history, bindings, leases, execution/events, tool requests, checkpoint manifests and complete GridFS buckets. A restore recovers committed native state; leases expire rather than restart work. A database backup cannot preserve a live process or determine an in-flight external mutation's outcome. Provider volume copies are optional additional recovery copies.
+
+Rollback changes reviewed deployment image pins while preserving compatible state. It cannot convert a coding session into a DeepAgents checkpoint. A compatible pinned runtime or an explicit migration is required.
+
+## Configuration and verification boundary
+
+The [component README](https://github.com/caipe-io/ai-platform-engineering/tree/main/ai_platform_engineering/dynamic_agents#sandbox-runtime-configuration) owns environment variables, provider request fields, artifact bounds and local test commands. An empty `SANDBOX_SERVICE_URL` leaves sandbox placement unavailable; configuring it does not switch saved definitions or deploy an environment.
+
+| Verification | What it establishes |
+| --- | --- |
+| ACP and real-MongoDB source tests | Serialization, bindings, leases, replay, human decisions, child admission, artifact boundaries, rewind/restart and cleanup behavior. |
+| Pinned native resume | A genuine Claude ACP session, production archive export, working-state deletion, verified restore and fresh-process load of the same native session/context using loopback inference. |
+| Canonical backup recovery | MongoDB dump/drop/restore recovers archive, binding, head and journal; a fresh Claude process loads the recovered native state. |
+| Deployment acceptance | Actual provider authentication, model/tool/skills compatibility, enforced filesystem/network policy, process/Pod-loss recovery, cancellation and retained-volume lifecycle. Source/prebuild tests alone do not establish these deployment properties. |

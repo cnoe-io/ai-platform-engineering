@@ -29,6 +29,7 @@ import {
   reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
 import { cascadeDeleteAutonomousTasksForAgent } from "@/lib/dynamic-agents/autonomousTaskCascade";
+import { normalizeAgentExecution, validateAgentExecution } from "@/lib/dynamic-agents/runtime-profiles";
 import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
@@ -259,6 +260,7 @@ const AGENT_MUTABLE_FIELDS = [
   "allowed_remote_agents",
   "remote_agent_timeouts",
   "builtin_tools",
+  "execution",
   "model",
   "visibility",
   "shared_with_teams",
@@ -702,7 +704,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!body.name || typeof body.name !== "string") {
     throw new ApiError("Agent name is required", 400);
   }
-  if (!body.system_prompt || typeof body.system_prompt !== "string") {
+  if (typeof body.system_prompt !== "string" || !body.system_prompt.trim()) {
     throw new ApiError("System prompt is required", 400);
   }
   // Normalize legacy model_id/model_provider to model object
@@ -714,15 +716,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     delete body.model_id;
     delete body.model_provider;
   }
-  if (!body.model?.id || typeof body.model.id !== "string") {
+  const execution = normalizeAgentExecution(body.execution);
+  const executionHarnessId = normalizeExecutionHarnessId(body.execution_harness_id);
+  if (executionHarnessId !== "dynamic_agents" && execution.kind !== "native") {
+    throw new ApiError("Select one execution harness and its admitted profile", 400, "CONFLICTING_EXECUTION_SELECTION");
+  }
+  const nativeModelRequired = executionHarnessId === "dynamic_agents" && execution.kind === "native";
+  if (nativeModelRequired && (!body.model?.id || typeof body.model.id !== "string")) {
     throw new ApiError("Model ID is required (model.id)", 400);
   }
-  if (!body.model?.provider || typeof body.model.provider !== "string") {
+  if (nativeModelRequired && (!body.model?.provider || typeof body.model.provider !== "string")) {
     throw new ApiError("Model provider is required (model.provider)", 400);
   }
-  body.model.reasoning_effort ??= "medium";
-  if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
-    throw new ApiError("Invalid model.reasoning_effort", 400);
+  if (body.model !== undefined) {
+    if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) throw new ApiError("model must be an object", 400);
+    if (typeof body.model.id !== "string" || !body.model.id || typeof body.model.provider !== "string" || !body.model.provider) throw new ApiError("Model ID and provider are required when model is supplied", 400);
+    body.model.reasoning_effort ??= "medium";
+    if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
+      throw new ApiError("Invalid model.reasoning_effort", 400);
+    }
   }
   const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
   const requestedOwnerTeamId = normalizeString(body.owner_team_id);
@@ -849,6 +861,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   await validateRagCollectionSelection(ragCollectionIds, session);
 
   // Build document with explicit field allowlist (Security VII)
+  await validateAgentExecution(request, execution, body.skills);
   const ownerSubject = requireStableSubject(session);
   const now = new Date();
   const allowedRemoteAgents = await validateRemoteAgentIds(body.allowed_remote_agents);
@@ -863,6 +876,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     allowed_remote_agents: allowedRemoteAgents,
     remote_agent_timeouts: normalizeRemoteAgentTimeouts(body.remote_agent_timeouts, allowedRemoteAgents),
     builtin_tools: body.builtin_tools ?? undefined,
+    execution,
     model: body.model as DynamicAgentConfig["model"],
     visibility,
     shared_with_teams: sharedTeamSlugs,
@@ -952,6 +966,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) {
       throw new ApiError("model must be an object", 400);
     }
+    if (typeof body.model.id !== "string" || !body.model.id || typeof body.model.provider !== "string" || !body.model.provider) throw new ApiError("Model ID and provider are required when model is supplied", 400);
     body.model.reasoning_effort ??= "medium";
     if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
       throw new ApiError("Invalid model.reasoning_effort", 400);
@@ -973,6 +988,20 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       403,
     );
   }
+
+  const execution = normalizeAgentExecution(body.execution ?? agent.execution);
+  const executionHarnessId = normalizeExecutionHarnessId(body.execution_harness_id ?? agent.execution_harness_id);
+  if (executionHarnessId !== "dynamic_agents" && execution.kind !== "native") {
+    throw new ApiError("Select one execution harness and its admitted profile", 400, "CONFLICTING_EXECUTION_SELECTION");
+  }
+  if (executionHarnessId === "dynamic_agents" && execution.kind === "native" && (body.model !== undefined || body.execution !== undefined)) {
+    const model = body.model ?? agent.model;
+    if (!model?.id || typeof model.id !== "string" || !model?.provider || typeof model.provider !== "string") {
+      throw new ApiError("A model is required for native execution", 400, "NATIVE_MODEL_REQUIRED");
+    }
+  }
+  await validateAgentExecution(request, execution, body.skills ?? agent.skills);
+  if (body.execution !== undefined) body.execution = execution;
 
   // Build update with explicit field allowlist
   const updateData = pickMutableFields(body);

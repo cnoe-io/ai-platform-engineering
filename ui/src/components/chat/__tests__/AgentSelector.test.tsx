@@ -50,14 +50,14 @@ describe("AgentPicker", () => {
     const trigger = await screen.findByRole("button", {
       name: "Choose agent. Current agent: Legacy Agent",
     });
-    expect(screen.getByLabelText("Execution harness: LangChain Deep Agents")).toBeInTheDocument();
+    expect(screen.getByLabelText("Execution harness: Native ACP")).toBeInTheDocument();
 
     fireEvent.click(trigger);
 
     expect(screen.getByText("Choose an agent")).toBeInTheDocument();
     expect(screen.getByText("Existing Dynamic Agent")).toBeInTheDocument();
     expect(screen.getByText("Harness Engine agent")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Execution harness: LangChain Deep Agents")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Execution harness: Native ACP")).toHaveLength(2);
     expect(screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Agent/ }));

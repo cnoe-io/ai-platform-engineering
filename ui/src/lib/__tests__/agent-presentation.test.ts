@@ -5,10 +5,10 @@ import {
 } from "@/lib/agent-presentation";
 
 describe("agent presentation", () => {
-  it("treats missing and legacy runtime ids as LangChain Deep Agents", () => {
+  it("treats missing and legacy runtime ids as the native ACP owner", () => {
     expect(normalizeHarnessId()).toBe("dynamic_agents");
     expect(normalizeHarnessId("langchain-deepagents")).toBe("dynamic_agents");
-    expect(getHarnessPresentation().label).toBe("LangChain Deep Agents");
+    expect(getHarnessPresentation().label).toBe("Native ACP");
   });
 
   it("presents provider harnesses with human-readable labels", () => {

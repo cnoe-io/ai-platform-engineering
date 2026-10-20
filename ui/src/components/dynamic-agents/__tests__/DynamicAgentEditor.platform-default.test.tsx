@@ -3,7 +3,7 @@
  */
 
 import React from "react";
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 
 jest.mock("@uiw/react-codemirror", () => ({
   __esModule: true,
@@ -256,7 +256,7 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     fireEvent.change(screen.getByLabelText("Execution harness"), {
       target: { value: "claude_agent_sdk" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Instructions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^2 Instructions$/ }));
     fireEvent.change(await screen.findByTestId("codemirror-mock"), {
       target: { value: "You are a provider-backed agent." },
     });
@@ -308,17 +308,43 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("labels the compatibility harness as LangChain Deep Agents while preserving its ID", async () => {
+  it("selects an SDK through the shared control and clears a parked sandbox selection", async () => {
+    mockFetch(null, true);
+    const onSave = jest.fn();
+    render(<DynamicAgentEditor agent={{ ...editAgent, execution: { kind: "sandbox", profile_id: "retired" } }} onCancel={jest.fn()} onSave={onSave} />);
+    await flushAsync();
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("sandbox:retired");
+    expect(screen.queryByLabelText("Agent runtime")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Execution harness"), { target: { value: "claude_agent_sdk" } });
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("safe");
+    expect(screen.queryByLabelText(/LLM Model/)).toBeNull();
+    const writes = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/agent-drafts/validate")) {
+        const { blueprint } = JSON.parse(String(init?.body));
+        return jsonResponse({ success: true, data: { valid: true, normalized_blueprint: blueprint, catalog_revision: "catalog-1", config_fingerprint: "example" } });
+      }
+      return jsonResponse({ success: true, data: { record: { revision: 1 } } });
+    });
+    // @ts-expect-error test override
+    global.fetch = writes;
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const update = writes.mock.calls.find(([url]) => String(url).startsWith("/api/dynamic-agents?id="));
+    expect(JSON.parse(String(update?.[1]?.body))).toMatchObject({ execution_harness_id: "claude_agent_sdk", execution: { kind: "native" } });
+    expect(JSON.parse(String(update?.[1]?.body)).model).toBeUndefined();
+  });
+
+  it("labels the native execution owner without changing its saved ID", async () => {
     mockFetch(null);
     render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
     expect(
-      screen.getByRole("option", { name: "LangChain Deep Agents (default)" }),
+      screen.getByRole("option", { name: "Native ACP" }),
     ).toHaveValue("dynamic_agents");
     expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
     expect(
-      screen.getByText(/Uses the shared DeepAgents runtime/),
+      screen.getByText(/DeepAgents uses a logical workspace/),
     ).toBeInTheDocument();
   });
   it("normalizes a saved native compatibility ID without loading an SDK overlay", async () => {

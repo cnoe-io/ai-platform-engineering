@@ -12,9 +12,8 @@ export interface HarnessPresentation {
 const HARNESS_PRESENTATIONS: Record<string, HarnessPresentation> = {
   dynamic_agents: {
     id: "dynamic_agents",
-    label: "LangChain Deep Agents",
-    shortLabel: "Deep Agents",
-    logoSrc: "/provider-logos/deepagents.svg",
+    label: "Native ACP",
+    shortLabel: "Native ACP",
     badgeClassName:
       "border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300",
     dotClassName: "bg-teal-500",
