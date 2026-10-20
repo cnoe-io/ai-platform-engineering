@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -400,3 +401,35 @@ def test_catalog_disabled_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(auth, "MCP_AUTH_MODE", "none")
     with TestClient(build_server(config()).http_app()) as http:
         assert http.get("/documents/catalog/libraries").status_code == 503
+
+
+@pytest.mark.parametrize("failure_type", [httpx.ReadTimeout, httpx.RemoteProtocolError])
+async def test_stream_logs_original_cause_without_signed_urls_and_closes_response(
+    caplog: pytest.LogCaptureFixture, failure_type: type[httpx.HTTPError],
+) -> None:
+    class FailingBody(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"x" * 65_536
+            raise failure_type("https://example.sharepoint.com/download?signature=private-token")
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    body = FailingBody()
+
+    def stream_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/content"):
+            return httpx.Response(200, headers={"Content-Length": "100000"}, stream=body)
+        return handler(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(stream_handler)) as http:
+        with pytest.raises(failure_type):
+            await read_stream(SharePointDocuments(SharePointGraphClient(config(), http)))
+    assert body.closed
+    assert "drive=drive-1 item=item-1 format=original operation=content_body" in caplog.text
+    assert "bytes_yielded=65536 expected_bytes=100000 elapsed=" in caplog.text
+    assert f"exception={failure_type.__name__}" in caplog.text
+    assert "private-token" not in caplog.text and "https://" not in caplog.text
+    assert "graph-token" not in caplog.text

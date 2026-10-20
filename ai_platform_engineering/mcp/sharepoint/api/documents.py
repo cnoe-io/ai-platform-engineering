@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -18,6 +19,8 @@ import httpx
 
 from api.client import GRAPH_BASE_URL, SharePointGraphClient, SharePointGraphError, text_file_format
 from api.pages import SITE_PAGES_LIBRARY_ID, SITE_PAGES_ROOT_ID, SharePointPages
+
+log = logging.getLogger(__name__)
 
 DocumentFormat = Literal["original", "pdf"]
 DOCUMENT_CONTENT_TYPES = {
@@ -341,18 +344,29 @@ class SharePointDocuments:
 
                 async def chunks() -> AsyncIterator[bytes]:
                     count = 0
+                    started = time.monotonic()
                     iterator = response.aiter_bytes(65_536).__aiter__()
-                    while True:
-                        try:
-                            chunk = await asyncio.wait_for(anext(iterator), max(0, deadline - time.monotonic()))
-                        except StopAsyncIteration:
-                            break
-                        count += len(chunk)
-                        if count > limit:
-                            raise SharePointGraphError(413, "document_too_large", "The document exceeded its streaming byte limit.")
-                        yield chunk
-                    if length is not None and count != length:
-                        raise SharePointGraphError(502, "incomplete_download", "Microsoft returned an incomplete document.")
+                    try:
+                        while True:
+                            try:
+                                chunk = await asyncio.wait_for(anext(iterator), max(0, deadline - time.monotonic()))
+                            except StopAsyncIteration:
+                                break
+                            count += len(chunk)
+                            if count > limit:
+                                raise SharePointGraphError(413, "document_too_large", "The document exceeded its streaming byte limit.")
+                            yield chunk
+                        if length is not None and count != length:
+                            raise SharePointGraphError(502, "incomplete_download", "Microsoft returned an incomplete document.")
+                    except (httpx.HTTPError, TimeoutError, SharePointGraphError) as exc:
+                        # After HTTP 200, ASGI framing can mask the original cause.
+                        # Never log exception messages or signed storage URLs.
+                        log.warning(
+                            "SharePoint stream failed: drive=%s item=%s format=%s operation=content_body "
+                            "bytes_yielded=%d expected_bytes=%s elapsed=%.3fs exception=%s",
+                            drive_id, item_id, format, count, length, time.monotonic() - started, type(exc).__name__,
+                        )
+                        raise
 
                 yield DocumentStream(
                     chunks(),
