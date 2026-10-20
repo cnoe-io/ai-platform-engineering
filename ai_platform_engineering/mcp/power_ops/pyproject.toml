@@ -1,0 +1,23 @@
+[project]
+name = "mcp-power-ops"
+version = "0.1.0"
+description = "Power Ops MCP Server - master on/off switch for CAIPE/Kendra Infra components"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "fastmcp==3.2.4",
+  "httpx==0.28.1",
+  "mcp==1.28.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
+  "pydantic==2.12.5",
+  "python-dotenv==1.2.2",
+]
+
+[tool.uv]
+# Run from source (flat module layout: server.py at the project root). uv
+# installs only the dependencies, not this project as a package.
+package = false
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../common/mcp-auth", editable = true }

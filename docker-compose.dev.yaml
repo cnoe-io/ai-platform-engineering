@@ -520,6 +520,46 @@ services:
     profiles:
       - infra-ops-agent
 
+  mcp-power-ops:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=power_ops
+    image: ghcr.io/cnoe-io/mcp-power-ops:${IMAGE_TAG:-localtag}
+    container_name: mcp-power-ops
+    env_file: [.env]
+    ports: ["18016:8000"]
+    volumes:
+      - ./ai_platform_engineering/mcp/power_ops:/app/ai_platform_engineering/mcp/power_ops
+      - ${POWER_OPS_CAIPEADMIN_SSH_KEY_PATH:-/dev/null}:/run/secrets/power_ops_caipeadmin_ssh_key:ro
+      - ${POWER_OPS_ROOT_SSH_KEY_PATH:-/dev/null}:/run/secrets/power_ops_root_ssh_key:ro
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      # Two separate rootless podman namespaces on the VPS (caipeadmin owns
+      # the caipe-core stack, root owns the KCG/Gemma/Korch stack) - see
+      # ai_platform_engineering/mcp/power_ops/README.md.
+      - POWER_OPS_SSH_HOST=${POWER_OPS_SSH_HOST:-}
+      - POWER_OPS_CAIPEADMIN_SSH_USER=${POWER_OPS_CAIPEADMIN_SSH_USER:-}
+      - POWER_OPS_CAIPEADMIN_SSH_KEY_PATH=/run/secrets/power_ops_caipeadmin_ssh_key
+      - POWER_OPS_ROOT_SSH_USER=${POWER_OPS_ROOT_SSH_USER:-}
+      - POWER_OPS_ROOT_SSH_KEY_PATH=/run/secrets/power_ops_root_ssh_key
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # Not part of the default `mcp-servers` bundle, and kept in its own
+    # profile separate from infra-ops-agent: this tool's blast radius is
+    # whole component groups, not one container, so it should be grantable
+    # to a narrower set of operators independently. Enable explicitly with
+    # the `power-ops-agent` profile.
+    profiles:
+      - power-ops-agent
+
   ####################################################################################################
   #                                      CAIPE UI                                                    #
   ####################################################################################################
