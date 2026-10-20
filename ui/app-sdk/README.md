@@ -72,8 +72,41 @@ the JSON may be at the package root or in a compiled directory such as `dist/`.
 An optional `assistant` claim (`agentId`, `label`, `name`) lets the host render
 its own floating chat for a config-driven agent. The host fetches the agent
 through its RBAC-protected API and sends bounded route context with turns. The
-app must seed the agent and its MCP server separately; the native package does
-not receive credentials or create agents at runtime.
+app must register its agent separately; Dynamic Agents assistants also configure
+their tools separately. The native package does not receive credentials or create
+agents at runtime.
+
+An installed app may declare `ui.assistant.streamPath` as a safe `/api/`
+path on its private runtime. Browser chat, the app assistant overlay and
+linked-user bot conversations use the same host chat routes and conversation ID.
+The host resolves the saved agent against installed app declarations; client
+metadata cannot choose a backend origin or substitute an agent.
+
+| Assistant declaration | Host operation | App response |
+|---|---|---|
+| `streamPath` | `/api/v1/chat/stream/start` | AG-UI SSE |
+| `resumePath` (optional) | `/api/v1/chat/stream/resume` | AG-UI SSE |
+| `cancelPath` (optional) | `/api/v1/chat/stream/cancel` | JSON with `cancelled: boolean` |
+
+Use the host's default `agui` chat protocol for app streams. Each path must have an
+allowed POST policy; resume/cancel declarations require `streamPath`. The host
+forwards the existing operation body unchanged, including the authorized
+conversation ID and untrusted client context. Apps implement their own runtime,
+session mapping, deadlines, source access and optional verification controls.
+Keep runtime origins and private services server-side.
+
+Agent-use and conversation-write checks run first. The same resolved user then
+passes through the app gateway's launch and HTTP policy checks and configured
+token mode. Service accounts cannot substitute for an interactive user.
+Declaring a stream grants no access. A conflicting/unavailable app configuration,
+a denial, or an upstream failure does not invoke a different agent runtime.
+
+A missing resume/cancel capability returns `501`; it never resumes or cancels a
+Dynamic Agents run. Without an app stream claim, existing Dynamic Agents behavior
+continues. Start/resume permit up to 16 minutes at the host boundary; applications
+must enforce their own bounded deadline, emit SSE heartbeats and honor aborts.
+The host preserves AG-UI events and cancellation acknowledgements. It does not
+implement SDK-specific sessions, automatic retries or durable stream replay.
 
 The `2.0` release retains the existing component props and trust model; the
 aligned numbering is not a new rendering engine, sandbox, or permission grant.

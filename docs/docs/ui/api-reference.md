@@ -22,9 +22,9 @@ services.
 
 | Method | Route | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/chat/stream/start` | Start a Dynamic Agents SSE stream |
-| `POST` | `/api/v1/chat/stream/resume` | Resume a HITL/interrupted stream |
-| `POST` | `/api/v1/chat/stream/cancel` | Cancel an active stream |
+| `POST` | `/api/v1/chat/stream/start` | Start an AG-UI app assistant stream when declared; otherwise use Dynamic Agents |
+| `POST` | `/api/v1/chat/stream/resume` | Resume a declared app stream or Dynamic Agents interrupt; unsupported app resume returns 501 |
+| `POST` | `/api/v1/chat/stream/cancel` | Cancel through the declared app endpoint or Dynamic Agents; unsupported app cancel returns 501 |
 | `POST` | `/api/v1/chat/invoke` | Non-streaming Dynamic Agents invocation |
 
 Example:

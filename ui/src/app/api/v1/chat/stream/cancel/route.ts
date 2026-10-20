@@ -1,10 +1,11 @@
 /**
- * POST /api/v1/chat/stream/cancel — transparent proxy to Dynamic Agents.
+ * POST /api/v1/chat/stream/cancel — agent operation routed by server-owned bindings.
  *
  * Body: { conversation_id, agent_id }
  * Response: JSON { success, cancelled, agent_id, conversation_id }
  */
 
+import { proxyAgenticAppAssistantStream } from "@/lib/agentic-apps/assistant-stream";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { NextRequest,NextResponse } from "next/server";
 import {
@@ -22,10 +23,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check dynamic agents config
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
-
+  const appRequest = request.clone();
   // Parse body
   let body: Record<string, unknown>;
   try {
@@ -37,7 +35,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!body.conversation_id || !body.agent_id) {
+  if (!body || typeof body.conversation_id !== "string" || !body.conversation_id || typeof body.agent_id !== "string" || !body.agent_id) {
     return NextResponse.json(
       { success: false, error: "Missing required fields: conversation_id, agent_id" },
       { status: 400 },
@@ -59,6 +57,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     String(body.conversation_id),
   );
   if (conversationAuthz.denial) return conversationAuthz.denial;
+
+  const appResponse = await proxyAgenticAppAssistantStream(
+    appRequest, authResult, conversationAuthz.conversation, body, "cancel",
+  );
+  if (appResponse) return appResponse;
+
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
 
   body = {
     ...body,

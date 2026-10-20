@@ -6,6 +6,25 @@ Sequence diagrams and flow narratives for "what happens when X". Pair this with 
 
 ---
 
+## Installed app assistant streams
+
+- Browser chat, app overlays and linked-user bot chats use the same start,
+  resume and cancel routes. The saved conversation's agent selects a
+  deployment-configured app; browser context and runtime hints grant no access.
+- Existing agent-use and conversation-write checks run before dispatch. The app
+  gateway then checks launch access and the declared POST policy using the exact
+  resolved caller. A second cookie lookup cannot replace a bearer identity.
+- Private origins stay server-side. The gateway uses the app's declared token
+  mode; service accounts cannot impersonate an interactive user for this path.
+- Disabled/conflicting app bindings fail closed. An app denial, unsupported
+  operation or upstream failure never falls back to another execution runtime.
+  Unclaimed agents keep the existing Dynamic Agents path.
+- Apps remain responsible for resource authorization and runtime sessions. The
+  host forwards the authorized visible conversation ID without assigning a
+  Dynamic Agents checkpoint ID to the app.
+
+---
+
 ## Login + First-Time Broker Login
 
 This is the **once-per-session** flow. After it completes, the user holds a Keycloak-backed UI session and usually never sees Keycloak (or the upstream IdP — Okta / Duo SSO / etc.) again until the Keycloak SSO session can no longer be refreshed.
