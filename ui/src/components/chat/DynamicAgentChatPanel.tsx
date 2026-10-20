@@ -569,6 +569,9 @@ export function ChatPanel({
     : false;
   const externalActivity = useChatStore(state => activeConversationId ? state.externalActivity[activeConversationId] : undefined);
   const isRemoteResponse = !!externalActivity && !isThisConversationStreaming;
+  useEffect(() => {
+    if (isRemoteResponse) setIsRewindConfirmationOpen(false);
+  }, [isRemoteResponse]);
   const hasAssistantMessageForInterruptCheck = conversation?.messages?.some((message) => message.role === "assistant") ?? false;
 
   // Check if user is near the bottom of the scroll area
@@ -1470,7 +1473,7 @@ export function ChatPanel({
   }, [isSavingEdit]);
 
   const requestEditedMessageSave = useCallback(() => {
-    if (!editingMessageId || !activeConversationId || isSavingEdit) return;
+    if (!editingMessageId || !activeConversationId || isSavingEdit || isRemoteResponse) return;
     const targetMessage = getActiveConversation()?.messages.find(
       (message) => message.id === editingMessageId,
     );
@@ -1495,12 +1498,13 @@ export function ChatPanel({
     editDraft,
     editingMessageId,
     getActiveConversation,
+    isRemoteResponse,
     isSavingEdit,
     toast,
   ]);
 
   const saveEditedMessage = useCallback(async () => {
-    if (!editingMessageId || !activeConversationId || isSavingEdit) return;
+    if (!editingMessageId || !activeConversationId || isSavingEdit || isRemoteResponse) return;
     const targetMessage = getActiveConversation()?.messages.find(
       (message) => message.id === editingMessageId,
     );
@@ -1531,6 +1535,12 @@ export function ChatPanel({
     setIsSavingEdit(true);
     try {
       await saveMessagesToServer(activeConversationId);
+      // Activity may have started while the pending message save completed.
+      const current = useChatStore.getState();
+      if (current.externalActivity[activeConversationId] || current.streamingConversations.has(activeConversationId)) {
+        setIsRewindConfirmationOpen(false);
+        return;
+      }
       await apiClient.rewindConversation(activeConversationId, {
         agent_id: agentId,
         message_id: editingMessageId,
@@ -1562,6 +1572,7 @@ export function ChatPanel({
     editDraft,
     editingMessageId,
     getActiveConversation,
+    isRemoteResponse,
     isSavingEdit,
     saveMessagesToServer,
     submitMessage,
@@ -1587,6 +1598,7 @@ export function ChatPanel({
   useEffect(() => {
     if (
       isThisConversationStreaming ||
+      isRemoteResponse ||
       queuedMessages.length === 0 ||
       queueFlushInProgressRef.current ||
       pendingUserInput ||
@@ -1601,6 +1613,7 @@ export function ChatPanel({
     });
   }, [
     isThisConversationStreaming,
+    isRemoteResponse,
     pendingToolApproval,
     pendingUserInput,
     queuedMessages,
@@ -2329,6 +2342,7 @@ export function ChatPanel({
                         !panelReadOnly &&
                         !isAutonomousHistory &&
                         !isThisConversationStreaming &&
+                        !isRemoteResponse &&
                         !pendingUserInput &&
                         !pendingToolApproval;
 
@@ -3242,7 +3256,7 @@ const ChatMessage = React.memo(function ChatMessage({
                   </Button>
                   <Button
                     size="sm"
-                    disabled={isSavingEdit || (!editDraft.trim() && !message.attachments?.length)}
+                    disabled={!canEdit || isSavingEdit || (!editDraft.trim() && !message.attachments?.length)}
                     onClick={onSaveEdit}
                   >
                     {isSavingEdit ? (

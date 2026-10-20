@@ -18,6 +18,8 @@ export function createHostChatCapability(appId: string): NativeHostChat {
     const key = `${props.conversationId}:${props.agentId}`;
     useEffect(() => {
       let cancelled = false;
+      let activated = false;
+      const previousConversationId = useChatStore.getState().activeConversationId;
       async function open() {
         const response = await fetch(`/api/agentic-apps/${encodeURIComponent(appId)}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Assistant app is unavailable or access was denied");
@@ -30,13 +32,20 @@ export function createHostChatCapability(appId: string): NativeHostChat {
           ? state.conversations : [...state.conversations, { id: saved._id, title: saved.title,
             participants: saved.participants, createdAt: new Date(saved.created_at), updatedAt: new Date(saved.updated_at),
             metadata: saved.metadata, owner_id: saved.owner_id, accessLevel: saved.access_level, messages: [], streamEvents: [] }] }));
+        activated = true;
         useChatStore.getState().setActiveConversation(saved._id);
         await useChatStore.getState().loadMessagesFromServer(saved._id, { force: true });
         if (!cancelled) { setLoaded(key); setError(null); }
       }
       void open().catch(reason => { if (!cancelled) setError({ key, message: reason instanceof Error ? reason.message : "Chat is unavailable" }); });
-      // The host keeps the request and callbacks alive after this renderer unmounts.
-      return () => { cancelled = true; };
+      // Restore only our selection; the host keeps the stream alive after unmount.
+      return () => {
+        cancelled = true;
+        const state = useChatStore.getState();
+        if (activated && state.activeConversationId === props.conversationId) {
+          state.setActiveConversation(previousConversationId);
+        }
+      };
     }, [key, props.agentId, props.conversationId]);
     if (error?.key === key) return <p role="alert" className="p-4 text-sm text-destructive">{error.message}</p>;
     if (loaded !== key) return <p role="status" className="p-4 text-sm text-muted-foreground">Loading conversation…</p>;
