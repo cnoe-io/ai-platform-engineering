@@ -38,6 +38,7 @@ export const RESERVED_API_PATHS = [
   "/api/dynamic-agents",
   "/api/feedback",
   "/api/files",
+  "/api/harness-engine",
   "/api/health",
   "/api/integrations",
   "/api/internal",

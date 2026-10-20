@@ -79,6 +79,10 @@ const sidebars: SidebarsConfig = {
               id: 'getting-started/helm/setup',
             },
             {
+              type: 'doc',
+              id: 'installation/openfga-model-override',
+            },
+            {
               type: 'category',
               label: 'Chart Reference',
               items: [

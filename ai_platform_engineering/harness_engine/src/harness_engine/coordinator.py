@@ -76,7 +76,7 @@ class RunCoordinator:
             separators=(",", ":"),
         )
         run_id = "run-" + hashlib.sha256(request_identity.encode()).hexdigest()
-        existing = await self._repository.lookup_request(run_id, fingerprint)
+        existing = await self._repository.lookup_request(run_id, fingerprint, owner_subject=owner_subject, request=request)
         if existing:
             return existing
         try:
@@ -292,6 +292,9 @@ class RunCoordinator:
         if not await self._repository.is_context_deleted(conversation_id):
             raise RunAdmissionConflict("Permanent deletion must first fence the canonical conversation")
         bindings = await self._repository.context_sessions(owner_subject, agent_id, conversation_id)
+        run_bindings = await self._repository.context_run_binding_ids(owner_subject, agent_id, conversation_id)
+        if run_bindings - {binding.binding_id for binding in bindings}:
+            raise RunAdmissionConflict("Retained execution has no binding; provider cleanup requires reconciliation")
         for binding in bindings:
             if binding.status != "closed":
                 await self._repository.close_session(binding.binding_id)

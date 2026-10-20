@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { POST as startRun } from "../runs/route";
 import { GET as streamRun } from "../runs/[runId]/events/stream/route";
@@ -13,6 +13,7 @@ const mockAuthenticateRequest = jest.fn();
 const mockRequireAgentUsePermission = jest.fn();
 const mockRequireConversationWriteAccess = jest.fn();
 const mockRequireConversationReadAccess = jest.fn();
+let mockSelectedHarness = "agentcore";
 
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
@@ -28,13 +29,14 @@ jest.mock("@/app/api/v1/chat/_conversation-authz", () => ({
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: async (name: string) => ({ findOneAndUpdate: async (_query: unknown, update: { $setOnInsert: unknown }) => update.$setOnInsert, findOne: async () =>
-    name === "dynamic_agents" ? { _id: "agent-example", execution_harness_id: "agentcore" }
+    name === "dynamic_agents" ? { _id: "agent-example", execution_harness_id: mockSelectedHarness }
       : name === "conversations" ? { _id: "conversation-example" } : null }),
 }));
 
 describe("Harness Engine BFF session routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSelectedHarness = "agentcore";
     process.env.HARNESS_ENGINE_URL = "http://harness-engine:8010";
     process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "internal-test-token";
     mockAuthenticateRequest.mockResolvedValue({
@@ -193,5 +195,38 @@ it("denies event replay after the conversation read grant is revoked", async () 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0][0])).not.toContain("events/stream");
 });
+
+  it("cannot bypass a native context's gateway owner through direct Engine admission", async () => {
+    mockSelectedHarness = "dynamic_agents";
+    const fetchMock = jest.spyOn(global, "fetch");
+    const response = await startRun(new NextRequest("http://localhost/api/harness-engine/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: "agent-example", conversation_id: "conversation-example", message: "inspect", expected_harness_id: "agentcore" }),
+    }));
+    expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported direct Engine attachments instead of silently dropping them", async () => {
+    const fetchMock = jest.spyOn(global, "fetch");
+    const response = await startRun(new NextRequest("http://localhost/api/harness-engine/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: "agent-example", conversation_id: "conversation-example", message: "inspect", files: [{ name: "example.txt" }] }),
+    }));
+    expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([["runs", startRun], ["sessions/clear", clearSession]])("preserves conversation write denials for %s", async (path, handler) => {
+    const denial = NextResponse.json({ success: false, error: "Automated history is read-only" }, { status: 409 });
+    mockRequireConversationWriteAccess.mockResolvedValue({ conversation: null, denial });
+    const fetchMock = jest.spyOn(global, "fetch");
+    const response = await handler(new NextRequest(`http://localhost/api/harness-engine/${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: "agent-example", conversation_id: "conversation-example", message: "inspect" }),
+    }));
+    expect(response).toBe(denial);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
 });

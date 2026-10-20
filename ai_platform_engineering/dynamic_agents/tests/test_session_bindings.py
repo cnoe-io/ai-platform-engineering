@@ -63,7 +63,10 @@ class _OwnerReferenceCollection:
 
     def find_one(self, query: dict) -> dict | None:
         with self.lock:
-            return deepcopy(self.rows.get(query["_id"]))
+            return deepcopy(next((row for row in self.rows.values() if all(
+                row.get(field) not in value["$nin"] if isinstance(value, dict) and "$nin" in value else row.get(field) == value
+                for field, value in query.items()
+            )), None))
 
     def find_one_and_update(self, query: dict, update: dict, **_options: object) -> dict:
         with self.lock:

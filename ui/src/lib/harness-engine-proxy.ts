@@ -138,3 +138,22 @@ export async function proxyHarnessEngineStream(
     );
   }
 }
+
+/** Read the Engine's owner-scoped binding without sharing its private database. */
+export async function lookupHarnessSession(
+  config: HarnessEngineConfig,
+  auth: Pick<AuthResult, "subject" | "traceparent">,
+  agentId: string,
+  conversationId: string,
+): Promise<{ harness_id: string | null } | NextResponse> {
+  const response = await proxyHarnessEngine(config, auth, "/api/v1/sessions/lookup", {
+    method: "POST",
+    body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.success || !result.data ||
+      !(result.data.harness_id === null || typeof result.data.harness_id === "string")) {
+    return NextResponse.json({ success: false, error: "Harness session could not be resolved" }, { status: 503 });
+  }
+  return result.data;
+}

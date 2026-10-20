@@ -10,7 +10,7 @@ it("erases only the deleted conversation journals, removing metadata before repl
   mockGetCollection.mockImplementation(async (collection: string) => ({
     find: (query: unknown) => {
       calls.push({ collection, operation: "find", query });
-      return { toArray: async () => collection === "harness_sessions" ? [] : [{ run_id: "target-run" }] };
+      return { toArray: async () => ["harness_sessions", "harness_runs"].includes(collection) ? [] : [{ run_id: "target-run" }] };
     },
     deleteMany: async (query: unknown) => {
       calls.push({ collection, operation: "delete", query });
@@ -37,7 +37,7 @@ it("limits autonomous deletion to its explicit execution binding rather than eve
   mockGetCollection.mockImplementation(async (collection: string) => ({
     find: (query: unknown) => {
       calls.push({ collection, query });
-      return { toArray: async () => collection === "harness_sessions" ? [] : [{ run_id: "target-run" }] };
+      return { toArray: async () => ["harness_sessions", "harness_runs"].includes(collection) ? [] : [{ run_id: "target-run" }] };
     },
     deleteMany: async (query: unknown) => calls.push({ collection, query }),
     updateOne: async () => undefined,
@@ -72,5 +72,48 @@ it("retains visible history when the owning provider has not acknowledged deleti
   expect(fetchMock).toHaveBeenCalledWith("http://engine.example.test/api/v1/sessions/delete", expect.objectContaining({
     method: "POST", headers: expect.objectContaining({ "X-Harness-Engine-Subject": "owner-example" }),
   }));
+  fetchMock.mockRestore();
+});
+
+
+it("does not report permanent deletion complete for legacy provider runs left after agent deletion", async () => {
+  process.env.HARNESS_ENGINE_URL = "http://engine.example.test";
+  process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "test-internal-token";
+  const deletes: string[] = [];
+  mockGetCollection.mockImplementation(async (collection: string) => ({
+    find: () => ({ toArray: async () => collection === "harness_runs"
+      ? [{ agent_id: "deleted-agent", conversation_id: "target-conversation", owner_subject: "owner-example" }] : [] }),
+    updateOne: async () => undefined,
+    deleteMany: async () => { deletes.push(collection); },
+  }));
+  const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "Provider binding requires reconciliation" }), { status: 409 }));
+  await expect(deleteConversationsPermanently([{ _id: "target-conversation", participants: [] }])).rejects.toMatchObject({ statusCode: 409 });
+  expect(deletes).toEqual([]);
+  expect(fetchMock).toHaveBeenCalledWith("http://engine.example.test/api/v1/sessions/delete", expect.objectContaining({
+    method: "POST", body: JSON.stringify({ agent_id: "deleted-agent", conversation_id: "target-conversation" }),
+  }));
+  fetchMock.mockRestore();
+});
+
+it("deletes retained provider history once per context before removing canonical and legacy routing references", async () => {
+  process.env.HARNESS_ENGINE_URL = "http://engine.example.test";
+  process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "test-internal-token";
+  const deleted: Array<{ collection: string; query: unknown }> = [];
+  const provider = { agent_id: "deleted-agent", conversation_id: "target-conversation", owner_subject: "owner-example" };
+  mockGetCollection.mockImplementation(async (collection: string) => ({
+    find: () => ({ toArray: async () => ["harness_sessions", "harness_runs"].includes(collection) ? [provider] : [] }),
+    updateOne: async () => undefined,
+    deleteMany: async (query: unknown) => { deleted.push({ collection, query }); },
+  }));
+  const fetchMock = jest.spyOn(global, "fetch").mockImplementation(async () => {
+    expect(deleted).toEqual([]);
+    return new Response(JSON.stringify({ success: true }));
+  });
+  await deleteConversationsPermanently([{ _id: "target-conversation", participants: [] }]);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(deleted[0]).toEqual({ collection: "harness_gateway_bindings", query: { $or: [
+    { session_id: { $in: ["target-conversation"] } }, { conversation_id: { $in: ["target-conversation"] } },
+  ] } });
+  expect(deleted.some((item) => item.collection === "conversations")).toBe(true);
   fetchMock.mockRestore();
 });
