@@ -12,10 +12,10 @@ type Organization = ReturnType<typeof useChatHistoryOrganization>;
 export type OrganizationDialog = { kind: "create" } | { kind: "rename"; id: string; name: string }
   | { kind: "move"; id: string; title: string };
 
-export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sources, source, onSourceChange, allowFolders = true }: {
+export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sources, source, onSourceChange, allowFolders = true, allowGrouping = true }: {
   state: Organization; dialog: OrganizationDialog | null; onDialog: (value: OrganizationDialog | null) => void;
   sources: ReadonlyArray<{ value: string; label: string; content: ReactNode }>;
-  source: string; onSourceChange: (value: string) => void; allowFolders?: boolean;
+  source: string; onSourceChange: (value: string) => void; allowFolders?: boolean; allowGrouping?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -40,9 +40,9 @@ export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sourc
                 {option.content}
               </label>)}
             </fieldset>
-            {allowFolders && <fieldset className="mt-2 border-t border-border pt-2" disabled={!state.ready || state.saving}>
+            {allowGrouping && <fieldset className="mt-2 border-t border-border pt-2" disabled={!state.ready || state.saving}>
               <legend className="px-2 text-xs font-medium text-muted-foreground">Group by</legend>
-              {([{ value: "ungrouped", label: "Ungrouped" }, { value: "agents", label: "Agent" }, { value: "folders", label: "Folders" }] as const).map(option =>
+              {([{ value: "ungrouped", label: "Ungrouped" }, { value: "agents", label: "Agent" }, { value: "folders", label: "Folders" }] as const).filter(option => allowFolders || option.value !== "folders").map(option =>
                 <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent focus-within:bg-accent has-[:disabled]:cursor-default has-[:disabled]:opacity-50">
                   <input type="radio" name={`${id}-group`} value={option.value} checked={state.value.view === option.value}
                     className="h-3.5 w-3.5 shrink-0 accent-primary" onChange={() => void state.update(value => ({ ...value, view: option.value }))} />
@@ -58,8 +58,8 @@ export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sourc
       </Button>}
     </div>
     {state.error && <p role="alert" className="pt-1 text-xs text-destructive">{state.error} {!state.ready && <button type="button" className="underline" onClick={state.retry}>Retry</button>}</p>}
-    <Dialog open={!!dialog} onOpenChange={open => { if (!open && !state.saving) onDialog(null); }}>
-      {dialog && <OrganizationForm key={JSON.stringify(dialog)} state={state} dialog={dialog} close={() => onDialog(null)} />}
+    <Dialog open={allowFolders && !!dialog} onOpenChange={open => { if (!open && !state.saving) onDialog(null); }}>
+      {allowFolders && dialog && <OrganizationForm key={JSON.stringify(dialog)} state={state} dialog={dialog} close={() => onDialog(null)} />}
     </Dialog>
   </>;
 }

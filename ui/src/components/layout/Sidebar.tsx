@@ -243,14 +243,17 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   } = useChatStore();
   const { data: session } = useSession();
   const organizationIdentity = session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined);
-  const organization = useChatHistoryOrganization(organizationIdentity);
+  const [historyFilter, setHistoryFilter] = useState<ConversationHistoryFilter>('all');
+  const organizationScope = historyFilter === "autonomous" || historyFilter === "scheduled" ? historyFilter : "chats";
+  const allowChatFolders = !["autonomous", "scheduled", "webhook"].includes(historyFilter);
+  const organization = useChatHistoryOrganization(organizationIdentity, organizationScope);
   const draggedChat = useRef<{ id: string; identity: string; pointerId: number; x: number; y: number; moved: boolean } | null>(null);
   const ignoreChatClick = useRef(false);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [dropFolderKey, setDropFolderKey] = useState<string | null>(null);
   const clearChatDrag = () => { draggedChat.current = null; setDraggedChatId(null); setDropFolderKey(null); };
-  const canDropChat = () => organization.ready && !organization.saving && organization.value.view === "folders" &&
-    draggedChat.current?.identity === organizationIdentity && conversations.some(c => c.id === draggedChat.current?.id);
+  const canDropChat = () => allowChatFolders && organization.ready && !organization.saving && organization.value.view === "folders" &&
+    draggedChat.current?.identity === organizationIdentity && conversations.some(c => c.id === draggedChat.current?.id && getConversationRunKind(c) === null);
   const folderAtPointer = (event: ReactPointerEvent) => event.currentTarget.ownerDocument
     .elementFromPoint(event.clientX, event.clientY)?.closest("[data-chat-folder-drop-target]")
     ?.getAttribute("data-chat-folder-drop-target") ?? null;
@@ -284,7 +287,6 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
-  const [historyFilter, setHistoryFilter] = useState<ConversationHistoryFilter>('all');
   const [historyFilterHydrated, setHistoryFilterHydrated] = useState(false);
   const [webhooksExpanded, setWebhooksExpanded] = useState(false);
   const [webhookTasks, setWebhookTasks] = useState<AutonomousTask[]>([]);
@@ -642,7 +644,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     }
     visibleConversations.forEach(conversation => {
       const agentId = getAgentId(conversation);
-      const folderId = organization.value.assignments[conversation.id];
+      const folderId = getConversationRunKind(conversation) ? undefined : organization.value.assignments[conversation.id];
       const key = organization.value.view === "folders" ? folderId ? `folder:${folderId}` : "folder:unfiled" : `agent:${agentId ?? "none"}`;
       if (!groups.has(key)) groups.set(key, { label: agentId ? agentNameMap[agentId] ?? "Unavailable agent" : "No agent", conversations: [] });
       groups.get(key)!.conversations.push(conversation);
@@ -725,7 +727,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           {!collapsed && (
             <div className="px-2 pb-2 shrink-0">
               <ChatHistoryOrganizationControls state={organization} dialog={organizationDialog}
-                onDialog={setOrganizationDialog} allowFolders={historyFilter !== "webhook"}
+                onDialog={setOrganizationDialog} allowFolders={allowChatFolders} allowGrouping={historyFilter !== "webhook"}
                 source={selectedHistoryFilter.value}
                 onSourceChange={value => handleHistoryFilterChange(value as ConversationHistoryFilter)}
                 sources={availableHistoryFilters.map(filter => {
@@ -887,7 +889,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                     <div
                       onPointerDown={event => {
                         ignoreChatClick.current = false;
-                        if (event.button !== 0 || event.pointerType === "touch" || !organizationIdentity ||
+                        if (event.button !== 0 || event.pointerType === "touch" || !organizationIdentity || !allowChatFolders || getConversationRunKind(conv) !== null ||
                           collapsed || organization.value.view !== "folders" || !organization.ready ||
                           organization.saving || isEditingTitle || (event.target as Element).closest("button, input, textarea")) return;
                         draggedChat.current = { id: conv.id, identity: organizationIdentity, pointerId: event.pointerId,
@@ -1072,7 +1074,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          {!isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          {allowChatFolders && !runKind && !isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
                             aria-label="Move conversation to folder" title="Move to folder" disabled={!organization.ready || organization.saving}
                             onClick={event => { event.stopPropagation(); setOrganizationDialog({ kind: "move", id: conv.id, title: conv.title }); }}>
                             <Folder className="h-3 w-3" />

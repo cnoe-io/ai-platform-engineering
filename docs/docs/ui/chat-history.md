@@ -12,6 +12,13 @@ Choose one of these grouping views inside the menu:
 - **Group by agent**: a collapsible group for each agent represented in the loaded history.
 - **Folders**: personal folders and an **Unfiled** group.
 
+Folders and folder actions are available for Web/API chat history. Autonomous
+and Scheduled run history each offer **Ungrouped** and **Agent**, with separate
+saved grouping, collapse state and agent order. Run views default to Ungrouped;
+they do not inherit the chat view's folders. Webhook history keeps its run list.
+Returning to chat history restores the saved chat organization. Run conversations
+cannot be moved into folders, including from All chats.
+
 Use **New chat folder** beside the history dropdown to create a folder.
 The sidebar collapse/expand control is at the bottom, beside Archive. Hover or focus a conversation's
 folder button to move it. In Folders view, drag a chat onto a folder header
