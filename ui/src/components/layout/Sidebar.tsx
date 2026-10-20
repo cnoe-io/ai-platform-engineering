@@ -660,14 +660,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     }
   }
 
-  const historyChoices = availableHistoryFilters.flatMap(filter =>
-    (filter.value === "webhook" ? ["ungrouped" as const] : ["ungrouped", "agents", "folders"] as const).map(view => ({
-      ...filter, view, key: `${filter.value}:${view}`,
-      label: view === "folders" ? `${filter.label} · Folders` : view === "agents" ? `${filter.label} · Group by agent` : filter.label,
-    })),
-  );
-  const selectedHistoryChoice = historyChoices.find(choice => choice.value === historyFilter &&
-    choice.view === (historyFilter === "webhook" ? "ungrouped" : organization.value.view)) ?? historyChoices[0];
+  const selectedHistoryFilter = availableHistoryFilters.find(
+    filter => filter.value === historyFilter,
+  ) ?? availableHistoryFilters[0];
 
   return (
     <motion.div
@@ -716,28 +711,22 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
               <ChatHistoryOrganizationControls state={organization} dialog={organizationDialog}
                 onDialog={setOrganizationDialog} allowFolders={historyFilter !== "webhook"}>
                 <SearchablePicker
-                  options={historyChoices}
-                  selected={selectedHistoryChoice}
-                  onSelect={choice => { void (async () => {
-                    if (choice.value !== "webhook" && choice.view !== organization.value.view &&
-                      !await organization.update(v => ({ ...v, view: choice.view }))) return;
-                    handleHistoryFilterChange(choice.value);
-                  })(); }}
-                  getOptionKey={choice => choice.key}
-                  getOptionLabel={choice => choice.label}
-                  isOptionDisabled={choice => organization.saving ||
-                    (choice.view !== "ungrouped" && !organization.ready)}
-                  renderValue={choice => {
-                    const Icon = choice.view === "folders" ? Folder : choice.icon;
-                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", choice.iconClassName)} /><span className="truncate">{choice.label}</span></>;
+                  options={availableHistoryFilters}
+                  selected={selectedHistoryFilter}
+                  onSelect={filter => handleHistoryFilterChange(filter.value)}
+                  getOptionKey={filter => filter.value}
+                  getOptionLabel={filter => filter.label}
+                  renderValue={filter => {
+                    const Icon = filter.icon;
+                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span></>;
                   }}
-                  renderOption={choice => {
-                    const Icon = choice.view === "folders" ? Folder : choice.icon;
-                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", choice.iconClassName)} /><span className="truncate">{choice.label}</span></>;
+                  renderOption={filter => {
+                    const Icon = filter.icon;
+                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", filter.iconClassName)} /><span className="truncate">{filter.label}</span></>;
                   }}
                   placeholder="Filter chats"
-                  searchPlaceholder="Find chats or folders..."
-                  emptyLabel="No chat views match"
+                  searchPlaceholder="Search chat types..."
+                  emptyLabel="No chat types match"
                   ariaLabel="Filter chat history"
                   required
                   prioritizeSelected={false}

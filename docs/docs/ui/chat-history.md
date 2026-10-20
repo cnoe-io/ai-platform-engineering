@@ -4,8 +4,8 @@ sidebar_position: 6
 
 # Organize chat history
 
-The chat sidebar combines chat type and organization in one history dropdown.
-Choose the chat type on its own for Ungrouped, or its Folders / Group by agent option:
+The chat sidebar has two independent dropdowns: chat source and grouping.
+Choose a source such as Web chats, then one of these grouping views:
 
 - **Ungrouped**: the current conversation list, including chats assigned to folders.
 - **Group by agent**: a collapsible group for each agent represented in the loaded history.

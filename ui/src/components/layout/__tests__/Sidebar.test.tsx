@@ -738,7 +738,7 @@ describe('Sidebar — Live Status Indicator', () => {
         ['Webhook runs', 'icon-webhook', 'text-orange-500'],
       ]
       expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(
-        options.flatMap(([label]) => label === "Webhook runs" ? [label] : [label, `${label} · Group by agent`, `${label} · Folders`]),
+        options.map(([label]) => label),
       )
       for (const [label, icon, color] of options) {
         expect(within(screen.getByRole('option', { name: label })).getByTestId(icon)).toHaveClass(color)
@@ -747,9 +747,9 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(within(picker).getByTestId('icon-code')).toHaveClass('text-sky-500')
       fireEvent.click(picker)
       expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(
-        options.flatMap(([label]) => label === "Webhook runs" ? [label] : [label, `${label} · Group by agent`, `${label} · Folders`]),
+        options.map(([label]) => label),
       )
-      fireEvent.change(screen.getByPlaceholderText('Find chats or folders...'), {
+      fireEvent.change(screen.getByPlaceholderText('Search chat types...'), {
         target: { value: 'webhook' },
       })
       expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(1)

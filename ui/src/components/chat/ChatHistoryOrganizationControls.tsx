@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { SearchablePicker } from "@/components/ui/searchable-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import type { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
@@ -23,6 +24,13 @@ export function ChatHistoryOrganizationControls({ state, dialog, onDialog, child
         <FolderPlus className="h-4 w-4" />
       </Button>}
     </div>
+    {allowFolders && <Select aria-label="Group chat history" className="mt-2 h-8 min-w-0 text-xs" value={state.value.view}
+      disabled={!state.ready || state.saving} onChange={event => {
+        const view = event.target.value as typeof state.value.view;
+        void state.update(value => ({ ...value, view }));
+      }}>
+      <option value="ungrouped">Ungrouped</option><option value="agents">Group by agent</option><option value="folders">Folders</option>
+    </Select>}
     {state.error && <p role="alert" className="pt-1 text-xs text-destructive">{state.error} {!state.ready && <button type="button" className="underline" onClick={state.retry}>Retry</button>}</p>}
     <Dialog open={!!dialog} onOpenChange={open => { if (!open && !state.saving) onDialog(null); }}>
       {dialog && <OrganizationForm key={JSON.stringify(dialog)} state={state} dialog={dialog} close={() => onDialog(null)} />}
