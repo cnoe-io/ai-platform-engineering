@@ -60,7 +60,6 @@ import {
   useRef,
   useState,
   useTransition,
-  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -244,17 +243,24 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const { data: session } = useSession();
   const organizationIdentity = session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined);
   const organization = useChatHistoryOrganization(organizationIdentity);
-  const draggedChat = useRef<{ id: string; identity: string } | null>(null);
+  const draggedChat = useRef<{ id: string; identity: string; pointerId: number; x: number; y: number; moved: boolean } | null>(null);
+  const ignoreChatClick = useRef(false);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [dropFolderKey, setDropFolderKey] = useState<string | null>(null);
   const clearChatDrag = () => { draggedChat.current = null; setDraggedChatId(null); setDropFolderKey(null); };
   const canDropChat = () => organization.ready && !organization.saving && organization.value.view === "folders" &&
     draggedChat.current?.identity === organizationIdentity && conversations.some(c => c.id === draggedChat.current?.id);
-  const dropChatIntoFolder = (event: ReactDragEvent, folderId: string | undefined, key: string) => {
-    if (!canDropChat() || (folderId && !organization.value.folders.some(f => f.id === folderId))) return;
-    event.preventDefault(); event.stopPropagation();
-    const id = draggedChat.current!.id;
+  const folderAtPointer = (event: ReactPointerEvent) => event.currentTarget.ownerDocument
+    .elementFromPoint(event.clientX, event.clientY)?.closest("[data-chat-folder-drop-target]")
+    ?.getAttribute("data-chat-folder-drop-target") ?? null;
+  const dropChatIntoFolder = (key: string | null) => {
+    const source = draggedChat.current;
+    const valid = canDropChat() && source?.moved && key;
     clearChatDrag();
+    if (!valid || !source || !key) return;
+    const folderId = key === "folder:unfiled" ? undefined : key.slice("folder:".length);
+    if (folderId && !organization.value.folders.some(f => f.id === folderId)) return;
+    const id = source.id;
     if (organization.value.assignments[id] === folderId) return;
     void organization.update(value => {
       const assignments = { ...value.assignments };
@@ -760,15 +766,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                       data-chat-folder-drop-target={organization.value.view === "folders" ? item.key : undefined}
                       className={cn("group flex items-center gap-1 rounded-lg pt-2 transition-colors",
                         dropFolderKey === item.key && "bg-primary/15 ring-2 ring-inset ring-primary")}
-                      onDragOver={event => {
-                        if (!canDropChat()) return;
-                        event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropFolderKey(item.key);
-                      }}
-                      onDragLeave={event => {
-                        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropFolderKey(null);
-                      }}
-                      onDrop={event => dropChatIntoFolder(event, item.folderId, item.key)}>
-
+                    >
                       <button type="button" aria-expanded={expanded} disabled={organization.saving}
                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
                         onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
@@ -887,22 +885,39 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                     key={conv.id}
                     className={cn("group/conv", draggedChatId === conv.id && "opacity-50")}
                     data-chat-conversation-id={conv.id}
-                    draggable={!collapsed && organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle}
-                    onDragStart={event => {
-                      if (!organizationIdentity || (event.target as Element).closest("button, input, textarea")) {
-                        event.preventDefault(); return;
-                      }
-                      draggedChat.current = { id: conv.id, identity: organizationIdentity };
-                      setDraggedChatId(conv.id);
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("application/x-caipe-chat", conv.id);
-                    }}
-                    onDragEnd={clearChatDrag}
                   >
                     <div
+                      onPointerDown={event => {
+                        ignoreChatClick.current = false;
+                        if (event.button !== 0 || event.pointerType === "touch" || !organizationIdentity ||
+                          collapsed || organization.value.view !== "folders" || !organization.ready ||
+                          organization.saving || isEditingTitle || (event.target as Element).closest("button, input, textarea")) return;
+                        draggedChat.current = { id: conv.id, identity: organizationIdentity, pointerId: event.pointerId,
+                          x: event.clientX, y: event.clientY, moved: false };
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={event => {
+                        const source = draggedChat.current;
+                        if (!source || source.pointerId !== event.pointerId || !canDropChat()) return;
+                        if (!source.moved && Math.hypot(event.clientX - source.x, event.clientY - source.y) < 6) return;
+                        source.moved = true; ignoreChatClick.current = true; event.preventDefault();
+                        setDraggedChatId(source.id); setDropFolderKey(folderAtPointer(event));
+                        const viewport = conversationScrollViewportRef.current;
+                        if (viewport) {
+                          const bounds = viewport.getBoundingClientRect();
+                          if (event.clientY < bounds.top + 24) viewport.scrollTop -= 12;
+                          else if (event.clientY > bounds.bottom - 24) viewport.scrollTop += 12;
+                        }
+                      }}
+                      onPointerUp={event => {
+                        if (draggedChat.current?.pointerId === event.pointerId) dropChatIntoFolder(folderAtPointer(event));
+                      }}
+                      onPointerCancel={clearChatDrag}
+                      onLostPointerCapture={clearChatDrag}
+                      onDragStart={event => event.preventDefault()}
                       className={cn(
                         "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
-                        organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing",
+                        organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing select-none",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
                           : isInputRequired
@@ -915,7 +930,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                   ? "hover:bg-muted/50 border border-blue-500/20"
                                   : "hover:bg-muted/50 border border-transparent"
                       )}
-                      onClick={() => {
+                      onClick={event => {
+                        if (ignoreChatClick.current) { ignoreChatClick.current = false; event.preventDefault(); return; }
                         setActiveConversation(conv.id);
                         startTransition(() => {
                           router.push(`/chat/${conv.id}`);
