@@ -26,6 +26,9 @@ DocumentFormat = Literal["original", "pdf"]
 DOCUMENT_CONTENT_TYPES = {
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xls": "application/vnd.ms-excel",
     ".pdf": "application/pdf",
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -48,6 +51,8 @@ DOCUMENT_CONTENT_TYPES = {
 DOCUMENT_EXTENSIONS = frozenset(DOCUMENT_CONTENT_TYPES)
 VISUAL_FORMATS = frozenset({"pptx", "docx", "pdf"})
 IMAGE_FORMATS = frozenset({"png", "jpeg", "gif", "webp", "svg", "avif"})
+WORKBOOK_FORMATS = frozenset({"xlsx", "xlsm", "xls"})
+MAX_WORKBOOK_BYTES = 104_857_600
 MAX_IMAGE_BYTES = 20_971_520
 MAX_FOLDER_DOCUMENTS = 10
 MAX_FOLDER_ENTRIES = 1000
@@ -81,7 +86,7 @@ class SharePointDocuments:
         if extension == ".aspx":
             # A page's canvas, not its backing ASPX file, is the readable source.
             return None
-        if extension.lstrip(".") in VISUAL_FORMATS:
+        if extension.lstrip(".") in VISUAL_FORMATS | WORKBOOK_FORMATS:
             return extension.lstrip(".")
         image_format = "jpeg" if extension in {".jpg", ".jpeg"} else extension.lstrip(".")
         if image_format in IMAGE_FORMATS:
@@ -93,6 +98,8 @@ class SharePointDocuments:
         return text_file_format(name, str(file.get("mimeType") or ""))
 
     def byte_limit(self, document_format: str) -> int:
+        if document_format in WORKBOOK_FORMATS:
+            return min(self.client.config.max_document_bytes, MAX_WORKBOOK_BYTES)
         if document_format in IMAGE_FORMATS:
             return min(self.client.config.max_document_bytes, MAX_IMAGE_BYTES)
         return self.client.config.max_document_bytes if document_format in VISUAL_FORMATS else min(
@@ -136,7 +143,10 @@ class SharePointDocuments:
             raise SharePointGraphError(415, "unsupported_document", "Choose a file in this site, not a folder or remote shortcut.")
         document_format = self.format_for_item(metadata)
         if document_format is None:
-            raise SharePointGraphError(415, "unsupported_document", "Choose a PDF, PPTX, DOCX, supported text file, or image.")
+            raise SharePointGraphError(
+                415, "unsupported_document",
+                "Choose a PDF, PPTX, DOCX, Excel workbook (XLSX, XLSM, XLS), supported text file, or image.",
+            )
         limit = self.byte_limit(document_format)
         if isinstance(metadata.get("size"), int) and metadata["size"] > limit:
             raise SharePointGraphError(413, "document_too_large", f"The document exceeds the {limit}-byte streaming limit.")

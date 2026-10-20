@@ -209,6 +209,34 @@ async def test_drive_outside_site_is_rejected_before_item_access() -> None:
     assert not any("/items/" in path for path in requests)
 
 
+@pytest.mark.parametrize("extension,mime", [
+    ("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ("xlsm", "application/vnd.ms-excel.sheet.macroEnabled.12"),
+    ("xls", "application/vnd.ms-excel"),
+])
+async def test_workbooks_have_native_streams_and_never_use_pdf_conversion(extension: str, mime: str) -> None:
+    def workbook(request: httpx.Request) -> httpx.Response:
+        response = handler(request)
+        if "/items/" in request.url.path and not request.url.path.endswith("/content"):
+            return httpx.Response(200, json={**response.json(), "name": f"Example.{extension.upper()}"})
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(workbook)) as http:
+        documents = SharePointDocuments(SharePointGraphClient(config(), http))
+        manifest = await documents.manifest("drive-1", "item-1")
+        assert manifest["format"] == extension and manifest["pdf_path"] is None
+        async with documents.stream("drive-1", "item-1") as stream:
+            assert stream.content_type == mime
+            assert b"".join([chunk async for chunk in stream.body])
+        with pytest.raises(SharePointGraphError):
+            async with documents.stream("drive-1", "item-1", "pdf"):
+                pytest.fail("Workbooks must use native extraction, not PDF conversion")
+        assert documents.byte_limit(extension) == 104_857_600
+        assert documents.byte_limit("csv") == documents.client.config.max_download_bytes
+        assert documents.byte_limit(extension) > documents.byte_limit("csv")
+        assert documents.format_for_item({"name": "Example.csv", "file": {"mimeType": "application/vnd.ms-excel"}}) == "csv"
+
+
 async def test_all_library_pages_are_checked() -> None:
     def paginated(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/drives"):
@@ -290,7 +318,7 @@ async def test_unsafe_redirect_is_rejected(url: str) -> None:
 
 @pytest.mark.parametrize("metadata", [
     {"folder": {}}, {"remoteItem": {}}, {"name": "archive.zip"}, {"name": "Example.doc"},
-    {"name": "Example.docm"}, {"name": "Example.xlsx"}, {"size": 4096},
+    {"name": "Example.docm"}, {"name": "Example.xlsb"}, {"size": 4096},
 ])
 async def test_unsupported_or_oversized_items_are_rejected(metadata: dict[str, Any]) -> None:
     def modified(request: httpx.Request) -> httpx.Response:
@@ -367,7 +395,8 @@ def test_catalog_is_authenticated_paginated_and_site_scoped(monkeypatch: pytest.
                         {"id": "image-file", "name": "Diagram.png", "size": 512, "file": {}},
                         {"id": "svg-file", "name": "Diagram.svg", "size": 512, "file": {}},
                         {"id": "large-image", "name": "Large.jpg", "size": 20_971_521, "file": {}},
-                        {"id": "other-file", "name": "Example.xlsx", "file": {}},
+                        {"id": "workbook-file", "name": "Example.xlsx", "size": 512, "file": {}},
+                        {"id": "other-file", "name": "Example.xlsb", "file": {}},
                         {"id": "remote-file", "name": "External.pdf", "file": {}, "remoteItem": {}},
                     ],
                     "@odata.nextLink": "https://graph.microsoft.com/v1.0/drives/drive-1/root/children?$skiptoken=next",
@@ -384,12 +413,13 @@ def test_catalog_is_authenticated_paginated_and_site_scoped(monkeypatch: pytest.
         response = http.get("/documents/catalog/items?drive_id=drive-1&limit=50&cursor=previous", headers=headers)
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["items"]] == [
-            "folder-1", "item-1", "word-file", "image-file", "svg-file", "large-image",
+            "folder-1", "item-1", "word-file", "image-file", "svg-file", "large-image", "workbook-file",
         ]
         assert response.json()["items"][2]["supported"] is True
         assert response.json()["items"][3]["supported"] is True
         assert response.json()["items"][4]["supported"] is True
         assert response.json()["items"][5]["supported"] is False
+        assert response.json()["items"][6]["supported"] is True
         assert response.json()["next_cursor"] == "next"
         assert response.headers["cache-control"] == "no-store"
         assert any(request.url.params.get("$skiptoken") == "previous" for request in seen)

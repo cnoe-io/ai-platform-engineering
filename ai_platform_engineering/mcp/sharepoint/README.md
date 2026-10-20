@@ -90,6 +90,10 @@ Collection tools return `count`, `has_more`, and `next_cursor`. Pass
 
 - `GET /documents/{drive_id}/{item_id}/metadata`: manifest, never credentials or a signed download URL.
 - `GET /documents/{drive_id}/{item_id}/content`: original bytes, streamed in bounded chunks.
+- Excel workbooks (`.xlsx`, `.xlsm`, `.xls`) use native original streams, capped at
+  100 MiB or the configured document ceiling. TOME extracts bounded sheet/cell
+  evidence; workbook PDF conversion is not used. Macros and external links are
+  never executed or followed; formulas are not recalculated.
 - `GET /documents/{drive_id}/{item_id}/content?format=pdf`: Microsoft Graph's PPTX/DOCX-to-PDF conversion.
 - `GET /documents/catalog/libraries?limit=50&cursor=...`: a bounded library page for TOME's picker.
 - `GET /documents/catalog/items?drive_id=...&folder_item_id=...&limit=50&cursor=...`: folder browsing; use `query` instead of `folder_item_id` to search a library. Returns folders and supported-file metadata only, never file bytes or signed URLs.
@@ -104,7 +108,7 @@ Collection tools return `count`, `has_more`, and `next_cursor`. Pass
   whichever is smaller. TOME validates and stages static visuals for SDK `Read`,
   including offline rendering of self-contained SVG; images do not use Graph
   PDF conversion or the smaller MCP text-reader limit.
-- Legacy DOC, macro-enabled DOCM, XLSX, and embedded media are not included.
+- Legacy DOC, macro-enabled DOCM, XLSB, and embedded media are not included.
 
 ### Text files and site pages
 
