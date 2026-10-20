@@ -17,6 +17,7 @@ export const DEFAULT_HARNESS_ID = "dynamic_agents";
 interface AgentRuntimeRecord {
   _id: string;
   execution_harness_id?: string;
+  backend?: { config?: { checkpoint_collection?: string | null } };
 }
 
 export interface HarnessGatewayTarget {
@@ -87,15 +88,29 @@ export async function resolveHarnessGatewayTarget(
     let binding = await bindings.findOne(key);
     if (!binding) {
       const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
-      const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1 } });
+      const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1, backend: 1 } });
       if (!agent) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
       let harnessId = normalizedHarnessId(agent.execution_harness_id);
+      // Dynamic Agents and the BFF share the application database. Match the
+      // native runtime's checkpointer collection, including per-agent overrides.
+      const checkpointCollection = agent.backend?.config?.checkpoint_collection ||
+        process.env.CHECKPOINT_COLLECTION || "checkpoints_conversation";
+      const checkpoints = await getCollection(checkpointCollection);
+      const nativeContext = await checkpoints.findOne(
+        { thread_id: context.conversationId }, { projection: { _id: 1 } },
+      );
+      if (nativeContext) harnessId = DEFAULT_HARNESS_ID;
       const config = getHarnessEngineConfig();
       if (isHarnessEngineConfigured() && !(config instanceof NextResponse)) {
-        // Adopt Engine sessions created before routing records were introduced.
+        // Compare both authoritative owners when adopting pre-gateway sessions.
         const saved = await lookupHarnessSession(config, context, agentId, context.conversationId);
-        if (saved instanceof NextResponse) return saved;
-        harnessId = saved.harness_id ?? harnessId;
+        if (saved instanceof NextResponse) {
+          if (!nativeContext) return saved;
+        } else if (nativeContext && saved.harness_id && saved.harness_id !== DEFAULT_HARNESS_ID) {
+          return NextResponse.json({ success: false, error: "Conversation has conflicting runtime contexts; clear it before continuing" }, { status: 409 });
+        } else {
+          harnessId = saved.harness_id ?? harnessId;
+        }
       } else if (harnessId !== DEFAULT_HARNESS_ID && config instanceof NextResponse) {
         return config;
       }
@@ -565,6 +580,10 @@ export async function invokeHarnessGatewayRun(
         { status: response.status || 502 },
       );
     }
+    if (!Number.isInteger(envelope.data.run.last_sequence) || envelope.data.run.last_sequence < 0 ||
+        !Number.isInteger(envelope.data.next_cursor) || envelope.data.next_cursor < cursor) {
+      return NextResponse.json({ success: false, error: "Harness Engine returned an invalid event cursor", run_id: started.run.run_id }, { status: 502 });
+    }
     for (const event of envelope.data.events) {
       if (event.event_type === "content.delta") content += stringField(event.data, "text", "delta");
       if (event.event_type === "reasoning.delta") thinking += stringField(event.data, "text", "delta");
@@ -572,7 +591,7 @@ export async function invokeHarnessGatewayRun(
     }
     cursor = envelope.data.next_cursor;
     const status = envelope.data.run.status;
-    if (["completed", "failed", "cancelled"].includes(status)) {
+    if (["completed", "failed", "cancelled"].includes(status) && cursor >= envelope.data.run.last_sequence) {
       if (status === "completed") {
         return NextResponse.json({
           success: true,
@@ -617,7 +636,7 @@ export async function cancelHarnessGatewayRun(
     }),
   });
   if (response instanceof NextResponse) return response;
-  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string }>(response);
+  const envelope = await readEnvelope<{ cancelled: boolean; run_id?: string; cancellation_requested?: boolean }>(response);
   if (!response.ok || !envelope.success || !envelope.data) {
     return NextResponse.json(
       { success: false, error: engineErrorMessage(envelope, "Harness run could not be cancelled") },
@@ -627,6 +646,7 @@ export async function cancelHarnessGatewayRun(
   return NextResponse.json({
     success: true,
     cancelled: envelope.data.cancelled,
+    cancellation_requested: envelope.data.cancellation_requested ?? false,
     run_id: envelope.data.run_id,
     agent_id: body.agent_id,
     conversation_id: body.conversation_id,

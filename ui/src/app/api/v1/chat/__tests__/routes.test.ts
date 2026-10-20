@@ -58,6 +58,7 @@ jest.mock("@/lib/harness-engine-proxy", () => ({
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (name: string, ...args: unknown[]) => {
+    if (name === "checkpoints_conversation") return Promise.resolve({ findOne: async () => null });
     if (name === "harness_gateway_bindings") return Promise.resolve({
       findOne: mockFindGatewayBinding,
       findOneAndUpdate: async (_key: unknown, update: { $setOnInsert: unknown }) => update.$setOnInsert,
@@ -202,7 +203,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     }));
 
     const fetchMock = harnessId === "dynamic_agents" ? undefined : jest.spyOn(global, "fetch").mockImplementation(async (input) => {
-      const run = { run_id: "run-api", status: "completed", agent_id: "agent-1", conversation_id: "conv-1" };
+      const run = { run_id: "run-api", status: "completed", last_sequence: 2, agent_id: "agent-1", conversation_id: "conv-1" };
       const data = String(input).includes("/events?") ? {
         run, next_cursor: 2, events: [
           { run_id: run.run_id, sequence: 1, event_type: "content.delta", data: { text: "response" } },
@@ -346,7 +347,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
         ? { _id: "agent-1", execution_harness_id: "dynamic_agents" }
         : { _id: "conv-1", owner_id: "test-user@example.com", owner_subject: "test-user" }),
     }));
-    const run = { run_id: "run-pinned", conversation_id: "conv-1", agent_id: "agent-1", status: "completed" };
+    const run = { run_id: "run-pinned", conversation_id: "conv-1", agent_id: "agent-1", status: "completed", last_sequence: 1 };
     const fetchMock = jest.spyOn(global, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("events/stream")) return new Response('id: 1\nevent: run.completed\ndata: {}\n\n');
@@ -627,7 +628,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         success: true,
         data: {
-          run: { status: "completed" },
+          run: { status: "completed", last_sequence: 3 },
           events: [
             { run_id: "run-2", sequence: 1, event_type: "content.delta", data: { text: "hello" } },
             { run_id: "run-2", sequence: 2, event_type: "content.delta", data: { text: " world" } },

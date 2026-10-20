@@ -96,6 +96,8 @@ class RunRepository(Protocol):
 
     async def get_run(self, run_id: str) -> RunRecord | None: ...
 
+    async def request_cancellation(self, run_id: str) -> RunRecord | None: ...
+
     async def get_active_run(
         self, owner_subject: str, agent_id: str, conversation_id: str
     ) -> RunRecord | None: ...
@@ -303,6 +305,14 @@ class InMemoryRunRepository:
     async def get_run(self, run_id: str) -> RunRecord | None:
         run = self._runs.get(run_id)
         return run.model_copy(deep=True) if run else None
+
+    async def request_cancellation(self, run_id: str) -> RunRecord | None:
+        async with self._lock:
+            run = self._runs.get(run_id)
+            if run and run.status not in TERMINAL_RUN_STATUSES:
+                run = run.model_copy(update={"cancellation_requested": True, "updated_at": utc_now()})
+                self._runs[run_id] = run
+            return run.model_copy(deep=True) if run else None
 
     async def get_active_run(
         self, owner_subject: str, agent_id: str, conversation_id: str
@@ -647,6 +657,17 @@ class MongoRunRepository:
                     self._db.harness_runs.update_one({"run_id": run_id}, {"$setOnInsert": doc}, upsert=True)
             return RunRecord.model_validate(doc) if doc else None
         return await asyncio.to_thread(read)
+
+    async def request_cancellation(self, run_id: str) -> RunRecord | None:
+        # Materialize a reservation snapshot before updating the durable request.
+        if await self.get_run(run_id) is None:
+            return None
+        await asyncio.to_thread(
+            self._db.harness_runs.update_one,
+            {"run_id": run_id, "status": {"$nin": [status.value for status in TERMINAL_RUN_STATUSES]}},
+            {"$set": {"cancellation_requested": True, "updated_at": utc_now()}},
+        )
+        return await self.get_run(run_id)
 
     async def get_active_run(
         self, owner_subject: str, agent_id: str, conversation_id: str

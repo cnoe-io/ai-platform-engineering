@@ -249,6 +249,7 @@ class RunRecord(StrictModel):
     last_sequence: int = 0
     client_request_id: str | None = None
     request_fingerprint: str | None = None
+    cancellation_requested: bool = False
     error_code: str | None = None
     traceparent: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -300,6 +301,7 @@ class CancelActiveRunRequest(StrictModel):
 class CancelActiveRunResult(StrictModel):
     cancelled: bool
     run_id: str | None = None
+    cancellation_requested: bool = False
 
 
 CanonicalEventType = Literal[

@@ -27,9 +27,10 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
   `harness_gateway_bindings` collection. An agent edit does not change an
   existing conversation's runtime. The authorized session-clear endpoint removes
   that routing record only after Engine clear succeeds.
-- On first use, the gateway looks up existing Engine sessions through the
-  internal API, including sessions created before routing records existed.
-  The BFF does not read the Engine's private MongoDB database.
+- On first use, the gateway adopts native checkpoints from the application's
+  configured checkpoint collection and Engine sessions from the internal API.
+  Conflicting contexts return `409`. Known native context remains usable when
+  optional Engine lookup is unavailable. The BFF does not read Engine's private DB.
 - Missing Engine configuration returns `503` for saved SDK agents or pinned
   Engine conversations. Legacy/default agents still use Dynamic Agents.
 
@@ -86,6 +87,10 @@ is not implemented yet; completed event replay and subsequent thread resume are.
 
 - Each binding has one durable run reservation. Reserve before compiling the
   prompt; a distinct overlapping request returns `409`.
+- Stop persists a cancellation request that the owning producer observes across
+  replicas. A dispatched provider drains with further content suppressed before
+  releasing its reservation. `cancelled: false, cancellation_requested: true`
+  means stop is pending; a request handled by another replica cannot free the slot.
 - `client_request_id` is scoped to owner, agent and conversation. Identical
   retries return the original run; reusing a key with different input returns
   `409`, including after completion.
@@ -98,6 +103,8 @@ is not implemented yet; completed event replay and subsequent thread resume are.
 - Missing or expired replay tails return `409` with `replay_unavailable` before
   subscription. A gap discovered on an open SSE stream emits `run.failed` with
   that code and closes the stream.
+- Nonstreaming invoke consumes events through the committed terminal sequence
+  before returning or persisting the response.
 - A lost producer still requires an explicit clear; provider takeover after
   process failure remains outside this implementation.
 

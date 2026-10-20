@@ -292,6 +292,7 @@ def test_cancel_active_preserves_the_session_binding(settings) -> None:
         assert cancelled.json()["data"] == {
             "cancelled": True,
             "run_id": started.json()["data"]["run_id"],
+            "cancellation_requested": True,
         }
         assert continued.json()["data"]["binding_id"] == started.json()["data"]["binding_id"]
 

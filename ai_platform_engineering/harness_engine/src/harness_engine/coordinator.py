@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from uuid import uuid4
 
 from harness_engine.brokers import PromptCompiler
@@ -96,9 +96,26 @@ class RunCoordinator:
         task.add_done_callback(forget)
         return run
 
+    async def _watch_cancellation(self, run: RunRecord, producer: asyncio.Task[None]) -> None:
+        try:
+            while not producer.done():
+                current = await self._repository.get_run(run.run_id)
+                binding = await self._repository.get_session(run.binding_id)
+                if current is None or current.cancellation_requested or binding is None or binding.status != "active":
+                    # Dispatched providers drain before their session can be reused.
+                    if (binding is None or not binding.dispatch_started) and not producer.cancelling():
+                        producer.cancel()
+                    return
+                await asyncio.sleep(0.1)
+        except Exception:
+            logger.exception("Harness cancellation monitor failed", extra={"run_id": run.run_id})
+
     async def _pump(
         self, run: RunRecord, request: CreateRunRequest, version: AgentVersion, binding: SessionBinding
     ) -> None:
+        producer = asyncio.current_task()
+        assert producer is not None
+        watcher = asyncio.create_task(self._watch_cancellation(run, producer))
         try:
             await self._session_manager.ensure_active(binding)
             rendered_prompt = await self._prompt_compiler.compile(version.blueprint)
@@ -132,20 +149,29 @@ class RunCoordinator:
             )
             if not await self._repository.claim_dispatch(run.binding_id, run.run_id):
                 raise AgentSessionClosedError(run.binding_id)
+            current = await self._repository.get_run(run.run_id)
+            if current is None or current.cancellation_requested:
+                raise asyncio.CancelledError
             adapter = self._registry.adapter(run.harness_id)
-            async for event in adapter.stream(context):
-                updated_binding = await self._session_manager.observe_provider_event(
-                    context.binding, event
-                )
-                if updated_binding.provider_session_id != context.binding.provider_session_id:
-                    context = context.model_copy(update={"binding": updated_binding})
-                    if updated_binding.provider_session_id:
-                        await self._repository.update_run_provider_id(
-                            run.run_id, updated_binding.provider_session_id
+            async with aclosing(adapter.stream(context)) as events:
+                async for event in events:
+                    current = await self._repository.get_run(run.run_id)
+                    updated_binding = await self._session_manager.observe_provider_event(
+                        context.binding, event
+                    )
+                    if updated_binding.provider_session_id != context.binding.provider_session_id:
+                        context = context.model_copy(update={"binding": updated_binding})
+                        if updated_binding.provider_session_id:
+                            await self._repository.update_run_provider_id(
+                                run.run_id, updated_binding.provider_session_id
+                            )
+                    if current is not None and not current.cancellation_requested:
+                        await self._repository.append_event(
+                            run.run_id, event.event_type, event.data
                         )
-                await self._repository.append_event(
-                    run.run_id, event.event_type, event.data
-                )
+            current = await self._repository.get_run(run.run_id)
+            if current is None or current.cancellation_requested:
+                raise asyncio.CancelledError
             await self._session_manager.ensure_active(context.binding)
             await self._repository.append_event(
                 run.run_id, "run.completed", {}, RunStatus.COMPLETED
@@ -172,18 +198,39 @@ class RunCoordinator:
             )
 
         finally:
+            watcher.cancel()
+            with suppress(asyncio.CancelledError):
+                await watcher
             await self._repository.release_run(run.binding_id, run.run_id)
 
     async def cancel(self, run_id: str) -> RunRecord | None:
+        run = await self._repository.request_cancellation(run_id)
+        if run is None or run.status in TERMINAL_RUN_STATUSES:
+            return run
         task = self._tasks.get(run_id)
-        if task and not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-        run = await self._repository.get_run(run_id)
-        if run and run.status not in TERMINAL_RUN_STATUSES:
-            await self._repository.append_event(run_id, "run.cancelled", {}, RunStatus.CANCELLED)
-            await self._repository.release_run(run.binding_id, run.run_id)
+        if task:
+            binding = await self._repository.get_session(run.binding_id)
+            if not task.done() and not task.cancelling() and (binding is None or not binding.dispatch_started):
+                task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+            except TimeoutError:
+                return await self._repository.get_run(run_id)
+            except asyncio.CancelledError:
+                if not task.done():
+                    raise
+            run = await self._repository.get_run(run_id)
+            # A locally owned task cancelled before entering _pump has no finally block.
+            if run and run.status not in TERMINAL_RUN_STATUSES:
+                await self._repository.append_event(run_id, "run.cancelled", {}, RunStatus.CANCELLED)
+                await self._repository.release_run(run.binding_id, run.run_id)
+        else:
+            # Only the owning producer can confirm stop and release its reservation.
+            for _ in range(20):
+                run = await self._repository.get_run(run_id)
+                if run is None or run.status in TERMINAL_RUN_STATUSES:
+                    return run
+                await asyncio.sleep(0.025)
         return await self._repository.get_run(run_id)
 
     async def cancel_active(
@@ -198,6 +245,7 @@ class RunCoordinator:
         return CancelActiveRunResult(
             cancelled=cancelled is not None and cancelled.status == RunStatus.CANCELLED,
             run_id=run.run_id,
+            cancellation_requested=cancelled is not None and cancelled.cancellation_requested,
         )
 
     async def clear_session(
@@ -221,7 +269,8 @@ class RunCoordinator:
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())
         for task in tasks:
-            task.cancel()
+            if not task.cancelling():
+                task.cancel()
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task

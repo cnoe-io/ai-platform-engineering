@@ -4,15 +4,24 @@ import { clearHarnessGatewayBinding, resolveHarnessGatewayTarget } from "../harn
 
 const mockFindAgent = jest.fn();
 const mockLookupSession = jest.fn();
+const mockFindNativeContext = jest.fn();
+const mockNativeCollection = jest.fn();
 const bindings = new Map<string, Record<string, unknown>>();
 jest.mock("@/lib/mongodb", () => ({
-  getCollection: async (name: string) => name === "dynamic_agents" ? { findOne: mockFindAgent } : {
+  getCollection: async (name: string) => {
+    if (name === "dynamic_agents") return { findOne: mockFindAgent };
+    if (name !== "harness_gateway_bindings") {
+      mockNativeCollection(name);
+      return { findOne: mockFindNativeContext };
+    }
+    return {
     findOne: async (key: { _id: string }) => bindings.get(key._id) ?? null,
     findOneAndUpdate: async (key: { _id: string }, update: { $setOnInsert: Record<string, unknown> }) => {
       if (!bindings.has(key._id)) bindings.set(key._id, update.$setOnInsert);
       return bindings.get(key._id);
     },
-    deleteOne: async (key: { _id: string }) => bindings.delete(key._id),
+      deleteOne: async (key: { _id: string }) => bindings.delete(key._id),
+    };
   },
 }));
 jest.mock("@/lib/harness-engine-proxy", () => ({
@@ -29,6 +38,7 @@ beforeEach(() => {
   process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "test-internal-token";
   mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "dynamic_agents" });
   mockLookupSession.mockResolvedValue({ harness_id: null });
+  mockFindNativeContext.mockResolvedValue(null);
 });
 
 it.each(["agentcore", "claude_agent_sdk"])("fails closed for saved %s agents when either service setting is absent", async (harnessId) => {
@@ -82,4 +92,37 @@ it("does not choose a new backend if authoritative session lookup is unavailable
   mockLookupSession.mockResolvedValue(NextResponse.json({ success: false }, { status: 503 }));
   expect((await resolveHarnessGatewayTarget("agent-example", context) as NextResponse).status).toBe(503);
   expect(bindings.size).toBe(0);
+});
+
+it("adopts existing native checkpoints before a mutable SDK default", async () => {
+  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "agentcore" });
+  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
+  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
+  expect(mockNativeCollection).toHaveBeenCalledWith("checkpoints_conversation");
+  expect(mockFindNativeContext).toHaveBeenCalledWith(
+    { thread_id: context.conversationId }, { projection: { _id: 1 } },
+  );
+  expect([...bindings.values()][0].harness_id).toBe("dynamic_agents");
+});
+
+it.each(["missing", "unavailable"])("keeps known native context usable when Engine is %s", async (mode) => {
+  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "claude_agent_sdk" });
+  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
+  if (mode === "missing") delete process.env.HARNESS_ENGINE_URL;
+  else mockLookupSession.mockResolvedValue(NextResponse.json({ success: false }, { status: 503 }));
+  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
+});
+
+it("rejects contradictory native and Engine contexts without pinning either owner", async () => {
+  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
+  mockLookupSession.mockResolvedValue({ harness_id: "agentcore" });
+  expect((await resolveHarnessGatewayTarget("agent-example", context) as NextResponse).status).toBe(409);
+  expect(bindings.size).toBe(0);
+});
+
+it("uses the native checkpoint collection configured for the agent", async () => {
+  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "agentcore", backend: { config: { checkpoint_collection: "example_checkpoints" } } });
+  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
+  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
+  expect(mockNativeCollection).toHaveBeenCalledWith("example_checkpoints");
 });
