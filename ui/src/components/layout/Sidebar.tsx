@@ -2,6 +2,8 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
+import { ChatHistoryOrganizationControls, type OrganizationDialog } from "@/components/chat/ChatHistoryOrganizationControls";
+import { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
 import { NewChatButton } from "@/components/chat/NewChatButton";
 import { ConversationListSkeleton } from "@/components/chat/ConversationListSkeleton";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
@@ -35,7 +37,7 @@ ChevronLeft,
 ChevronRight,
 Code2,
 Database,
-HardDrive,
+Folder,
 Loader2,
 ListFilter,
 MessageCircleQuestion,
@@ -143,6 +145,7 @@ function persistHistoryFilter(filter: ConversationHistoryFilter): void {
 }
 
 type ConversationListItem =
+  | { kind: "group"; key: string; label: string; count: number; folderId?: string }
   | { kind: "webhook-section" }
   | {
       kind: "conversation";
@@ -238,6 +241,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     isConversationInputRequired,
   } = useChatStore();
   const { data: session } = useSession();
+  const organization = useChatHistoryOrganization(session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined));
+  const [organizationDialog, setOrganizationDialog] = useState<OrganizationDialog | null>(null);
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isLoadingConversations, setIsLoadingConversations] = useState(
@@ -600,6 +605,26 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const conversationListItems: ConversationListItem[] = historyFilter === 'webhook'
     ? webhookTasks.map((task) => ({ kind: 'webhook-task', task }))
     : visibleConversations.map((conversation) => ({ kind: 'conversation', conversation }));
+  if (!collapsed && historyFilter !== "webhook" && organization.value.view !== "ungrouped") {
+    const groups = new Map<string, { label: string; folderId?: string; conversations: Conversation[] }>();
+    if (organization.value.view === "folders") {
+      organization.value.folders.forEach(f => groups.set(`folder:${f.id}`, { label: f.name, folderId: f.id, conversations: [] }));
+      groups.set("folder:unfiled", { label: "Unfiled", conversations: [] });
+    }
+    visibleConversations.forEach(conversation => {
+      const agentId = getAgentId(conversation);
+      const folderId = organization.value.assignments[conversation.id];
+      const key = organization.value.view === "folders" ? folderId ? `folder:${folderId}` : "folder:unfiled" : `agent:${agentId ?? "none"}`;
+      if (!groups.has(key)) groups.set(key, { label: agentId ? agentNameMap[agentId] ?? "Unavailable agent" : "No agent", conversations: [] });
+      groups.get(key)!.conversations.push(conversation);
+    });
+    conversationListItems.length = 0;
+    for (const [key, group] of groups) {
+      conversationListItems.push({ kind: "group", key, label: group.label, count: group.conversations.length, folderId: group.folderId });
+      if (!organization.value.collapsed.includes(key)) conversationListItems.push(...group.conversations.map(
+        (conversation): ConversationListItem => ({ kind: "conversation", conversation })));
+    }
+  }
   if (historyFilter === 'autonomous' && webhookTasks.length > 0) {
     conversationListItems.push({ kind: 'webhook-section' });
     if (webhooksExpanded) {
@@ -668,7 +693,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         </div>
       )}
 
-      {/* Bottom-right indicators: Archive + Storage Mode */}
+      {/* Restore archived conversations */}
       {activeTab === "chat" && !collapsed && (
         <div className="absolute bottom-2 right-2 z-10 overflow-visible flex items-center gap-1.5">
           {/* Archive button — only in MongoDB mode */}
@@ -691,34 +716,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
             </TooltipProvider>
           )}
 
-          {/* Storage Mode Indicator */}
-          <TooltipProvider delayDuration={200}>
-            {storageMode === 'localStorage' ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-help">
-                    <HardDrive className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8} className="bg-amber-600 dark:bg-amber-500 text-white border-amber-700">
-                  <p className="font-medium">Local Storage Mode</p>
-                  <p className="text-amber-100 text-[10px] mt-0.5">Browser-only • Not shareable</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-1.5 rounded-md bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 transition-colors cursor-help">
-                    <Database className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8} className="bg-green-600 dark:bg-green-500 text-white border-green-700">
-                  <p className="font-medium">MongoDB Mode</p>
-                  <p className="text-green-100 text-[10px] mt-0.5">Persistent • Shareable • Teams</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
+
         </div>
       )}
 
@@ -760,6 +758,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                 triggerClassName="h-8 py-1 text-xs"
                 contentClassName="w-[280px]"
               />
+              {historyFilter !== "webhook" && <ChatHistoryOrganizationControls state={organization}
+                dialog={organizationDialog} onDialog={setOrganizationDialog} />}
             </div>
           )}
           <ScrollArea
@@ -775,6 +775,28 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
               ) : (
                 <>
                   {conversationListItems.map((item) => {
+                  if (item.kind === "group") {
+                    const expanded = !organization.value.collapsed.includes(item.key);
+                    return <div key={item.key} className="group flex items-center gap-1 pt-2">
+                      <button type="button" aria-expanded={expanded} disabled={organization.saving}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
+                        onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
+                        {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                        {organization.value.view === "folders" && <Folder className="h-3.5 w-3.5 shrink-0" />}
+                        <span className="truncate" title={item.label}>{item.label}</span><span className="ml-auto tabular-nums text-muted-foreground">{item.count}</span>
+                      </button>
+                      {item.folderId && <>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          aria-label={`Rename folder ${item.label}`} disabled={organization.saving}
+                          onClick={() => setOrganizationDialog({ kind: "rename", id: item.folderId!, name: item.label })}><Pencil className="h-3 w-3" /></Button>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          aria-label={`Remove folder ${item.label}`} title="Remove folder; keep chats in Unfiled" disabled={organization.saving}
+                          onClick={() => void organization.update(v => ({ ...v, folders: v.folders.filter(f => f.id !== item.folderId),
+                            assignments: Object.fromEntries(Object.entries(v.assignments).filter(([, id]) => id !== item.folderId)),
+                            collapsed: v.collapsed.filter(k => k !== item.key) }))}><X className="h-3 w-3" /></Button>
+                      </>}
+                    </div>;
+                  }
                   if (item.kind === "webhook-section") {
                     return (
                       <button
@@ -1032,6 +1054,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
+                          {!isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            aria-label="Move conversation to folder" title="Move to folder" disabled={!organization.ready || organization.saving}
+                            onClick={event => { event.stopPropagation(); setOrganizationDialog({ kind: "move", id: conv.id, title: conv.title }); }}>
+                            <Folder className="h-3 w-3" />
+                          </Button>}
                           {isEditingTitle ? (
                             <>
                               <TooltipProvider delayDuration={200}>
@@ -1205,6 +1232,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                 </>
               )}
 
+              {conversationHasMore && conversationFilter === historyFilter && !isLoadingMoreConversations && (
+                <Button variant="ghost" className="w-full text-xs" onClick={() => void loadConversationsFromServer({ filter: conversationFilter, append: true })}>Load older chats</Button>
+              )}
               {isLoadingMoreConversations && conversationFilter === historyFilter && (
                 <div className="flex justify-center py-3" aria-label="Loading more chats">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
