@@ -181,9 +181,10 @@ the snapshot; a UI restart revalidates it before serving traffic.
   icon? }, available }`. The BFF derives it from the resolved
   `bindings.resources.assistant` identity. Stored or submitted presentation fields
   are ignored. Runtime origins and stream paths are not exposed in this projection.
-- App agents use the shared App spark mark (application window + sparkle), with
-  an `App: Example App` tooltip. The Apps destination, hub heading and generic
-  app fallbacks use the same mark. Catalog cards may display packaged app branding.
+- App agents use their packaged app logo with an `App: Example App` tooltip.
+  Missing, invalid, or broken logos fall back to the shared App spark mark
+  (application window + sparkle). The Apps destination, hub heading and generic
+  app fallbacks use the same mark. Catalog cards also display packaged app branding.
   The legacy navigation value `layout-grid` now renders App spark.
   The app's internal SDK is not inferred from an absent `execution_harness_id`.
   Legacy platform agents keep their existing Deep Agents fallback.
