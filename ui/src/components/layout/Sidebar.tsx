@@ -634,9 +634,14 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     }
   }
 
-  const selectedHistoryFilter = availableHistoryFilters.find(
-    (filter) => filter.value === historyFilter,
-  ) ?? availableHistoryFilters[0];
+  const historyChoices = availableHistoryFilters.flatMap(filter =>
+    (filter.value === "webhook" ? ["ungrouped" as const] : ["ungrouped", "agents", "folders"] as const).map(view => ({
+      ...filter, view, key: `${filter.value}:${view}`,
+      label: view === "folders" ? `${filter.label} · Folders` : view === "agents" ? `${filter.label} · Group by agent` : filter.label,
+    })),
+  );
+  const selectedHistoryChoice = historyChoices.find(choice => choice.value === historyFilter &&
+    choice.view === (historyFilter === "webhook" ? "ungrouped" : organization.value.view)) ?? historyChoices[0];
 
   return (
     <motion.div
@@ -667,56 +672,13 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           title="Drag to resize sidebar"
         />
       )}
-      {/* Collapse Toggle */}
-      <div className="flex items-center justify-end p-2 h-12 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onCollapse(!collapsed)}
-          className="h-8 w-8 hover:bg-muted shrink-0"
-        >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
-
       {/* New Chat Button */}
       {activeTab === "chat" && (
-        <div className="px-2 pb-2 shrink-0">
+        <div className="px-2 pt-2 pb-2 shrink-0">
           <NewChatButton
             collapsed={collapsed}
             onNewChat={handleNewChat}
           />
-        </div>
-      )}
-
-      {/* Restore archived conversations */}
-      {activeTab === "chat" && !collapsed && (
-        <div className="absolute bottom-2 right-2 z-10 overflow-visible flex items-center gap-1.5">
-          {/* Archive button — only in MongoDB mode */}
-          {storageMode === 'mongodb' && (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setRecycleBinOpen(true)}
-                    className="p-1.5 rounded-md bg-muted/50 border border-border/50 hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <ArchiveRestore className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8}>
-                  <p className="font-medium text-xs">Archive</p>
-                  <p className="text-[10px] mt-0.5 opacity-70">Restore deleted conversations</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-
-
         </div>
       )}
 
@@ -725,41 +687,38 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         <div className="flex-1 overflow-hidden flex flex-col min-w-0 min-h-0">
           {!collapsed && (
             <div className="px-2 pb-2 shrink-0">
-              <SearchablePicker
-                options={availableHistoryFilters}
-                selected={selectedHistoryFilter}
-                onSelect={(filter) => handleHistoryFilterChange(filter.value)}
-                getOptionKey={(filter) => filter.value}
-                getOptionLabel={(filter) => filter.label}
-                renderValue={(filter) => {
-                  const FilterIcon = filter.icon;
-                  return (
-                    <>
-                      <FilterIcon className={cn("h-3.5 w-3.5", filter.iconClassName)} />
-                      <span className="truncate">{filter.label}</span>
-                    </>
-                  );
-                }}
-                renderOption={(filter) => {
-                  const FilterIcon = filter.icon;
-                  return (
-                    <>
-                      <FilterIcon className={cn("h-3.5 w-3.5", filter.iconClassName)} />
-                      <span className="truncate">{filter.label}</span>
-                    </>
-                  );
-                }}
-                placeholder="Filter chats"
-                searchPlaceholder="Search chat types..."
-                emptyLabel="No chat types match"
-                ariaLabel="Filter chat history"
-                required
-                prioritizeSelected={false}
-                triggerClassName="h-8 py-1 text-xs"
-                contentClassName="w-[280px]"
-              />
-              {historyFilter !== "webhook" && <ChatHistoryOrganizationControls state={organization}
-                dialog={organizationDialog} onDialog={setOrganizationDialog} />}
+              <ChatHistoryOrganizationControls state={organization} dialog={organizationDialog}
+                onDialog={setOrganizationDialog} allowFolders={historyFilter !== "webhook"}>
+                <SearchablePicker
+                  options={historyChoices}
+                  selected={selectedHistoryChoice}
+                  onSelect={choice => { void (async () => {
+                    if (choice.value !== "webhook" && choice.view !== organization.value.view &&
+                      !await organization.update(v => ({ ...v, view: choice.view }))) return;
+                    handleHistoryFilterChange(choice.value);
+                  })(); }}
+                  getOptionKey={choice => choice.key}
+                  getOptionLabel={choice => choice.label}
+                  isOptionDisabled={choice => organization.saving ||
+                    (choice.view !== "ungrouped" && !organization.ready)}
+                  renderValue={choice => {
+                    const Icon = choice.view === "folders" ? Folder : choice.icon;
+                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", choice.iconClassName)} /><span className="truncate">{choice.label}</span></>;
+                  }}
+                  renderOption={choice => {
+                    const Icon = choice.view === "folders" ? Folder : choice.icon;
+                    return <><Icon className={cn("h-3.5 w-3.5 shrink-0", choice.iconClassName)} /><span className="truncate">{choice.label}</span></>;
+                  }}
+                  placeholder="Filter chats"
+                  searchPlaceholder="Find chats or folders..."
+                  emptyLabel="No chat views match"
+                  ariaLabel="Filter chat history"
+                  required
+                  prioritizeSelected={false}
+                  triggerClassName="h-8 py-1 text-xs"
+                  contentClassName="w-[300px]"
+                />
+              </ChatHistoryOrganizationControls>
             </div>
           )}
           <ScrollArea
@@ -1401,6 +1360,23 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           )}
         </div>
       )}
+
+      <div className="mt-auto flex shrink-0 items-center justify-between px-2 py-1">
+        <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={() => onCollapse(!collapsed)}
+            aria-label={collapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}
+            className="h-8 w-8 hover:bg-muted shrink-0">
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
+        </TooltipTrigger><TooltipContent side="top">{collapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}</TooltipContent></Tooltip></TooltipProvider>
+        {activeTab === "chat" && !collapsed && storageMode === "mongodb" && (
+          <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Archive" onClick={() => setRecycleBinOpen(true)} className="h-8 w-8">
+              <ArchiveRestore className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          </TooltipTrigger><TooltipContent side="top">Restore deleted conversations</TooltipContent></Tooltip></TooltipProvider>
+        )}
+      </div>
 
       {/* Use Case Builder Dialog */}
       <UseCaseBuilderDialog

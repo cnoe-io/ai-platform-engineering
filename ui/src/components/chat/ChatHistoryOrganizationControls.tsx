@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { SearchablePicker } from "@/components/ui/searchable-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import type { useChatHistoryOrganization } from "@/hooks/use-chat-history-organization";
@@ -12,19 +11,17 @@ type Organization = ReturnType<typeof useChatHistoryOrganization>;
 export type OrganizationDialog = { kind: "create" } | { kind: "rename"; id: string; name: string }
   | { kind: "move"; id: string; title: string };
 
-export function ChatHistoryOrganizationControls({ state, dialog, onDialog }: {
+export function ChatHistoryOrganizationControls({ state, dialog, onDialog, children, allowFolders = true }: {
   state: Organization; dialog: OrganizationDialog | null; onDialog: (value: OrganizationDialog | null) => void;
+  children: ReactNode; allowFolders?: boolean;
 }) {
   return <>
-    <div className="flex items-center gap-1 pt-2">
-      <Select aria-label="Group chat history" className="h-8 min-w-0 text-xs" value={state.value.view}
-        disabled={!state.ready || state.saving} onChange={e => { const view = e.target.value as typeof state.value.view; void state.update(v => ({ ...v, view })); }}>
-        <option value="ungrouped">Ungrouped</option><option value="agents">Group by agent</option><option value="folders">Folders</option>
-      </Select>
-      <Button size="icon" variant="ghost" aria-label="New chat folder" title="New chat folder" className="h-8 w-8 shrink-0"
+    <div className="flex items-center gap-1">
+      <div className="min-w-0 flex-1">{children}</div>
+      {allowFolders && <Button size="icon" variant="ghost" aria-label="New chat folder" title="New chat folder" className="h-8 w-8 shrink-0"
         disabled={!state.ready || state.saving || state.value.folders.length >= 100} onClick={() => onDialog({ kind: "create" })}>
         <FolderPlus className="h-4 w-4" />
-      </Button>
+      </Button>}
     </div>
     {state.error && <p role="alert" className="pt-1 text-xs text-destructive">{state.error} {!state.ready && <button type="button" className="underline" onClick={state.retry}>Retry</button>}</p>}
     <Dialog open={!!dialog} onOpenChange={open => { if (!open && !state.saving) onDialog(null); }}>

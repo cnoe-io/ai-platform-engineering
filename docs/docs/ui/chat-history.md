@@ -4,13 +4,15 @@ sidebar_position: 6
 
 # Organize chat history
 
-The chat sidebar offers three views alongside the existing chat-type filter:
+The chat sidebar combines chat type and organization in one history dropdown.
+Choose the chat type on its own for Ungrouped, or its Folders / Group by agent option:
 
 - **Ungrouped**: the current conversation list, including chats assigned to folders.
 - **Group by agent**: a collapsible group for each agent represented in the loaded history.
 - **Folders**: personal folders and an **Unfiled** group.
 
-Use **New chat folder** to create a folder. Hover or focus a conversation's
+Use **New chat folder** beside the history dropdown to create a folder.
+The sidebar collapse/expand control is at the bottom, beside Archive. Hover or focus a conversation's
 folder button to move it. Folder headers support collapse, rename and removal.
 Removing a folder returns its chats to Unfiled; it does not archive chats.
 
