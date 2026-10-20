@@ -1118,9 +1118,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               <div
                                 className={cn(
                                   "transition-opacity",
-                                  activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                  hasSharingConfig || isSharedWithViewer
                                     ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100",
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                                 )}
                               >
                                 <ShareButton
