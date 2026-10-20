@@ -13,7 +13,12 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import { normalizeHarnessId } from "@/lib/agent-presentation";
 import { getCollection } from "@/lib/mongodb";
+import {
+  getHarnessEngineConfig,
+  proxyHarnessEngine,
+} from "@/lib/harness-engine-proxy";
 import {
   RAG_COLLECTION_ID_PATTERN,
   RAG_COLLECTIONS_COLLECTION,
@@ -53,7 +58,7 @@ import type {
 } from "@/types/dynamic-agent";
 import { type RagCollection } from "@/types/rag-collection";
 import { Collection, ObjectId } from "mongodb";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const PLATFORM_DEFAULT_VISIBILITY_ERROR =
   "This agent is currently the platform default for new chats. Open Settings → Platform settings → Defaults and change the platform default before changing this agent's visibility.";
@@ -63,6 +68,7 @@ const PLATFORM_DEFAULT_DELETE_ERROR =
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_RESOURCE_ID_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+const EXECUTION_HARNESS_ID_PATTERN = /^[a-z][a-z0-9_]{1,63}$/;
 
 function normalizeRemoteAgentIds(value: unknown): string[] {
   if (value === undefined) return [];
@@ -245,6 +251,7 @@ function slugify(name: string): string {
 
 /** Mutable fields allowed in agent create/update requests. */
 const AGENT_MUTABLE_FIELDS = [
+  "execution_harness_id",
   "name",
   "description",
   "system_prompt",
@@ -317,6 +324,15 @@ function pickMutableFields(
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeExecutionHarnessId(value: unknown): string {
+  if (value != null && typeof value !== "string") throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
+  const harnessId = normalizeHarnessId(typeof value === "string" ? value : undefined);
+  if (!EXECUTION_HARNESS_ID_PATTERN.test(harnessId)) {
+    throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
+  }
+  return harnessId;
 }
 
 function normalizeDatasourceIds(value: unknown): string[] | undefined {
@@ -838,6 +854,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const allowedRemoteAgents = await validateRemoteAgentIds(body.allowed_remote_agents);
   const doc: DynamicAgentConfig = {
     _id: agentId,
+    execution_harness_id: normalizeExecutionHarnessId(body.execution_harness_id),
     name: body.name as string,
     description: (body.description as string) ?? "",
     system_prompt: body.system_prompt as string,
@@ -972,6 +989,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     );
   }
   const unsetData: Record<string, "">  = {};
+  if (Object.prototype.hasOwnProperty.call(body, "execution_harness_id")) {
+    updateData.execution_harness_id = normalizeExecutionHarnessId(
+      body.execution_harness_id,
+    );
+  }
   const datasourceSelectionChanged = Object.prototype.hasOwnProperty.call(
     body,
     "datasource_ids",
@@ -1238,7 +1260,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   await requireAgentPermission(session, id, "delete");
 
   const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -1290,6 +1312,43 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       502,
       "AUTONOMOUS_TASK_CASCADE_FAILED",
     );
+  }
+
+  if (normalizeExecutionHarnessId(agent.execution_harness_id) !== "dynamic_agents") {
+    const config = getHarnessEngineConfig();
+    if (config instanceof NextResponse) {
+      throw new ApiError(
+        "Harness Engine is unavailable; deletion was aborted to avoid orphaning its provider resource.",
+        503,
+        "HARNESS_ENGINE_UNAVAILABLE",
+      );
+    }
+    const sessionValues = session as unknown as Record<string, unknown>;
+    const response = await proxyHarnessEngine(
+      config,
+      {
+        subject:
+          (sessionValues.sub as string | undefined) ??
+          agent.owner_subject ??
+          user.email,
+        traceparent: request.headers.get("traceparent") ?? undefined,
+      },
+      `/api/v1/agents/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) {
+      const result = (await response.json().catch(() => null)) as {
+        detail?: string;
+        error?: string;
+      } | null;
+      throw new ApiError(
+        result?.detail ??
+          result?.error ??
+          "Failed to remove the agent's provider resource. Deletion was aborted.",
+        response.status,
+        "HARNESS_PROVIDER_DELETE_FAILED",
+      );
+    }
   }
 
   await deleteAllAgentToolTuples(id);

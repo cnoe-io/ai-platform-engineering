@@ -42,3 +42,13 @@ def test_malformed_scope_is_a_client_error(scope: object) -> None:
     with pytest.raises(HTTPException) as raised:
         apply_config_override(agent, {"allowed_tools": {"example-server": scope}})
     assert raised.value.status_code == 400
+
+
+def test_request_cannot_override_the_agent_execution_provider() -> None:
+    agent = DynamicAgentConfig(
+        _id="example-agent", name="Example", owner_id="owner@example.com", system_prompt="Assist.",
+        execution_harness_id="agentcore", model={"id": "example-model", "provider": "example-provider"},
+    )
+    with pytest.raises(HTTPException) as error:
+        apply_config_override(agent, {"execution_harness_id": "dynamic_agents"})
+    assert error.value.status_code == 400

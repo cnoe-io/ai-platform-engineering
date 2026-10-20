@@ -201,3 +201,15 @@ it("retains parent task context while replaying a HITL resume after reload", asy
   expect(mockChatState.addStreamEvent).toHaveBeenNthCalledWith(1, seed, "task-chat");
   expect(mockStreamMessage).not.toHaveBeenCalled();
 });
+
+
+it("shows the retained execution harness even when the agent default has changed", async () => {
+  mockConversation = { ...mockConversation, source: "web", messages: [] };
+  mockLatestRun.mockResolvedValue({
+    run_id: "run-1", turn_id: "turn-1", protocol: "agui", status: "completed",
+    harness_id: "claude_agent_sdk",
+  });
+  render(<ChatPanel agentId="example-agent" conversationId="task-chat" />);
+  expect(await screen.findByLabelText("Execution harness: Claude Agent SDK")).toBeInTheDocument();
+  expect(mockReattachStream).not.toHaveBeenCalled();
+});

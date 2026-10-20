@@ -26,7 +26,8 @@ jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
   requireConversationResourcePermission: (...args: unknown[]) => mockConversationPermission(...args),
 }));
 jest.mock("@/lib/mongodb", () => ({
-  getCollection: async () => ({ findOne: (...args: unknown[]) => mockFindConversation(...args) }),
+  getCollection: async (name: string) => ({ findOne: (...args: unknown[]) =>
+    name === "dynamic_agents" ? { _id: "agent-1" } : ["native_acp_sessions", "harness_sessions", "checkpoints_conversation", "native_acp_deleted_sessions", "harness_gateway_bindings"].includes(name) ? null : mockFindConversation(...args) }),
 }));
 
 function request(path: string): NextRequest {

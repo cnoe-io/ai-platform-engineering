@@ -68,6 +68,8 @@ export interface StreamParams {
 // ═══════════════════════════════════════════════════════════════
 
 export interface StreamCallbacks {
+  /** Runtime admitted by the gateway, rather than the mutable agent definition. */
+  onHarnessResolved?: (harnessId: string) => void;
   /** Subscriber connectivity; reconnecting does not mean execution stopped. */
   onConnectionState?(state: "connected" | "reconnecting" | "disconnected"): void;
 

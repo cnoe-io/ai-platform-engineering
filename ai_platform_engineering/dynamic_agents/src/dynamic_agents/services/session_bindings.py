@@ -30,10 +30,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SESSION_BINDINGS_COLLECTION = "native_acp_sessions"
+GATEWAY_BINDINGS_COLLECTION = "harness_gateway_bindings"
 
 
 class SessionBindingError(RuntimeError):
     """Admission failed; never silently fall back to a different native state."""
+
+
+class ExecutionOwnerConflictError(SessionBindingError):
+    """A request selected a different execution owner or a deleted context."""
 
 
 class _PersistenceCoordinates(BaseModel):
@@ -111,6 +116,45 @@ def get_native_binding(mongo: MongoDBService, agent_id: str, session_id: str) ->
     return _validate_binding(record, agent_id, session_id, mongo.settings).effective_config
 
 
+def require_native_execution_owner(
+    mongo: MongoDBService, agent: DynamicAgentConfig, session_id: str, *, existing_native: bool | None = None,
+) -> None:
+    """Enforce the same immutable execution-owner reference at direct native entrypoints.
+
+    This is an admission fence, not a second provider router. A caller selecting
+    an SDK provider must use the canonical gateway; existing native state stays
+    native even after edits to its shared agent definition.
+    """
+    if mongo._db is None:
+        raise SessionBindingError("MongoDB not connected")
+    database = mongo._db
+    deleted = database["native_acp_deleted_sessions"]
+    if deleted.find_one({"_id": session_id}) is not None:
+        raise ExecutionOwnerConflictError("This execution context was permanently deleted")
+    if existing_native is None:
+        existing_native = mongo.get_session_bindings_collection().find_one({"agent_id": agent.id, "session_id": session_id}) is not None
+    if database["harness_sessions"].find_one({"agent_id": agent.id, "conversation_id": session_id}) is not None:
+        raise ExecutionOwnerConflictError("This execution context belongs to Harness Engine; use the canonical gateway")
+    storage = resolve_runtime_storage(agent, session_id, mongo.settings)
+    legacy = database[storage.checkpoint_collection].find_one({"thread_id": session_id}) is not None
+    if not existing_native and not legacy and agent.execution_harness_id != "dynamic_agents":
+        raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
+    key = hashlib.sha256(f"{agent.id}\0{session_id}".encode()).hexdigest()
+    references = database[GATEWAY_BINDINGS_COLLECTION]
+    query = {"_id": key}
+    try:
+        reference = references.find_one_and_update(
+            query, {"$setOnInsert": {"agent_id": agent.id, "session_id": session_id, "harness_id": "dynamic_agents"}},
+            upsert=True, return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        reference = references.find_one(query)
+    if reference is None or reference.get("agent_id") != agent.id or reference.get("session_id") != session_id or reference.get("harness_id") != "dynamic_agents":
+        raise ExecutionOwnerConflictError("The execution owner changed; use the canonical gateway or create a new conversation")
+    if deleted.find_one({"_id": session_id}) is not None:
+        raise ExecutionOwnerConflictError("This execution context was permanently deleted")
+
+
 def resolve_native_binding(
     mongo: MongoDBService,
     agent: DynamicAgentConfig,
@@ -147,6 +191,7 @@ def resolve_native_binding(
         "updated_at": now,
     }
     try:
+        require_native_execution_owner(mongo, agent, session_id, existing_native=collection.find_one(key) is not None)
         try:
             record = collection.find_one_and_update(
                 key, {"$setOnInsert": initial}, upsert=True, return_document=ReturnDocument.AFTER,

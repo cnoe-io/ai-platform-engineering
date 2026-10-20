@@ -168,3 +168,46 @@ it("retries scoped Stop while admission is pending and waits for the actual canc
     expect(JSON.parse(init.body)).toEqual({ conversation_id: params.conversationId, agent_id: params.agentId, turn_id: params.turnId });
   }
 });
+
+it("reconnects inside an Engine AG-UI tool event without dropping arguments or resending", async () => {
+  function projected(frames: Array<[string, string, unknown]>): Response {
+    return new Response(frames.map(([cursor, event, data]) => `id: ${runId}:${cursor}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join(""), {
+      headers: { "X-CAIPE-Run-Id": runId, "X-CAIPE-Cursor-Format": "engine-v1", "X-Harness-ID": "agentcore" },
+    });
+  }
+  mockFetch.mockResolvedValueOnce(projected([
+    ["e:1:1:2", "RUN_STARTED", { runId }],
+    ["e:1:2:2", "TEXT_MESSAGE_START", { messageId: "message-example", role: "assistant" }],
+    ["e:2:1:2", "TOOL_CALL_START", { toolCallId: "tool-example", toolCallName: "inspect" }],
+  ]));
+  mockFetch.mockResolvedValueOnce(projected([
+    ["e:2:2:2", "TOOL_CALL_ARGS", { toolCallId: "tool-example", delta: '{"path":"/logical.txt"}' }],
+    ["e:3:1:2", "TOOL_CALL_RESULT", { toolCallId: "tool-example", content: "found" }],
+    ["e:3:2:2", "TOOL_CALL_END", { toolCallId: "tool-example" }],
+    ["e:4:1:2", "TEXT_MESSAGE_END", { messageId: "message-example" }],
+    ["e:4:2:2", "RUN_FINISHED", { runId, outcome: "success" }],
+  ]));
+  const callbacks = { onToolStart: jest.fn(), onToolEnd: jest.fn(), onDone: jest.fn(), onRunStatus: jest.fn(), onHarnessResolved: jest.fn() };
+  const result = createStreamAdapter({ protocol: "agui" }).streamMessage(params, callbacks);
+  await jest.runAllTimersAsync();
+  await result;
+  expect(callbacks.onToolStart).toHaveBeenLastCalledWith("tool-example", "inspect", { path: "/logical.txt" }, []);
+  expect(callbacks.onDone).toHaveBeenCalledTimes(1);
+  expect(callbacks.onRunStatus).toHaveBeenCalledWith("completed");
+  expect(callbacks.onHarnessResolved).toHaveBeenCalledWith("agentcore");
+  expect(mockFetch.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+  expect(mockFetch).toHaveBeenLastCalledWith(
+    "/api/v1/chat/runs/run-example/stream?conversation_id=conversation-1&agent_id=agent-1&after=e%3A2%3A1%3A2", expect.anything(),
+  );
+});
+
+it("stops on an explicit Engine replay gap without inventing a cursor or resending", async () => {
+  mockFetch.mockResolvedValueOnce(new Response('event: RUN_ERROR\ndata: {"type":"RUN_ERROR","message":"Saved events expired","code":"replay_unavailable"}\n\n', {
+    headers: { "X-CAIPE-Run-Id": runId, "X-CAIPE-Cursor-Format": "engine-v1" },
+  }));
+  const callbacks = { onError: jest.fn(), onDone: jest.fn() };
+  await expect(createStreamAdapter({ protocol: "agui" }).reattachStream({ ...params, runId }, callbacks)).rejects.toMatchObject({ status: 410 });
+  expect(callbacks.onError).toHaveBeenCalledWith("Saved events expired");
+  expect(callbacks.onDone).not.toHaveBeenCalled();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});

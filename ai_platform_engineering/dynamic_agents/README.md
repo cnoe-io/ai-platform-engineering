@@ -91,21 +91,25 @@ Runtime construction, saved bindings and state deletion share one storage
 resolver. Deployment rollback uses the previous image pin and release values
 through the normal deployment process.
 
-This is the native-runtime stage of the
-[metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877), related
-to the gateway and session foundation in the
-[Harness Engine discussion](https://github.com/orgs/caipe-io/discussions/2405).
-Streaming execution now belongs to the service, with canonical MongoDB run and
-event records, cursor reconnect and browser reload recovery. Stable turn IDs
-prevent duplicate execution on transport retries. Worker loss is explicitly
-interrupted rather than automatically retried. Remote transports, discovery and
-sandbox runtimes remain later integrations. See the [architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
-for session ownership and filesystem/network boundaries.
+The [Harness Gateway](https://github.com/caipe-io/ai-platform-engineering/pull/2401)
+is the canonical BFF front door for the
+[metaharness proposal](https://github.com/orgs/caipe-io/discussions/2877).
+It resolves the saved execution owner before consulting a mutable agent default.
+Managed agents retain this native ACP execution service, coordinator and journal;
+existing SDK/AgentCore descriptors route to Engine's provider coordinator. There
+is one producer and authoritative journal per run, with both owners using
+canonical CAIPE MongoDB. Engine does not wrap native detached execution or
+replace native tools, checkpoint or approval handling.
 
-The initial prebuild supports DeepAgents; it does not yet expose Claude SDK,
-Bedrock AgentCore or Codex runtime choices. Later SDK integrations must preserve
-CAIPE's simulated filesystem and approved native tools. ACP does not turn an SDK
-working directory into a logical store or grant agent access to host files.
+Streaming execution belongs to the service, with persisted output, cursor
+reconnect and browser reload recovery. Stable request IDs prevent duplicate
+execution on transport retries. Worker loss is explicitly interrupted rather
+than automatically retried. The optional coding-sandbox extension uses the same
+gateway/selector; it does not change the managed logical filesystem. Existing
+SDK adapters retain their advertised provider capabilities, rather than being
+labelled ACP-capable without a qualified wrapper. See the
+[architecture guide](../../docs/docs/architecture/native-acp-metaharness.md)
+for gateway/session ownership, durability and filesystem/network boundaries.
 
 The Dynamic Agents CI job runs real-MongoDB checkpoint migration, worker
 reconstruction, pending form/batch-approval resume and storage-management tests.

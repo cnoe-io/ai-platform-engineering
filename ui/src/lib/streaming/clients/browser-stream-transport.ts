@@ -1,3 +1,4 @@
+import { harnessEventCursor, harnessRunCursor, type HarnessRunCursor } from "@/lib/harness-run-cursor";
 import type { StreamCallbacks, StreamParams } from "../callbacks";
 import { getLatestNativeRun, nativeEventSequence, nativeRunQuery, type NativeRunStatus, type RunStreamParams } from "../native-runs";
 import { parseSSEStream, type RawSSEEvent } from "../parse-sse";
@@ -125,7 +126,7 @@ export class BrowserStreamTransport {
     };
   }
 
-  private replayResponse(params: RunStreamParams, after: number, signal: AbortSignal): Promise<Response> {
+  private replayResponse(params: RunStreamParams, after: number | string, signal: AbortSignal): Promise<Response> {
     const query = nativeRunQuery(params);
     query.set("after", String(after));
     return fetch(`/api/v1/chat/runs/${encodeURIComponent(params.runId)}/stream?${query}`, {
@@ -146,7 +147,9 @@ export class BrowserStreamTransport {
     const controller = new AbortController();
     this.abortController = controller;
     let runId = initialRunId;
-    let cursor = 0;
+    let cursor: number | string = 0;
+    let projected: HarnessRunCursor | null = null;
+    let cursorFormat: string | null = null;
     let attempts = 0;
     let semanticTerminalDelivered = false;
     let nativeErrorDelivered = false;
@@ -154,16 +157,46 @@ export class BrowserStreamTransport {
       let response = await initialResponse(controller.signal);
       while (true) {
         if (!response.ok) throw await buildStreamErrorFromResponse(response);
+        const harnessId = response.headers.get("X-Harness-ID");
+        if (harnessId) callbacks.onHarnessResolved?.(harnessId);
         runId = response.headers.get("X-CAIPE-Run-Id") ?? runId;
+        const responseFormat = response.headers.get("X-CAIPE-Cursor-Format");
+        if (cursorFormat !== null && responseFormat !== cursorFormat) throw new StreamError("Run cursor format changed", 410);
+        cursorFormat = responseFormat;
         callbacks.onConnectionState?.("connected");
         let terminal = false;
         try {
           for await (const raw of parseSSEStream(response)) {
-            if (runId) {
+            if (runId && cursorFormat === "engine-v1") {
+              if (!raw.id && ["RUN_ERROR", "error"].includes(raw.event)) {
+                const data = JSON.parse(raw.data) as { message?: string; error?: string };
+                dispatch(raw);
+                throw new StreamError(data.message ?? data.error ?? "Harness replay is unavailable", 410);
+              }
+              const next = harnessEventCursor(raw.id, runId);
+              if (!next) throw new StreamError("Invalid harness event cursor", 502);
+              if (projected && (next.sequence < projected.sequence || (next.sequence === projected.sequence && next.part <= projected.part))) continue;
+              const contiguous = projected
+                ? (next.sequence === projected.sequence && next.part === projected.part + 1 && next.count === projected.count)
+                  || (projected.part === projected.count && next.sequence === projected.sequence + 1 && next.part === 1)
+                : next.sequence === 1 && next.part === 1;
+              if (!contiguous) throw new StreamError("Missing harness event; reload to recover this response", 410);
+              const ended = dispatch(raw);
+              if (ended && next.part !== next.count) throw new StreamError("Invalid harness terminal cursor", 410);
+              projected = next;
+              cursor = harnessRunCursor(next);
+              attempts = 0;
+              if (ended) {
+                const data = JSON.parse(raw.data) as { outcome?: string };
+                const status = ["error", "RUN_ERROR"].includes(raw.event) ? "failed" : data.outcome === "cancelled" ? "cancelled" : "completed";
+                callbacks.onRunStatus?.(status);
+                terminal = true;
+              }
+            } else if (runId) {
               const sequence = nativeEventSequence(raw.id, runId);
               if (sequence === null) throw new StreamError("Invalid durable event cursor", 502);
-              if (sequence <= cursor) continue;
-              if (sequence !== cursor + 1) throw new StreamError("Missing durable event; reload to recover this response", 410);
+              if (sequence <= Number(cursor)) continue;
+              if (sequence !== Number(cursor) + 1) throw new StreamError("Missing durable event; reload to recover this response", 410);
               // Advance only after successful synchronous delivery to the UI.
               if (raw.event === "CAIPE_RUN_STATUS") {
                 const record = JSON.parse(raw.data) as { run_id: string; status: NativeRunStatus };

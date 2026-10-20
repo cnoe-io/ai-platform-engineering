@@ -13,6 +13,7 @@ authenticateRequest,
 getDynamicAgentsConfig,
 proxyRequest,
 } from "@/lib/da-proxy";
+import { requireNativeHarnessOperation } from "@/lib/harness-conversation-operation";
 import { NextRequest,NextResponse } from "next/server";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import {
@@ -62,6 +63,9 @@ export async function GET(
   const authorized = await authorizeConversationReadAccess(authResult, conversationId, agentId);
   if (authorized.denial) return authorized.denial;
   const runtimeId = await resolveConversationRuntimeId(authorized.conversation);
+
+  const unsupported = await requireNativeHarnessOperation(agentId, runtimeId, "human-input inspection");
+  if (unsupported) return unsupported;
 
   // Check DA config
   const daConfig = getDynamicAgentsConfig();

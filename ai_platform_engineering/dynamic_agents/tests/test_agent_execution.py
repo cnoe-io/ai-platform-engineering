@@ -30,6 +30,7 @@ from dynamic_agents.services.session_bindings import (
 )
 from dynamic_agents.services.session_runs import SessionRunBusyError
 from dynamic_agents.services.stream_encoders import get_encoder
+from tests.test_session_bindings import _policy_collections
 
 
 def _agent(**updates):
@@ -144,6 +145,7 @@ def environment(monkeypatch):
     monkeypatch.setattr(execution, "native_acp_stream", acp)
     monkeypatch.setattr(execution, "get_native_binding", saved)
     monkeypatch.setattr(execution, "resolve_native_binding", admit)
+    monkeypatch.setattr(execution, "require_native_execution_owner", MagicMock())
     return SimpleNamespace(
         settings=settings, state=state, cache=cache, mongo=mongo, runtime=runtime, saved=saved, admit=admit,
         service=execution.AgentExecutionService(mongo, settings=settings, cache=cache),
@@ -240,9 +242,10 @@ async def test_cache_restart_preserves_real_admitted_storage_and_resume_snapshot
     checkpoints = MagicMock(delete_many=MagicMock(return_value=SimpleNamespace(deleted_count=3)))
     writes = MagicMock(delete_many=MagicMock(return_value=SimpleNamespace(deleted_count=4)))
     mongo = MongoDBService(settings)
-    mongo._db = {
-        SESSION_BINDINGS_COLLECTION: collection, "workflow_checkpoints": checkpoints, "workflow_checkpoints_writes": writes,
-    }
+    policy = _policy_collections()
+    policy.update({SESSION_BINDINGS_COLLECTION: collection, "workflow_checkpoints": checkpoints, "workflow_checkpoints_writes": writes})
+    checkpoints.find_one.return_value = None
+    mongo._db = policy
     mongo._native_run_coordinator = env.mongo._native_run_coordinator
     mongo.get_agent_mcp_servers = MagicMock(return_value=[])
     monkeypatch.setattr(execution, "get_native_binding", get_native_binding)

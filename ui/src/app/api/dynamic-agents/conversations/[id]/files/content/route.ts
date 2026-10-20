@@ -12,6 +12,7 @@ authenticateRequest,
 getDynamicAgentsConfig,
 proxyRequest,
 } from "@/lib/da-proxy";
+import { authorizeNativeConversationOperation } from "@/lib/harness-conversation-operation";
 import { NextRequest,NextResponse } from "next/server";
 
 function buildFileNamespace(agentId: string, conversationId: string): string {
@@ -56,11 +57,16 @@ async function proxyFileContent(
   });
   if (authResult instanceof NextResponse) return authResult;
 
+  const authorized = await authorizeNativeConversationOperation(
+    authResult, conversationId, agentId, "logical file access", method === "DELETE",
+  );
+  if (authorized instanceof NextResponse) return authorized;
+
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
   const backendUrl = new URL("/api/v1/files/content", daConfig.dynamicAgentsUrl);
-  backendUrl.searchParams.set("fs_namespace", buildFileNamespace(agentId, conversationId));
+  backendUrl.searchParams.set("fs_namespace", buildFileNamespace(agentId, authorized.runtimeId));
   backendUrl.searchParams.set("path", filePath);
 
   return proxyRequest(

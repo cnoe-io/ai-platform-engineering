@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -55,6 +56,26 @@ class _AtomicCollection:
             return deepcopy(self.rows.get((query["agent_id"], query["session_id"])))
 
 
+class _OwnerReferenceCollection:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+        self.lock = Lock()
+
+    def find_one(self, query: dict) -> dict | None:
+        with self.lock:
+            return deepcopy(self.rows.get(query["_id"]))
+
+    def find_one_and_update(self, query: dict, update: dict, **_options: object) -> dict:
+        with self.lock:
+            return deepcopy(self.rows.setdefault(query["_id"], deepcopy(update["$setOnInsert"])))
+
+
+def _policy_collections() -> dict:
+    collections = defaultdict(lambda: MagicMock(find_one=MagicMock(return_value=None)))
+    collections["harness_gateway_bindings"] = _OwnerReferenceCollection()
+    return collections
+
+
 def _agent(**updates: object) -> DynamicAgentConfig:
     return DynamicAgentConfig(
         _id="primary",
@@ -78,7 +99,9 @@ def _mongo(collection: _AtomicCollection | MagicMock) -> MongoDBService:
         gridfs_bucket_name="example_files",
     )
     mongo = MongoDBService(settings)
-    mongo._db = {SESSION_BINDINGS_COLLECTION: collection}  # type: ignore[assignment]
+    collections = _policy_collections()
+    collections[SESSION_BINDINGS_COLLECTION] = collection
+    mongo._db = collections  # type: ignore[assignment]
     return mongo
 
 
@@ -350,7 +373,7 @@ def test_duplicate_upsert_reads_winning_binding() -> None:
     racing.find_one.return_value = deepcopy(collection.rows[("primary", "shared-thread")])
 
     assert resolve_native_binding(_mongo(racing), _agent(), "shared-thread", resume=True) == admitted
-    racing.find_one.assert_called_once_with({"agent_id": "primary", "session_id": "shared-thread"})
+    racing.find_one.assert_called_with({"agent_id": "primary", "session_id": "shared-thread"})
 
 
 def test_competing_definition_update_is_reported_instead_of_overwriting() -> None:
@@ -462,3 +485,32 @@ def test_disconnected_database_cannot_admit_a_session() -> None:
 
     with pytest.raises(RuntimeError, match="MongoDB not connected"):
         resolve_native_binding(mongo, _agent(), "existing-thread")
+
+
+@pytest.mark.parametrize("selector", [None, "dynamic_agents", "langchain-deepagents", "langchain_deepagents"])
+def test_legacy_selector_aliases_remain_native(selector: str | None) -> None:
+    config = DynamicAgentConfig.model_validate({**_agent().model_dump(by_alias=True), "execution_harness_id": selector})
+    assert config.execution_harness_id == "dynamic_agents"
+
+
+def test_saved_native_binding_keeps_its_owner_after_selector_edit() -> None:
+    mongo = _mongo(_AtomicCollection())
+    resolve_native_binding(mongo, _agent(), "saved-context")
+    edited = resolve_native_binding(mongo, _agent(execution_harness_id="agentcore"), "saved-context")
+    assert edited.execution_harness_id == "agentcore"
+    reference = next(iter(mongo._db["harness_gateway_bindings"].rows.values()))
+    assert reference["harness_id"] == "dynamic_agents"
+
+
+def test_legacy_native_snapshot_without_execution_selector_remains_readable() -> None:
+    collection = _AtomicCollection()
+    mongo = _mongo(collection)
+    resolve_native_binding(mongo, _agent(), "legacy-context")
+    row = collection.rows[("primary", "legacy-context")]
+    del row["effective_config"]["execution_harness_id"]
+    row["config_version"] = hashlib.sha256(json.dumps(
+        row["effective_config"], sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest()
+    restored = get_native_binding(mongo, "primary", "legacy-context")
+    assert restored is not None and restored.execution_harness_id == "dynamic_agents"
+    assert restored.backend.config.fs_namespace == ["primary", "legacy-context", "filesystem"]

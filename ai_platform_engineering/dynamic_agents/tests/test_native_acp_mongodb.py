@@ -8,30 +8,40 @@ admission, checkpoint persistence, or the native runtime's state operations.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import AsyncGenerator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from threading import Barrier
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from deepagents.graph import DeepAgentState
+from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 
 from dynamic_agents.config import Settings
-from dynamic_agents.models import AgentBackend, AgentBackendConfig, DynamicAgentConfig, UserContext
+from dynamic_agents.models import AgentBackend, AgentBackendConfig, ChatRequest, DynamicAgentConfig, UserContext
+from dynamic_agents.routes import chat
 from dynamic_agents.services.agent_execution import AgentExecutionService, ExecutionTurn
 from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.mongo import MongoDBService
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
-from dynamic_agents.services.session_bindings import SESSION_BINDINGS_COLLECTION
+from dynamic_agents.services.session_bindings import (
+    SESSION_BINDINGS_COLLECTION,
+    ExecutionOwnerConflictError,
+    require_native_execution_owner,
+)
 from dynamic_agents.services.session_runs import SESSION_RUNS_COLLECTION
 from dynamic_agents.services.stream_encoders import get_encoder
 from tests.test_stream_cancellation_cleanup import _runtime
@@ -260,3 +270,57 @@ async def test_rewind_and_clear_after_restart_use_admitted_checkpoint_and_file_n
     assert store.get(("example", "other-thread", "filesystem"), "/example.txt").value == {"content": "keep another session"}
     assert state.db[SESSION_BINDINGS_COLLECTION].count_documents({}) == 1
     assert state.db[SESSION_RUNS_COLLECTION].count_documents({}) == 0
+
+
+async def test_direct_native_api_rejects_sdk_selection_before_creating_a_run(
+    native_database: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = native_database
+    state.agent = state.agent.model_copy(update={"execution_harness_id": "agentcore"})
+    service = _service(state)
+    monkeypatch.setattr(chat, "require_agent_use_permission", AsyncMock())
+    monkeypatch.setattr(chat, "AgentExecutionService", lambda _mongo: service)
+    state.mongo.get_agent = lambda _agent_id: state.agent
+    with pytest.raises(HTTPException) as denied:
+        await chat.chat_start_stream(ChatRequest(
+            agent_id=state.agent.id, conversation_id=state.session_id, message="inspect", protocol="agui",
+        ), state.user, state.mongo)
+    assert denied.value.status_code == 409
+    assert service.cache.runtimes == []
+    assert state.db.native_acp_execution_runs.count_documents({}) == 0
+    assert state.db.native_acp_sessions.count_documents({}) == 0
+    assert state.db.harness_gateway_bindings.count_documents({}) == 0
+
+
+def test_direct_native_and_gateway_claims_choose_one_owner(
+    native_database: SimpleNamespace,
+) -> None:
+    state = native_database
+    for index in range(12):
+        session_id = f"race-context-{index}"
+        barrier = Barrier(2)
+        key = hashlib.sha256(f"{state.agent.id}\0{session_id}".encode()).hexdigest()
+
+        def native_admission() -> bool:
+            barrier.wait(timeout=5)
+            try:
+                require_native_execution_owner(state.mongo, state.agent, session_id)
+                return True
+            except ExecutionOwnerConflictError:
+                return False
+
+        def gateway_admission() -> str:
+            barrier.wait(timeout=5)
+            row = state.db.harness_gateway_bindings.find_one_and_update(
+                {"_id": key}, {"$setOnInsert": {
+                    "agent_id": state.agent.id, "session_id": session_id, "harness_id": "agentcore",
+                }}, upsert=True, return_document=ReturnDocument.AFTER,
+            )
+            return row["harness_id"]
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            native = workers.submit(native_admission)
+            gateway = workers.submit(gateway_admission)
+            winner = gateway.result(timeout=10)
+            assert native.result(timeout=10) is (winner == "dynamic_agents")
+        assert state.db.harness_gateway_bindings.count_documents({"_id": key}) == 1

@@ -37,7 +37,12 @@ from dynamic_agents.services.native_run_repository import (
 )
 from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache
 from dynamic_agents.services.runtime_storage import resolve_runtime_storage
-from dynamic_agents.services.session_bindings import get_native_binding, resolve_native_binding
+from dynamic_agents.services.session_bindings import (
+    ExecutionOwnerConflictError,
+    get_native_binding,
+    require_native_execution_owner,
+    resolve_native_binding,
+)
 from dynamic_agents.services.session_runs import (
     SessionRunBusyError,
     await_session_operation,
@@ -114,6 +119,10 @@ class AgentExecutionService:
         *, producer: Callable[[ExecutionTurn, StreamEncoder[str]], AsyncIterator[str]] | None = None,
     ) -> NativeExecutionRun:
         """Admit one durable request; a retry attaches instead of repeating tools."""
+        if self.mongo is not None:
+            await await_session_operation(require_native_execution_owner, self.mongo, turn.agent, turn.session_id)
+        elif turn.agent.execution_harness_id != "dynamic_agents":
+            raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
         turn = replace(turn, turn_id=turn.turn_id or str(uuid4()))
         encoder = get_encoder(protocol)
         payload = {
@@ -185,6 +194,10 @@ class AgentExecutionService:
     ) -> AsyncGenerator[AgentRuntime, None]:
         async with self._session(turn.agent.id, turn.session_id, execute=True):
             agent = turn.agent
+            if self.mongo is not None and mode is _RuntimeMode.EPHEMERAL:
+                await await_session_operation(require_native_execution_owner, self.mongo, agent, turn.session_id)
+            if self.mongo is None and agent.execution_harness_id != "dynamic_agents":
+                raise ExecutionOwnerConflictError("The selected SDK provider requires the canonical gateway")
             if self.mongo is not None and mode is not _RuntimeMode.EPHEMERAL:
                 agent = await await_session_operation(
                     resolve_native_binding, self.mongo, agent, turn.session_id,
