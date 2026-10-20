@@ -221,8 +221,7 @@ routes:
         status: 403
         reason: pdp_denied
 
-  # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
-  # added as pending until the corresponding user-story endpoints land.
+  # Status reads require agent use and write access to the conversation.
   - id: ui-bff-post-api-v1-chat-stream-status-openfga-agent-use
     surface: ui_bff
     method: POST

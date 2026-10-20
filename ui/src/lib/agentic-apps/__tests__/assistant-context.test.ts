@@ -33,6 +33,25 @@ describe("agentic app assistant context", () => {
     );
   });
 
+  it("preserves accepted resource references without rewriting identifiers", () => {
+    const resourceRefs = [{ ["k".repeat(80)]: "v".repeat(2048) }];
+    const result = validateAssistantContextMessage({
+      message: message({ route: "/", resourceRefs }), appId: "example-app",
+    });
+    expect(result.ok && result.record.resourceRefs).toEqual(resourceRefs);
+  });
+
+  it.each([
+    [{ ["k".repeat(81)]: "example" }],
+    [{ id: "v".repeat(2049) }],
+    [Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`field${i}`, "example"]))],
+    Array.from({ length: 21 }, () => ({ id: "example" })),
+  ])("rejects resource references exceeding field limits", (...resourceRefs) => {
+    expect(validateAssistantContextMessage({
+      message: message({ route: "/", resourceRefs }), appId: "example-app",
+    })).toEqual({ ok: false, reasonCode: "invalid_resource_refs" });
+  });
+
   it("rejects cross-origin, cross-app, oversized, and secret-like context", () => {
     expect(
       validateAssistantContextMessage({

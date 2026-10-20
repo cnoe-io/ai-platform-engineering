@@ -68,10 +68,14 @@ export function validateAssistantContextMessage(
   if (
     context.resourceRefs !== undefined &&
     (!Array.isArray(context.resourceRefs) ||
+      context.resourceRefs.length > 20 ||
       !context.resourceRefs.every(
         (entry) =>
           isRecord(entry) &&
-          Object.values(entry).every((value) => typeof value === "string"),
+          Object.keys(entry).length <= 16 &&
+          Object.entries(entry).every(
+            ([key, value]) => key.length <= 80 && typeof value === "string" && value.length <= 2048,
+          ),
       ))
   ) {
     return { ok: false, reasonCode: "invalid_resource_refs" };
@@ -107,9 +111,7 @@ export function validateAssistantContextMessage(
         ? { selection: context.selection.slice(0, 2048) }
         : {}),
       ...(Array.isArray(context.resourceRefs)
-        ? { resourceRefs: context.resourceRefs.slice(0, 20).map(ref => Object.fromEntries(
-            Object.entries(ref).slice(0, 16).map(([key, value]) => [key.slice(0, 80), String(value).slice(0, 2048)]),
-          )) }
+        ? { resourceRefs: context.resourceRefs.map(ref => ({ ...ref })) }
         : {}),
       ...(Array.isArray(context.suggestedPrompts)
         ? { suggestedPrompts: context.suggestedPrompts.slice(0, 8) }
