@@ -74,7 +74,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id));
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
+    subject: authResult.subject, conversationId: String(body.conversation_id),
+  });
   if (target instanceof NextResponse) return target;
   if (target.kind === "harness_engine") {
     return streamHarnessGatewayRun(body, authResult, request.signal);

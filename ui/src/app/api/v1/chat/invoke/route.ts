@@ -458,7 +458,9 @@ async function handleScheduledInvoke(
   }
   body = { ...body, conversation_id: conversationId };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id));
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
+    subject: authResult.subject, conversationId: String(body.conversation_id),
+  });
   if (target instanceof NextResponse) return target;
   let response: Response;
   if (target.kind === "harness_engine") {
@@ -544,22 +546,23 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id));
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
+    subject: authResult.subject, conversationId: String(body.conversation_id),
+  });
   if (target instanceof NextResponse) return target;
+  let response: Response;
   if (target.kind === "harness_engine") {
-    return invokeHarnessGatewayRun(body, authResult, request.signal);
+    response = await invokeHarnessGatewayRun(body, authResult, request.signal);
+  } else {
+    const daConfig = getDynamicAgentsConfig();
+    if (daConfig instanceof NextResponse) return daConfig;
+    response = await proxyJSONRequest(
+      `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`,
+      JSON.stringify(body),
+      authResult,
+      "[invoke]",
+    );
   }
-
-  // Preserve the existing Dynamic Agents invoke path.
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;
-  const response = await proxyJSONRequest(
-    backendUrl,
-    JSON.stringify(body),
-    authResult,
-    "[invoke]",
-  );
 
   // The non-streaming API has no browser store to persist its transcript.
   // Keep the BFF message collection aligned so API conversations are readable

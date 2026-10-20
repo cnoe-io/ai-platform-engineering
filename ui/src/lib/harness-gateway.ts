@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import type { AuthResult } from "@/lib/da-proxy";
@@ -5,6 +6,7 @@ import {
   buildHarnessEngineHeaders,
   getHarnessEngineConfig,
   isHarnessEngineConfigured,
+  lookupHarnessSession,
   type HarnessEngineConfig,
 } from "@/lib/harness-engine-proxy";
 import { getCollection } from "@/lib/mongodb";
@@ -57,49 +59,61 @@ function normalizedHarnessId(value: unknown): string {
     : DEFAULT_HARNESS_ID;
 }
 
-/**
- * Resolve the runtime from the BFF-owned agent document.
- *
- * Records created before Harness Gateway have no marker and deliberately
- * remain on Dynamic Agents. This avoids coupling existing agent availability
- * to Harness Engine health and makes the migration opt-in per saved agent.
- */
+interface GatewayBinding {
+  _id: string;
+  owner_subject: string;
+  agent_id: string;
+  conversation_id: string;
+  harness_id: string;
+}
+
+function gatewayBindingId(agentId: string, subject: string, conversationId: string): string {
+  return createHash("sha256").update(JSON.stringify([subject, agentId, conversationId])).digest("hex");
+}
+
+export async function clearHarnessGatewayBinding(agentId: string, subject: string, conversationId: string): Promise<void> {
+  const bindings = await getCollection<GatewayBinding>("harness_gateway_bindings");
+  await bindings.deleteOne({ _id: gatewayBindingId(agentId, subject, conversationId) });
+}
+
+/** Resolve the owner/conversation's pinned backend before an agent default. */
 export async function resolveHarnessGatewayTarget(
   agentId: string,
+  context: { subject: string; conversationId: string; traceparent?: string },
 ): Promise<HarnessGatewayTarget | NextResponse> {
-  // Preserve the pre-Harness-Engine deployment path exactly when the optional
-  // service is not configured. In particular, legacy/default deployments do
-  // not gain an additional MongoDB lookup on every chat request.
-  if (!isHarnessEngineConfigured()) {
-    return { kind: "dynamic_agents", harnessId: DEFAULT_HARNESS_ID };
-  }
-
   try {
-    const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
-    const agent = await agents.findOne(
-      { _id: agentId },
-      { projection: { _id: 1, execution_harness_id: 1 } },
-    );
-    if (!agent) {
-      return NextResponse.json(
-        { success: false, error: "Agent not found" },
-        { status: 404 },
-      );
+    const bindings = await getCollection<GatewayBinding>("harness_gateway_bindings");
+    const key = { _id: gatewayBindingId(agentId, context.subject, context.conversationId) };
+    let binding = await bindings.findOne(key);
+    if (!binding) {
+      const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
+      const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1 } });
+      if (!agent) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
+      let harnessId = normalizedHarnessId(agent.execution_harness_id);
+      const config = getHarnessEngineConfig();
+      if (isHarnessEngineConfigured() && !(config instanceof NextResponse)) {
+        // Adopt Engine sessions created before routing records were introduced.
+        const saved = await lookupHarnessSession(config, context, agentId, context.conversationId);
+        if (saved instanceof NextResponse) return saved;
+        harnessId = saved.harness_id ?? harnessId;
+      } else if (harnessId !== DEFAULT_HARNESS_ID && config instanceof NextResponse) {
+        return config;
+      }
+      binding = await bindings.findOneAndUpdate(key, { $setOnInsert: {
+        ...key, owner_subject: context.subject, agent_id: agentId,
+        conversation_id: context.conversationId, harness_id: harnessId,
+      } }, { upsert: true, returnDocument: "after" });
+      if (!binding) throw new Error("Backend binding could not be saved");
     }
-    const harnessId = normalizedHarnessId(agent.execution_harness_id);
-    return {
-      kind: harnessId === DEFAULT_HARNESS_ID ? "dynamic_agents" : "harness_engine",
-      harnessId,
-    };
+    const harnessId = normalizedHarnessId(binding.harness_id);
+    if (harnessId !== DEFAULT_HARNESS_ID) {
+      const config = getHarnessEngineConfig();
+      if (config instanceof NextResponse) return config;
+    }
+    return { kind: harnessId === DEFAULT_HARNESS_ID ? "dynamic_agents" : "harness_engine", harnessId };
   } catch (error) {
-    console.error("[harness-gateway] Failed to resolve agent runtime", {
-      agentId,
-      error,
-    });
-    return NextResponse.json(
-      { success: false, error: "Agent runtime could not be resolved" },
-      { status: 503 },
-    );
+    console.error("[harness-gateway] Failed to resolve agent runtime", { agentId, error });
+    return NextResponse.json({ success: false, error: "Agent runtime could not be resolved" }, { status: 503 });
   }
 }
 

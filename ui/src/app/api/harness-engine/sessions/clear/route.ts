@@ -1,4 +1,5 @@
 import { authorizeConversationWriteAccess, resolveConversationRuntimeId } from "@/app/api/v1/chat/_conversation-authz";
+import { clearHarnessGatewayBinding } from "@/lib/harness-gateway";
 import { authenticateRequest } from "@/lib/da-proxy";
 import { getHarnessEngineConfig, proxyHarnessEngine } from "@/lib/harness-engine-proxy";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
@@ -42,11 +43,16 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const config = getHarnessEngineConfig();
   if (config instanceof NextResponse) return config;
-  return proxyHarnessEngine(config, auth, "/api/v1/sessions/clear", {
+  const conversationId = await resolveConversationRuntimeId(conversationAuthz.conversation);
+  const response = await proxyHarnessEngine(config, auth, "/api/v1/sessions/clear", {
     method: "POST",
     body: JSON.stringify({
       agent_id: String(body.agent_id),
-      conversation_id: await resolveConversationRuntimeId(conversationAuthz.conversation),
+      conversation_id: conversationId,
     }),
   });
+  if (response.ok) {
+    await clearHarnessGatewayBinding(String(body.agent_id), auth.subject, conversationId);
+  }
+  return response;
 }

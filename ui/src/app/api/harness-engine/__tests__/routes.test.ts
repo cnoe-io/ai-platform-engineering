@@ -10,6 +10,10 @@ import { POST as validateDraft } from "../agent-drafts/validate/route";
 import { POST as clearSession } from "../sessions/clear/route";
 
 const mockAuthenticateRequest = jest.fn();
+const mockClearHarnessGatewayBinding = jest.fn();
+jest.mock("@/lib/harness-gateway", () => ({
+  clearHarnessGatewayBinding: (...args: unknown[]) => mockClearHarnessGatewayBinding(...args),
+}));
 const mockRequireAgentUsePermission = jest.fn();
 const mockAuthorizeConversationWriteAccess = jest.fn();
 
@@ -150,6 +154,7 @@ describe("Harness Engine BFF session routes", () => {
     const response = await clearSession(request);
 
     expect(response.status).toBe(200);
+    expect(mockClearHarnessGatewayBinding).toHaveBeenCalledWith("agent-example", "test-user", "conversation-example");
     expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "agent-example", subject: "test-user" }),
     );
@@ -161,6 +166,16 @@ describe("Harness Engine BFF session routes", () => {
       "http://harness-engine:8010/api/v1/sessions/clear",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("keeps the routing pin when Engine session clear fails", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValue(new Response("unavailable", { status: 503 }));
+    const response = await clearSession(new NextRequest("http://localhost/api/harness-engine/sessions/clear", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: "agent-example", conversation_id: "conversation-example" }),
+    }));
+    expect(response.status).toBe(503);
+    expect(mockClearHarnessGatewayBinding).not.toHaveBeenCalled();
   });
 
   it.each([
