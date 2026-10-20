@@ -174,10 +174,12 @@ the snapshot; a UI restart revalidates it before serving traffic.
   icon? }, available }`. The BFF derives it from the resolved
   `bindings.resources.assistant` identity. Stored or submitted presentation fields
   are ignored. Runtime origins and stream paths are not exposed in this projection.
-- App agents show their app logo with an `App: Example App` tooltip. Missing or
-  broken logos use a generic app icon. The app's internal SDK is not inferred from
-  an absent `execution_harness_id`. Legacy platform agents keep their existing
-  Deep Agents fallback.
+- App agents use the shared App spark mark (application window + sparkle), with
+  an `App: Example App` tooltip. The Apps destination, hub heading and generic
+  app fallbacks use the same mark. Catalog cards may display packaged app branding.
+  The legacy navigation value `layout-grid` now renders App spark.
+  The app's internal SDK is not inferred from an absent `execution_harness_id`.
+  Legacy platform agents keep their existing Deep Agents fallback.
 - Agent CAS permissions still apply. App role/launch policy further restricts the
   chat catalog; an app stream also requires an interactive user. Disabled or
   uninstalled apps are excluded from new-chat choices, while authorized details

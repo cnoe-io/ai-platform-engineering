@@ -1,5 +1,4 @@
 import type { AgentPresentation } from "@/types/dynamic-agent";
-import { resolveAgenticAppIcon } from "../../app-sdk/agentic-app-manifest.mjs";
 
 export { getDeterministicAgentThemeId } from "@/lib/agent-theme";
 
@@ -86,7 +85,6 @@ export function getAgentPresentation(
     const app = presentation.app;
     return {
       label: `App: ${app.name}${presentation.available ? "" : " (unavailable)"}`,
-      logoSrc: resolveAgenticAppIcon(app.id, app.icon),
       isApp: true,
       searchTerms: [app.id, app.name, "app"],
     };

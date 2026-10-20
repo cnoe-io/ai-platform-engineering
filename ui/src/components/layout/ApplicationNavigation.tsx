@@ -18,6 +18,7 @@ import {
   WorkspaceRailToggle,
 } from "@/components/layout/WorkspaceNavigation";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
+import { AgenticAppIcon } from "@/components/shared/AgenticAppIcon";
 import {
   Dialog,
   DialogContent,
@@ -59,7 +60,6 @@ import {
   FolderKanban,
   Home,
   KeyRound,
-  LayoutGrid,
   Mail,
   Menu,
   MessageCircle,
@@ -232,7 +232,7 @@ function ApplicationNavigationContents({
       href: manifest.navigation!.href,
       label: manifest.navigation!.label,
       icon:
-        manifest.navigation!.icon === "book-open" ? BookOpen : LayoutGrid,
+        manifest.navigation!.icon === "book-open" ? BookOpen : AgenticAppIcon,
     }));
   const projectsClaimedByExtension = installedNativeExtensionManifests.some(
     (manifest) =>
@@ -310,7 +310,7 @@ function ApplicationNavigationContents({
       key: "apps",
       href: "/apps",
       label: "Apps",
-      icon: LayoutGrid,
+      icon: AgenticAppIcon,
     },
     storageMode === "mongodb"
       && config.dynamicAgentsEnabled

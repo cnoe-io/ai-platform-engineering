@@ -29,7 +29,7 @@ ChevronRight,
 ChevronUp,
 Clock,
 Copy,
-LayoutGrid,
+Home,
 Loader2,
 Maximize2,
 MessageSquare,
@@ -1522,7 +1522,7 @@ export function SkillsRunner({
             onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
-            <LayoutGrid className="h-5 w-5" />
+            <Home className="h-5 w-5" />
           </Button>
           {/* Back to skills catalog */}
           <Button 

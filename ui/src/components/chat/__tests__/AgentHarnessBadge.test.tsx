@@ -24,23 +24,21 @@ describe("AgentHarnessBadge", () => {
     expect(logo).toHaveClass("h-4", "w-4");
   });
 
-  it("uses the app logo and tooltip even when its harness is absent or misleading", async () => {
+  it("uses App spark and the app tooltip even when a branded logo or harness is saved", async () => {
     render(<AgentHarnessBadge harnessId="dynamic_agents" presentation={{ app: { id: "example-app", name: "Example App", icon: "/app-icons/example-app/logo.png" }, available: true }} />);
     const logo = screen.getByRole("img", { name: "App: Example App" });
-    expect(new URL(logo.querySelector("img")!.getAttribute("src")!, window.location.origin).pathname).toBe("/app-icons/example-app/logo.png");
+    expect(logo.querySelector(".lucide-app-spark")).toBeInTheDocument();
+    expect(logo.querySelector("img")).toBeNull();
     expect(screen.queryByLabelText(/Deep Agents/)).not.toBeInTheDocument();
     fireEvent.mouseEnter(logo);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("App: Example App");
-    fireEvent.error(logo.querySelector("img")!);
-    expect(logo.querySelector("img")).toBeNull();
-    expect(logo.querySelector("svg")).toBeInTheDocument();
   });
 
   it.each([undefined, "https://example.test/logo.svg"])("retains app identity without a safe logo: %s", icon => {
     render(<AgentHarnessBadge presentation={{ app: { id: "example-app", name: "Example App", icon }, available: false }} />);
     const logo = screen.getByRole("img", { name: "App: Example App (unavailable)" });
     expect(logo.querySelector("img")).toBeNull();
-    expect(logo.querySelector("svg")).toBeInTheDocument();
+    expect(logo.querySelector(".lucide-app-spark")).toBeInTheDocument();
   });
 
   it("keeps custom harnesses identifiable without using another provider's logo", async () => {

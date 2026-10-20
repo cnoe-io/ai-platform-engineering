@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowUpRight, LayoutGrid, LoaderCircle, Search } from "lucide-react";
+import { ArrowUpRight, LoaderCircle, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import type { PublicAgenticApp } from "@/types/agentic-app";
 import { AppIcon } from "@/components/shared/AppIcon";
+import { AgenticAppIcon } from "@/components/shared/AgenticAppIcon";
 
 type LoadState =
   | { status: "loading" }
@@ -66,7 +67,7 @@ export function AgenticAppsHub(): React.ReactElement {
         <header>
           <div className="flex items-center gap-3">
             <span className="rounded-xl bg-primary/10 p-2 text-primary">
-              <LayoutGrid className="h-6 w-6" aria-hidden />
+              <AgenticAppIcon className="h-6 w-6" aria-hidden />
             </span>
             <div>
               <h1 className="text-3xl font-semibold tracking-tight">Apps</h1>

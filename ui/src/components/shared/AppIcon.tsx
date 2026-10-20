@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { LayoutGrid } from "lucide-react";
+import { AgenticAppIcon } from "@/components/shared/AgenticAppIcon";
 import { useState } from "react";
 import { resolveAgenticAppIcon } from "../../../app-sdk/agentic-app-manifest.mjs";
 
@@ -12,5 +12,5 @@ export function AppIcon({ appId, icon, className }: { appId: string; icon?: stri
   return src && src !== failedSrc ? (
     <Image src={src} alt="" width={20} height={20} unoptimized
       className={className} aria-hidden="true" onError={() => setFailedSrc(src)} />
-  ) : <LayoutGrid className={className} aria-hidden="true" />;
+  ) : <AgenticAppIcon className={className} aria-hidden="true" />;
 }
