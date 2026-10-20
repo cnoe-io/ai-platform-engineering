@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, FolderPlus } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchablePicker } from "@/components/ui/searchable-picker";
@@ -77,7 +78,7 @@ function OrganizationForm({ state, dialog, close }: { state: Organization; dialo
         const assignments = { ...v.assignments }; if (folder) assignments[dialog.id] = folder; else delete assignments[dialog.id];
         return { ...v, assignments };
       }
-      return { ...v, view: "folders", folders: dialog.kind === "create" ? [...v.folders, { id: crypto.randomUUID(), name }]
+      return { ...v, view: "folders", folders: dialog.kind === "create" ? [...v.folders, { id: uuidv4(), name }]
         : v.folders.map(f => f.id === dialog.id ? { ...f, name } : f) };
     });
     if (saved) close();
