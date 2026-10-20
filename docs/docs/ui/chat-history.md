@@ -13,7 +13,11 @@ Choose the chat type on its own for Ungrouped, or its Folders / Group by agent o
 
 Use **New chat folder** beside the history dropdown to create a folder.
 The sidebar collapse/expand control is at the bottom, beside Archive. Hover or focus a conversation's
-folder button to move it. Folder headers support collapse, rename and removal.
+folder button to move it. In Folders view, drag a chat onto a folder header
+to move it; drop onto **Unfiled** to remove its folder assignment. Drop targets
+highlight while dragging, and a collapsed destination opens after a successful move.
+The move button remains available for keyboard and touch use.
+Folder headers support collapse, rename and removal.
 Removing a folder returns its chats to Unfiled; it does not archive chats.
 
 Folders, assignments, view selection and collapsed groups are saved in the

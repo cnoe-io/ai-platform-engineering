@@ -60,6 +60,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -241,7 +242,26 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     isConversationInputRequired,
   } = useChatStore();
   const { data: session } = useSession();
-  const organization = useChatHistoryOrganization(session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined));
+  const organizationIdentity = session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined);
+  const organization = useChatHistoryOrganization(organizationIdentity);
+  const draggedChat = useRef<{ id: string; identity: string } | null>(null);
+  const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [dropFolderKey, setDropFolderKey] = useState<string | null>(null);
+  const clearChatDrag = () => { draggedChat.current = null; setDraggedChatId(null); setDropFolderKey(null); };
+  const canDropChat = () => organization.ready && !organization.saving && organization.value.view === "folders" &&
+    draggedChat.current?.identity === organizationIdentity && conversations.some(c => c.id === draggedChat.current?.id);
+  const dropChatIntoFolder = (event: ReactDragEvent, folderId: string | undefined, key: string) => {
+    if (!canDropChat() || (folderId && !organization.value.folders.some(f => f.id === folderId))) return;
+    event.preventDefault(); event.stopPropagation();
+    const id = draggedChat.current!.id;
+    clearChatDrag();
+    if (organization.value.assignments[id] === folderId) return;
+    void organization.update(value => {
+      const assignments = { ...value.assignments };
+      if (folderId) assignments[id] = folderId; else delete assignments[id];
+      return { ...value, assignments, collapsed: value.collapsed.filter(k => k !== key) };
+    });
+  };
   const [organizationDialog, setOrganizationDialog] = useState<OrganizationDialog | null>(null);
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
@@ -736,7 +756,19 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   {conversationListItems.map((item) => {
                   if (item.kind === "group") {
                     const expanded = !organization.value.collapsed.includes(item.key);
-                    return <div key={item.key} className="group flex items-center gap-1 pt-2">
+                    return <div key={item.key}
+                      data-chat-folder-drop-target={organization.value.view === "folders" ? item.key : undefined}
+                      className={cn("group flex items-center gap-1 rounded-lg pt-2 transition-colors",
+                        dropFolderKey === item.key && "bg-primary/15 ring-2 ring-inset ring-primary")}
+                      onDragOver={event => {
+                        if (!canDropChat()) return;
+                        event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropFolderKey(item.key);
+                      }}
+                      onDragLeave={event => {
+                        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropFolderKey(null);
+                      }}
+                      onDrop={event => dropChatIntoFolder(event, item.folderId, item.key)}>
+
                       <button type="button" aria-expanded={expanded} disabled={organization.saving}
                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
                         onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
@@ -853,11 +885,24 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   return (
                   <div
                     key={conv.id}
-                    className="group/conv"
+                    className={cn("group/conv", draggedChatId === conv.id && "opacity-50")}
+                    data-chat-conversation-id={conv.id}
+                    draggable={!collapsed && organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle}
+                    onDragStart={event => {
+                      if (!organizationIdentity || (event.target as Element).closest("button, input, textarea")) {
+                        event.preventDefault(); return;
+                      }
+                      draggedChat.current = { id: conv.id, identity: organizationIdentity };
+                      setDraggedChatId(conv.id);
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("application/x-caipe-chat", conv.id);
+                    }}
+                    onDragEnd={clearChatDrag}
                   >
                     <div
                       className={cn(
                         "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
+                        organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
                           : isInputRequired
