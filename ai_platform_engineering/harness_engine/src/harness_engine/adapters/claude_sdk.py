@@ -203,6 +203,8 @@ class ClaudeSDKAdapter:
             permission_mode=profile.permission_mode,  # type: ignore[arg-type]
             resume=context.binding.provider_session_id,
             setting_sources=[],
+            # No tool/filesystem broker is admitted for this adapter yet.
+            tools=[],
             # Claude Code writes a local working copy before mirroring it to
             # SessionStore. /tmp is writable even in the non-root image.
             env={"CLAUDE_CONFIG_DIR": "/tmp/claude-agent-sdk"},
