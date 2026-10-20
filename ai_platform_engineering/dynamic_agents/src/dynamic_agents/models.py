@@ -571,7 +571,7 @@ class AgentRuntimeContract(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    tier: Literal["1", "3"]
+    kind: Literal["native", "sandbox"]
     runtime: Literal["deepagents", "coding-harness"]
     filesystem: Literal["logical", "sandbox"]
     workspace_scope: Literal["conversation"] = Field(description="Interactive workspace default; admitted logical storage and workflow artifact scopes remain unchanged")
@@ -581,19 +581,19 @@ class AgentRuntimeContract(BaseModel):
     @model_validator(mode="after")
     def supported_combination(self) -> "AgentRuntimeContract":
         actual = (self.runtime, self.filesystem, self.isolation, self.policy_authority)
-        expected = (("deepagents", "logical", "shared-runtime", "caipe") if self.tier == "1" else
+        expected = (("deepagents", "logical", "shared-runtime", "caipe") if self.kind == "native" else
                     ("coding-harness", "sandbox", "private-sandbox", "caipe-and-operator-profile"))
         if actual != expected:
-            raise ValueError("The execution tier does not support this runtime and workspace contract")
+            raise ValueError("The runtime kind does not support this runtime and workspace contract")
         return self
 
 
 MANAGED_AGENT_RUNTIME = AgentRuntimeContract(
-    tier="1", runtime="deepagents", filesystem="logical", workspace_scope="conversation",
+    kind="native", runtime="deepagents", filesystem="logical", workspace_scope="conversation",
     isolation="shared-runtime", policy_authority="caipe",
 )
 PRIVATE_CODING_SANDBOX_RUNTIME = AgentRuntimeContract(
-    tier="3", runtime="coding-harness", filesystem="sandbox", workspace_scope="conversation", isolation="private-sandbox",
+    kind="sandbox", runtime="coding-harness", filesystem="sandbox", workspace_scope="conversation", isolation="private-sandbox",
     policy_authority="caipe-and-operator-profile",
 )
 

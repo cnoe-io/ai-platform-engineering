@@ -63,9 +63,9 @@ establish deployment-specific authentication, model, skills or policy readiness.
 | Private Coding Sandbox | `execution.kind=sandbox` and an operator-owned `profile_id` | Separate environment/HOME and native session per caller-owned conversation. Real working files restore from canonical native checkpoints; bounded artifacts use existing CAIPE storage. |
 
 The authenticated runtime catalog exposes admitted profiles and descriptive
-runtime/workspace/policy metadata. It contains no planned or research execution
-choices. Definitions save only the execution kind and profile reference; derived
-metadata is not writable configuration or proof of live policy enforcement.
+runtime/workspace/policy metadata. Only implemented runtime choices are listed.
+Definitions save only the execution kind and profile reference; derived metadata
+is not writable configuration or proof of live policy enforcement.
 Legacy profile snapshots and durable binding shapes remain compatible. Provider
 claims for shared/user-wide workspaces or unsupported runtimes are rejected.
 Sharing an agent definition or transcript does not transfer its private native

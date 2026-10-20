@@ -1,12 +1,12 @@
-import type { AgentExecution, AgentRuntimeProfile, AgentRuntimeTier } from "@/types/dynamic-agent";
+import type { AgentExecution, AgentRuntimeOption, AgentRuntimeProfile } from "@/types/dynamic-agent";
 
-export function RuntimeContractDetails({ execution, profile, tiers }: {
+export function RuntimeContractDetails({ execution, profile, runtimes }: {
   execution: AgentExecution;
   profile?: AgentRuntimeProfile;
-  tiers: AgentRuntimeTier[];
+  runtimes: AgentRuntimeOption[];
 }) {
   const native = execution.kind === "native";
-  const contract = native ? tiers.find((tier) => tier.tier === "1")?.runtime_contract : profile?.runtime_contract;
+  const contract = native ? runtimes.find((runtime) => runtime.kind === "native")?.runtime_contract : profile?.runtime_contract;
 
   return <div className="space-y-2 text-xs text-muted-foreground">
     <p>{native

@@ -137,11 +137,11 @@ function jsonResponse(body: unknown) {
  * "missing" to "filled" and edit-mode transfers can switch teams without
  * rerendering).
  */
-function mockApi(options: { profiles?: unknown[]; tiers?: unknown[]; noModels?: boolean } = {}) {
+function mockApi(options: { profiles?: unknown[]; runtimes?: unknown[]; noModels?: boolean } = {}) {
   const fetchMock = jest.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("/api/dynamic-agents/runtime-profiles")) return jsonResponse({ success: true, data: { profiles: options.profiles ?? [], ...(options.tiers ? { tiers: options.tiers } : {}) } });
+      if (u.includes("/api/dynamic-agents/runtime-profiles")) return jsonResponse({ success: true, data: { profiles: options.profiles ?? [], ...(options.runtimes ? { runtimes: options.runtimes } : {}) } });
       if (u.includes("/api/dynamic-agents/models") && options.noModels) return jsonResponse({ success: true, data: [] });
       if (u.includes("/api/dynamic-agents/models")) {
         return jsonResponse({
@@ -370,16 +370,15 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     const payload = JSON.parse(String(submission?.[1]?.body));
     expect(payload.execution).toEqual({ kind: "sandbox", profile_id: "primary" });
     expect(payload).not.toHaveProperty("runtime_contract");
-    expect(payload).not.toHaveProperty("tier");
     expect(payload.model).toBeUndefined();
   });
 
   it("explains supported runtime workspace and policy bindings", async () => {
-    const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
-    const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
-    mockApi({ profiles: [{ id: "primary", name: "Primary", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true }, runtime_contract: privateContract }], tiers: [
-      { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
-      { tier: "3", name: "Private runtime", status: "supported", selectable: true, runtime_contract: privateContract },
+    const managedContract = { kind: "native", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
+    const privateContract = { kind: "sandbox", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
+    mockApi({ profiles: [{ id: "primary", name: "Primary", harness: "claude-code", revision: "v1", capabilities: { mcp: true, skills: true, attachments: true }, runtime_contract: privateContract }], runtimes: [
+      { kind: "native", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
+      { kind: "sandbox", name: "Private runtime", status: "supported", selectable: true, runtime_contract: privateContract },
     ] });
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();

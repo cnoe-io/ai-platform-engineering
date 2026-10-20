@@ -10,11 +10,11 @@ from dynamic_agents.services.sandbox_client import SandboxClient, SandboxError
 router = APIRouter(prefix="/runtime-profiles", tags=["agents"])
 
 
-def _runtime_tiers(private_available: bool) -> list[dict]:
+def _runtime_options(private_available: bool) -> list[dict]:
     return [
-        {"tier": "1", "name": "Managed Agent", "status": "supported", "selectable": True,
+        {"kind": "native", "name": "Managed Agent", "status": "supported", "selectable": True,
          "runtime_contract": MANAGED_AGENT_RUNTIME.model_dump()},
-        {"tier": "3", "name": "Private Coding Sandbox", "status": "supported", "selectable": private_available,
+        {"kind": "sandbox", "name": "Private Coding Sandbox", "status": "supported", "selectable": private_available,
          "runtime_contract": PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()},
     ]
 
@@ -23,7 +23,7 @@ def _runtime_tiers(private_available: bool) -> list[dict]:
 async def runtime_profiles(_user: UserContext = Depends(get_user_context)) -> dict:
     settings = get_settings()
     if not settings.sandbox_service_url:
-        return {"profiles": [], "tiers": _runtime_tiers(False)}
+        return {"profiles": [], "runtimes": _runtime_options(False)}
     try:
         profiles = await SandboxClient(settings).profiles()
     except SandboxError as exc:
@@ -35,4 +35,4 @@ async def runtime_profiles(_user: UserContext = Depends(get_user_context)) -> di
             "attachments": profile.capabilities.get("attachments", False),
         },
     } for profile in profiles if profile.capabilities.get("mcp", False) and settings.harness_tools_public_url]
-    return {"profiles": admitted, "tiers": _runtime_tiers(bool(admitted))}
+    return {"profiles": admitted, "runtimes": _runtime_options(bool(admitted))}

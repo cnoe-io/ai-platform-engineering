@@ -1,4 +1,4 @@
-"""Execution tiers describe supported admission without changing saved runtime identity."""
+"""Runtime options describe supported admission without changing saved runtime identity."""
 
 from copy import deepcopy
 from unittest.mock import AsyncMock
@@ -27,20 +27,21 @@ async def test_catalog_lists_only_supported_runtimes_and_retains_native_default(
     monkeypatch.setattr(runtime_profiles, "get_settings", lambda: Settings(sandbox_service_url=""))
     catalog = await runtime_profiles.runtime_profiles(UserContext(email="caller@example.com"))
     assert catalog["profiles"] == []
-    tiers = {item["tier"]: item for item in catalog["tiers"]}
-    assert set(tiers) == {"1", "3"}
-    assert [item["name"] for item in catalog["tiers"]] == ["Managed Agent", "Private Coding Sandbox"]
-    assert all(item["status"] == "supported" for item in catalog["tiers"])
-    assert [tier for tier, value in tiers.items() if value["selectable"]] == ["1"]
-    assert tiers["1"]["runtime_contract"] == MANAGED_AGENT_RUNTIME.model_dump()
-    assert tiers["3"]["runtime_contract"] == PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()
+    runtimes = {item["kind"]: item for item in catalog["runtimes"]}
+    assert set(runtimes) == {"native", "sandbox"}
+    assert [item["name"] for item in catalog["runtimes"]] == ["Managed Agent", "Private Coding Sandbox"]
+    assert all(item["status"] == "supported" for item in catalog["runtimes"])
+    assert all(item["kind"] == item["runtime_contract"]["kind"] for item in catalog["runtimes"])
+    assert [kind for kind, value in runtimes.items() if value["selectable"]] == ["native"]
+    assert runtimes["native"]["runtime_contract"] == MANAGED_AGENT_RUNTIME.model_dump()
+    assert runtimes["sandbox"]["runtime_contract"] == PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()
     assert AgentExecutionConfig().model_dump() == {"kind": "native", "profile_id": None}
 
 
 @pytest.mark.parametrize("tools_url, mcp, available", [
     ("https://tools.example.test", True, True), ("", True, False), ("https://tools.example.test", False, False),
 ])
-async def test_private_tier_requires_an_existing_admitted_tool_capable_profile(
+async def test_private_runtime_requires_an_existing_admitted_tool_capable_profile(
     monkeypatch: pytest.MonkeyPatch, tools_url: str, mcp: bool, available: bool,
 ) -> None:
     settings = Settings(sandbox_service_url="https://sandbox.example.test", harness_tools_public_url=tools_url)
@@ -50,8 +51,8 @@ async def test_private_tier_requires_an_existing_admitted_tool_capable_profile(
     client.profiles.return_value = [profile]
     monkeypatch.setattr(runtime_profiles, "SandboxClient", lambda _: client)
     catalog = await runtime_profiles.runtime_profiles(UserContext(email="caller@example.com"))
-    tier = next(item for item in catalog["tiers"] if item["tier"] == "3")
-    assert tier["selectable"] is available
+    runtime = next(item for item in catalog["runtimes"] if item["kind"] == "sandbox")
+    assert runtime["selectable"] is available
     assert bool(catalog["profiles"]) is available
     if available:
         admitted = catalog["profiles"][0]
@@ -71,7 +72,7 @@ def test_catalog_metadata_does_not_change_legacy_profile_snapshots_or_agent_exec
 
 @pytest.mark.parametrize("change", [
     {"workspace_scope": "team"}, {"workspace_scope": "user"}, {"workspace_scope": "global"},
-    {"tier": "2"}, {"tier": "2.5"}, {"filesystem": "logical"}, {"isolation": "shared-runtime"},
+    {"kind": "shared"}, {"kind": "virtual"}, {"filesystem": "logical"}, {"isolation": "shared-runtime"},
     {"policy_authority": "unrestricted"}, {"command": "arbitrary-program"},
 ])
 async def test_provider_cannot_claim_an_unsupported_runtime_or_workspace_contract(
@@ -96,7 +97,7 @@ def test_provider_cannot_describe_managed_execution_as_a_private_sandbox() -> No
     {"endpoint": "https://runtime.example.test"}, {"workspace_scope": "team"},
     {"runtime_contract": PRIVATE_CODING_SANDBOX_RUNTIME.model_dump()},
 ])
-def test_agent_definition_cannot_select_unimplemented_tiers_or_supply_runtime_authority(change: dict[str, object]) -> None:
+def test_agent_definition_cannot_select_unimplemented_runtimes_or_supply_runtime_authority(change: dict[str, object]) -> None:
     execution = {"kind": "sandbox", "profile_id": "primary", **deepcopy(change)}
     with pytest.raises(ValidationError):
         AgentExecutionConfig.model_validate(execution)

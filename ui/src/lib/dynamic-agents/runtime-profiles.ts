@@ -1,7 +1,7 @@
 import { ApiError } from "@/lib/api-middleware";
 import { authenticateRequest, buildBackendHeaders, getDynamicAgentsConfig } from "@/lib/da-proxy";
 import { readBoundedBody } from "@/lib/dynamic-agents/bounded-body";
-import type { AgentExecution, AgentRuntimeCatalog, AgentRuntimeContract, AgentRuntimeProfile, AgentRuntimeTier } from "@/types/dynamic-agent";
+import type { AgentExecution, AgentRuntimeCatalog, AgentRuntimeContract, AgentRuntimeOption, AgentRuntimeProfile } from "@/types/dynamic-agent";
 import { NextRequest, NextResponse } from "next/server";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -14,12 +14,12 @@ function invalidCatalog(): never {
   throw new ApiError("Runtime profiles are temporarily unavailable", 502, "INVALID_RUNTIME_PROFILES");
 }
 
-function parseRuntimeContract(value: unknown, tier: "1" | "3"): AgentRuntimeContract {
+function parseRuntimeContract(value: unknown, kind: "native" | "sandbox"): AgentRuntimeContract {
   if (!record(value)) return invalidCatalog();
-  const expected: AgentRuntimeContract = tier === "1"
-    ? { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation",
+  const expected: AgentRuntimeContract = kind === "native"
+    ? { kind: "native", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation",
         isolation: "shared-runtime", policy_authority: "caipe" }
-    : { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation",
+    : { kind: "sandbox", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation",
         isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
   if (Object.entries(expected).some(([key, entry]) => value[key] !== entry)) return invalidCatalog();
   return expected;
@@ -42,29 +42,29 @@ function parseProfiles(value: unknown): AgentRuntimeProfile[] {
     ids.add(entry.id);
     return {
       id: entry.id, name: entry.name, harness: entry.harness as AgentRuntimeProfile["harness"], revision: entry.revision,
-      ...(entry.runtime_contract === undefined ? {} : { runtime_contract: parseRuntimeContract(entry.runtime_contract, "3") as Extract<AgentRuntimeContract, { tier: "3" }> }),
+      ...(entry.runtime_contract === undefined ? {} : { runtime_contract: parseRuntimeContract(entry.runtime_contract, "sandbox") as Extract<AgentRuntimeContract, { kind: "sandbox" }> }),
       capabilities: { mcp: entry.capabilities.mcp as boolean, skills: entry.capabilities.skills as boolean, attachments: entry.capabilities.attachments as boolean },
     };
   });
 }
 
 
-/** Preserve legacy profiles while projecting only bounded, descriptive tier metadata. */
+/** Preserve legacy profiles while projecting only bounded, descriptive runtime metadata. */
 export function parseRuntimeCatalog(value: unknown): AgentRuntimeCatalog {
   const profiles = parseProfiles(value);
-  if (!record(value) || value.tiers === undefined) return { profiles };
-  if (!Array.isArray(value.tiers) || value.tiers.length > 2) return invalidCatalog();
+  if (!record(value) || value.runtimes === undefined) return { profiles };
+  if (!Array.isArray(value.runtimes) || value.runtimes.length > 2) return invalidCatalog();
   const ids = new Set<string>();
-  const tiers: AgentRuntimeTier[] = value.tiers.map((entry: unknown) => {
-    if (!record(entry) || (entry.tier !== "1" && entry.tier !== "3") || ids.has(entry.tier) ||
+  const runtimes: AgentRuntimeOption[] = value.runtimes.map((entry: unknown) => {
+    if (!record(entry) || (entry.kind !== "native" && entry.kind !== "sandbox") || ids.has(entry.kind) ||
         typeof entry.name !== "string" || !entry.name.trim() || entry.name.length > 200 || typeof entry.selectable !== "boolean" ||
         entry.status !== "supported") return invalidCatalog();
-    ids.add(entry.tier);
-    if (entry.tier === "1" && !entry.selectable || entry.tier === "3" && entry.selectable !== (profiles.length > 0)) return invalidCatalog();
-    return { tier: entry.tier, name: entry.name, status: entry.status, selectable: entry.selectable,
-      runtime_contract: parseRuntimeContract(entry.runtime_contract, entry.tier) };
+    ids.add(entry.kind);
+    if (entry.kind === "native" && !entry.selectable || entry.kind === "sandbox" && entry.selectable !== (profiles.length > 0)) return invalidCatalog();
+    return { kind: entry.kind, name: entry.name, status: entry.status, selectable: entry.selectable,
+      runtime_contract: parseRuntimeContract(entry.runtime_contract, entry.kind) };
   });
-  return { profiles, tiers };
+  return { profiles, runtimes };
 }
 
 export function parseRuntimeProfiles(value: unknown): AgentRuntimeProfile[] {

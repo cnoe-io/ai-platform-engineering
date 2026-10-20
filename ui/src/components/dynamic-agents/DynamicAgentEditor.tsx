@@ -37,7 +37,7 @@ import type {
   AgentUIConfig,
   AgentExecution,
   AgentRuntimeProfile,
-  AgentRuntimeTier,
+  AgentRuntimeOption,
   BuiltinToolsConfig,
   CustomThemeConfig,
   DynamicAgentConfig,
@@ -451,7 +451,7 @@ export function DynamicAgentEditor({
 
   const [execution, setExecution] = React.useState<AgentExecution>(source?.execution ?? { kind: "native" });
   const [runtimeProfiles, setRuntimeProfiles] = React.useState<AgentRuntimeProfile[]>([]);
-  const [runtimeTiers, setRuntimeTiers] = React.useState<AgentRuntimeTier[]>([]);
+  const [runtimeOptions, setRuntimeOptions] = React.useState<AgentRuntimeOption[]>([]);
   const [runtimeProfilesLoading, setRuntimeProfilesLoading] = React.useState(true);
   const [runtimeProfilesError, setRuntimeProfilesError] = React.useState(false);
   const [runtimeProfilesRetry, setRuntimeProfilesRetry] = React.useState(0);
@@ -472,7 +472,7 @@ export function DynamicAgentEditor({
         if (!response.ok || !data.success || !Array.isArray(data.data?.profiles)) throw new Error("RuntimeProfileCatalogError");
         if (!cancelled) {
           setRuntimeProfiles(data.data.profiles);
-          setRuntimeTiers(Array.isArray(data.data.tiers) ? data.data.tiers : []);
+          setRuntimeOptions(Array.isArray(data.data.runtimes) ? data.data.runtimes : []);
         }
       })
       .catch((error: unknown) => {
@@ -1617,7 +1617,7 @@ export function DynamicAgentEditor({
                     {sandbox && !selectedRuntimeProfile && <option value={`sandbox:${execution.profile_id}`} disabled>Unavailable profile: {execution.profile_id}</option>}
                     {runtimeProfiles.map((profile) => <option key={profile.id} value={`sandbox:${profile.id}`}>{profile.name} (Private Coding Sandbox, Claude Code)</option>)}
                   </Select>
-                  <RuntimeContractDetails execution={execution} profile={selectedRuntimeProfile} tiers={runtimeTiers} />
+                  <RuntimeContractDetails execution={execution} profile={selectedRuntimeProfile} runtimes={runtimeOptions} />
                   {sandbox && !skillsAvailable && skills.length > 0 && <div role="status" className="text-sm text-muted-foreground">
                     This profile does not support the selected skills. Choose a qualified profile or clear the selection before saving.
                     <Button type="button" variant="link" size="sm" disabled={loading || !!readOnly} onClick={() => setSkills([])}>Clear selected skills</Button>

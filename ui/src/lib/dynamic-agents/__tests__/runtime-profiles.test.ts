@@ -64,50 +64,50 @@ it("rejects saved skills unsupported by the admitted profile", async () => {
   await expect(validateAgentExecution(request(), { kind: "sandbox", profile_id: "primary" }, ["example-skill"])).rejects.toMatchObject({ code: "RUNTIME_SKILLS_UNSUPPORTED" });
 });
 
-const managedContract = { tier: "1", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
-const privateContract = { tier: "3", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
-const tiers = (privateAvailable = true) => [
-  { tier: "1", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
-  { tier: "3", name: "Private runtime", status: "supported", selectable: privateAvailable, runtime_contract: privateContract },
+const managedContract = { kind: "native", runtime: "deepagents", filesystem: "logical", workspace_scope: "conversation", isolation: "shared-runtime", policy_authority: "caipe" };
+const privateContract = { kind: "sandbox", runtime: "coding-harness", filesystem: "sandbox", workspace_scope: "conversation", isolation: "private-sandbox", policy_authority: "caipe-and-operator-profile" };
+const runtimes = (privateAvailable = true) => [
+  { kind: "native", name: "Managed runtime", status: "supported", selectable: true, runtime_contract: managedContract },
+  { kind: "sandbox", name: "Private runtime", status: "supported", selectable: privateAvailable, runtime_contract: privateContract },
 ];
 
 it("projects supported runtime contracts without private provider fields", async () => {
-  const catalog = { profiles: [{ ...profile, runtime_contract: { ...privateContract, command: "private" } }], tiers: tiers().map(tier => ({ ...tier, endpoint: "private" })) };
+  const catalog = { profiles: [{ ...profile, runtime_contract: { ...privateContract, command: "private" } }], runtimes: runtimes().map(runtime => ({ ...runtime, endpoint: "private" })) };
   (global.fetch as jest.Mock).mockResolvedValue(Response.json(catalog));
-  expect(await loadRuntimeCatalog(request())).toEqual({ profiles: [{ ...profile, runtime_contract: privateContract }], tiers: tiers() });
+  expect(await loadRuntimeCatalog(request())).toEqual({ profiles: [{ ...profile, runtime_contract: privateContract }], runtimes: runtimes() });
 });
 
 it("keeps a legacy catalog and its saved execution shape unchanged", () => {
   expect(parseRuntimeCatalog({ profiles: [profile] })).toEqual({ profiles: [profile] });
   expect(normalizeAgentExecution({ kind: "sandbox", profile_id: "primary" })).toEqual({ kind: "sandbox", profile_id: "primary" });
   expect(() => normalizeAgentExecution({ kind: "sandbox", profile_id: "primary", runtime_contract: privateContract })).toThrow();
-  expect(() => normalizeAgentExecution({ kind: "native", tier: "2" })).toThrow();
+  expect(() => normalizeAgentExecution({ kind: "native", runtime_contract: managedContract })).toThrow();
 });
 
 it("retains the managed contract when no private profile is admitted", () => {
-  expect(parseRuntimeCatalog({ profiles: [], tiers: tiers(false) })).toEqual({ profiles: [], tiers: tiers(false) });
+  expect(parseRuntimeCatalog({ profiles: [], runtimes: runtimes(false) })).toEqual({ profiles: [], runtimes: runtimes(false) });
 });
 
 it.each([
   { workspace_scope: "user" }, { workspace_scope: "team" }, { workspace_scope: "global" },
-  { tier: "2" }, { runtime: "deepagents" }, { filesystem: "logical" },
+  { kind: "native" }, { runtime: "deepagents" }, { filesystem: "logical" },
 ])("refuses unsupported or mixed execution claims %p", (override) => {
   expect(() => parseRuntimeCatalog({ profiles: [{ ...profile, runtime_contract: { ...privateContract, ...override } }] })).toThrow();
 });
 
-it.each(["2", "2.5", "4", "unknown", 1, null])("rejects unimplemented or unknown runtime tier %p", (tier) => {
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...tiers()[0], tier }] })).toThrow();
+it.each(["team", "virtual", "unknown", "claude-code", 1, null])("rejects unimplemented or unknown runtime kind %p", (kind) => {
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [{ ...runtimes()[0], kind }] })).toThrow();
 });
 
 it.each(["planned", "research", "unknown"])("rejects unsupported runtime status %p", (status) => {
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...tiers()[0], status }] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [{ ...runtimes()[0], status }] })).toThrow();
 });
 
-it("rejects inconsistent admission, duplicate tiers and oversized tier catalogs", () => {
-  const catalog = tiers();
-  expect(() => parseRuntimeCatalog({ profiles: [], tiers: catalog })).toThrow();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...catalog[0], selectable: false }, catalog[1]] })).toThrow();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [catalog[0], catalog[0]] })).toThrow();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [...catalog, catalog[0]] })).toThrow();
-  expect(() => parseRuntimeCatalog({ profiles: [profile], tiers: [{ ...catalog[0], runtime_contract: privateContract }] })).toThrow();
+it("rejects inconsistent admission, duplicate runtime kinds and oversized catalogs", () => {
+  const catalog = runtimes();
+  expect(() => parseRuntimeCatalog({ profiles: [], runtimes: catalog })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [{ ...catalog[0], selectable: false }, catalog[1]] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [catalog[0], catalog[0]] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [...catalog, catalog[0]] })).toThrow();
+  expect(() => parseRuntimeCatalog({ profiles: [profile], runtimes: [{ ...catalog[0], runtime_contract: privateContract }] })).toThrow();
 });
