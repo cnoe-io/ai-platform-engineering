@@ -163,7 +163,6 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
                     <AgentHarnessBadge
                       compact
                       harnessId={selectedOption.harnessId}
-                      className="hidden sm:inline-flex"
                     />
                   )}
                   {disabled ? (
