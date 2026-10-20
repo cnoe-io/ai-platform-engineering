@@ -122,3 +122,7 @@ A deployment may bind `installations[].bindings.resources.assistant` to its
 registered agent ID. This replaces the manifest assistant's logical `agentId`
 for discovery and stream routing. It does not change stream paths, authorization
 policies, or the pinned publisher artifact. The app must declare `ui.assistant`.
+
+Native packages that render their own assistant UI declare
+`ui.assistant.overlay: "app"`. The host skips its default launcher while retaining
+assistant discovery and stream routing. Omitting this field retains the host UI.

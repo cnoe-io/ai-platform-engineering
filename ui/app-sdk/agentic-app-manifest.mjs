@@ -203,10 +203,12 @@ export function validateAgenticAppManifest(value) {
   if (ui.assistant !== undefined) {
     const assistant = record(
       ui.assistant,
-      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath"],
+      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "overlay"],
       "ui.assistant",
     );
     identifier(assistant.agentId, "ui.assistant.agentId");
+    if (assistant.overlay !== undefined && !["host", "app"].includes(assistant.overlay))
+      throw new Error("assistant overlay must be host or app");
     if (
       string(assistant.label, "ui.assistant.label").length > 48 ||
       string(assistant.name, "ui.assistant.name").length > 80

@@ -84,7 +84,7 @@ export function NativeExtensionHost({
         Link={Link}
         setBreadcrumbs={setBreadcrumbs}
       />
-      {!slot && extension.manifest.assistant && (
+      {!slot && extension.manifest.assistant && extension.manifest.assistant.overlay !== "app" && (
         <NativeExtensionAssistant
           assistant={extension.manifest.assistant}
           extensionId={extensionId}
