@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { findAgenticAppAssistantStream } from "@/lib/agentic-apps/assistant-stream";
 import type { AuthResult } from "@/lib/da-proxy";
 import {
   buildHarnessEngineHeaders,
@@ -83,6 +84,14 @@ export async function resolveHarnessGatewayTarget(
   context: { subject: string; conversationId: string; traceparent?: string },
 ): Promise<HarnessGatewayTarget | NextResponse> {
   try {
+    // App-owned assistants execute through their declared stream endpoints.
+    // Reject entry points without an app operation before creating a provider binding.
+    if (findAgenticAppAssistantStream(agentId)) {
+      return NextResponse.json(
+        { success: false, code: "APP_STREAM_REQUIRED", error: "This app assistant requires its declared chat stream endpoints" },
+        { status: 501 },
+      );
+    }
     const bindings = await getCollection<GatewayBinding>("harness_gateway_bindings");
     const key = { _id: gatewayBindingId(agentId, context.subject, context.conversationId) };
     let binding = await bindings.findOne(key);

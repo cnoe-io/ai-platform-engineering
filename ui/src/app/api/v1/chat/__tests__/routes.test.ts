@@ -8,6 +8,7 @@ import { POST as invokePost } from "../invoke/route";
 import { POST as cancelPost } from "../stream/cancel/route";
 import { POST as resumePost } from "../stream/resume/route";
 import { POST as startPost } from "../stream/start/route";
+import { POST as statusPost } from "../stream/status/route";
 
 const mockAuthenticateRequest = jest.fn();
 const mockGetDynamicAgentsConfig = jest.fn();
@@ -122,6 +123,27 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       scheduleTitle: "Persisted schedule title",
     });
     mockMintScheduledOwnerToken.mockResolvedValue("owner-bearer-token");
+  });
+
+  it.each([
+    ["start", startPost], ["resume", resumePost], ["cancel", cancelPost],
+    ["status", statusPost], ["invoke", invokePost],
+  ])("rejects a different saved agent before %s dispatch", async (operation, handler) => {
+    mockAuthenticateRequest.mockResolvedValue({ subject: "test-user", email: "test-user@example.test" });
+    mockGetCollection.mockResolvedValue({ findOne: async () => ({
+      _id: "conversation-example", owner_id: "test-user@example.test",
+      participants: [{ type: "agent", id: "agent-primary" }],
+    }) });
+    const upstream = jest.spyOn(global, "fetch");
+    const response = await handler(jsonRequest(`/api/v1/chat/${operation === "invoke" ? operation : `stream/${operation}`}`, {
+      message: "Hello", conversation_id: "conversation-example", agent_id: "agent-secondary", resume_data: {},
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "CONVERSATION_AGENT_MISMATCH" });
+    expect(mockProxySSEStream).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+    expect(upstream).not.toHaveBeenCalled();
+    upstream.mockRestore();
   });
 
   it.each([

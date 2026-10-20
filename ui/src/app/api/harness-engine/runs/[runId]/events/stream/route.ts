@@ -1,5 +1,5 @@
-import { authenticateRequest } from "@/lib/da-proxy";
-import { getHarnessEngineConfig, proxyHarnessEngineStream } from "@/lib/harness-engine-proxy";
+import { proxyHarnessEngineStream } from "@/lib/harness-engine-proxy";
+import { authorizeHarnessRunAccess } from "../../../../_run-authz";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -9,11 +9,9 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ runId: string }> },
 ): Promise<Response> {
-  const auth = await authenticateRequest(request);
-  if (auth instanceof NextResponse) return auth;
-  const config = getHarnessEngineConfig();
-  if (config instanceof NextResponse) return config;
   const { runId } = await context.params;
+  const access = await authorizeHarnessRunAccess(request, runId, "read");
+  if (access instanceof NextResponse) return access;
   const after = request.nextUrl.searchParams.get("after") ?? request.headers.get("last-event-id");
   const suffix = after === null ? "" : `?after=${encodeURIComponent(after)}`;
 
@@ -21,8 +19,8 @@ export async function GET(
   // separate POST and is owned by Harness Engine, so provider execution and
   // event persistence continue after the browser/BFF connection disappears.
   return proxyHarnessEngineStream(
-    config,
-    auth,
+    access.config,
+    access.auth,
     `/api/v1/runs/${encodeURIComponent(runId)}/events/stream${suffix}`,
     request.signal,
   );

@@ -34,6 +34,41 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - Missing Engine configuration returns `503` for saved SDK agents or pinned
   Engine conversations. Legacy/default agents still use Dynamic Agents.
 
+## App-owned chat streams
+
+- The BFF's start, resume, cancel and status routes share one dispatcher after
+  agent-use and conversation-write authorization.
+- Installed apps use their server-declared assistant paths through the shared
+  app proxy, preserving the resolved caller and canonical conversation ID.
+  App errors, denials and unsupported operations return directly.
+- Other start/resume/cancel requests resolve their runtime conversation ID and
+  pinned Harness Gateway backend. Provider dispatch does not require the
+  Dynamic Agents service configuration.
+- App-owned assistants require streaming; non-streaming invoke returns `501`
+  before creating a native/provider binding. Status is available only when an
+  app declares it, with `501` for unsupported runtimes.
+- Host chat panels, overlays and cross-window app status use the existing
+  shared UI/store contracts. Provider runs retain Engine-owned detached
+  execution and replay; app streams keep their app-owned session lifecycle.
+
+## Authorization boundary
+
+- The BFF checks current agent use and conversation write before execution,
+  resume, Stop or clear. A saved agent participant must match the requested
+  agent; an authorized request cannot substitute another agent's runtime.
+- Direct Engine admission also verifies the pinned gateway target is a
+  provider runtime, preserving native session ownership.
+- Run detail, polling and replay subscriptions retain Engine owner checks and
+  recheck current agent use plus conversation read in the BFF. Cancellation by
+  run ID requires conversation write. Keeping a run ID does not retain revoked
+  access.
+- Service accounts retain their principal classification in platform checks.
+  Engine uses internal credentials plus the verified caller subject; app-owned
+  streams use the exact authenticated interactive user.
+- Grants are checked per request/subscription. Existing streams are not
+  continuously reauthorized; downstream app/tool resource checks remain
+  authoritative for their own operations.
+
 ## Session flow
 
 ```mermaid

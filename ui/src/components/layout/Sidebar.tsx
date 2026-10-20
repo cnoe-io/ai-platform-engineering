@@ -654,7 +654,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
       const agentId = getAgentId(conversation);
       const folderId = getConversationRunKind(conversation) ? undefined : organization.value.assignments[conversation.id];
       const key = organization.value.view === "folders" ? folderId ? `folder:${folderId}` : "folder:unfiled" : `agent:${agentId ?? "none"}`;
-      if (!groups.has(key)) groups.set(key, { label: agentId ? agentNameMap[agentId] ?? "Unavailable agent" : "No agent", conversations: [] });
+      if (!groups.has(key)) groups.set(key, { label: agentId ? agentMap[agentId]?.name ?? "Unavailable agent" : "No agent", conversations: [] });
       groups.get(key)!.conversations.push(conversation);
     });
     conversationListItems.length = 0;

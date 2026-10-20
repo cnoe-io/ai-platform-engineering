@@ -1,5 +1,5 @@
-import { authenticateRequest } from "@/lib/da-proxy";
-import { getHarnessEngineConfig, proxyHarnessEngine } from "@/lib/harness-engine-proxy";
+import { proxyHarnessEngine } from "@/lib/harness-engine-proxy";
+import { authorizeHarnessRunAccess } from "../../_run-authz";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -7,12 +7,11 @@ export const runtime = "nodejs";
 interface Context { params: Promise<{ runId: string }> }
 
 async function proxy(request: NextRequest, context: Context, method: "GET" | "DELETE") {
-  const auth = await authenticateRequest(request);
-  if (auth instanceof NextResponse) return auth;
-  const config = getHarnessEngineConfig();
-  if (config instanceof NextResponse) return config;
   const { runId } = await context.params;
-  return proxyHarnessEngine(config, auth, `/api/v1/runs/${encodeURIComponent(runId)}`, { method });
+  const access = await authorizeHarnessRunAccess(request, runId, method === "DELETE" ? "write" : "read");
+  if (access instanceof NextResponse) return access;
+  if (method === "GET") return access.response;
+  return proxyHarnessEngine(access.config, access.auth, `/api/v1/runs/${encodeURIComponent(runId)}`, { method });
 }
 
 export const GET = (request: NextRequest, context: Context) => proxy(request, context, "GET");
