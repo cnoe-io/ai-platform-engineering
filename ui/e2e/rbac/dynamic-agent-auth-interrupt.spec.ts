@@ -188,10 +188,15 @@ test.describe("mocked Dynamic Agent auth interruption UX", () => {
 
     await dismissReleaseUpgradeDialog(page);
 
-    await expect(page.getByText("Session expired - signing you in again...")).toBeVisible();
+    await expect(page.getByText("Session expired - signing you in again...", { exact: true })).toBeVisible();
     await expect(
       page.getByText("This response failed to complete. No content was generated."),
     ).toHaveCount(0);
-    await expect(page.getByText("Session expired")).toBeVisible();
+    // The toast is separate from the interrupted-turn hint and reconnect
+    // status. Its full title/body distinguishes the intended auth notification.
+    await expect(page.getByText(
+      "Session expired Your session has expired. Please sign in again.",
+      { exact: true },
+    )).toBeVisible();
   });
 });
