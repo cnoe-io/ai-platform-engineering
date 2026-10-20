@@ -287,8 +287,12 @@ test.describe("mocked RBAC e2e — chat stream regression", () => {
     await submitPrompt(page, "hi");
 
     await expect.poll(() => streamStartRequests.length).toBe(1);
-    await expect(page.getByText(/ValidationException/i)).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/input_schema does not support oneOf, allOf, or anyOf/i)).toBeVisible();
+    // The transcript retains the error while the reconnect status repeats its
+    // cause. Assert the complete transcript copy rather than an ambiguous match
+    // across both surfaces.
+    await expect(page.getByText(`Error: ${OLD_BEDROCK_SCHEMA_ERROR}`, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByText(/Quick chat is healthy after MCP schemas were sanitized/i)).toHaveCount(0);
   });
 
@@ -302,7 +306,9 @@ test.describe("mocked RBAC e2e — chat stream regression", () => {
     await submitPrompt(page, "inspect the conversation history");
 
     await expect.poll(() => streamStartRequests.length).toBe(1);
-    await expect(page.getByText(/Expected toolResult blocks/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(`Error: ${MISSING_TOOL_RESULT_ERROR}`, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
 
     await expectChatComposerReady(page);
     const composer = page.getByRole("textbox", { name: "Message" });
