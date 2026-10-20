@@ -10,6 +10,7 @@ from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from harness_engine.models import (
+    TERMINAL_RUN_STATUSES,
     AgentBlueprint,
     AgentRecord,
     AgentVersion,
@@ -24,6 +25,24 @@ from harness_engine.models import (
 
 class RevisionConflictError(Exception):
     """An optimistic agent update or unique insert failed."""
+
+
+class RunAdmissionError(Exception):
+    """The binding is closed, busy, or the request key was reused with new input."""
+
+
+class ReplayGapError(Exception):
+    """The durable replay tail is missing or has expired."""
+
+
+def validate_replay(run: RunRecord, after: int, events: list[RunEvent]) -> None:
+    expected = after + 1
+    for event in events:
+        if event.sequence != expected:
+            raise ReplayGapError("Replay events are missing or expired")
+        expected += 1
+    if run.status in TERMINAL_RUN_STATUSES and expected <= run.last_sequence:
+        raise ReplayGapError("The terminal replay tail is missing or expired")
 
 
 class RunRepository(Protocol):
@@ -66,6 +85,12 @@ class RunRepository(Protocol):
     ) -> SessionBinding: ...
 
     async def close_session(self, binding_id: str) -> SessionBinding: ...
+
+    async def admit_run(self, run: RunRecord) -> tuple[RunRecord, bool]: ...
+
+    async def claim_dispatch(self, binding_id: str, run_id: str) -> bool: ...
+
+    async def release_run(self, binding_id: str, run_id: str) -> None: ...
 
     async def create_run(self, run: RunRecord) -> RunRecord: ...
 
@@ -234,6 +259,40 @@ class InMemoryRunRepository:
             self._sessions[binding_id] = stored
             return stored.model_copy(deep=True)
 
+    async def admit_run(self, run: RunRecord) -> tuple[RunRecord, bool]:
+        async with self._lock:
+            if run.client_request_id:
+                for existing in self._runs.values():
+                    if (existing.owner_subject, existing.agent_id, existing.conversation_id, existing.client_request_id) == (
+                        run.owner_subject, run.agent_id, run.conversation_id, run.client_request_id
+                    ):
+                        if existing.request_fingerprint != run.request_fingerprint:
+                            raise RunAdmissionError("Request ID was already used with different input")
+                        return existing.model_copy(deep=True), False
+            binding = self._sessions[run.binding_id]
+            if binding.status != "active" or binding.active_run is not None:
+                raise RunAdmissionError("Session is closed or already has an active run")
+            self._sessions[run.binding_id] = binding.model_copy(update={"active_run": run, "dispatch_started": False})
+            self._runs[run.run_id] = run
+            return run.model_copy(deep=True), True
+
+    async def claim_dispatch(self, binding_id: str, run_id: str) -> bool:
+        async with self._lock:
+            binding = self._sessions[binding_id]
+            active = binding.active_run
+            if binding.status != "active" or active is None or active.run_id != run_id or binding.dispatch_started:
+                return False
+            self._sessions[binding_id] = binding.model_copy(
+                update={"dispatch_started": True}
+            )
+            return True
+
+    async def release_run(self, binding_id: str, run_id: str) -> None:
+        async with self._lock:
+            binding = self._sessions.get(binding_id)
+            if binding and binding.active_run and binding.active_run.run_id == run_id:
+                self._sessions[binding_id] = binding.model_copy(update={"active_run": None, "dispatch_started": False})
+
     async def create_run(self, run: RunRecord) -> RunRecord:
         async with self._lock:
             if run.run_id in self._runs:
@@ -271,6 +330,9 @@ class InMemoryRunRepository:
     ) -> RunEvent:
         async with self._lock:
             run = self._runs[run_id]
+            if run.status in TERMINAL_RUN_STATUSES:
+                validate_replay(run, 0, self._events[run_id])
+                return self._events[run_id][-1].model_copy(deep=True)
             sequence = run.last_sequence + 1
             event = RunEvent(run_id=run_id, sequence=sequence, event_type=event_type, data=data)
             run = run.model_copy(
@@ -283,7 +345,9 @@ class InMemoryRunRepository:
         return event
 
     async def list_events(self, run_id: str, after: int) -> list[RunEvent]:
-        return [event.model_copy(deep=True) for event in self._events[run_id] if event.sequence > after]
+        events = [event.model_copy(deep=True) for event in self._events[run_id] if event.sequence > after]
+        validate_replay(self._runs[run_id], after, events)
+        return events
 
     async def wait_for_events(self, run_id: str, after: int, timeout: float) -> list[RunEvent]:
         events = await self.list_events(run_id, after)
@@ -323,6 +387,11 @@ class MongoRunRepository:
                 unique=True,
             )
             self._db.harness_runs.create_index("run_id", unique=True)
+            self._db.harness_runs.create_index(
+                [("owner_subject", ASCENDING), ("agent_id", ASCENDING), ("conversation_id", ASCENDING), ("client_request_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"client_request_id": {"$type": "string"}, "request_fingerprint": {"$type": "string"}},
+            )
             self._db.harness_runs.create_index([("owner_subject", ASCENDING), ("created_at", ASCENDING)])
             self._db.harness_events.create_index([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)
             self._db.harness_events.create_index("created_at", expireAfterSeconds=self._retention_seconds)
@@ -492,6 +561,75 @@ class MongoRunRepository:
             raise KeyError(binding_id)
         return current
 
+    async def admit_run(self, run: RunRecord) -> tuple[RunRecord, bool]:
+        def admit() -> tuple[RunRecord, bool]:
+            key = {
+                "owner_subject": run.owner_subject, "agent_id": run.agent_id,
+                "conversation_id": run.conversation_id, "client_request_id": run.client_request_id,
+            }
+            def existing_request() -> RunRecord | None:
+                if not run.client_request_id:
+                    return None
+                doc = self._db.harness_runs.find_one(key, {"_id": 0, "pending_event": 0})
+                if not doc:
+                    pending = self._db.harness_sessions.find_one(
+                        {f"active_run.{field}": value for field, value in key.items()}, {"_id": 0, "active_run": 1}
+                    )
+                    doc = pending.get("active_run") if pending else None
+                if doc:
+                    existing = RunRecord.model_validate(doc)
+                    if existing.request_fingerprint != run.request_fingerprint:
+                        raise RunAdmissionError("Request ID was already used with different input")
+                    return existing
+                return None
+
+            existing = existing_request()
+            if existing:
+                return existing, False
+            # The reservation and its recovery snapshot share the binding's
+            # document, so clear and competing replicas use the same fence.
+            claimed = self._db.harness_sessions.find_one_and_update(
+                {"binding_id": run.binding_id, "status": "active", "active_run": None},
+                {"$set": {"active_run": run.model_dump(mode="python"), "dispatch_started": False, "updated_at": utc_now()}},
+                return_document=ReturnDocument.AFTER,
+            )
+            if not claimed:
+                existing = existing_request()
+                if existing:
+                    return existing, False
+                raise RunAdmissionError("Session is closed or already has an active run")
+            try:
+                self._db.harness_runs.insert_one(run.model_dump(mode="python"))
+            except DuplicateKeyError:
+                self._db.harness_sessions.update_one(
+                    {"binding_id": run.binding_id, "active_run.run_id": run.run_id},
+                    {"$set": {"active_run": None}},
+                )
+                existing = existing_request()
+                if existing:
+                    return existing, False
+                raise
+            return run, True
+
+        return await asyncio.to_thread(admit)
+
+    async def claim_dispatch(self, binding_id: str, run_id: str) -> bool:
+        # This conditional write is the dispatch admission point. Closing the
+        # binding first prevents a producer still preparing its prompt from starting.
+        result = await asyncio.to_thread(
+            self._db.harness_sessions.update_one,
+            {"binding_id": binding_id, "status": "active", "active_run.run_id": run_id, "dispatch_started": False},
+            {"$set": {"dispatch_started": True, "updated_at": utc_now()}},
+        )
+        return result.modified_count == 1
+
+    async def release_run(self, binding_id: str, run_id: str) -> None:
+        await asyncio.to_thread(
+            self._db.harness_sessions.update_one,
+            {"binding_id": binding_id, "active_run.run_id": run_id},
+            {"$set": {"active_run": None, "dispatch_started": False, "updated_at": utc_now()}},
+        )
+
     async def create_run(self, run: RunRecord) -> RunRecord:
         try:
             await asyncio.to_thread(self._db.harness_runs.insert_one, run.model_dump(mode="python"))
@@ -500,8 +638,15 @@ class MongoRunRepository:
         return run
 
     async def get_run(self, run_id: str) -> RunRecord | None:
-        doc = await asyncio.to_thread(self._db.harness_runs.find_one, {"run_id": run_id}, {"_id": 0})
-        return RunRecord.model_validate(doc) if doc else None
+        def read() -> RunRecord | None:
+            doc = self._db.harness_runs.find_one({"run_id": run_id}, {"_id": 0, "pending_event": 0})
+            if not doc:
+                binding = self._db.harness_sessions.find_one({"active_run.run_id": run_id})
+                if binding:
+                    doc = binding["active_run"]
+                    self._db.harness_runs.update_one({"run_id": run_id}, {"$setOnInsert": doc}, upsert=True)
+            return RunRecord.model_validate(doc) if doc else None
+        return await asyncio.to_thread(read)
 
     async def get_active_run(
         self, owner_subject: str, agent_id: str, conversation_id: str
@@ -514,7 +659,7 @@ class MongoRunRepository:
                 "conversation_id": conversation_id,
                 "status": {"$in": [RunStatus.QUEUED.value, RunStatus.RUNNING.value]},
             },
-            {"_id": 0},
+            {"_id": 0, "pending_event": 0},
             sort=[("created_at", DESCENDING)],
         )
         return RunRecord.model_validate(doc) if doc else None
@@ -526,38 +671,70 @@ class MongoRunRepository:
             {"$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()}},
         )
 
+    def _materialize_pending_event(self, run: dict[str, object]) -> None:
+        pending = run.get("pending_event")
+        if not isinstance(pending, dict):
+            return
+        key = {"run_id": pending["run_id"], "sequence": pending["sequence"]}
+        try:
+            self._db.harness_events.update_one(key, {"$setOnInsert": pending}, upsert=True)
+        except DuplicateKeyError:
+            if not self._db.harness_events.find_one(key):
+                raise
+        self._db.harness_runs.update_one(
+            {"run_id": pending["run_id"], "pending_event.sequence": pending["sequence"]},
+            {"$unset": {"pending_event": ""}},
+        )
+
     async def append_event(
         self, run_id: str, event_type: str, data: dict[str, object], status: RunStatus | None = None
     ) -> RunEvent:
-        def append() -> dict[str, object]:
-            update: dict[str, object] = {"$inc": {"last_sequence": 1}, "$set": {"updated_at": utc_now()}}
-            if status is not None:
-                update["$set"]["status"] = status.value  # type: ignore[index]
-            run = self._db.harness_runs.find_one_and_update(
-                {"run_id": run_id}, update, return_document=ReturnDocument.AFTER
-            )
-            if not run:
-                raise KeyError(run_id)
-            event = RunEvent(
-                run_id=run_id,
-                sequence=int(run["last_sequence"]),
-                event_type=event_type,
-                data=data,
-            )
-            self._db.harness_events.insert_one(event.model_dump(mode="python"))
-            return event.model_dump(mode="python")
+        def append() -> RunEvent:
+            while True:
+                run = self._db.harness_runs.find_one({"run_id": run_id})
+                if not run:
+                    raise KeyError(run_id)
+                if run.get("pending_event"):
+                    self._materialize_pending_event(run)
+                    continue
+                if RunStatus(run["status"]) in TERMINAL_RUN_STATUSES:
+                    tail = self._db.harness_events.find_one({"run_id": run_id, "sequence": run["last_sequence"]}, {"_id": 0})
+                    if not tail:
+                        raise ReplayGapError("The terminal replay tail is missing or expired")
+                    return RunEvent.model_validate(tail)
+                event = RunEvent(run_id=run_id, sequence=run["last_sequence"] + 1, event_type=event_type, data=data)
+                # Publish the head, status and recoverable payload together.
+                # Readers finish interrupted appends on standalone MongoDB too.
+                values = {
+                    "last_sequence": event.sequence, "updated_at": utc_now(),
+                    "pending_event": event.model_dump(mode="python"),
+                }
+                if status is not None:
+                    values["status"] = status.value
+                committed = self._db.harness_runs.find_one_and_update(
+                    {"run_id": run_id, "last_sequence": run["last_sequence"], "pending_event": {"$exists": False}},
+                    {"$set": values}, return_document=ReturnDocument.AFTER,
+                )
+                if committed:
+                    self._materialize_pending_event(committed)
+                    return event
 
-        return RunEvent.model_validate(await asyncio.to_thread(append))
+        return await asyncio.to_thread(append)
 
     async def list_events(self, run_id: str, after: int) -> list[RunEvent]:
-        def read() -> list[dict[str, object]]:
-            return list(
-                self._db.harness_events.find(
-                    {"run_id": run_id, "sequence": {"$gt": after}}, {"_id": 0}
-                ).sort("sequence", ASCENDING)
-            )
+        def read() -> list[RunEvent]:
+            run = self._db.harness_runs.find_one({"run_id": run_id}, {"_id": 0})
+            if not run:
+                raise KeyError(run_id)
+            self._materialize_pending_event(run)
+            run.pop("pending_event", None)
+            events = [RunEvent.model_validate(doc) for doc in self._db.harness_events.find(
+                {"run_id": run_id, "sequence": {"$gt": after}}, {"_id": 0}
+            ).sort("sequence", ASCENDING)]
+            validate_replay(RunRecord.model_validate(run), after, events)
+            return events
 
-        return [RunEvent.model_validate(doc) for doc in await asyncio.to_thread(read)]
+        return await asyncio.to_thread(read)
 
     async def wait_for_events(self, run_id: str, after: int, timeout: float) -> list[RunEvent]:
         deadline = asyncio.get_running_loop().time() + timeout

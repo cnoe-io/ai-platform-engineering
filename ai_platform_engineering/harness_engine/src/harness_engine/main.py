@@ -11,7 +11,7 @@ from typing import Annotated
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from harness_engine.adapters import AgentCoreAdapter, ClaudeSDKAdapter
 from harness_engine.adapters.base import HarnessAdapter
@@ -36,7 +36,9 @@ from harness_engine.registry import HarnessNotFoundError, HarnessRegistry
 from harness_engine.repository import (
     InMemoryRunRepository,
     MongoRunRepository,
+    ReplayGapError,
     RevisionConflictError,
+    RunAdmissionError,
     RunRepository,
 )
 from harness_engine.sessions import CAIPEAgentSessionManager
@@ -267,7 +269,20 @@ def create_app(
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "Agent has no runnable harness version"
             ) from exc
+        except RunAdmissionError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         return {"success": True, "data": run}
+
+    @app.post("/api/v1/sessions/lookup")
+    async def lookup_session(
+        body: ClearAgentSessionRequest, subject: str = Depends(caller_subject)
+    ) -> dict[str, object]:
+        run = await resolved_repository.get_active_run(subject, body.agent_id, body.conversation_id)
+        binding = await session_manager.current(subject, body.agent_id, body.conversation_id)
+        harness_id = run.harness_id if run else (
+            binding.harness_id if binding and binding.status == "active" else None
+        )
+        return {"success": True, "data": {"harness_id": harness_id}}
 
     @app.post("/api/v1/sessions/clear")
     async def clear_session(
@@ -285,6 +300,12 @@ def create_app(
             "success": True,
             "data": ensure_owner(await resolved_repository.get_run(run_id), subject),
         }
+
+    @app.exception_handler(ReplayGapError)
+    async def replay_gap_error(_: Request, exc: ReplayGapError) -> JSONResponse:
+        return JSONResponse(
+            {"success": False, "error": str(exc), "code": "replay_unavailable"}, status_code=409
+        )
 
     @app.get("/api/v1/runs/{run_id}/events")
     async def get_events(
@@ -316,14 +337,20 @@ def create_app(
     ) -> StreamingResponse:
         ensure_owner(await resolved_repository.get_run(run_id), subject)
 
+        await resolved_repository.list_events(run_id, after)
+
         async def generate() -> AsyncIterator[str]:
             cursor = after
             while True:
                 if await request.is_disconnected():
                     return
-                events = await resolved_repository.wait_for_events(
-                    run_id, cursor, resolved_settings.long_poll_seconds
-                )
+                try:
+                    events = await resolved_repository.wait_for_events(
+                        run_id, cursor, resolved_settings.long_poll_seconds
+                    )
+                except ReplayGapError:
+                    yield 'event: run.failed\ndata: {"code":"replay_unavailable","message":"Replay events are missing or expired"}\n\n'
+                    return
                 for event in events:
                     cursor = event.sequence
                     yield (

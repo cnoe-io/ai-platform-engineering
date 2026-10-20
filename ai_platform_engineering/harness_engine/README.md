@@ -23,8 +23,15 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - The existing BFF `/api/v1/chat/*` routes form Harness Gateway. They read the
   BFF-owned `execution_harness_id`, preserve Dynamic Agents for missing/default
   values, and translate Harness Engine canonical events for existing clients.
-- If Harness Engine is not configured, Harness Gateway does not add an agent
-  runtime lookup to the legacy Dynamic Agents chat path.
+- The gateway pins each owner/agent/conversation backend in the BFF's
+  `harness_gateway_bindings` collection. An agent edit does not change an
+  existing conversation's runtime. The authorized session-clear endpoint removes
+  that routing record only after Engine clear succeeds.
+- On first use, the gateway looks up existing Engine sessions through the
+  internal API, including sessions created before routing records existed.
+  The BFF does not read the Engine's private MongoDB database.
+- Missing Engine configuration returns `503` for saved SDK agents or pinned
+  Engine conversations. Legacy/default agents still use Dynamic Agents.
 
 ## Session flow
 
@@ -37,9 +44,9 @@ sequenceDiagram
     participant AC as AgentCore Runtime
 
     Browser->>BFF: POST /api/v1/chat/stream/start
-    Note over BFF: Harness Gateway resolves execution_harness_id
+    Note over BFF: Resolve pinned backend or adopt the saved session
     BFF->>HE: POST /api/v1/runs (internal token + subject)
-    HE->>MongoDB: resolve binding + create queued run
+    HE->>MongoDB: resolve binding + reserve queued run
     HE-->>BFF: 202 run_id
     HE->>AC: invoke/resume native session
     AC-->>HE: streaming chunks
@@ -74,6 +81,25 @@ event cursor, MongoDB, and the provider session ID form the reconnect contract.
 This avoids sticky BFF sessions and keeps execution alive when a browser or BFF
 subscriber disconnects. Process-failure takeover of an in-flight provider call
 is not implemented yet; completed event replay and subsequent thread resume are.
+
+## Admission and replay guarantees
+
+- Each binding has one durable run reservation. Reserve before compiling the
+  prompt; a distinct overlapping request returns `409`.
+- `client_request_id` is scoped to owner, agent and conversation. Identical
+  retries return the original run; reusing a key with different input returns
+  `409`, including after completion.
+- Clear closes the durable binding before provider cleanup. Dispatch uses a
+  conditional write against the active reservation, so a start paused during
+  compilation cannot invoke the provider after a successful clear.
+- MongoDB publishes each event's payload, sequence and run status in one run
+  document update. Appenders and readers idempotently copy the pending event
+  into `harness_events`, recovering an interruption between the two writes.
+- Missing or expired replay tails return `409` with `replay_unavailable` before
+  subscription. A gap discovered on an open SSE stream emits `run.failed` with
+  that code and closes the stream.
+- A lost producer still requires an explicit clear; provider takeover after
+  process failure remains outside this implementation.
 
 ## Portable contract
 

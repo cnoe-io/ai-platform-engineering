@@ -249,8 +249,8 @@ class CAIPEAgentSessionManager:
                 next_epoch=(binding.epoch + 1) if binding else 0,
             )
         adapter = self._registry.adapter(binding.harness_id)
-        await adapter.session_manager.close(binding)
         closed = await self._repository.close_session(binding.binding_id)
+        await adapter.session_manager.close(closed)
         return ClearAgentSessionResult(
             cleared=True,
             closed_binding_id=closed.binding_id,

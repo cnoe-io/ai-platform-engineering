@@ -224,6 +224,36 @@ class AdapterEvaluation(StrictModel):
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+class RunStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+TERMINAL_RUN_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+
+
+class RunRecord(StrictModel):
+    run_id: str
+    owner_subject: str
+    agent_id: str
+    agent_version: int
+    conversation_id: str
+    binding_id: str
+    harness_id: str
+    profile_id: str
+    provider_session_id: str | None = None
+    status: RunStatus = RunStatus.QUEUED
+    last_sequence: int = 0
+    client_request_id: str | None = None
+    request_fingerprint: str | None = None
+    error_code: str | None = None
+    traceparent: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
 class SessionBinding(StrictModel):
     binding_id: str
     owner_subject: str
@@ -237,6 +267,8 @@ class SessionBinding(StrictModel):
     epoch: int = Field(0, ge=0)
     revision: int = Field(1, ge=1)
     status: Literal["active", "degraded", "closed"] = "active"
+    active_run: RunRecord | None = None
+    dispatch_started: bool = False
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -268,36 +300,6 @@ class CancelActiveRunRequest(StrictModel):
 class CancelActiveRunResult(StrictModel):
     cancelled: bool
     run_id: str | None = None
-
-
-class RunStatus(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-TERMINAL_RUN_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
-
-
-class RunRecord(StrictModel):
-    run_id: str
-    owner_subject: str
-    agent_id: str
-    agent_version: int
-    conversation_id: str
-    binding_id: str
-    harness_id: str
-    profile_id: str
-    provider_session_id: str | None = None
-    status: RunStatus = RunStatus.QUEUED
-    last_sequence: int = 0
-    client_request_id: str | None = None
-    error_code: str | None = None
-    traceparent: str | None = None
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
 
 
 CanonicalEventType = Literal[
