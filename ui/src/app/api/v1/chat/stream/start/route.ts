@@ -9,6 +9,7 @@ import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import {
 resolveHarnessGatewayTarget,
+withHarnessGatewayTarget,
 streamHarnessGatewayRun,
 } from "@/lib/harness-gateway";
 import { NextRequest,NextResponse } from "next/server";
@@ -74,11 +75,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
-    subject: authResult.subject, conversationId: String(body.conversation_id),
-  });
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id), admit: true });
   if (target instanceof NextResponse) return target;
   if (target.kind === "harness_engine") {
+    body.expected_harness_id = target.harnessId;
     return streamHarnessGatewayRun(body, authResult, request.signal);
   }
 
@@ -87,10 +87,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (daConfig instanceof NextResponse) return daConfig;
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start`;
 
-  return proxySSEStream(
+  return withHarnessGatewayTarget(await proxySSEStream(
     backendUrl,
     JSON.stringify(body),
     authResult,
     "[stream/start]",
-  );
+  ), target);
 }

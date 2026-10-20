@@ -33,6 +33,7 @@ import {
   installTestSession,
 } from "./_helpers";
 import { mockedRbacEnabled } from "./_mocked-rbac";
+import type { AddMessageRequest } from "@/types/mongodb";
 
 const CHAT_AGENT_ID = "agent-multimodal-e2e";
 const CHAT_CONVERSATION_ID = "chat-multimodal-e2e-conv";
@@ -51,6 +52,7 @@ type StreamStartPayload = {
   conversation_id?: string;
   agent_id?: string;
   protocol?: string;
+  turn_id?: string;
   files?: StreamFile[];
 };
 
@@ -63,26 +65,30 @@ function minimalSessionEnv() {
   };
 }
 
-/** A minimal AG-UI success stream so the send resolves and renders a reply. */
+/** Canonical native AG-UI stream, including its durable run ID and replay cursors. */
 async function fulfillSuccessStream(route: Route): Promise<void> {
+  const runId = "multimodal-e2e-run";
+  const events = [
+    { type: "RUN_STARTED", runId, threadId: CHAT_CONVERSATION_ID },
+    { type: "TEXT_MESSAGE_START", messageId: "assistant-1", role: "assistant" },
+    { type: "TEXT_MESSAGE_CONTENT", messageId: "assistant-1", delta: "Received your attachment." },
+    { type: "TEXT_MESSAGE_END", messageId: "assistant-1" },
+    { type: "RUN_FINISHED", runId, threadId: CHAT_CONVERSATION_ID },
+  ];
   await route.fulfill({
     status: 200,
     contentType: "text/event-stream",
-    headers: { "Cache-Control": "no-cache" },
-    body: [
-      'event: RUN_STARTED\ndata: {"runId":"multimodal-e2e-run"}\n\n',
-      'event: TEXT_MESSAGE_START\ndata: {"messageId":"assistant-1"}\n\n',
-      'event: TEXT_MESSAGE_CONTENT\ndata: {"delta":"Received your attachment."}\n\n',
-      'event: TEXT_MESSAGE_END\ndata: {"messageId":"assistant-1"}\n\n',
-      'event: RUN_FINISHED\ndata: {"outcome":"success"}\n\n',
-    ].join(""),
+    headers: { "Cache-Control": "no-cache", "X-CAIPE-Run-Id": runId, "X-Harness-ID": "dynamic_agents" },
+    body: events.map((event, index) =>
+      `id: ${runId}:${index + 1}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+    ).join(""),
   });
 }
 
 async function installMultimodalMocks(
   page: Page,
   streamStartRequests: StreamStartPayload[],
-): Promise<void> {
+): Promise<{ releasePersistenceAcknowledgment: () => Promise<void> }> {
   const env = minimalSessionEnv();
 
   await installChatBootMocks(page, env, {
@@ -141,12 +147,47 @@ async function installMultimodalMocks(
     await route.continue();
   });
 
+  const savedMessages = new Map<string, AddMessageRequest>();
+  const sequence: string[] = [];
+  let releaseAcknowledgment!: () => void;
+  const persistenceAcknowledgment = new Promise<void>((resolve) => { releaseAcknowledgment = resolve; });
+  page.on("close", releaseAcknowledgment);
+  await page.route(`**/api/chat/conversations/${CHAT_CONVERSATION_ID}/messages**`, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const message = route.request().postDataJSON() as AddMessageRequest;
+    expect(message.message_id).toEqual(expect.any(String));
+    const id = message.message_id!;
+    const inserted = !savedMessages.has(id);
+    if (inserted) sequence.push(`saved:${message.role}`);
+    savedMessages.set(id, message);
+    // Hold the placeholder acknowledgment so the browser must demonstrate
+    // persistence before admitting external execution. Repeated saves upsert.
+    if (message.role === "assistant" && !message.metadata?.is_final) await persistenceAcknowledgment;
+    await route.fulfill({
+      status: inserted ? 201 : 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: { ...message, conversation_id: CHAT_CONVERSATION_ID } }),
+    });
+  });
+  await page.route("**/api/v1/chat/runs/latest**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: null }) });
+  });
+
   await page.route("**/api/v1/chat/stream/start", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
     }
-    streamStartRequests.push(JSON.parse(route.request().postData() ?? "{}"));
+    const payload = JSON.parse(route.request().postData() ?? "{}") as StreamStartPayload;
+    expect(payload.turn_id).toEqual(expect.any(String));
+    const savedTurn = [...savedMessages.values()].filter((message) => message.metadata?.turn_id === payload.turn_id);
+    expect(savedTurn.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(sequence).toEqual(["saved:user", "saved:assistant"]);
+    sequence.push("admitted");
+    streamStartRequests.push(payload);
     await fulfillSuccessStream(route);
   });
 
@@ -155,6 +196,12 @@ async function installMultimodalMocks(
     subject: "playwright-multimodal-sub",
     role: "user",
   });
+
+  return { releasePersistenceAcknowledgment: async () => {
+    await expect.poll(() => savedMessages.size).toBe(2);
+    expect(streamStartRequests).toHaveLength(0);
+    releaseAcknowledgment();
+  } };
 }
 
 async function openComposer(page: Page): Promise<void> {
@@ -195,7 +242,7 @@ test.describe("mocked RBAC e2e — chat multimodal input", () => {
   for (const [label, fixture] of Object.entries(FIXTURES)) {
     test(`attaches a ${label} file and sends it as multimodal input`, async ({ page }) => {
       const streamStartRequests: StreamStartPayload[] = [];
-      await installMultimodalMocks(page, streamStartRequests);
+      const transport = await installMultimodalMocks(page, streamStartRequests);
       await openComposer(page);
 
       await stageAttachment(page, fixture.path);
@@ -216,6 +263,7 @@ test.describe("mocked RBAC e2e — chat multimodal input", () => {
       const composer = page.getByRole("textbox", { name: "Message" });
       await composer.fill(`What is in this ${label} file?`);
       await composer.press("Enter");
+      await transport.releasePersistenceAcknowledgment();
 
       await expect.poll(() => streamStartRequests.length).toBe(1);
 
@@ -263,12 +311,13 @@ test.describe("mocked RBAC e2e — chat multimodal input", () => {
 
   test("a text-only turn omits files (byte-identical to a no-attachment send)", async ({ page }) => {
     const streamStartRequests: StreamStartPayload[] = [];
-    await installMultimodalMocks(page, streamStartRequests);
+    const transport = await installMultimodalMocks(page, streamStartRequests);
     await openComposer(page);
 
     const composer = page.getByRole("textbox", { name: "Message" });
     await composer.fill("plain text, no attachment");
     await composer.press("Enter");
+    await transport.releasePersistenceAcknowledgment();
 
     await expect.poll(() => streamStartRequests.length).toBe(1);
     expect(streamStartRequests[0]).not.toHaveProperty("files");

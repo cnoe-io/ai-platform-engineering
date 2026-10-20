@@ -1,13 +1,17 @@
 # Harness Engine
 
-Independent execution control plane for non-Dynamic-Agents harnesses. AgentCore
-and Claude Agent SDK exercise the same portable blueprint and adapter contract.
+Provider execution owner behind the canonical CAIPE Harness Gateway. AgentCore
+and Claude Agent SDK use its blueprint and adapter contracts. Native ACP retains
+the existing Dynamic Agents execution service and coordinator; Engine does not
+wrap that detached producer or duplicate its journal.
 
 ## Boundary
 
-- Dynamic Agents source, API, database documents, and streams are unchanged.
-- Complete agent blueprints and immutable versions are stored separately in
-  `harness_agents` and `harness_agent_versions`.
+- Existing CAIPE client APIs remain the front door. The gateway resolves saved
+  execution ownership before mutable agent defaults; each run has one owner
+  and authoritative journal in canonical CAIPE MongoDB.
+- `harness_agents` and `harness_agent_versions` retain provider projections and
+  immutable compiled revisions of the canonical CAIPE definition.
 - Durable `harness_sessions` bind an owner, agent version, and conversation to
   one native provider session. Existing conversations remain pinned when an
   agent is edited.
@@ -21,18 +25,11 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - The Next.js BFF authenticates and authorizes callers, then uses an internal service credential. User bearer tokens never reach Harness Engine or AgentCore.
 - A provider invocation belongs to Harness Engine, not to an SSE subscriber. Closing a browser or BFF connection only removes that subscription.
 - The existing BFF `/api/v1/chat/*` routes form Harness Gateway. They read the
-  BFF-owned `execution_harness_id`, preserve Dynamic Agents for missing/default
-  values, and translate Harness Engine canonical events for existing clients.
-- The gateway pins each owner/agent/conversation backend in the BFF's
-  `harness_gateway_bindings` collection. An agent edit does not change an
-  existing conversation's runtime. The authorized session-clear endpoint removes
-  that routing record only after Engine clear succeeds.
-- On first use, the gateway adopts native checkpoints from the application's
-  configured checkpoint collection and Engine sessions from the internal API.
-  Conflicting contexts return `409`. Known native context remains usable when
-  optional Engine lookup is unavailable. The BFF does not read Engine's private DB.
-- Missing Engine configuration returns `503` for saved SDK agents or pinned
-  Engine conversations. Legacy/default agents still use Dynamic Agents.
+  canonical `execution_harness_id`, normalize native compatibility aliases and
+  translate committed Engine events for existing clients.
+- Gateway routing references atomically select one owner for a new authorized
+  agent/context and preserve existing native/provider bindings. An unavailable
+  explicitly selected provider fails rather than substituting another runtime.
 
 ## Session flow
 
@@ -45,21 +42,23 @@ sequenceDiagram
     participant AC as AgentCore Runtime
 
     Browser->>BFF: POST /api/v1/chat/stream/start
-    Note over BFF: Resolve pinned backend or adopt the saved session
+    Note over BFF: Harness Gateway resolves execution_harness_id
     BFF->>HE: POST /api/v1/runs (internal token + subject)
-    HE->>MongoDB: resolve binding + reserve queued run
+    HE->>MongoDB: resolve binding + create queued run
     HE-->>BFF: 202 run_id
     HE->>AC: invoke/resume native session
     AC-->>HE: streaming chunks
     HE->>MongoDB: append sequenced events
     Browser->>BFF: GET events/stream?after=N
     BFF->>HE: subscribe after N
-    HE-->>Browser: replay + live SSE
+    HE-->>BFF: committed events
+    BFF-->>Browser: replay + live SSE
     Browser--xBFF: disconnect
     Note over HE,AC: invocation continues
     Browser->>BFF: reconnect with Last-Event-ID
     BFF->>HE: subscribe after last event
-    HE-->>Browser: remaining replay + live SSE
+    HE-->>BFF: remaining committed events
+    BFF-->>Browser: replay + live SSE
 ```
 
 Web UI, Slack, and Webex use the same gateway routes and AG-UI contract. They
@@ -83,31 +82,6 @@ This avoids sticky BFF sessions and keeps execution alive when a browser or BFF
 subscriber disconnects. Process-failure takeover of an in-flight provider call
 is not implemented yet; completed event replay and subsequent thread resume are.
 
-## Admission and replay guarantees
-
-- Each binding has one durable run reservation. Reserve before compiling the
-  prompt; a distinct overlapping request returns `409`.
-- Stop persists a cancellation request that the owning producer observes across
-  replicas. A dispatched provider drains with further content suppressed before
-  releasing its reservation. `cancelled: false, cancellation_requested: true`
-  means stop is pending; a request handled by another replica cannot free the slot.
-- `client_request_id` is scoped to owner, agent and conversation. Identical
-  retries return the original run; reusing a key with different input returns
-  `409`, including after completion.
-- Clear closes the durable binding before provider cleanup. Dispatch uses a
-  conditional write against the active reservation, so a start paused during
-  compilation cannot invoke the provider after a successful clear.
-- MongoDB publishes each event's payload, sequence and run status in one run
-  document update. Appenders and readers idempotently copy the pending event
-  into `harness_events`, recovering an interruption between the two writes.
-- Missing or expired replay tails return `409` with `replay_unavailable` before
-  subscription. A gap discovered on an open SSE stream emits `run.failed` with
-  that code and closes the stream.
-- Nonstreaming invoke consumes events through the committed terminal sequence
-  before returning or persisting the response.
-- A lost producer still requires an explicit clear; provider takeover after
-  process failure remains outside this implementation.
-
 ## Portable contract
 
 - `AgentBlueprint` owns portable prompt, model, tool, thread, memory, workspace,
@@ -127,11 +101,17 @@ for the full contract, UI flow, persistence model, and sandbox target architectu
 
 ## Configuration
 
-Harness Engine variables use the `HARNESS_ENGINE_` prefix:
+Runtime/provider settings use the `HARNESS_ENGINE_` prefix. Storage uses the
+same canonical `MONGODB_URI` and `MONGODB_DATABASE` as CAIPE (default database
+`caipe`). Legacy prefixed storage aliases remain accepted; explicitly conflicting
+cluster/database coordinates fail with migration guidance. Existing deployments
+with separate provider storage must migrate those collections before cutover:
 
 - `HARNESS_ENGINE_INTERNAL_TOKEN`: required BFF-to-engine credential.
-- `HARNESS_ENGINE_STORAGE_BACKEND`: `mongodb` for durable/replayable production sessions; `memory` for tests and local development.
-- `HARNESS_ENGINE_MONGODB_URI` and `HARNESS_ENGINE_MONGODB_DATABASE`.
+- `HARNESS_ENGINE_STORAGE_BACKEND`: defaults to `mongodb`; explicit `memory` is
+  for isolated tests and disposable development.
+- `MONGODB_URI` and `MONGODB_DATABASE`: canonical storage; the BFF and Engine
+  verify the admitted storage identity without forwarding URI credentials.
 - `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: sanitized AgentCore profile map.
   - Backward-compatible shared target: `{"primary":{"provisioning":"shared","arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:harness/example-AbCdEf1234","qualifier":"DEFAULT","region":"us-east-1"}}`.
   - One AWS Harness per CAIPE agent: `{"primary":{"provisioning":"per_agent","execution_role_arn":"arn:aws:iam::111122223333:role/example-agentcore-role","region":"us-east-1","model_id":"global.anthropic.claude-sonnet-example"}}`.
@@ -175,8 +155,46 @@ transcript into `claude_session_transcripts`. CAIPE stores the opaque Claude
 session ID in `harness_sessions`; the transcript is the other half of the
 resume contract. Keeping both in shared storage lets another Harness Engine
 replica resume the thread without depending on a container's local
-`~/.claude` directory. The SDK's local working copy lives under `/tmp` and is
-disposable.
+`~/.claude` directory. Each run uses a private temporary SDK configuration directory, removed after
+the provider closes. That local transcript copy is disposable; it is not a
+shared filesystem or recovery authority.
+
+The SDK adapter disables its built-in tools with `tools=[]`. No logical tool
+broker or OS sandbox is implied by this experimental provider descriptor. Its
+internal disposable transcript files are distinct from agent-visible tools.
+New Mongo transcript entries are tagged to the admitted binding/run and checked
+against its producer token, lease and canonical deletion guard. Mirror writes
+are shielded and drained before acknowledging producer cleanup. A uniquely
+owned legacy session can be adopted without changing its transcript JSON;
+ambiguous ownership or an unresolved older writer fails before provider work.
+Old orphan records without a known provider session cannot be safely attributed
+and need operator reconciliation, rather than a blanket purge.
+
+## Admission, replay and cleanup
+
+Identical request IDs and input attach to one admitted run. Changed input or a
+competing active turn fails. A renewable binding-scoped producer claim is checked
+after asynchronous preparation and before dispatch; clear and permanent deletion
+share that fence. Worker loss reports interruption and degrades the binding; it
+does not replay an uncertain provider mutation.
+
+Stop persists `cancellation_requested`. Before dispatch, the owner can stop
+preparation; a dispatched provider drains before its reservation is released.
+`cancelled: false, cancellation_requested: true` reports a pending stop, never
+proof that an external invocation has ended.
+
+A recoverable event intent is materialized idempotently before exposing its
+committed cursor/outcome, without requiring MongoDB replica-set transactions.
+Events are bounded and paged; a missing/expired prefix returns an explicit replay
+error. The BFF consumes the complete committed head before reporting an invoke
+result, and its standard-frame cursor preserves position within a projected event.
+
+Permanent deletion first records the canonical context tombstone, stops/drains
+known producers, then purges scoped journals and provider transcripts. An unknown
+claimed producer returns a retryable conflict pending reconciliation, rather
+than claiming its external work has stopped. Include routing references, session/
+run/event collections, transcript entries and deletion guards in canonical backup
+and retention procedures. Restoring records does not restart provider work.
 
 The UI BFF requires:
 
@@ -194,5 +212,5 @@ Quality gates:
 
 ```bash
 uv run ruff check src tests
-uv run pytest -q
+HARNESS_ENGINE_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 uv run pytest -q
 ```

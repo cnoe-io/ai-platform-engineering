@@ -156,6 +156,16 @@ async function bootDeletedAgentConversation(
     });
   });
 
+  // A deleted agent is absent from the use-authorized catalog as well as
+  // the detail endpoint. Chat also uses this catalog for viewers without read access.
+  await page.route("**/api/dynamic-agents/available", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [] }),
+    });
+  });
+
   await installTestSession(page, env, {
     email: CHAT_MEMBER_SESSION.email,
     subject: CHAT_MEMBER_SESSION.subject,

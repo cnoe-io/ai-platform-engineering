@@ -165,14 +165,19 @@ class CAIPEAgentSessionManager:
         )
 
     async def resolve(
-        self, owner_subject: str, agent_id: str, conversation_id: str
+        self, owner_subject: str, agent_id: str, conversation_id: str,
+        *, expected_harness_id: str | None = None,
     ) -> tuple[SessionBinding, AgentVersion]:
         record = await self._repository.get_agent(agent_id)
         if record is None or not record.enabled:
             raise AgentSessionNotRunnableError(agent_id)
 
         latest = await self.current(owner_subject, agent_id, conversation_id)
+        if latest is not None and latest.status == "degraded":
+            raise AgentSessionNotRunnableError("The interrupted provider binding requires an explicit clear")
         if latest is not None and latest.status == "active":
+            if expected_harness_id is not None and latest.harness_id != expected_harness_id:
+                raise AgentSessionNotRunnableError("The saved provider does not match the gateway binding")
             version = await self._repository.get_agent_version(
                 agent_id, latest.agent_version
             )
@@ -186,6 +191,8 @@ class CAIPEAgentSessionManager:
         )
         if version is None:
             raise AgentSessionNotRunnableError(agent_id)
+        if expected_harness_id is not None and version.blueprint.harness.id != expected_harness_id:
+            raise AgentSessionNotRunnableError("The selected provider changed; create a new execution context")
         try:
             adapter = self._registry.adapter(version.blueprint.harness.id)
         except KeyError as exc:

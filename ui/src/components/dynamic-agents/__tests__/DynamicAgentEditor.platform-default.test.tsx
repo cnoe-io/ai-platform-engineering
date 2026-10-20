@@ -318,7 +318,15 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     ).toHaveValue("dynamic_agents");
     expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
     expect(
-      screen.getByText(/Uses the existing LangChain Deep Agents runtime/),
+      screen.getByText(/Uses the shared DeepAgents runtime/),
     ).toBeInTheDocument();
   });
+  it("normalizes a saved native compatibility ID without loading an SDK overlay", async () => {
+    mockFetch(null);
+    render(<DynamicAgentEditor agent={{ ...editAgent, execution_harness_id: "langchain-deepagents" }} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+    expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining("/api/harness-engine/agents/"));
+  });
+
 });

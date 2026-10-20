@@ -96,18 +96,14 @@ class ThreadPolicy(StrictModel):
 
 class MemoryPolicy(StrictModel):
     enabled: bool = False
-    read_scopes: list[Literal["user", "agent", "organization"]] = Field(
-        default_factory=lambda: ["user"], max_length=3
-    )
+    read_scopes: list[Literal["user", "agent", "organization"]] = Field(default_factory=lambda: ["user"], max_length=3)
     write_scope: Literal["user", "agent"] = "user"
     kinds: list[Literal["semantic", "episodic_reference", "procedural"]] = Field(
         default_factory=lambda: ["semantic"], max_length=3
     )
     retrieval: Literal["startup_bounded", "on_demand"] = "on_demand"
     max_results: int = Field(10, ge=1, le=50)
-    write_policy: Literal["disabled", "automatic_scoped", "approval_for_sensitive"] = (
-        "approval_for_sensitive"
-    )
+    write_policy: Literal["disabled", "automatic_scoped", "approval_for_sensitive"] = "approval_for_sensitive"
     retention_profile: str = Field("standard", max_length=64)
 
 
@@ -224,6 +220,56 @@ class AdapterEvaluation(StrictModel):
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+class SessionBinding(StrictModel):
+    binding_id: str
+    owner_subject: str
+    agent_id: str
+    agent_version: int
+    conversation_id: str
+    harness_id: str
+    profile_id: str
+    provider_session_id: str | None = Field(None, max_length=1024)
+    checkpoint_strategy: Literal["langgraph", "adapter_store", "remote_managed", "ephemeral"]
+    epoch: int = Field(0, ge=0)
+    revision: int = Field(1, ge=1)
+    status: Literal["active", "degraded", "closed"] = "active"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ClearAgentSessionRequest(StrictModel):
+    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    conversation_id: str = Field(..., min_length=1, max_length=256)
+
+
+class ClearAgentSessionResult(StrictModel):
+    cleared: bool
+    closed_binding_id: str | None = None
+    next_epoch: int = Field(0, ge=0)
+
+
+class CreateRunRequest(StrictModel):
+    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    conversation_id: str = Field(..., min_length=1, max_length=256)
+    message: str = Field(..., min_length=1, max_length=1_000_000)
+    context: str | None = Field(None, max_length=500_000)
+    client_request_id: str | None = Field(None, min_length=1, max_length=128)
+    protocol: Literal["agui", "custom"] = "agui"
+    expected_harness_id: str | None = Field(None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+
+
+class CancelActiveRunRequest(StrictModel):
+    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    conversation_id: str = Field(..., min_length=1, max_length=256)
+    client_request_id: str | None = Field(None, min_length=1, max_length=128)
+
+
+class CancelActiveRunResult(StrictModel):
+    cancelled: bool
+    run_id: str | None = None
+    cancellation_requested: bool = False
+
+
 class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -248,60 +294,12 @@ class RunRecord(StrictModel):
     status: RunStatus = RunStatus.QUEUED
     last_sequence: int = 0
     client_request_id: str | None = None
-    request_fingerprint: str | None = None
+    protocol: Literal["agui", "custom"] = "agui"
     cancellation_requested: bool = False
     error_code: str | None = None
     traceparent: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-
-class SessionBinding(StrictModel):
-    binding_id: str
-    owner_subject: str
-    agent_id: str
-    agent_version: int
-    conversation_id: str
-    harness_id: str
-    profile_id: str
-    provider_session_id: str | None = Field(None, max_length=1024)
-    checkpoint_strategy: Literal["langgraph", "adapter_store", "remote_managed", "ephemeral"]
-    epoch: int = Field(0, ge=0)
-    revision: int = Field(1, ge=1)
-    status: Literal["active", "degraded", "closed"] = "active"
-    active_run: RunRecord | None = None
-    dispatch_started: bool = False
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
-
-
-class ClearAgentSessionRequest(StrictModel):
-    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
-    conversation_id: str = Field(..., min_length=1, max_length=256)
-
-
-class ClearAgentSessionResult(StrictModel):
-    cleared: bool
-    closed_binding_id: str | None = None
-    next_epoch: int = Field(0, ge=0)
-
-
-class CreateRunRequest(StrictModel):
-    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
-    conversation_id: str = Field(..., min_length=1, max_length=256)
-    message: str = Field(..., min_length=1, max_length=1_000_000)
-    context: str | None = Field(None, max_length=500_000)
-    client_request_id: str | None = Field(None, min_length=1, max_length=128)
-
-
-class CancelActiveRunRequest(StrictModel):
-    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
-    conversation_id: str = Field(..., min_length=1, max_length=256)
-
-
-class CancelActiveRunResult(StrictModel):
-    cancelled: bool
-    run_id: str | None = None
-    cancellation_requested: bool = False
 
 
 CanonicalEventType = Literal[
@@ -353,3 +351,4 @@ class RunContext(StrictModel):
     binding: SessionBinding
     prompt: RenderedPrompt
     turn: TurnInput
+    producer_token: str | None = Field(None, exclude=True, repr=False)

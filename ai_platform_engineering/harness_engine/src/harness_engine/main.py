@@ -36,9 +36,10 @@ from harness_engine.registry import HarnessNotFoundError, HarnessRegistry
 from harness_engine.repository import (
     InMemoryRunRepository,
     MongoRunRepository,
-    ReplayGapError,
+    ReplayUnavailableError,
     RevisionConflictError,
-    RunAdmissionError,
+    RunAdmissionConflict,
+    RunFencedError,
     RunRepository,
 )
 from harness_engine.sessions import CAIPEAgentSessionManager
@@ -46,9 +47,7 @@ from harness_engine.sessions import CAIPEAgentSessionManager
 
 def _repository(settings: Settings) -> RunRepository:
     if settings.storage_backend == "mongodb":
-        return MongoRunRepository(
-            settings.mongodb_uri, settings.mongodb_database, settings.event_retention_seconds
-        )
+        return MongoRunRepository(settings.mongodb_uri, settings.mongodb_database, settings.event_retention_seconds)
     return InMemoryRunRepository()
 
 
@@ -62,14 +61,10 @@ def create_app(
     resolved_settings = settings or Settings()
     resolved_repository = repository or _repository(resolved_settings)
     resolved_adapters = adapters or [
-        AgentCoreAdapter(
-            resolved_settings, resource_repository=resolved_repository
-        ),
+        AgentCoreAdapter(resolved_settings, resource_repository=resolved_repository),
         ClaudeSDKAdapter(resolved_settings),
     ]
-    resolved_agentcore_provisioner = (
-        agentcore_provisioner or AgentCoreHarnessProvisioner(resolved_settings)
-    )
+    resolved_agentcore_provisioner = agentcore_provisioner or AgentCoreHarnessProvisioner(resolved_settings)
     registry = HarnessRegistry(resolved_adapters)
     session_manager = CAIPEAgentSessionManager(
         resolved_repository,
@@ -98,17 +93,30 @@ def create_app(
     app.state.coordinator = coordinator
     app.state.agentcore_provisioner = resolved_agentcore_provisioner
 
+    @app.exception_handler(RunAdmissionConflict)
+    async def admission_conflict(_: Request, exc: RunAdmissionConflict) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": str(exc)})
+
     async def caller_subject(
         authorization: Annotated[str | None, Header()] = None,
         x_harness_engine_subject: Annotated[str | None, Header()] = None,
+        x_harness_engine_storage_binding: Annotated[str | None, Header()] = None,
     ) -> str:
         expected = f"Bearer {resolved_settings.internal_token}"
         if not authorization or not hmac.compare_digest(authorization, expected):
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED, "Invalid internal service credential"
-            )
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid internal service credential")
         if not x_harness_engine_subject:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing caller subject")
+        if x_harness_engine_storage_binding is not None and (
+            resolved_settings.storage_backend != "mongodb"
+            or len(x_harness_engine_storage_binding) != 64
+            or not x_harness_engine_storage_binding.isascii()
+            or not hmac.compare_digest(x_harness_engine_storage_binding, resolved_settings.storage_binding)
+        ):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Harness Engine and CAIPE must use the same canonical MongoDB",
+            )
         return x_harness_engine_subject
 
     def ensure_owner(run: RunRecord | None, subject: str) -> RunRecord:
@@ -157,9 +165,7 @@ def create_app(
         _: str = Depends(caller_subject),
     ) -> dict[str, object]:
         if body.blueprint.id != agent_id:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Agent path and blueprint IDs differ"
-            )
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Agent path and blueprint IDs differ")
         try:
             validation = registry.validate(body.blueprint, body.catalog_revision)
         except HarnessNotFoundError as exc:
@@ -167,34 +173,28 @@ def create_app(
         if not validation.valid:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                {"message": "Agent blueprint is invalid", "issues": validation.issues},
+                {
+                    "message": "Agent blueprint is invalid",
+                    "issues": [issue.model_dump(mode="json") for issue in validation.issues],
+                },
             )
         if body.config_fingerprint and body.config_fingerprint != validation.config_fingerprint:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Agent draft changed after server validation"
-            )
+            raise HTTPException(status.HTTP_409_CONFLICT, "Agent draft changed after server validation")
         current_record = await resolved_repository.get_agent(agent_id)
         if body.expected_revision is not None and (
-            current_record is None
-            or current_record.revision != body.expected_revision
+            current_record is None or current_record.revision != body.expected_revision
         ):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Harness agent revision conflict"
-            )
+            raise HTTPException(status.HTTP_409_CONFLICT, "Harness agent revision conflict")
         current_resource = await resolved_repository.get_provider_resource(agent_id)
         prepared_resource = None
         resource_created = False
         if validation.normalized_blueprint.harness.id == "agentcore":
             try:
-                prepared_resource, resource_created = (
-                    await resolved_agentcore_provisioner.ensure(
-                        validation.normalized_blueprint, current_resource
-                    )
+                prepared_resource, resource_created = await resolved_agentcore_provisioner.ensure(
+                    validation.normalized_blueprint, current_resource
                 )
             except ProviderProvisioningError as exc:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY, str(exc)
-                ) from exc
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
             if prepared_resource is not None:
                 await resolved_repository.save_provider_resource(prepared_resource)
 
@@ -219,8 +219,7 @@ def create_app(
             raise HTTPException(status.HTTP_409_CONFLICT, "Harness agent revision conflict") from exc
 
         if current_resource is not None and (
-            prepared_resource is None
-            or current_resource.arn != prepared_resource.arn
+            prepared_resource is None or current_resource.arn != prepared_resource.arn
         ):
             try:
                 await resolved_agentcore_provisioner.delete(current_resource)
@@ -233,17 +232,13 @@ def create_app(
         return {"success": True, "data": {"record": record, "version": version}}
 
     @app.delete("/api/v1/agents/{agent_id}")
-    async def delete_agent(
-        agent_id: str, _: str = Depends(caller_subject)
-    ) -> dict[str, object]:
+    async def delete_agent(agent_id: str, _: str = Depends(caller_subject)) -> dict[str, object]:
         resource = await resolved_repository.get_provider_resource(agent_id)
         if resource is not None:
             try:
                 await resolved_agentcore_provisioner.delete(resource)
             except ProviderProvisioningError as exc:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY, str(exc)
-                ) from exc
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
             await resolved_repository.delete_provider_resource(agent_id)
         deleted = await resolved_repository.delete_agent(agent_id)
         return {"success": True, "data": {"deleted": deleted, "agent_id": agent_id}}
@@ -257,31 +252,28 @@ def create_app(
         incoming_traceparent = request.headers.get("traceparent")
         traceparent = (
             incoming_traceparent.lower()
-            if incoming_traceparent
-            and re.fullmatch(
-                r"00-[0-9a-fA-F]{32}-[0-9a-fA-F]{16}-0[01]", incoming_traceparent
-            )
+            if incoming_traceparent and re.fullmatch(r"00-[0-9a-fA-F]{32}-[0-9a-fA-F]{16}-0[01]", incoming_traceparent)
             else None
         )
         try:
             run = await coordinator.start_run(body, subject, traceparent)
         except AgentNotRunnableError as exc:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Agent has no runnable harness version"
-            ) from exc
-        except RunAdmissionError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Agent has no runnable harness version") from exc
+        except (RunAdmissionConflict, RunFencedError) as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         return {"success": True, "data": run}
 
     @app.post("/api/v1/sessions/lookup")
     async def lookup_session(
-        body: ClearAgentSessionRequest, subject: str = Depends(caller_subject)
+        body: ClearAgentSessionRequest,
+        subject: str = Depends(caller_subject),
     ) -> dict[str, object]:
-        run = await resolved_repository.get_active_run(subject, body.agent_id, body.conversation_id)
-        binding = await session_manager.current(subject, body.agent_id, body.conversation_id)
-        harness_id = run.harness_id if run else (
-            binding.harness_id if binding and binding.status == "active" else None
-        )
+        try:
+            active = await resolved_repository.get_active_run(subject, body.agent_id, body.conversation_id)
+            binding = await resolved_repository.get_latest_session(subject, body.agent_id, body.conversation_id)
+        except RunAdmissionConflict as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        harness_id = active.harness_id if active else binding.harness_id if binding and binding.status == "active" else None
         return {"success": True, "data": {"harness_id": harness_id}}
 
     @app.post("/api/v1/sessions/clear")
@@ -289,10 +281,27 @@ def create_app(
         body: ClearAgentSessionRequest,
         subject: str = Depends(caller_subject),
     ) -> dict[str, object]:
-        result = await coordinator.clear_session(
-            subject, body.agent_id, body.conversation_id
-        )
+        result = await coordinator.clear_session(subject, body.agent_id, body.conversation_id)
         return {"success": True, "data": result}
+
+    @app.get("/api/v1/runs/latest")
+    async def latest_run(
+        agent_id: str = Query(..., min_length=1, max_length=128),
+        conversation_id: str = Query(..., min_length=1, max_length=256),
+        subject: str = Depends(caller_subject),
+    ) -> dict[str, object]:
+        return {"success": True, "data": await resolved_repository.get_latest_run(subject, agent_id, conversation_id)}
+
+    @app.post("/api/v1/sessions/delete")
+    async def delete_session(
+        body: ClearAgentSessionRequest,
+        subject: str = Depends(caller_subject),
+    ) -> dict[str, object]:
+        try:
+            await coordinator.delete_session(subject, body.agent_id, body.conversation_id)
+        except RunAdmissionConflict as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        return {"success": True, "data": {"deleted": True}}
 
     @app.get("/api/v1/runs/{run_id}")
     async def get_run(run_id: str, subject: str = Depends(caller_subject)) -> dict[str, object]:
@@ -300,12 +309,6 @@ def create_app(
             "success": True,
             "data": ensure_owner(await resolved_repository.get_run(run_id), subject),
         }
-
-    @app.exception_handler(ReplayGapError)
-    async def replay_gap_error(_: Request, exc: ReplayGapError) -> JSONResponse:
-        return JSONResponse(
-            {"success": False, "error": str(exc), "code": "replay_unavailable"}, status_code=409
-        )
 
     @app.get("/api/v1/runs/{run_id}/events")
     async def get_events(
@@ -315,11 +318,14 @@ def create_app(
         wait: float = Query(0.0, ge=0.0, le=30.0),
     ) -> dict[str, object]:
         ensure_owner(await resolved_repository.get_run(run_id), subject)
-        events = await (
-            resolved_repository.wait_for_events(run_id, after, wait)
-            if wait > 0
-            else resolved_repository.list_events(run_id, after)
-        )
+        try:
+            events = await (
+                resolved_repository.wait_for_events(run_id, after, wait)
+                if wait > 0
+                else resolved_repository.list_events(run_id, after)
+            )
+        except ReplayUnavailableError as exc:
+            raise HTTPException(status.HTTP_410_GONE, "Committed run history has expired or is incomplete") from exc
         refreshed = ensure_owner(await resolved_repository.get_run(run_id), subject)
         page = EventPage(
             run=refreshed,
@@ -336,8 +342,10 @@ def create_app(
         after: int = Query(0, ge=0),
     ) -> StreamingResponse:
         ensure_owner(await resolved_repository.get_run(run_id), subject)
-
-        await resolved_repository.list_events(run_id, after)
+        try:
+            await resolved_repository.list_events(run_id, after)
+        except ReplayUnavailableError as exc:
+            raise HTTPException(status.HTTP_410_GONE, "Committed run history has expired or is incomplete") from exc
 
         async def generate() -> AsyncIterator[str]:
             cursor = after
@@ -348,15 +356,14 @@ def create_app(
                     events = await resolved_repository.wait_for_events(
                         run_id, cursor, resolved_settings.long_poll_seconds
                     )
-                except ReplayGapError:
-                    yield 'event: run.failed\ndata: {"code":"replay_unavailable","message":"Replay events are missing or expired"}\n\n'
+                except ReplayUnavailableError:
+                    # This is a transport failure, not a fabricated committed
+                    # journal event. It has no SSE ID/cursor and ends replay.
+                    yield 'event: run.failed\ndata: {"code":"replay_unavailable","message":"Committed run history has expired or is incomplete"}\n\n'
                     return
                 for event in events:
                     cursor = event.sequence
-                    yield (
-                        f"id: {event.sequence}\nevent: {event.event_type}\n"
-                        f"data: {json.dumps(event.data)}\n\n"
-                    )
+                    yield (f"id: {event.sequence}\nevent: {event.event_type}\ndata: {json.dumps(event.data)}\n\n")
                 run = await resolved_repository.get_run(run_id)
                 if run and run.status in TERMINAL_RUN_STATUSES and cursor >= run.last_sequence:
                     return
@@ -370,9 +377,7 @@ def create_app(
         )
 
     @app.delete("/api/v1/runs/{run_id}")
-    async def cancel_run(
-        run_id: str, subject: str = Depends(caller_subject)
-    ) -> dict[str, object]:
+    async def cancel_run(run_id: str, subject: str = Depends(caller_subject)) -> dict[str, object]:
         ensure_owner(await resolved_repository.get_run(run_id), subject)
         return {"success": True, "data": await coordinator.cancel(run_id)}
 
@@ -381,9 +386,7 @@ def create_app(
         body: CancelActiveRunRequest,
         subject: str = Depends(caller_subject),
     ) -> dict[str, object]:
-        result = await coordinator.cancel_active(
-            subject, body.agent_id, body.conversation_id
-        )
+        result = await coordinator.cancel_active(subject, body.agent_id, body.conversation_id, body.client_request_id)
         return {"success": True, "data": result}
 
     return app

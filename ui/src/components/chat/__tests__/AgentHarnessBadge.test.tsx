@@ -33,4 +33,12 @@ describe("AgentHarnessBadge", () => {
     fireEvent.mouseEnter(logo);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Execution harness: example_harness");
   });
+  it("distinguishes the configured default from a resolved execution harness", async () => {
+    render(<AgentHarnessBadge harnessId="agentcore" context="configured" />);
+    const logo = screen.getByRole("img", { name: "Configured harness: Amazon Bedrock AgentCore" });
+    fireEvent.mouseEnter(logo);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Configured harness: Amazon Bedrock AgentCore");
+    expect(screen.queryByLabelText("Execution harness: Amazon Bedrock AgentCore")).not.toBeInTheDocument();
+  });
+
 });

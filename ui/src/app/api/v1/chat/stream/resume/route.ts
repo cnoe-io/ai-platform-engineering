@@ -8,6 +8,7 @@
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import {
 resolveHarnessGatewayTarget,
+withHarnessGatewayTarget,
 unsupportedHarnessResume,
 } from "@/lib/harness-gateway";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
@@ -74,9 +75,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
-    subject: authResult.subject, conversationId: String(body.conversation_id),
-  });
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id), admit: true });
   if (target instanceof NextResponse) return target;
   if (target.kind === "harness_engine") return unsupportedHarnessResume();
 
@@ -85,10 +84,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (daConfig instanceof NextResponse) return daConfig;
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/resume`;
 
-  return proxySSEStream(
+  return withHarnessGatewayTarget(await proxySSEStream(
     backendUrl,
     JSON.stringify(body),
     authResult,
     "[stream/resume]",
-  );
+  ), target);
 }

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import type { AuthResult } from "@/lib/da-proxy";
@@ -5,6 +7,15 @@ import type { AuthResult } from "@/lib/da-proxy";
 export interface HarnessEngineConfig {
   url: string;
   internalToken: string;
+  storageBinding?: string;
+}
+
+/** Configuration guard only: separate service credentials/options do not change database ownership. */
+export function canonicalMongoStorageBinding(uri: string, database: string): string {
+  const match = /^(mongodb(?:\+srv)?):\/\/([^/?#]+)/i.exec(uri);
+  if (!match) throw new Error("A valid MongoDB connection URI is required");
+  const hosts = match[2].slice(match[2].lastIndexOf("@") + 1).split(",").map((host) => host.toLowerCase().replace(/:27017$/, "")).sort();
+  return createHash("sha256").update(JSON.stringify([match[1].toLowerCase(), hosts, database])).digest("hex");
 }
 
 export function isHarnessEngineConfigured(): boolean {
@@ -24,7 +35,10 @@ export function getHarnessEngineConfig(): HarnessEngineConfig | NextResponse {
       { status: 503 },
     );
   }
-  return { url, internalToken };
+  const uri = process.env.MONGODB_URI;
+  const database = process.env.MONGODB_DATABASE;
+  const storageBinding = uri && database ? canonicalMongoStorageBinding(uri, database) : undefined;
+  return { url, internalToken, storageBinding };
 }
 
 export function buildHarnessEngineHeaders(
@@ -45,6 +59,7 @@ export function buildHarnessEngineHeaders(
     "Content-Type": contentType,
     "X-Harness-Engine-Subject": auth.subject,
   };
+  if (config.storageBinding) headers["X-Harness-Engine-Storage-Binding"] = config.storageBinding;
   if (auth.traceparent) headers.traceparent = auth.traceparent;
   return headers;
 }

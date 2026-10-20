@@ -13,6 +13,7 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import { normalizeHarnessId } from "@/lib/agent-presentation";
 import { getCollection } from "@/lib/mongodb";
 import {
   getHarnessEngineConfig,
@@ -326,7 +327,8 @@ function normalizeString(value: unknown): string | null {
 }
 
 function normalizeExecutionHarnessId(value: unknown): string {
-  const harnessId = normalizeString(value) || "dynamic_agents";
+  if (value != null && typeof value !== "string") throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
+  const harnessId = normalizeHarnessId(typeof value === "string" ? value : undefined);
   if (!EXECUTION_HARNESS_ID_PATTERN.test(harnessId)) {
     throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
   }
@@ -974,11 +976,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   // Build update with explicit field allowlist
   const updateData = pickMutableFields(body);
-  if (Object.prototype.hasOwnProperty.call(body, "execution_harness_id")) {
-    updateData.execution_harness_id = normalizeExecutionHarnessId(
-      body.execution_harness_id,
-    );
-  }
   if (Object.prototype.hasOwnProperty.call(updateData, "allowed_remote_agents")) {
     updateData.allowed_remote_agents = await validateRemoteAgentIds(updateData.allowed_remote_agents);
   }
@@ -992,6 +989,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     );
   }
   const unsetData: Record<string, "">  = {};
+  if (Object.prototype.hasOwnProperty.call(body, "execution_harness_id")) {
+    updateData.execution_harness_id = normalizeExecutionHarnessId(
+      body.execution_harness_id,
+    );
+  }
   const datasourceSelectionChanged = Object.prototype.hasOwnProperty.call(
     body,
     "datasource_ids",

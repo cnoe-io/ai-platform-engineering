@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import type { AuthResult } from "@/lib/da-proxy";
+import { harnessRunCursor, parseHarnessRunCursor, type HarnessRunCursor } from "@/lib/harness-run-cursor";
+import { normalizeHarnessId } from "@/lib/agent-presentation";
 import {
   buildHarnessEngineHeaders,
   getHarnessEngineConfig,
-  isHarnessEngineConfigured,
-  lookupHarnessSession,
   type HarnessEngineConfig,
 } from "@/lib/harness-engine-proxy";
 import { getCollection } from "@/lib/mongodb";
@@ -17,13 +17,25 @@ export const DEFAULT_HARNESS_ID = "dynamic_agents";
 interface AgentRuntimeRecord {
   _id: string;
   execution_harness_id?: string;
-  backend?: { config?: { checkpoint_collection?: string | null } };
+  execution?: { kind?: string };
+  backend?: { config?: { checkpoint_collection?: string } };
 }
 
 export interface HarnessGatewayTarget {
   kind: "dynamic_agents" | "harness_engine";
   harnessId: string;
 }
+
+interface GatewayBinding {
+  _id: string;
+  agent_id: string;
+  session_id?: string;
+  conversation_id?: string;
+  owner_subject?: string;
+  harness_id: string;
+}
+
+const NATIVE_HARNESS_ALIASES = [DEFAULT_HARNESS_ID, "langchain-deepagents", "langchain_deepagents"];
 
 interface Envelope<T> {
   success: boolean;
@@ -42,7 +54,6 @@ interface GatewayStreamState {
   messageId: string;
   messageStarted: boolean;
   terminalSent: boolean;
-  toolNames: Map<string, string>;
 }
 
 type GatewayProtocol = "custom" | "agui";
@@ -54,82 +65,131 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 } as const;
 
-function normalizedHarnessId(value: unknown): string {
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : DEFAULT_HARNESS_ID;
-}
-
-interface GatewayBinding {
-  _id: string;
-  owner_subject: string;
-  agent_id: string;
-  conversation_id: string;
-  harness_id: string;
-}
-
-function gatewayBindingId(agentId: string, subject: string, conversationId: string): string {
-  return createHash("sha256").update(JSON.stringify([subject, agentId, conversationId])).digest("hex");
-}
-
-export async function clearHarnessGatewayBinding(agentId: string, subject: string, conversationId: string): Promise<void> {
-  const bindings = await getCollection<GatewayBinding>("harness_gateway_bindings");
-  await bindings.deleteOne({ _id: gatewayBindingId(agentId, subject, conversationId) });
-}
-
-/** Resolve the owner/conversation's pinned backend before an agent default. */
+/** Resolve only after authorizing the visible conversation and its runtime context.
+ * Saved provider bindings take precedence over mutable agent configuration.
+ * The gateway reads identity coordinates only; each provider owns its state.
+ */
 export async function resolveHarnessGatewayTarget(
   agentId: string,
-  context: { subject: string; conversationId: string; traceparent?: string },
+  context?: { conversationId: string; admit?: boolean },
 ): Promise<HarnessGatewayTarget | NextResponse> {
   try {
-    const bindings = await getCollection<GatewayBinding>("harness_gateway_bindings");
-    const key = { _id: gatewayBindingId(agentId, context.subject, context.conversationId) };
-    let binding = await bindings.findOne(key);
-    if (!binding) {
-      const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
-      const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1, backend: 1 } });
-      if (!agent) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
-      let harnessId = normalizedHarnessId(agent.execution_harness_id);
-      // Dynamic Agents and the BFF share the application database. Match the
-      // native runtime's checkpointer collection, including per-agent overrides.
-      const checkpointCollection = agent.backend?.config?.checkpoint_collection ||
-        process.env.CHECKPOINT_COLLECTION || "checkpoints_conversation";
-      const checkpoints = await getCollection(checkpointCollection);
-      const nativeContext = await checkpoints.findOne(
-        { thread_id: context.conversationId }, { projection: { _id: 1 } },
-      );
-      if (nativeContext) harnessId = DEFAULT_HARNESS_ID;
-      const config = getHarnessEngineConfig();
-      if (isHarnessEngineConfigured() && !(config instanceof NextResponse)) {
-        // Compare both authoritative owners when adopting pre-gateway sessions.
-        const saved = await lookupHarnessSession(config, context, agentId, context.conversationId);
-        if (saved instanceof NextResponse) {
-          if (!nativeContext) return saved;
-        } else if (nativeContext && saved.harness_id && saved.harness_id !== DEFAULT_HARNESS_ID) {
-          return NextResponse.json({ success: false, error: "Conversation has conflicting runtime contexts; clear it before continuing" }, { status: 409 });
-        } else {
-          harnessId = saved.harness_id ?? harnessId;
-        }
-      } else if (harnessId !== DEFAULT_HARNESS_ID && config instanceof NextResponse) {
-        return config;
+    const claimId = context ? createHash("sha256").update(`${agentId}\0${context.conversationId}`).digest("hex") : "";
+    const claims = context ? await getCollection<GatewayBinding>("harness_gateway_bindings") : null;
+    const deleted = context ? await getCollection<{ _id: string }>("native_acp_deleted_sessions") : null;
+    const claim = claims && await claims.findOne({ _id: claimId });
+    if (claim && (claim.agent_id !== agentId || claim.session_id !== context?.conversationId || typeof claim.harness_id !== "string")) {
+      throw new Error("Invalid gateway execution owner reference");
+    }
+    const conflict = () => NextResponse.json(
+      { success: false, error: "Conflicting runtime bindings require an explicit migration", code: "RUNTIME_BINDING_CONFLICT" },
+      { status: 409 },
+    );
+    // Older gateways keyed this same collection by owner. Reconcile those
+    // stored choices across the authorized context instead of creating another
+    // execution owner when the caller or shared definition changes.
+    const legacy = claims && await claims.findOne({ agent_id: agentId, conversation_id: context!.conversationId });
+    let legacyHarnessId: string | undefined;
+    if (legacy) {
+      if (typeof legacy.owner_subject !== "string" || !legacy.owner_subject.trim() ||
+          typeof legacy.harness_id !== "string" || !legacy.harness_id.trim() ||
+          legacy._id !== createHash("sha256").update(JSON.stringify([legacy.owner_subject, agentId, context!.conversationId])).digest("hex")) {
+        throw new Error("Invalid legacy gateway execution owner reference");
       }
-      binding = await bindings.findOneAndUpdate(key, { $setOnInsert: {
-        ...key, owner_subject: context.subject, agent_id: agentId,
-        conversation_id: context.conversationId, harness_id: harnessId,
-      } }, { upsert: true, returnDocument: "after" });
-      if (!binding) throw new Error("Backend binding could not be saved");
+      legacyHarnessId = normalizeHarnessId(legacy.harness_id);
+      const aliases = legacyHarnessId === DEFAULT_HARNESS_ID ? NATIVE_HARNESS_ALIASES : [legacy.harness_id];
+      if ((claim && normalizeHarnessId(claim.harness_id) !== legacyHarnessId) || await claims!.findOne({
+        agent_id: agentId, conversation_id: context!.conversationId, harness_id: { $nin: aliases },
+      })) return conflict();
     }
-    const harnessId = normalizedHarnessId(binding.harness_id);
-    if (harnessId !== DEFAULT_HARNESS_ID) {
-      const config = getHarnessEngineConfig();
-      if (config instanceof NextResponse) return config;
+    const wasDeleted = async () => Boolean(deleted && await deleted.findOne({ _id: context!.conversationId }, { projection: { _id: 1 } }));
+    const deletedResponse = () => NextResponse.json({ success: false, error: "This execution context was permanently deleted" }, { status: 409 });
+    if (await wasDeleted()) return deletedResponse();
+    const selected = async (harnessId: string, authoritative = false): Promise<HarnessGatewayTarget | NextResponse> => {
+      if ((claim && authoritative && normalizeHarnessId(claim.harness_id) !== harnessId) ||
+          (legacyHarnessId !== undefined && authoritative && legacyHarnessId !== harnessId)) return conflict();
+      let admitted = claim ? normalizeHarnessId(claim.harness_id) : legacyHarnessId ?? harnessId;
+      if (admitted !== DEFAULT_HARNESS_ID) {
+        const config = getHarnessEngineConfig();
+        if (config instanceof NextResponse) return config;
+      }
+      if (claims && context?.admit && !claim) {
+        let stored;
+        try {
+          stored = await claims.findOneAndUpdate(
+            { _id: claimId },
+            { $setOnInsert: { agent_id: agentId, session_id: context.conversationId, harness_id: admitted } },
+            { upsert: true, returnDocument: "after" },
+          );
+        } catch (error) {
+          if ((error as { code?: number }).code !== 11000) throw error;
+          stored = await claims.findOne({ _id: claimId });
+        }
+        if (!stored || stored.agent_id !== agentId || stored.session_id !== context.conversationId || typeof stored.harness_id !== "string") {
+          throw new Error("Gateway execution owner admission failed");
+        }
+        const winner = normalizeHarnessId(stored.harness_id);
+        if ((authoritative && winner !== harnessId) || (legacyHarnessId !== undefined && winner !== legacyHarnessId)) return conflict();
+        admitted = winner;
+      }
+      // A permanent deletion can race a request authorized before its tombstone.
+      if (context?.admit && await wasDeleted()) return deletedResponse();
+      if (admitted !== DEFAULT_HARNESS_ID) {
+        const config = getHarnessEngineConfig();
+        if (config instanceof NextResponse) return config;
+      }
+      return { kind: admitted === DEFAULT_HARNESS_ID ? "dynamic_agents" : "harness_engine", harnessId: admitted };
+    };
+    if (context) {
+      const nativeBindings = await getCollection("native_acp_sessions");
+      const engineBindings = await getCollection("harness_sessions");
+      const checkpoints = await getCollection(process.env.CHECKPOINT_COLLECTION || "checkpoints_conversation");
+      const [native, engine, legacyCheckpoint] = await Promise.all([
+        nativeBindings.findOne({ agent_id: agentId, session_id: context.conversationId }, { projection: { _id: 0, protocol: 1, runtime_kind: 1 } }),
+        engineBindings.findOne({ agent_id: agentId, conversation_id: context.conversationId }, { projection: { _id: 0, harness_id: 1 }, sort: { epoch: -1 } }),
+        checkpoints.findOne({ thread_id: context.conversationId }, { projection: { _id: 1 } }),
+      ]);
+      if ((native || legacyCheckpoint) && engine) return conflict();
+      if (native || legacyCheckpoint) {
+        if (native && (native.protocol !== "acp" || !["native", "sandbox"].includes(native.runtime_kind))) throw new Error("Invalid native execution binding");
+        return selected(DEFAULT_HARNESS_ID, true);
+      }
+      if (engine) {
+        const conflictingEngine = await engineBindings.findOne(
+          { agent_id: agentId, conversation_id: context.conversationId, harness_id: { $ne: engine.harness_id } }, { projection: { _id: 1 } },
+        );
+        if (conflictingEngine) return conflict();
+        const harnessId = normalizeHarnessId(engine.harness_id);
+        if (harnessId === DEFAULT_HARNESS_ID) throw new Error("Invalid engine execution binding");
+        return selected(harnessId, true);
+      }
     }
-    return { kind: harnessId === DEFAULT_HARNESS_ID ? "dynamic_agents" : "harness_engine", harnessId };
+    const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
+    const agent = await agents.findOne({ _id: agentId }, { projection: { _id: 1, execution_harness_id: 1, execution: 1, backend: 1 } });
+    if (!agent && !claim && legacyHarnessId === undefined) return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });
+    // Existing legacy custom-checkpointer threads remain native before ACP admission.
+    const legacyCollection = agent?.backend?.config?.checkpoint_collection;
+    if (context && legacyCollection && legacyCollection !== (process.env.CHECKPOINT_COLLECTION || "checkpoints_conversation")) {
+      const checkpoints = await getCollection(legacyCollection);
+      if (await checkpoints.findOne({ thread_id: context.conversationId }, { projection: { _id: 1 } })) return selected(DEFAULT_HARNESS_ID, true);
+    }
+    if (claim) return selected(normalizeHarnessId(claim.harness_id));
+    if (legacyHarnessId !== undefined) return selected(legacyHarnessId, true);
+    const harnessId = normalizeHarnessId(agent?.execution_harness_id);
+    if (harnessId !== DEFAULT_HARNESS_ID && agent?.execution?.kind === "sandbox") return NextResponse.json(
+      { success: false, error: "Choose one execution provider; SDK and ACP sandbox selections cannot be combined", code: "RUNTIME_SELECTION_CONFLICT" }, { status: 409 },
+    );
+    return selected(harnessId);
   } catch (error) {
     console.error("[harness-gateway] Failed to resolve agent runtime", { agentId, error });
     return NextResponse.json({ success: false, error: "Agent runtime could not be resolved" }, { status: 503 });
   }
+}
+
+/** Stable transport marker; callers must not infer placement from a mutable definition. */
+export function withHarnessGatewayTarget(response: Response, target: HarnessGatewayTarget): Response {
+  response.headers.set("X-Harness-ID", target.harnessId);
+  return response;
 }
 
 function engineErrorMessage<T>(envelope: Envelope<T>, fallback: string): string {
@@ -176,6 +236,9 @@ async function startRun(
   body: Record<string, unknown>,
   auth: Pick<AuthResult, "subject" | "traceparent">,
 ): Promise<{ config: HarnessEngineConfig; run: HarnessRun } | NextResponse> {
+  if (Array.isArray(body.files) && body.files.length > 0) return NextResponse.json(
+    { success: false, code: "HARNESS_CAPABILITY_UNSUPPORTED", error: "The selected harness does not support file attachments" }, { status: 409 },
+  );
   const config = getHarnessEngineConfig();
   if (config instanceof NextResponse) return config;
 
@@ -185,11 +248,13 @@ async function startRun(
       agent_id: body.agent_id,
       conversation_id: body.conversation_id,
       message: body.message,
+      ...(typeof body.expected_harness_id === "string" && { expected_harness_id: body.expected_harness_id }),
+      protocol: body.protocol === "agui" ? "agui" : "custom",
       ...(typeof body.context === "string" && body.context.trim() && {
         context: body.context,
       }),
-      ...(typeof body.client_request_id === "string" && {
-        client_request_id: body.client_request_id,
+      ...(typeof (body.client_request_id ?? body.turn_id) === "string" && {
+        client_request_id: body.client_request_id ?? body.turn_id,
       }),
     }),
   });
@@ -241,28 +306,17 @@ function aguiFrames(
   if (state.terminalSent) return [];
   switch (eventType) {
     case "run.started":
+      state.messageStarted = true;
       return [sseFrame("RUN_STARTED", {
-        type: "RUN_STARTED",
-        runId: run.run_id,
-        threadId: run.conversation_id,
+        type: "RUN_STARTED", runId: run.run_id, threadId: run.conversation_id,
+      }, sequence), sseFrame("TEXT_MESSAGE_START", {
+        type: "TEXT_MESSAGE_START", messageId: state.messageId, role: "assistant",
       }, sequence)];
-    case "content.delta": {
-      const frames: string[] = [];
-      if (!state.messageStarted) {
-        state.messageStarted = true;
-        frames.push(sseFrame("TEXT_MESSAGE_START", {
-          type: "TEXT_MESSAGE_START",
-          messageId: state.messageId,
-          role: "assistant",
-        }, sequence));
-      }
-      frames.push(sseFrame("TEXT_MESSAGE_CONTENT", {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: state.messageId,
+    case "content.delta":
+      return [sseFrame("TEXT_MESSAGE_CONTENT", {
+        type: "TEXT_MESSAGE_CONTENT", messageId: state.messageId,
         delta: stringField(data, "text", "delta"),
-      }, sequence));
-      return frames;
-    }
+      }, sequence)];
     case "reasoning.delta":
       return [sseFrame("CUSTOM", {
         type: "CUSTOM",
@@ -272,7 +326,6 @@ function aguiFrames(
     case "tool.started": {
       const toolCallId = stringField(data, "tool_call_id", "id");
       const toolName = stringField(data, "tool_name", "name");
-      if (toolCallId) state.toolNames.set(toolCallId, toolName);
       const frames = [sseFrame("TOOL_CALL_START", {
         type: "TOOL_CALL_START",
         toolCallId,
@@ -290,7 +343,6 @@ function aguiFrames(
     case "tool.completed": {
       const toolCallId = stringField(data, "tool_call_id", "id");
       const result = data.result ?? data.content ?? "";
-      state.toolNames.delete(toolCallId);
       return [
         sseFrame("TOOL_CALL_RESULT", {
           type: "TOOL_CALL_RESULT",
@@ -355,7 +407,7 @@ function aguiFrames(
         }, sequence),
       ];
     default:
-      return [];
+      return [sseFrame("CUSTOM", { type: "CUSTOM", name: eventType, value: data }, sequence)];
   }
 }
 
@@ -399,7 +451,7 @@ function customFrames(
       state.terminalSent = true;
       return [sseFrame("done", { outcome: "cancelled" }, sequence)];
     default:
-      return [];
+      return [sseFrame("metadata", { type: eventType, ...data }, sequence)];
   }
 }
 
@@ -436,16 +488,38 @@ function translateCanonicalStream(
   source: ReadableStream<Uint8Array>,
   run: HarnessRun,
   protocol: GatewayProtocol,
+  after: HarnessRunCursor | null = null,
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
   const state: GatewayStreamState = {
     messageId: `message-${run.run_id}`,
-    messageStarted: false,
+    messageStarted: true,
     terminalSent: false,
-    toolNames: new Map(),
   };
+
+  function emit(event: HarnessRunEvent, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (!Number.isSafeInteger(event.sequence) || event.sequence < 1) {
+      if (event.event_type !== "run.failed") throw new Error("Invalid canonical event cursor");
+      const message = stringField(event.data, "message") || "Harness replay is unavailable";
+      const frame = protocol === "agui"
+        ? sseFrame("RUN_ERROR", { type: "RUN_ERROR", message, code: stringField(event.data, "code") || "replay_unavailable" })
+        : sseFrame("error", { error: message, code: stringField(event.data, "code") || "replay_unavailable" });
+      controller.enqueue(encoder.encode(frame));
+      return;
+    }
+    const frames = encodeHarnessGatewayEvent(event, run, protocol, state);
+    if (after && event.sequence === after.sequence && frames.length !== after.count) {
+      throw new Error("Harness replay cursor does not match its event projection");
+    }
+    frames.forEach((frame, index) => {
+      const part = index + 1;
+      if (after && (event.sequence < after.sequence || (event.sequence === after.sequence && part <= after.part))) return;
+      const id = `${run.run_id}:${harnessRunCursor({ sequence: event.sequence, part, count: frames.length })}`;
+      controller.enqueue(encoder.encode(frame.replace(/^id: [^\n]+/m, `id: ${id}`)));
+    });
+  }
 
   function drain(controller: TransformStreamDefaultController<Uint8Array>, flush = false): void {
     while (true) {
@@ -464,9 +538,7 @@ function translateCanonicalStream(
         event_type: parsed.event as HarnessRunEvent["event_type"],
         data: parsed.data,
       };
-      for (const output of encodeHarnessGatewayEvent(canonical, run, protocol, state)) {
-        controller.enqueue(encoder.encode(output));
-      }
+      emit(canonical, controller);
     }
     if (flush && buffer.trim()) {
       const parsed = parseCanonicalFrame(buffer);
@@ -477,9 +549,7 @@ function translateCanonicalStream(
           event_type: parsed.event as HarnessRunEvent["event_type"],
           data: parsed.data,
         };
-        for (const output of encodeHarnessGatewayEvent(canonical, run, protocol, state)) {
-          controller.enqueue(encoder.encode(output));
-        }
+        emit(canonical, controller);
       }
       buffer = "";
     }
@@ -502,53 +572,74 @@ export async function streamHarnessGatewayRun(
   auth: Pick<AuthResult, "subject" | "traceparent">,
   signal?: AbortSignal,
 ): Promise<Response> {
-  if (body.files && Array.isArray(body.files) && body.files.length > 0) {
-    return NextResponse.json(
-      { success: false, code: "HARNESS_CAPABILITY_UNSUPPORTED", error: "The selected harness does not support file attachments" },
-      { status: 409 },
-    );
-  }
   const started = await startRun(body, auth);
   if (started instanceof NextResponse) return started;
-  const protocol: GatewayProtocol = body.protocol === "agui" ? "agui" : "custom";
-  const headers = buildHarnessEngineHeaders(started.config, auth);
+  return replayHarnessGatewayRun(started.run, auth, "0", signal, started.config);
+}
+
+export async function replayHarnessGatewayRun(
+  run: HarnessRun,
+  auth: Pick<AuthResult, "subject" | "traceparent">,
+  cursor: string,
+  signal?: AbortSignal,
+  resolvedConfig?: HarnessEngineConfig,
+): Promise<Response> {
+  const after = cursor === "0" ? null : parseHarnessRunCursor(cursor);
+  if (cursor !== "0" && !after) return NextResponse.json({ error: "Invalid harness replay cursor" }, { status: 400 });
+  const config = resolvedConfig ?? getHarnessEngineConfig();
+  if (config instanceof NextResponse) return config;
+  const headers = buildHarnessEngineHeaders(config, auth);
   if (headers instanceof NextResponse) return headers;
   headers.Accept = "text/event-stream";
-
-  let upstream: Response;
+  const canonicalAfter = after ? after.sequence - (after.part < after.count ? 1 : 0) : 0;
   try {
-    upstream = await fetch(
-      `${started.config.url}/api/v1/runs/${encodeURIComponent(started.run.run_id)}/events/stream?after=0`,
+    const upstream = await fetch(
+      `${config.url}/api/v1/runs/${encodeURIComponent(run.run_id)}/events/stream?after=${canonicalAfter}`,
       { method: "GET", headers, cache: "no-store", signal },
     );
+    if (!upstream.ok || !upstream.body) return new Response(upstream.body, {
+      status: upstream.status, headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
+    });
+    return new Response(translateCanonicalStream(upstream.body, run, run.protocol ?? "agui", after), {
+      headers: { ...SSE_HEADERS, "X-Harness-Run-ID": run.run_id, "X-CAIPE-Run-Id": run.run_id,
+        "X-CAIPE-Cursor-Format": "engine-v1", "X-Harness-ID": run.harness_id },
+    });
   } catch (error) {
     if (signal?.aborted) return new Response(null, { status: 499 });
-    console.error("[harness-gateway] Event subscription failed", {
-      runId: started.run.run_id,
-      error,
-    });
-    return NextResponse.json(
-      { success: false, error: "Harness run started but its event stream is unavailable", run_id: started.run.run_id },
-      { status: 503, headers: { "X-Harness-Run-ID": started.run.run_id } },
-    );
+    console.error("[harness-gateway] Event subscription failed", { runId: run.run_id, error });
+    return NextResponse.json({ success: false, error: "Harness run exists but its event stream is unavailable", run_id: run.run_id },
+      { status: 503, headers: { "X-CAIPE-Run-Id": run.run_id, "X-Harness-Run-ID": run.run_id } });
   }
-  if (!upstream.ok || !upstream.body) {
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: {
-        "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
-        "X-Harness-Run-ID": started.run.run_id,
-      },
-    });
+}
+
+export async function getHarnessGatewayRun(
+  auth: Pick<AuthResult, "subject" | "traceparent">,
+  context: { agentId: string; conversationId: string },
+  runId?: string,
+): Promise<HarnessRun | null | NextResponse> {
+  const config = getHarnessEngineConfig();
+  if (config instanceof NextResponse) return config;
+  const path = runId ? `/api/v1/runs/${encodeURIComponent(runId)}` : `/api/v1/runs/latest?${new URLSearchParams({ agent_id: context.agentId, conversation_id: context.conversationId })}`;
+  const response = await engineRequest(config, auth, path, { method: "GET" });
+  if (response instanceof NextResponse) return response;
+  const envelope = await readEnvelope<HarnessRun>(response);
+  if (!response.ok || !envelope.success) return NextResponse.json(
+    { success: false, error: engineErrorMessage(envelope, "Harness run is unavailable") }, { status: response.status || 502 },
+  );
+  const run = envelope.data ?? null;
+  if (run && (run.agent_id !== context.agentId || run.conversation_id !== context.conversationId || (runId && run.run_id !== runId))) {
+    return NextResponse.json({ success: false, error: "Run not found for this agent session" }, { status: 404 });
   }
-  return new Response(translateCanonicalStream(upstream.body, started.run, protocol), {
-    status: 200,
-    headers: {
-      ...SSE_HEADERS,
-      "X-Harness-Run-ID": started.run.run_id,
-      "X-Harness-ID": started.run.harness_id,
-    },
-  });
+  return run;
+}
+
+export function publicHarnessGatewayRun(run: HarnessRun | null): Record<string, unknown> | null {
+  return run && {
+    run_id: run.run_id, agent_id: run.agent_id, session_id: run.conversation_id,
+    turn_id: run.client_request_id ?? run.run_id, protocol: run.protocol ?? "agui",
+    status: run.status, last_sequence: run.last_sequence, failure_code: run.error_code,
+    harness_id: run.harness_id,
+  };
 }
 
 export async function invokeHarnessGatewayRun(
@@ -580,8 +671,8 @@ export async function invokeHarnessGatewayRun(
         { status: response.status || 502 },
       );
     }
-    if (!Number.isInteger(envelope.data.run.last_sequence) || envelope.data.run.last_sequence < 0 ||
-        !Number.isInteger(envelope.data.next_cursor) || envelope.data.next_cursor < cursor) {
+    if (!Number.isSafeInteger(envelope.data.run.last_sequence) || envelope.data.run.last_sequence < 0 ||
+        !Number.isSafeInteger(envelope.data.next_cursor) || envelope.data.next_cursor < cursor) {
       return NextResponse.json({ success: false, error: "Harness Engine returned an invalid event cursor", run_id: started.run.run_id }, { status: 502 });
     }
     for (const event of envelope.data.events) {
@@ -633,6 +724,7 @@ export async function cancelHarnessGatewayRun(
     body: JSON.stringify({
       agent_id: body.agent_id,
       conversation_id: body.conversation_id,
+      ...(typeof body.turn_id === "string" && { client_request_id: body.turn_id }),
     }),
   });
   if (response instanceof NextResponse) return response;

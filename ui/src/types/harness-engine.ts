@@ -10,6 +10,9 @@ export interface HarnessRun {
   profile_id: string;
   status: HarnessRunStatus;
   last_sequence: number;
+  client_request_id?: string | null;
+  protocol?: "agui" | "custom";
+  error_code?: string | null;
 }
 
 export interface HarnessRunEvent {

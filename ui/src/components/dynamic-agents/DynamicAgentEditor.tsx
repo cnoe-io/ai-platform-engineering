@@ -10,8 +10,9 @@ import {
   buildLastReview,
   useAiReview,
 } from "@/components/ai-review";
-import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { normalizeHarnessId } from "@/lib/agent-presentation";
 import { HarnessOptionsForm } from "@/components/harness-engine/HarnessOptionsForm";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -548,28 +549,44 @@ export function DynamicAgentEditor({
       },
     );
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
+
   // Harness Engine persists a complete, immutable blueprint independently of
   // the legacy Dynamic Agents document. The catalog drives this form.
   const [harnessId, setHarnessId] = React.useState(
-    source?.execution_harness_id || "dynamic_agents",
+    normalizeHarnessId(source?.execution_harness_id),
   );
   const [harnessProfileId, setHarnessProfileId] = React.useState("");
-  const [harnessOptions, setHarnessOptions] = React.useState<Record<string, unknown>>({});
-  const [harnessDescriptors, setHarnessDescriptors] = React.useState<HarnessDescriptor[]>([]);
-  const [catalogRevision, setCatalogRevision] = React.useState<string | null>(null);
-  const [harnessRevision, setHarnessRevision] = React.useState<number | null>(null);
+  const [harnessOptions, setHarnessOptions] = React.useState<
+    Record<string, unknown>
+  >({});
+  const [harnessDescriptors, setHarnessDescriptors] = React.useState<
+    HarnessDescriptor[]
+  >([]);
+  const [catalogRevision, setCatalogRevision] = React.useState<string | null>(
+    null,
+  );
+  const [harnessRevision, setHarnessRevision] = React.useState<number | null>(
+    null,
+  );
   const [harnessLoading, setHarnessLoading] = React.useState(true);
   const selectedHarness = React.useMemo(
     () => harnessDescriptors.find((descriptor) => descriptor.id === harnessId),
     [harnessDescriptors, harnessId],
   );
 
-  const selectHarness = React.useCallback((nextHarnessId: string) => {
-    setHarnessId(nextHarnessId);
-    setHarnessOptions({});
-    const descriptor = harnessDescriptors.find((item) => item.id === nextHarnessId);
-    setHarnessProfileId(descriptor?.profiles.find((profile) => profile.available)?.id ?? "");
-  }, [harnessDescriptors]);
+  const selectHarness = React.useCallback(
+    (nextHarnessId: string) => {
+      setHarnessId(nextHarnessId);
+      setHarnessOptions({});
+      const descriptor = harnessDescriptors.find(
+        (item) => item.id === nextHarnessId,
+      );
+      setHarnessProfileId(
+        descriptor?.profiles.find((profile) => profile.available)?.id ?? "",
+      );
+    },
+    [harnessDescriptors],
+  );
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt =
@@ -793,13 +810,13 @@ export function DynamicAgentEditor({
         const catalogResponse = await fetch("/api/harness-engine/harnesses");
         const catalog = await catalogResponse.json();
         const descriptors = Array.isArray(catalog.data?.harnesses)
-          ? catalog.data.harnesses as HarnessDescriptor[]
+          ? (catalog.data.harnesses as HarnessDescriptor[])
           : [];
         if (cancelled) return;
         setHarnessDescriptors(descriptors);
         setCatalogRevision(catalog.data?.catalog_revision ?? null);
 
-        const persistedHarnessId = source?.execution_harness_id;
+        const persistedHarnessId = normalizeHarnessId(source?.execution_harness_id);
         if (persistedHarnessId) setHarnessId(persistedHarnessId);
         if (source?._id && persistedHarnessId !== "dynamic_agents") {
           const overlayResponse = await fetch(
@@ -819,7 +836,10 @@ export function DynamicAgentEditor({
       } catch (err) {
         // Harness Engine is opt-in. Its absence must not affect the existing
         // Dynamic Agents creation/edit path.
-        console.info("Harness Engine is unavailable; using Dynamic Agents", err);
+        console.info(
+          "Harness Engine is unavailable; using Dynamic Agents",
+          err,
+        );
       } finally {
         if (!cancelled) setHarnessLoading(false);
       }
@@ -1298,7 +1318,9 @@ export function DynamicAgentEditor({
           : {};
 
       if (harnessId !== "dynamic_agents" && !harnessProfileId) {
-        throw new Error("Select an operator profile for the execution harness before saving");
+        throw new Error(
+          "Select an operator profile for the execution harness before saving",
+        );
       }
 
       const targetAgentId = isEditing ? agent._id : generatedId;
@@ -1807,8 +1829,8 @@ export function DynamicAgentEditor({
                     )}
                     {harnessId === "dynamic_agents" && (
                       <p className="text-xs text-muted-foreground">
-                        Uses the existing LangChain Deep Agents runtime without
-                        changing its stored document or execution path.
+                        Uses the shared DeepAgents runtime, native tools and
+                        logical files through ACP.
                       </p>
                     )}
                   </div>

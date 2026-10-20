@@ -1,6 +1,6 @@
-import { authenticateRequest } from "@/lib/da-proxy";
-import { getHarnessEngineConfig, proxyHarnessEngineStream } from "@/lib/harness-engine-proxy";
-import { NextRequest, NextResponse } from "next/server";
+import { authorizeEngineRun } from "../../../_authorization";
+import { proxyHarnessEngineStream } from "@/lib/harness-engine-proxy";
+import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -9,11 +9,10 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ runId: string }> },
 ): Promise<Response> {
-  const auth = await authenticateRequest(request);
-  if (auth instanceof NextResponse) return auth;
-  const config = getHarnessEngineConfig();
-  if (config instanceof NextResponse) return config;
   const { runId } = await context.params;
+  const authorized = await authorizeEngineRun(request, runId);
+  if (authorized instanceof Response) return authorized;
+  const { auth, config } = authorized;
   const after = request.nextUrl.searchParams.get("after") ?? request.headers.get("last-event-id");
   const suffix = after === null ? "" : `?after=${encodeURIComponent(after)}`;
 

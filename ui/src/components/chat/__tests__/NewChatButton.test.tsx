@@ -130,6 +130,26 @@ describe("NewChatButton", () => {
     ).toBeInTheDocument();
   });
 
+  it("labels the collapsed action and reveals its default agent on hover", async () => {
+    mockResolveUsableChatAgent.mockResolvedValue({
+      id: "agent-default", name: "Platform Helper", source: "platform-default",
+      agent: { _id: "agent-default", name: "Platform Helper", execution_harness_id: "agentcore" },
+    });
+
+    render(<NewChatButton collapsed={true} onNewChat={jest.fn()} />);
+
+    const button = await screen.findByRole("button", {
+      name: "New chat with Platform Helper",
+    });
+    fireEvent.mouseEnter(button);
+
+    expect(screen.getByText("New chat")).toBeInTheDocument();
+    expect(screen.getByText("Platform Helper")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore"),
+    ).toBeInTheDocument();
+  });
+
   it("prefers the user's web default over the platform default", async () => {
     mockResolveUsableChatAgent.mockResolvedValue({
       id: "agent-user",

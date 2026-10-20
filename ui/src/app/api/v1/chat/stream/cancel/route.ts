@@ -1,14 +1,14 @@
 /**
  * POST /api/v1/chat/stream/cancel — Harness Gateway cancellation entry point.
  *
- * Body: { conversation_id, agent_id }
+ * Body: { conversation_id, agent_id, turn_id? }
  * Response: JSON { success, cancelled, agent_id, conversation_id }
  */
 
-import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import {
 cancelHarnessGatewayRun,
 resolveHarnessGatewayTarget,
+withHarnessGatewayTarget,
 } from "@/lib/harness-gateway";
 import { NextRequest,NextResponse } from "next/server";
 import {
@@ -44,16 +44,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const authzResponse = await requireAgentUsePermission({
-    subject: authResult.subject,
-    agentId: body.agent_id,
-    email: authResult.email,
-    tenantId: authResult.tenantId,
-    traceparent: authResult.traceparent,
-    isServiceAccount: authResult.isServiceAccount,
-  });
-  if (authzResponse) return authzResponse;
-
+  // Stop is a conversation mutation, not another agent invocation. A caller
+  // whose agent-use grant was revoked must still be able to stop their run.
   const conversationAuthz = await authorizeConversationWriteAccess(
     authResult,
     String(body.conversation_id),
@@ -67,9 +59,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
-    subject: authResult.subject, conversationId: String(body.conversation_id),
-  });
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id) });
   if (target instanceof NextResponse) return target;
   if (target.kind === "harness_engine") {
     return cancelHarnessGatewayRun(body, authResult);
@@ -80,10 +70,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (daConfig instanceof NextResponse) return daConfig;
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/cancel`;
 
-  return proxyJSONRequest(
+  return withHarnessGatewayTarget(await proxyJSONRequest(
     backendUrl,
     JSON.stringify(body),
     authResult,
     "[stream/cancel]",
-  );
+  ), target);
 }

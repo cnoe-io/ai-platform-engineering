@@ -1,5 +1,5 @@
 /**
- * POST /api/v1/chat/invoke — Harness Gateway entry point with persisted API turns.
+ * POST /api/v1/chat/invoke — Harness Gateway non-streaming entry point.
  *
  * Body: { message, conversation_id, agent_id, trace_id?, client_context? }
  * Response: JSON { success, content, agent_id, conversation_id, trace_id }
@@ -10,6 +10,7 @@ import { reconcileConversationOwnerIdentity } from "@/lib/conversation-owner-ide
 import {
   invokeHarnessGatewayRun,
   resolveHarnessGatewayTarget,
+withHarnessGatewayTarget,
 } from "@/lib/harness-gateway";
 import { createAuthzTraceContext, type AuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
@@ -458,12 +459,11 @@ async function handleScheduledInvoke(
   }
   body = { ...body, conversation_id: conversationId };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
-    subject: authResult.subject, conversationId: String(body.conversation_id),
-  });
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id), admit: true });
   if (target instanceof NextResponse) return target;
   let response: Response;
   if (target.kind === "harness_engine") {
+    body.expected_harness_id = target.harnessId;
     response = await invokeHarnessGatewayRun(body, authResult, request.signal);
   } else {
     const daConfig = getDynamicAgentsConfig();
@@ -487,7 +487,7 @@ async function handleScheduledInvoke(
     console.error("[invoke] Failed to persist scheduled invoke messages:", error);
   }
 
-  return response;
+  return withHarnessGatewayTarget(response, target);
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -546,23 +546,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     ),
   };
 
-  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
-    subject: authResult.subject, conversationId: String(body.conversation_id),
-  });
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), { conversationId: String(body.conversation_id), admit: true });
   if (target instanceof NextResponse) return target;
   let response: Response;
   if (target.kind === "harness_engine") {
+    body.expected_harness_id = target.harnessId;
     response = await invokeHarnessGatewayRun(body, authResult, request.signal);
   } else {
     const daConfig = getDynamicAgentsConfig();
     if (daConfig instanceof NextResponse) return daConfig;
-    response = await proxyJSONRequest(
-      `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`,
-      JSON.stringify(body),
-      authResult,
-      "[invoke]",
-    );
+    const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;
+    response = await proxyJSONRequest(backendUrl, JSON.stringify(body), authResult, "[invoke]");
   }
+  withHarnessGatewayTarget(response, target);
 
   // The non-streaming API has no browser store to persist its transcript.
   // Keep the BFF message collection aligned so API conversations are readable

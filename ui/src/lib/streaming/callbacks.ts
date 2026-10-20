@@ -9,6 +9,7 @@
  */
 
 import type { ContextUsageEventData,InputFieldDefinition } from "@/lib/streaming/types";
+import type { NativeRunStatus } from "./native-runs";
 
 // ═══════════════════════════════════════════════════════════════
 // Raw event type for persistence / replay
@@ -67,6 +68,14 @@ export interface StreamParams {
 // ═══════════════════════════════════════════════════════════════
 
 export interface StreamCallbacks {
+  /** Runtime admitted by the gateway, rather than the mutable agent definition. */
+  onHarnessResolved?: (harnessId: string) => void;
+  /** Subscriber connectivity; reconnecting does not mean execution stopped. */
+  onConnectionState?(state: "connected" | "reconnecting" | "disconnected"): void;
+
+  /** Durable service lifecycle, including stopped runs with no native terminal frame. */
+  onRunStatus?(status: NativeRunStatus): void;
+
   /** Streaming text content arrived */
   onContent?(text: string, namespace: string[]): void;
 

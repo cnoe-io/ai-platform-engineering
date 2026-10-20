@@ -18,7 +18,6 @@ const mockRequireResourcePermission = jest.fn();
 const mockRequireConversationResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockFindGatewayBinding = jest.fn();
-const mockLookupHarnessSession = jest.fn();
 const mockIsSchedulerTokenConfigured = jest.fn();
 const mockIsSchedulerTokenValid = jest.fn();
 const mockResolveScheduledRunContext = jest.fn();
@@ -51,20 +50,11 @@ jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
     mockRequireConversationResourcePermission(...args),
 }));
 
-jest.mock("@/lib/harness-engine-proxy", () => ({
-  ...jest.requireActual("@/lib/harness-engine-proxy"),
-  lookupHarnessSession: (...args: unknown[]) => mockLookupHarnessSession(...args),
-}));
-
 jest.mock("@/lib/mongodb", () => ({
-  getCollection: (name: string, ...args: unknown[]) => {
-    if (name === "checkpoints_conversation") return Promise.resolve({ findOne: async () => null });
-    if (name === "harness_gateway_bindings") return Promise.resolve({
-      findOne: mockFindGatewayBinding,
-      findOneAndUpdate: async (_key: unknown, update: { $setOnInsert: unknown }) => update.$setOnInsert,
-    });
-    return mockGetCollection(name, ...args);
-  },
+  getCollection: (name: string, ...args: unknown[]) => name === "harness_gateway_bindings"
+    ? Promise.resolve({ findOne: (query: { _id?: string }) => query._id ? mockFindGatewayBinding(query) : null, findOneAndUpdate: async (_query: unknown, update: { $setOnInsert: unknown }) => update.$setOnInsert })
+    : ["native_acp_sessions", "harness_sessions", "checkpoints_conversation", "native_acp_deleted_sessions"].includes(name)
+    ? Promise.resolve({ findOne: jest.fn(async () => null) }) : mockGetCollection(name, ...args),
   isMongoDBConfigured: true,
 }));
 
@@ -88,7 +78,6 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFindGatewayBinding.mockResolvedValue(null);
-    mockLookupHarnessSession.mockResolvedValue({ harness_id: null });
     mockAuthenticateRequest.mockResolvedValue({
       subject: "alice-sub",
       email: "alice@example.com",
@@ -282,7 +271,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     expect(messages.updateOne).not.toHaveBeenCalled();
   });
 
-  it("keeps legacy agents on Dynamic Agents when Harness Engine is disabled", async () => {
+  it("keeps legacy native agents usable when the optional engine is disabled", async () => {
     delete process.env.HARNESS_ENGINE_URL;
     delete process.env.HARNESS_ENGINE_INTERNAL_TOKEN;
     const requestedCollections: string[] = [];
@@ -341,7 +330,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     ["cancel", cancelPost, mockProxyJSONRequest],
   ])("keeps %s on the pinned Engine backend after the agent default changes", async (operation, handler, nativeProxy) => {
     mockAuthenticateRequest.mockResolvedValue({ subject: "test-user", email: "test-user@example.com", tenantId: "primary", bearerToken: "test-token" });
-    mockFindGatewayBinding.mockResolvedValue({ harness_id: "agentcore" });
+    mockFindGatewayBinding.mockResolvedValue({ agent_id: "agent-1", session_id: "conv-1", harness_id: "agentcore" });
     mockGetCollection.mockImplementation(async (name: string) => ({
       findOne: jest.fn(async () => name === "dynamic_agents"
         ? { _id: "agent-1", execution_harness_id: "dynamic_agents" }
@@ -351,7 +340,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     const fetchMock = jest.spyOn(global, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("events/stream")) return new Response('id: 1\nevent: run.completed\ndata: {}\n\n');
-      const data = url.includes("cancel-active") ? { cancelled: true, run_id: run.run_id }
+      const data = url.includes("cancel-active") ? { cancelled: false, cancellation_requested: true, run_id: run.run_id }
         : url.includes("/events?") ? { run, events: [{ run_id: run.run_id, sequence: 1, event_type: "run.completed", data: {} }], next_cursor: 1 }
         : run;
       return new Response(JSON.stringify({ success: true, data }), { headers: { "Content-Type": "application/json" } });
@@ -361,6 +350,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       const response = await handler(jsonRequest(path, { message: "hello", agent_id: "agent-1", conversation_id: "conv-1" }));
       expect(response.status).toBe(200);
       expect(nativeProxy).not.toHaveBeenCalled();
+      if (operation === "cancel") expect(await response.json()).toMatchObject({ cancelled: false, cancellation_requested: true });
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(operation === "cancel" ? "/runs/cancel-active" : "/runs"),
         expect.objectContaining({ method: "POST" }),
@@ -1031,19 +1021,19 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     expect(mockProxyJSONRequest).not.toHaveBeenCalled();
   });
 
-  it("checks conversation and agent permission before proxying cancel", async () => {
+  it("allows a conversation writer to stop the same turn after agent-use revocation", async () => {
+    mockRequireAgentUsePermission.mockResolvedValue(NextResponse.json({ error: "Agent use revoked" }, { status: 403 }));
     const response = await cancelPost(
       jsonRequest("/api/v1/chat/stream/cancel", {
         conversation_id: "conv-1",
         agent_id: "agent-1",
+        turn_id: "turn-1",
       }),
     );
 
     expect(response.status).toBe(200);
     expect(mockAuthenticateRequest).toHaveBeenCalledTimes(1);
-    expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
-      expect.objectContaining({ subject: "alice-sub", agentId: "agent-1" }),
-    );
+    expect(mockRequireAgentUsePermission).not.toHaveBeenCalled();
     expect(mockRequireConversationResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub", user: { email: "alice@example.com" } }),
       "alice@example.com",
@@ -1051,6 +1041,7 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       "write",
     );
     expect(mockProxyJSONRequest).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(mockProxyJSONRequest.mock.calls[0][1])).toMatchObject({ turn_id: "turn-1" });
   });
 
   it("returns conversation denial before proxying", async () => {

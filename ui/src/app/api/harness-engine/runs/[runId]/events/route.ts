@@ -1,6 +1,6 @@
-import { authenticateRequest } from "@/lib/da-proxy";
-import { getHarnessEngineConfig, proxyHarnessEngine } from "@/lib/harness-engine-proxy";
-import { NextRequest, NextResponse } from "next/server";
+import { authorizeEngineRun } from "../../_authorization";
+import { proxyHarnessEngine } from "@/lib/harness-engine-proxy";
+import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -8,11 +8,10 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ runId: string }> },
 ): Promise<Response> {
-  const auth = await authenticateRequest(request);
-  if (auth instanceof NextResponse) return auth;
-  const config = getHarnessEngineConfig();
-  if (config instanceof NextResponse) return config;
   const { runId } = await context.params;
+  const authorized = await authorizeEngineRun(request, runId);
+  if (authorized instanceof Response) return authorized;
+  const { auth, config } = authorized;
   const query = new URLSearchParams();
   for (const key of ["after", "wait"]) {
     const value = request.nextUrl.searchParams.get(key);

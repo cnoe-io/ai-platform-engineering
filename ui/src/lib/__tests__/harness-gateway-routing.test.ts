@@ -1,128 +1,125 @@
 /** @jest-environment node */
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { clearHarnessGatewayBinding, resolveHarnessGatewayTarget } from "../harness-gateway";
+import { resolveHarnessGatewayTarget } from "../harness-gateway";
 
-const mockFindAgent = jest.fn();
-const mockLookupSession = jest.fn();
-const mockFindNativeContext = jest.fn();
-const mockNativeCollection = jest.fn();
-const bindings = new Map<string, Record<string, unknown>>();
+const collections = new Map<string, Map<string, Record<string, unknown>>>();
+function rows(name: string): Map<string, Record<string, unknown>> {
+  if (!collections.has(name)) collections.set(name, new Map());
+  return collections.get(name)!;
+}
+function matches(row: Record<string, unknown>, query: Record<string, unknown>): boolean {
+  return Object.entries(query).every(([key, value]) =>
+    value && typeof value === "object" && "$nin" in value
+      ? !(value.$nin as unknown[]).includes(row[key]) : row[key] === value);
+}
 jest.mock("@/lib/mongodb", () => ({
-  getCollection: async (name: string) => {
-    if (name === "dynamic_agents") return { findOne: mockFindAgent };
-    if (name !== "harness_gateway_bindings") {
-      mockNativeCollection(name);
-      return { findOne: mockFindNativeContext };
-    }
-    return {
-    findOne: async (key: { _id: string }) => bindings.get(key._id) ?? null,
-    findOneAndUpdate: async (key: { _id: string }, update: { $setOnInsert: Record<string, unknown> }) => {
-      if (!bindings.has(key._id)) bindings.set(key._id, update.$setOnInsert);
-      return bindings.get(key._id);
+  getCollection: async (name: string) => ({
+    findOne: async (query: Record<string, unknown>) => [...rows(name).values()].find((row) => matches(row, query)) ?? null,
+    findOneAndUpdate: async (query: { _id: string }, update: { $setOnInsert: Record<string, unknown> }) => {
+      if (!rows(name).has(query._id)) rows(name).set(query._id, { _id: query._id, ...update.$setOnInsert });
+      return rows(name).get(query._id);
     },
-      deleteOne: async (key: { _id: string }) => bindings.delete(key._id),
-    };
-  },
-}));
-jest.mock("@/lib/harness-engine-proxy", () => ({
-  ...jest.requireActual("@/lib/harness-engine-proxy"),
-  lookupHarnessSession: (...args: unknown[]) => mockLookupSession(...args),
+  }),
 }));
 
-const context = { subject: "test-user", conversationId: "conversation-example" };
+const agentId = "agent-example";
+const context = { conversationId: "conversation-example", admit: true };
+const native = { kind: "dynamic_agents", harnessId: "dynamic_agents" };
+const engine = { kind: "harness_engine", harnessId: "claude_agent_sdk" };
+function legacy(owner: string, harnessId: string): string {
+  const id = createHash("sha256").update(JSON.stringify([owner, agentId, context.conversationId])).digest("hex");
+  rows("harness_gateway_bindings").set(id, {
+    _id: id, owner_subject: owner, agent_id: agentId, conversation_id: context.conversationId, harness_id: harnessId,
+  });
+  return id;
+}
+function canonical(): Record<string, unknown> | undefined {
+  return [...rows("harness_gateway_bindings").values()].find((row) => row.session_id === context.conversationId);
+}
 
 beforeEach(() => {
-  jest.resetAllMocks();
-  bindings.clear();
-  process.env.HARNESS_ENGINE_URL = "http://harness-engine:8010";
-  process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "test-internal-token";
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "dynamic_agents" });
-  mockLookupSession.mockResolvedValue({ harness_id: null });
-  mockFindNativeContext.mockResolvedValue(null);
+  collections.clear();
+  process.env.HARNESS_ENGINE_URL = "http://engine.example.test";
+  process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "internal-test-token";
+  rows("dynamic_agents").set(agentId, { _id: agentId, execution_harness_id: "dynamic_agents" });
 });
 
-it.each(["agentcore", "claude_agent_sdk"])("fails closed for saved %s agents when either service setting is absent", async (harnessId) => {
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: harnessId });
-  for (const missing of ["HARNESS_ENGINE_URL", "HARNESS_ENGINE_INTERNAL_TOKEN"]) {
-    const original = process.env[missing];
-    delete process.env[missing];
-    const target = await resolveHarnessGatewayTarget("agent-example", context);
-    expect(target).toBeInstanceOf(NextResponse);
-    expect((target as NextResponse).status).toBe(503);
-    process.env[missing] = original;
-  }
-});
-
-it.each([undefined, "dynamic_agents"])("keeps legacy/default marker %s available without Engine configuration", async (harnessId) => {
+it.each(["agentcore", "claude_agent_sdk"])("fails closed for selected %s when Engine settings are absent", async (harnessId) => {
+  rows("dynamic_agents").get(agentId)!.execution_harness_id = harnessId;
   delete process.env.HARNESS_ENGINE_URL;
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(503);
+  expect(canonical()).toBeUndefined();
+});
+
+it("adopts an owner-keyed Engine reference even after its shared definition changes", async () => {
+  legacy("owner-example", "claude_agent_sdk");
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(engine);
+  expect(canonical()).toMatchObject({ agent_id: agentId, session_id: context.conversationId, harness_id: "claude_agent_sdk" });
+  rows("dynamic_agents").get(agentId)!.execution_harness_id = "agentcore";
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(engine);
+});
+
+it("normalizes native legacy aliases into one context claim for every authorized caller", async () => {
+  legacy("owner-example", "langchain-deepagents");
+  legacy("another-owner", "dynamic_agents");
+  rows("dynamic_agents").get(agentId)!.execution_harness_id = "agentcore";
+  delete process.env.HARNESS_ENGINE_URL;
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(native);
+  expect(canonical()).toMatchObject({ harness_id: "dynamic_agents" });
+});
+
+it("fails closed when older callers pinned different providers for the same context", async () => {
+  legacy("owner-example", "claude_agent_sdk");
+  legacy("another-owner", "dynamic_agents");
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(409);
+  expect(canonical()).toBeUndefined();
+});
+
+it("does not let an older Engine reference override native checkpoints", async () => {
+  legacy("owner-example", "claude_agent_sdk");
+  rows("checkpoints_conversation").set("checkpoint-example", { _id: "checkpoint-example", thread_id: context.conversationId });
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(409);
+  expect(canonical()).toBeUndefined();
+});
+
+it("does not replace a canonical owner when an incompatible legacy reference appears", async () => {
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(native);
+  legacy("owner-example", "claude_agent_sdk");
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(409);
+  expect(canonical()).toMatchObject({ harness_id: "dynamic_agents" });
+});
+
+it("can inspect a legacy choice without creating a new admission reference", async () => {
+  const id = legacy("owner-example", "claude_agent_sdk");
+  expect(await resolveHarnessGatewayTarget(agentId, { conversationId: context.conversationId })).toEqual(engine);
+  expect([...rows("harness_gateway_bindings").keys()]).toEqual([id]);
+});
+
+it("keeps a saved Engine owner fail closed when its service is removed", async () => {
+  legacy("owner-example", "claude_agent_sdk");
   delete process.env.HARNESS_ENGINE_INTERNAL_TOKEN;
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: harnessId });
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(503);
+  expect(canonical()).toBeUndefined();
 });
 
-it("adopts old Engine sessions and pins later turns until an explicit clear", async () => {
-  mockLookupSession.mockResolvedValue({ harness_id: "claude_agent_sdk" });
-  const pinned = { kind: "harness_engine", harnessId: "claude_agent_sdk" };
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual(pinned);
-  expect(mockLookupSession).toHaveBeenCalledWith(expect.anything(), context, "agent-example", "conversation-example");
-  mockLookupSession.mockResolvedValue({ harness_id: null });
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual(pinned);
-  await clearHarnessGatewayBinding("agent-example", context.subject, context.conversationId);
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
+
+it("does not let a legacy Engine choice override an approved custom checkpoint collection", async () => {
+  legacy("owner-example", "claude_agent_sdk");
+  rows("dynamic_agents").get(agentId)!.backend = { config: { checkpoint_collection: "approved_checkpoints" } };
+  rows("approved_checkpoints").set("checkpoint-example", { _id: "checkpoint-example", thread_id: context.conversationId });
+  expect((await resolveHarnessGatewayTarget(agentId, context) as NextResponse).status).toBe(409);
+  expect(canonical()).toBeUndefined();
 });
 
-it("keeps native conversations pinned after the agent changes to an SDK harness", async () => {
-  const native = { kind: "dynamic_agents", harnessId: "dynamic_agents" };
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual(native);
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "agentcore" });
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual(native);
-  expect(await resolveHarnessGatewayTarget("agent-example", { ...context, subject: "another-user" })).toEqual({ kind: "harness_engine", harnessId: "agentcore" });
-});
 
-it("fails closed for a pinned Engine conversation if configuration is removed after an agent edit", async () => {
-  mockLookupSession.mockResolvedValue({ harness_id: "agentcore" });
-  await resolveHarnessGatewayTarget("agent-example", context);
-  delete process.env.HARNESS_ENGINE_INTERNAL_TOKEN;
-  const target = await resolveHarnessGatewayTarget("agent-example", context);
-  expect(target).toBeInstanceOf(NextResponse);
-  expect((target as NextResponse).status).toBe(503);
-});
-
-it("does not choose a new backend if authoritative session lookup is unavailable", async () => {
-  mockLookupSession.mockResolvedValue(NextResponse.json({ success: false }, { status: 503 }));
-  expect((await resolveHarnessGatewayTarget("agent-example", context) as NextResponse).status).toBe(503);
-  expect(bindings.size).toBe(0);
-});
-
-it("adopts existing native checkpoints before a mutable SDK default", async () => {
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "agentcore" });
-  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
-  expect(mockNativeCollection).toHaveBeenCalledWith("checkpoints_conversation");
-  expect(mockFindNativeContext).toHaveBeenCalledWith(
-    { thread_id: context.conversationId }, { projection: { _id: 1 } },
-  );
-  expect([...bindings.values()][0].harness_id).toBe("dynamic_agents");
-});
-
-it.each(["missing", "unavailable"])("keeps known native context usable when Engine is %s", async (mode) => {
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "claude_agent_sdk" });
-  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
-  if (mode === "missing") delete process.env.HARNESS_ENGINE_URL;
-  else mockLookupSession.mockResolvedValue(NextResponse.json({ success: false }, { status: 503 }));
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
-});
-
-it("rejects contradictory native and Engine contexts without pinning either owner", async () => {
-  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
-  mockLookupSession.mockResolvedValue({ harness_id: "agentcore" });
-  expect((await resolveHarnessGatewayTarget("agent-example", context) as NextResponse).status).toBe(409);
-  expect(bindings.size).toBe(0);
-});
-
-it("uses the native checkpoint collection configured for the agent", async () => {
-  mockFindAgent.mockResolvedValue({ _id: "agent-example", execution_harness_id: "agentcore", backend: { config: { checkpoint_collection: "example_checkpoints" } } });
-  mockFindNativeContext.mockResolvedValue({ _id: "checkpoint-example" });
-  expect(await resolveHarnessGatewayTarget("agent-example", context)).toEqual({ kind: "dynamic_agents", harnessId: "dynamic_agents" });
-  expect(mockNativeCollection).toHaveBeenCalledWith("example_checkpoints");
+it.each(["checkpoints_conversation", "approved_checkpoints"])("keeps known native state in %s usable without Engine after a mutable SDK edit", async (collection) => {
+  rows("dynamic_agents").get(agentId)!.execution_harness_id = "agentcore";
+  if (collection !== "checkpoints_conversation") {
+    rows("dynamic_agents").get(agentId)!.backend = { config: { checkpoint_collection: collection } };
+  }
+  rows(collection).set("checkpoint-example", { _id: "checkpoint-example", thread_id: context.conversationId });
+  delete process.env.HARNESS_ENGINE_URL;
+  expect(await resolveHarnessGatewayTarget(agentId, context)).toEqual(native);
+  expect(canonical()).toMatchObject({ harness_id: "dynamic_agents" });
 });

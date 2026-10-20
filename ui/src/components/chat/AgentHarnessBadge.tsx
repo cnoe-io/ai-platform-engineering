@@ -9,16 +9,18 @@ import Image from "next/image";
 interface AgentHarnessBadgeProps {
   harnessId?: string | null;
   compact?: boolean;
+  context?: "configured" | "execution";
   className?: string;
 }
 
 export function AgentHarnessBadge({
   harnessId,
   compact = false,
+  context = "execution",
   className,
 }: AgentHarnessBadgeProps) {
   const harness = getHarnessPresentation(harnessId);
-  const label = `Execution harness: ${harness.label}`;
+  const label = `${context === "configured" ? "Configured harness" : "Execution harness"}: ${harness.label}`;
 
   return (
     <Tooltip className={cn("inline-flex shrink-0 align-middle", className)}>

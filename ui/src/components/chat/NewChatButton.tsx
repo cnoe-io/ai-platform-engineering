@@ -45,6 +45,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         if (cancelled) return;
         setDefaultAgentId(agent.id);
         setDefaultAgentName(agent.name);
+        setDefaultAgent(agent.agent ?? null);
         setUserDefaultAgentId(agent.source === "user-default" ? agent.id : null);
         if (agent.id) {
           try {

@@ -2,25 +2,21 @@
 name: "[Tests] Unit Tests"
 description: "Run unit tests"
 
-# This workflow runs three independent test suites:
-# 1. run-tests: General project tests (excludes RAG and ArgoCD MCP tests)
-# 2. run-argocd-tests: ArgoCD MCP tests (requires ARGOCD_API_URL env var)
-# 3. run-rag-tests: RAG module tests (requires PyTorch and special setup)
-# Each suite runs independently to isolate dependencies and environment requirements.
+# Component suites keep their own dependency environments. Native ACP and
+# Harness Engine also run against isolated standalone MongoDB services.
 
 on:
   push:
     branches:
       - main
   pull_request:
-    branches:
-      - main
     paths:
       - 'ai_platform_engineering/**'
       - 'tests/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'Makefile'
+      - '.github/workflows/tests-unit-tests.yml'
 
 permissions:
   contents: read
@@ -150,7 +146,19 @@ jobs:
             tests/test_bedrock_family.py -q
 
   run-dynamic-agents-tests:
-    runs-on: ubuntu-latest
+    # MongoDB 8 rejects the 6.19+ kernels now used by hosted Ubuntu 24/26 runners.
+    # Ubuntu 22 retains a compatible kernel: https://jira.mongodb.org/browse/SERVER-121912
+    runs-on: ubuntu-22.04
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -163,10 +171,14 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
       - name: Run dynamic-agents tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          NATIVE_ACP_TEST_MONGODB_URI: mongodb://127.0.0.1:27017
+          FOLLOW_UP_TEST_MONGODB_URI: mongodb://127.0.0.1:27017
         run: |
           cd ai_platform_engineering/dynamic_agents
           /home/runner/.local/bin/uv venv
-          /home/runner/.local/bin/uv sync --extra dev
+          /home/runner/.local/bin/uv sync --extra dev --locked
           /home/runner/.local/bin/uv run pytest -v
 
   run-autonomous-agents-tests:
@@ -197,3 +209,34 @@ jobs:
           path: |
             ai_platform_engineering/autonomous_agents/coverage.xml
         continue-on-error: true
+
+  run-harness-engine-tests:
+    runs-on: ubuntu-22.04
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: ai_platform_engineering/harness_engine
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - name: Install uv and component Python
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned component dependencies
+        run: uv sync --extra dev --frozen
+      - name: Lint Engine
+        run: uv run ruff check src tests
+      - name: Test memory and standalone MongoDB ownership and recovery
+        env:
+          HARNESS_ENGINE_TEST_MONGODB_URI: mongodb://127.0.0.1:27017
+        run: uv run pytest -q -rs

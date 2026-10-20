@@ -524,11 +524,26 @@ but the server-side token cache is gone, these operations require signing in
 again to obtain a bearer. The explicitly enabled local dev provider remains
 available; A2A probes still require a bearer and a CAS decision.
 
-`POST /api/v1/chat/stream/start`, `POST /api/v1/chat/invoke`,
-`POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel`
-fail closed before any backend call unless the caller can use the selected
-agent and can write the target conversation through implicit ownership or an
-explicit OpenFGA relationship.
+The Harness Gateway applies the same resource checks before resolving an
+execution owner. It uses the authorized server-side runtime-context mapping;
+request bodies cannot substitute another conversation's native state.
+
+| Operation | Required authority |
+|---|---|
+| Start, invoke and human-input resume | Current agent-use permission and conversation write through implicit ownership or an explicit relationship. |
+| Latest run, status and cursor replay | Current agent-use permission, conversation read and the bound agent. Reading never starts a provider. |
+| Stop and Engine clear | Conversation write remains required; revoking agent use does not prevent stopping or cleaning up existing work. Stop targets the admitted turn, not a later producer. |
+| Native rewind, restart and logical file routes | Existing concrete operation checks plus the saved execution owner. Unsupported SDK operations fail before changing visible history or native state. |
+| Permanent deletion | Existing conversation deletion authority, canonical context tombstone and owning backend cleanup. Unconfirmed producer cleanup fails without removing the conversation history. |
+
+The BFF stores only an immutable owner-routing reference. Native ACP and Engine
+retain their own bindings and producer fences in canonical MongoDB, with one
+journal per run. Both backends check the canonical routing/deletion authority
+on direct admission; their private APIs cannot select a different runtime.
+Engine receives the admitted subject and an internal service credential, not the
+caller's general bearer or connector secrets. Provider transcript writes remain
+bound to that run's producer authority. Read-only replay does not grant approval,
+file mutation or ownership of a private runtime.
 
 The Web UI backend emits a unified RBAC Audit event for every OpenFGA
 agent-use decision, and Python producers such as Dynamic Agents emit the same

@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 const mockRequireAgentUsePermission = jest.fn().mockResolvedValue(null);
 const mockAuthorizeConversationWriteAccess = jest.fn().mockResolvedValue({ denial: null });
 const mockGetCollection = jest.fn();
+const mockNativeOperation = jest.fn().mockResolvedValue(null);
 
 jest.mock("@/lib/api-middleware", () => ({
   validateConversationId: jest.fn().mockReturnValue(true),
@@ -46,7 +47,12 @@ jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
     mockRequireAgentUsePermission(...args),
 }));
 
+jest.mock("@/lib/harness-conversation-operation", () => ({
+  requireNativeHarnessOperation: (...args: unknown[]) => mockNativeOperation(...args),
+}));
+
 jest.mock("@/app/api/v1/chat/_conversation-authz", () => ({
+  resolveConversationRuntimeId: (conversation: { _id: string }) => Promise.resolve(conversation._id),
   authorizeConversationWriteAccess: (...args: unknown[]) =>
     mockAuthorizeConversationWriteAccess(...args),
 }));
@@ -98,6 +104,26 @@ describe("POST /api/chat/conversations/[id]/rewind", () => {
     );
     expect(response.status).toBe(409);
     expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported provider rewind before deleting or reading message history", async () => {
+    const conversations = collection({ findOne: jest.fn().mockResolvedValue({
+      _id: conversationId, owner_id: "test-user@example.com",
+    }) });
+    mockGetCollection.mockResolvedValue(conversations);
+    mockNativeOperation.mockResolvedValueOnce(NextResponse.json({
+      success: false, code: "HARNESS_CAPABILITY_UNSUPPORTED",
+    }, { status: 501 }));
+    global.fetch = jest.fn();
+    const response = await POST(
+      request({ agent_id: "primary-agent", message_id: "user-1" }),
+      { params: Promise.resolve({ id: conversationId }) },
+    );
+    expect(response.status).toBe(501);
+    expect(mockGetCollection).toHaveBeenCalledTimes(1);
+    expect(conversations.deleteMany).not.toHaveBeenCalled();
+    expect(conversations.updateOne).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
