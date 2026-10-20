@@ -135,6 +135,13 @@ chat store, persistence, stop action and green live-response bar. Removing the
 native screen does not abort its turn. Native packages should not render their
 bundled chat consumer alongside this panel.
 
+Hosts may also expose `props.chat.ConversationActions`. Feature-detect this
+optional component and pass the same conversation/agent IDs, `onArchived` (select
+or create the next app chat) and `onHistoryChange` (refresh app history after a
+restore). It reuses GRID's share control and archive dialog. Only owners see
+share/archive actions; all mutations still use host conversation authorization.
+Apps must not add a second sharing or archive implementation.
+
 Apps may supply a composer header and bounded per-question `requestOptions`; these
 are forwarded as `forwarded_props` and must be validated by the app. Agent binding
 and authorization remain server-owned.
