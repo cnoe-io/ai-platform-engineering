@@ -576,11 +576,11 @@ describe('AppHeader — application chrome', () => {
       expect(applicationLink('Chat')).toHaveTextContent('Chat')
     })
 
-    it('uses App spark for the Apps destination', () => {
+    it('keeps the nine-dot Apps launcher in the sidebar', () => {
       mockAgenticAppsEnabled = true
       render(<AppHeader />)
-      expect(applicationLink('Apps').querySelector('.lucide-app-spark')).toBeInTheDocument()
-      expect(applicationLink('Apps').querySelector('.lucide-layout-grid')).toBeNull()
+      expect(applicationLink('Apps').querySelectorAll('.lucide-grip circle')).toHaveLength(9)
+      expect(applicationLink('Apps').querySelector('.lucide-app-tile')).toBeNull()
     })
 
     it('keeps global destinations in the rail and discloses active section navigation', () => {

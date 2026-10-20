@@ -1,32 +1,22 @@
 "use client";
 
-import { AppWindow, Sparkles, type LucideIcon, type LucideProps } from "lucide-react";
-import { forwardRef, useId } from "react";
-import { cn } from "@/lib/utils";
+import { createLucideIcon, type LucideIcon, type LucideProps } from "lucide-react";
+import { forwardRef } from "react";
 
-/** Shared App spark mark for app-owned agents and application navigation. */
+const AppTileMark = createLucideIcon("app-tile", [["path", {
+  d: "M6 2h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4Z M12 6l1.6 4.4L18 12l-4.4 1.6L12 18l-1.6-4.4L6 12l4.4-1.6L12 6Z",
+  fillRule: "evenodd",
+  clipRule: "evenodd",
+  stroke: "none",
+  key: "tile",
+}]]);
+
+/** Filled app fallback with one large cutout that remains legible at 16px. */
 export const AgenticAppIcon: LucideIcon = forwardRef<SVGSVGElement, LucideProps>(function AgenticAppIcon(
-  { color = "currentColor", size = 24, strokeWidth = 2, absoluteStrokeWidth, className, ...props },
+  { color = "currentColor", ...props },
   ref,
 ) {
-  const maskId = `app-spark-${useId().replace(/:/g, "")}`;
   return (
-    <svg ref={ref} xmlns="http://www.w3.org/2000/svg" width={size} height={size}
-      viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth}
-      strokeLinecap="round" strokeLinejoin="round"
-      className={cn("lucide lucide-app-spark", className)} {...props}>
-      <defs>
-        <mask id={maskId} x="0" y="0" width="24" height="24" maskUnits="userSpaceOnUse">
-          <rect width="24" height="24" fill="white" stroke="none" />
-          <rect x="14" width="10" height="10" fill="black" stroke="none" />
-        </mask>
-      </defs>
-      <g mask={`url(#${maskId})`}>
-        <AppWindow x={0} y={2} width={20} height={20} color={color} strokeWidth={strokeWidth}
-          absoluteStrokeWidth={absoluteStrokeWidth} aria-hidden="true" />
-      </g>
-      <Sparkles x={14} y={0} width={10} height={10} color={color} strokeWidth={strokeWidth}
-        absoluteStrokeWidth={absoluteStrokeWidth} aria-hidden="true" />
-    </svg>
+    <AppTileMark {...props} ref={ref} color={color} fill={color} />
   );
 });

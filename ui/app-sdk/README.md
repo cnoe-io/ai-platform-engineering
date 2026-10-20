@@ -182,10 +182,10 @@ the snapshot; a UI restart revalidates it before serving traffic.
   `bindings.resources.assistant` identity. Stored or submitted presentation fields
   are ignored. Runtime origins and stream paths are not exposed in this projection.
 - App agents use their packaged app logo with an `App: Example App` tooltip.
-  Missing, invalid, or broken logos fall back to the shared App spark mark
-  (application window + sparkle). The Apps destination, hub heading and generic
-  app fallbacks use the same mark. Catalog cards also display packaged app branding.
-  The legacy navigation value `layout-grid` now renders App spark.
+  Missing, invalid, or broken logos fall back to a filled app tile with a large
+  cutout spark. The hub heading and generic app fallbacks use this same mark.
+  Catalog cards also display packaged app branding. The Apps sidebar destination
+  retains the nine-dot launcher; legacy `layout-grid` navigation keeps its grid icon.
   The app's internal SDK is not inferred from an absent `execution_harness_id`.
   Legacy platform agents keep their existing Deep Agents fallback.
 - Agent CAS permissions still apply. App role/launch policy further restricts the
