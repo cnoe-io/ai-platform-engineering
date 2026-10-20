@@ -10,7 +10,7 @@ dependencies = [
   "click==8.5.0",
   "fastmcp==3.4.7",
   "httpx==0.28.1",
-  "mcp==1.29.1",
+  "mcp==1.30.0",
   "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "pydantic==2.13.4",
   "python-dotenv==1.2.2",

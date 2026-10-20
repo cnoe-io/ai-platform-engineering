@@ -1,3 +1,22 @@
+## 1.3.0-rc.12 (2026-10-19)
+
+### Feat
+
+- **setup**: add --ui-url/--idp-url and --expose=nodeport (#3006)
+
+### Fix
+
+- **setup**: make fresh kind installs usable without manual patches (#3005)
+- **charts**: give openfga migrate hook its own service account (#3004)
+- **webex-meetings**: redact recording password and host keys (#2996)
+- **rag**: upgrade MCP SDK for session limits (#2985)
+
+## 1.3.0-rc.11 (2026-10-16)
+
+### Fix
+
+- **oncall**: use VictorOps as live source (#2981)
+
 ## 1.3.0-rc.10 (2026-10-14)
 
 ### Feat
