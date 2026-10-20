@@ -2276,7 +2276,7 @@ export function ChatPanel({
           </p>
         </div>
         {agent ? (
-          <AgentHarnessBadge harnessId={agent.execution_harness_id} />
+          <AgentHarnessBadge harnessId={agent.execution_harness_id} presentation={agent.presentation} />
         ) : (
           <Skeleton className="h-6 w-24 rounded-full" />
         )}

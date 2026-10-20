@@ -78,7 +78,7 @@ interface SidebarProps {
 
 type SidebarAgent = Pick<
   DynamicAgentConfig,
-  "_id" | "name" | "execution_harness_id" | "ui"
+  "_id" | "name" | "execution_harness_id" | "presentation" | "ui"
 >;
 
 interface ConversationTitleBadge {
@@ -1115,6 +1115,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                   {conversationAgent && (
                                     <AgentHarnessBadge
                                       harnessId={conversationAgent.execution_harness_id}
+                                      presentation={conversationAgent.presentation}
                                       compact
                                       className="ml-1"
                                     />
@@ -1330,6 +1331,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           {conversationAgent ? (
                             <AgentHarnessBadge
                               harnessId={conversationAgent.execution_harness_id}
+                              presentation={conversationAgent.presentation}
                               compact
                             />
                           ) : null}

@@ -14,6 +14,7 @@ const ChatPanel = lazy(() => import("@/components/chat/DynamicAgentChatPanel").t
 export function createHostChatCapability(appId: string): NativeHostChat {
   function Panel(props: NativeHostChatPanelProps) {
     const [loaded, setLoaded] = useState("");
+    const [agent, setAgent] = useState<DynamicAgentConfig | null>(null);
     const [error, setError] = useState<{ key: string; message: string } | null>(null);
     const key = `${props.conversationId}:${props.agentId}`;
     useEffect(() => {
@@ -25,6 +26,12 @@ export function createHostChatCapability(appId: string): NativeHostChat {
         if (!response.ok) throw new Error("Assistant app is unavailable or access was denied");
         const { item } = await response.json();
         if (!item?.canLaunch || item.assistantAgentId !== props.agentId) throw new Error("Assistant binding changed");
+        const agentsResponse = await fetch("/api/dynamic-agents/available", { cache: "no-store" });
+        if (!agentsResponse.ok) throw new Error("Assistant is unavailable or access was denied");
+        const agents = await agentsResponse.json();
+        const availableAgent = agents.success && Array.isArray(agents.data)
+          ? (agents.data as DynamicAgentConfig[]).find(candidate => candidate._id === props.agentId) : undefined;
+        if (!availableAgent) throw new Error("Assistant is unavailable or access was denied");
         const saved = await apiClient.getConversation(props.conversationId);
         if (getAgentId(saved) !== props.agentId) throw new Error("Agent does not match this conversation");
         if (cancelled) return;
@@ -35,7 +42,7 @@ export function createHostChatCapability(appId: string): NativeHostChat {
         activated = true;
         useChatStore.getState().setActiveConversation(saved._id);
         await useChatStore.getState().loadMessagesFromServer(saved._id, { force: true });
-        if (!cancelled) { setLoaded(key); setError(null); }
+        if (!cancelled) { setAgent(availableAgent); setLoaded(key); setError(null); }
       }
       void open().catch(reason => { if (!cancelled) setError({ key, message: reason instanceof Error ? reason.message : "Chat is unavailable" }); });
       // Restore only our selection; the host keeps the stream alive after unmount.
@@ -49,7 +56,7 @@ export function createHostChatCapability(appId: string): NativeHostChat {
     }, [key, props.agentId, props.conversationId]);
     if (error?.key === key) return <p role="alert" className="p-4 text-sm text-destructive">{error.message}</p>;
     if (loaded !== key) return <p role="status" className="p-4 text-sm text-muted-foreground">Loading conversation…</p>;
-    return <Suspense fallback={<p role="status">Loading conversation…</p>}><ChatPanel {...props} agent={{ name: props.agentName } as DynamicAgentConfig} /></Suspense>;
+    return <Suspense fallback={<p role="status">Loading conversation…</p>}><ChatPanel {...props} agent={agent} /></Suspense>;
   }
   return { Panel };
 }

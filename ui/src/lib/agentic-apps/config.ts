@@ -279,8 +279,8 @@ export function loadConfiguredAgenticApps(
   const mountPaths = new Map<string, string>();
   for (const app of apps) {
     const assistantId = app.manifest.ui.assistant?.agentId;
-    if (assistantId && app.manifest.ui.assistant?.streamPath && assistantIds.has(assistantId)) throw new Error("Multiple installed apps claim the assistant");
-    if (assistantId && app.manifest.ui.assistant?.streamPath) assistantIds.add(assistantId);
+    if (assistantId && assistantIds.has(assistantId)) throw new Error("Multiple installed apps claim the assistant");
+    if (assistantId) assistantIds.add(assistantId);
     if (appIds.has(app.installation.appId)) {
       throw new Error(
         `Duplicate External App installation: ${app.installation.appId}`,

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import type { PublicAgenticApp } from "@/types/agentic-app";
+import { AppIcon } from "@/components/shared/AppIcon";
 
 type LoadState =
   | { status: "loading" }
@@ -123,7 +124,7 @@ export function AgenticAppsHub(): React.ReactElement {
                   <article key={app.appId} className="flex min-h-56 flex-col rounded-xl border bg-card p-5 shadow-sm">
                     <div className="flex items-start justify-between gap-4">
                       <span className="rounded-lg bg-primary/10 p-2 text-primary">
-                        <LayoutGrid className="h-5 w-5" aria-hidden />
+                        <AppIcon appId={app.appId} icon={app.icon} className="h-5 w-5 object-contain" />
                       </span>
                       {app.categories[0] ? (
                         <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">

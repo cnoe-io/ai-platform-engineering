@@ -17,8 +17,10 @@ jest.mock("@/store/chat-store", () => ({ useChatStore: {
 const originalFetch = global.fetch;
 beforeEach(() => {
   jest.clearAllMocks(); mockState.conversations = [];
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ item: {
-    canLaunch: true, assistantAgentId: "example-agent" } }) });
+  global.fetch = jest.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () =>
+    url === "/api/dynamic-agents/available" ? { success: true, data: [{ _id: "example-agent", name: "Example Assistant",
+      presentation: { app: { id: "example-app", name: "Example App" }, available: true } }] } : { item: {
+      canLaunch: true, assistantAgentId: "example-agent" } } }));
   mockGet.mockResolvedValue({ _id: "example-chat", title: "Example", participants: [{ type: "agent", id: "example-agent" }],
     metadata: { agent_id: "example-agent" }, created_at: "2026-01-01", updated_at: "2026-01-01" });
   mockLoad.mockResolvedValue(undefined);
@@ -32,7 +34,8 @@ it("renders the host conversation and leaves its stream alive when the app close
   await screen.findByText("Host conversation");
   expect(mockSelect).toHaveBeenCalledWith("example-chat");
   expect(mockLoad).toHaveBeenCalledWith("example-chat", { force: true });
-  expect(mockPanel.mock.calls.at(-1)?.[0]).toMatchObject({ requestOptions: options });
+  expect(mockPanel.mock.calls.at(-1)?.[0]).toMatchObject({ requestOptions: options,
+    agent: { _id: "example-agent", presentation: { app: { id: "example-app" } } } });
   view.unmount();
   expect(mockState.conversations).toHaveLength(1);
 });
@@ -50,4 +53,13 @@ it("does not load a conversation when app launch access is denied", async () => 
   const { Panel } = createHostChatCapability("example-app");
   render(<Panel conversationId="example-chat" agentId="example-agent" />);
   await screen.findByRole("alert"); expect(mockGet).not.toHaveBeenCalled();
+});
+
+it("does not load the conversation when the agent-use catalog denies access", async () => {
+  global.fetch = jest.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () =>
+    url === "/api/dynamic-agents/available" ? { success: true, data: [] } : { item: { canLaunch: true, assistantAgentId: "example-agent" } } }));
+  const { Panel } = createHostChatCapability("example-app");
+  render(<Panel conversationId="example-chat" agentId="example-agent" />);
+  await screen.findByRole("alert");
+  expect(mockGet).not.toHaveBeenCalled();
 });

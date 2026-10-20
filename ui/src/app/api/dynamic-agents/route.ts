@@ -5,6 +5,7 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
+import { projectAgentAppIdentity } from "@/lib/agentic-apps/agent-catalog";
 import {
   ApiError,
   getAuthFromBearerOrSession,
@@ -669,7 +670,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     scopedItems,
     listTarget,
   );
-  const pageItems = visibleItems.slice(skip, skip + pageSize);
+  const projectedItems = projectAgentAppIdentity(visibleItems, session, { availableOnly: enabledOnly });
+  const pageItems = projectedItems.slice(skip, skip + pageSize);
   const { rows } = await resolveAgentListPermissions(
     session,
     pageItems.map((agent) => String(agent._id)),
@@ -680,7 +682,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
   }));
 
-  return paginatedResponse(items, visibleItems.length, page, pageSize);
+  return paginatedResponse(items, projectedItems.length, page, pageSize);
 });
 
 // ═══════════════════════════════════════════════════════════════

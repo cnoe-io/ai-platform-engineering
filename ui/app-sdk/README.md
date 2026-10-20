@@ -158,3 +158,28 @@ catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
 agents. App proxy calls still validate the live catalog and fail closed when it
 is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
 the snapshot; a UI restart revalidates it before serving traffic.
+
+## App identity in agent catalogs
+
+- `catalog.icon` names a same-origin asset: `/app-icons/<app-id>/<filename>`.
+  Supported extensions: `svg`, `png`, `webp`, `jpg`, `jpeg`. URLs, query strings,
+  encoded paths and traversal are rejected. Legacy symbolic icon names remain valid
+  and use the generic app icon.
+- Native publishers include the asset at `public/app-icons/<app-id>/<filename>`
+  in the pinned npm package. The host copies the declared file during generation;
+  missing files, symlinks outside the package and images over 256 KiB fail the build.
+  Hosted installations may provision the same public asset namespace on the host.
+  Logos are public, reviewed assets; never put private content in this directory.
+- Authorized agent responses include read-only `presentation: { app: { id, name,
+  icon? }, available }`. The BFF derives it from the resolved
+  `bindings.resources.assistant` identity. Stored or submitted presentation fields
+  are ignored. Runtime origins and stream paths are not exposed in this projection.
+- App agents show their app logo with an `App: Example App` tooltip. Missing or
+  broken logos use a generic app icon. The app's internal SDK is not inferred from
+  an absent `execution_harness_id`. Legacy platform agents keep their existing
+  Deep Agents fallback.
+- Agent CAS permissions still apply. App role/launch policy further restricts the
+  chat catalog; an app stream also requires an interactive user. Disabled or
+  uninstalled apps are excluded from new-chat choices, while authorized details
+  retain app identity with `available: false`. Duplicate assistant claims fail
+  closed. Presentation never selects a runtime or grants access.
