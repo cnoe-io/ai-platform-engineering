@@ -27,7 +27,8 @@ describe("AgentHarnessBadge", () => {
   it("uses the packaged app logo and app tooltip even when a harness is saved", async () => {
     render(<AgentHarnessBadge harnessId="dynamic_agents" presentation={{ app: { id: "example-app", name: "Example App", icon: "/app-icons/example-app/logo.png" }, available: true }} />);
     const logo = screen.getByRole("img", { name: "App: Example App" });
-    expect(logo.querySelector("img")).toHaveAttribute("src", "/app-icons/example-app/logo.png");
+    const image = logo.querySelector("img")!;
+    expect(new URL(image.getAttribute("src")!, window.location.origin).pathname).toBe("/app-icons/example-app/logo.png");
     expect(logo.querySelector(".lucide-app-spark")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Deep Agents/)).not.toBeInTheDocument();
     fireEvent.mouseEnter(logo);
