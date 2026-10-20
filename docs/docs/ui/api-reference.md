@@ -67,3 +67,10 @@ curl -N -X POST http://localhost:3000/api/v1/chat/stream/start \
 | `POST` | `/api/dynamic-agents/configs` | Create agent config |
 
 Route files under `ui/src/app/api` are the implementation source of truth.
+
+### Native app chat activity
+
+`POST /api/v1/chat/stream/status` accepts `{conversation_id, agent_id}` and routes
+to an installed app's declared assistant status endpoint. It requires the same
+conversation-write and agent-use permissions as stream start. Unsupported
+runtimes return 501; app failures never fall back to another runtime.

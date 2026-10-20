@@ -6,7 +6,7 @@ import type { Conversation } from "@/types/mongodb";
 import { loadConfiguredAgenticApps } from "./config";
 import { proxyAgenticAppRequest } from "./proxy";
 
-export type AssistantStreamOperation = "start" | "resume" | "cancel";
+export type AssistantStreamOperation = "start" | "resume" | "cancel" | "status";
 
 export interface AgenticAppAssistantStream {
   appId: string;
@@ -29,7 +29,8 @@ export function findAgenticAppAssistantStream(
   }
   const assistant = app.manifest.ui.assistant!;
   const path = operation === "start" ? assistant.streamPath
-    : operation === "resume" ? assistant.resumePath : assistant.cancelPath;
+    : operation === "resume" ? assistant.resumePath
+      : operation === "status" ? assistant.statusPath : assistant.cancelPath;
   // An empty path denotes an app-owned operation that the app does not implement.
   return { appId: app.installation.appId, path: path ? path.slice(1).split("/") : [] };
 }
@@ -64,7 +65,7 @@ export async function proxyAgenticAppAssistantStream(
   if (!target.path.length) {
     return NextResponse.json({ success: false, error: `Assistant does not support ${operation}` }, { status: 501 });
   }
-  if (operation !== "cancel" && body.protocol !== undefined && body.protocol !== "agui") {
+  if ((operation === "start" || operation === "resume") && body.protocol !== undefined && body.protocol !== "agui") {
     return NextResponse.json({ success: false, error: "App assistant streams require AG-UI" }, { status: 400 });
   }
   const response = await proxyAgenticAppRequest(request, {
@@ -72,13 +73,13 @@ export async function proxyAgenticAppAssistantStream(
   }, auth.authenticatedUser);
   if (!response.ok) return response;
   const contentType = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
-  const expected = operation === "cancel" ? "application/json" : "text/event-stream";
+  const expected = operation === "cancel" || operation === "status" ? "application/json" : "text/event-stream";
   if (contentType !== expected) {
     await response.body?.cancel();
     return NextResponse.json({ success: false, error: `Assistant response must be ${expected}` }, { status: 502 });
   }
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-cache, no-transform");
-  if (operation !== "cancel") headers.set("X-Accel-Buffering", "no");
+  if (expected === "text/event-stream") headers.set("X-Accel-Buffering", "no");
   return new Response(response.body, { status: response.status, headers });
 }

@@ -19,6 +19,7 @@ const HOST_APIS = new Set([
   "host.breadcrumbs",
   "host.theme",
   "host.session",
+  "host.chat",
   "app.gateway",
 ]);
 
@@ -203,7 +204,7 @@ export function validateAgenticAppManifest(value) {
   if (ui.assistant !== undefined) {
     const assistant = record(
       ui.assistant,
-      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "overlay"],
+      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay"],
       "ui.assistant",
     );
     identifier(assistant.agentId, "ui.assistant.agentId");
@@ -214,7 +215,7 @@ export function validateAgenticAppManifest(value) {
       string(assistant.name, "ui.assistant.name").length > 80
     )
       throw new Error("assistant label/name is too long");
-    for (const field of ["streamPath", "resumePath", "cancelPath"]) {
+    for (const field of ["streamPath", "resumePath", "cancelPath", "statusPath"]) {
       if (assistant[field] === undefined) continue;
       pathValue(assistant[field], `ui.assistant.${field}`);
       if (!assistant[field].startsWith("/api/") || !app.runtime)
@@ -333,7 +334,7 @@ export function validateAgenticAppManifest(value) {
   }
   if (app.runtime && !policies.length)
     throw new Error("runtime must declare at least one policy action");
-  for (const field of ["streamPath", "resumePath", "cancelPath"]) {
+  for (const field of ["streamPath", "resumePath", "cancelPath", "statusPath"]) {
     const path = ui.assistant?.[field];
     if (!path) continue;
     const policy = resolveAgenticAppHttpPolicyAction(app, "POST", path);

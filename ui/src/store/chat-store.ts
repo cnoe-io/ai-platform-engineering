@@ -81,10 +81,18 @@ interface MessageHistoryState {
   isLoadingOlder: boolean;
 }
 
+export interface ExternalChatActivity {
+  agentId: string;
+  state: "checking" | "running" | "saving";
+  turnId?: string;
+}
+
 interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   isStreaming: boolean;
+  externalActivity: Record<string, ExternalChatActivity>;
+  setExternalActivity: (id: string, activity: ExternalChatActivity | null) => void;
   streamingConversations: Map<string, StreamingState>;
   pendingMessage: string | null; // Message to auto-submit when the chat panel mounts
   contextUsageByConversation: Record<string,ContextUsageEventData>;
@@ -303,6 +311,13 @@ function mergeMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMe
 const storeImplementation: StateCreator<ChatState> = (set, get) => ({
       conversations: [],
       activeConversationId: null,
+      externalActivity: {},
+      setExternalActivity: (id, activity) => set(state => {
+        const next = { ...state.externalActivity };
+        if (activity) next[id] = activity;
+        else delete next[id];
+        return { externalActivity: next };
+      }),
       isStreaming: false,
       streamingConversations: new Map<string, StreamingState>(),
       pendingMessage: null,

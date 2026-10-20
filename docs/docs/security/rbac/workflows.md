@@ -217,7 +217,7 @@ sequenceDiagram
 ```
 
 The same sequence applies to `POST /api/v1/chat/invoke`,
-`POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel` (cancel
+`POST /api/v1/chat/stream/resume`, `POST /api/v1/chat/stream/status`, and `POST /api/v1/chat/stream/cancel` (cancel
 does not start runtime work, but it still requires agent use and conversation write authorization). The RBAC Audit tab
 surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
 `pdp=openfga` and the checked tuple in `resource_ref`. audit-service

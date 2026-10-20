@@ -109,6 +109,10 @@ interface ChatPanelProps {
   onAgentRelinked?: (agentId: string) => void;
   /** Bounded, host-validated metadata attached to each app-assistant turn. */
   clientContext?: Record<string, unknown>;
+  requestOptions?: Record<string, unknown>;
+  composerHeader?: React.ReactNode;
+  placeholder?: string;
+  emptyStateTitle?: string;
 }
 
 export function ChatPanel({
@@ -121,6 +125,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
+  requestOptions, composerHeader, placeholder, emptyStateTitle,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -562,6 +567,8 @@ export function ChatPanel({
   const isThisConversationStreaming = activeConversationId
     ? isConversationStreaming(activeConversationId)
     : false;
+  const externalActivity = useChatStore(state => activeConversationId ? state.externalActivity[activeConversationId] : undefined);
+  const isRemoteResponse = !!externalActivity && !isThisConversationStreaming;
   const hasAssistantMessageForInterruptCheck = conversation?.messages?.some((message) => message.role === "assistant") ?? false;
 
   // Check if user is near the bottom of the scroll area
@@ -710,7 +717,7 @@ export function ChatPanel({
     // this effect can fire before ChatContainer finishes loading messages
     // from MongoDB, causing lastMsg to be undefined and recovery to fail)
     if (isLoadingMessages) return;
-    if (isThisConversationStreaming) return;
+    if (isThisConversationStreaming || isRemoteResponse) return;
     // Empty chats have no assistant turn to attach restored HITL state to.
     if (!hasAssistantMessageForInterruptCheck) return;
 
@@ -804,7 +811,7 @@ export function ChatPanel({
     };
 
     checkInterruptState();
-  }, [conversationId, agentId, isLoadingMessages, isThisConversationStreaming, hasAssistantMessageForInterruptCheck, isAutonomousHistory]);
+  }, [conversationId, agentId, isLoadingMessages, isThisConversationStreaming, hasAssistantMessageForInterruptCheck, isAutonomousHistory, isRemoteResponse]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -1296,7 +1303,7 @@ export function ChatPanel({
     const validMessages = messagesToSend.filter(
       (message) => message.text.trim() || message.files.length > 0,
     );
-    if (validMessages.length === 0 || isThisConversationStreaming) return;
+    if (validMessages.length === 0 || isThisConversationStreaming || isRemoteResponse) return;
     const messageToSend = buildQueuedBatchPrompt(validMessages);
     const filesToSend = validMessages.flatMap((message) => message.files);
 
@@ -1399,6 +1406,7 @@ export function ChatPanel({
           turnId,
           reasoningEffort: requestReasoningEffort,
           clientContext,
+          forwardedProps: requestOptions,
           ...(filesToSend.length > 0 && { files: filesToSend }),
         },
         callbacks,
@@ -1437,7 +1445,7 @@ export function ChatPanel({
       });
       setConversationStreaming(convId, null);
     }
-  }, [isAutonomousHistory, isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast]);
+  }, [isAutonomousHistory, isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast, requestOptions, isRemoteResponse]);
 
   const submitMessage = useCallback(
     (messageToSend: string, filesToSend: InputFile[] = []) => submitMessageBatch([{
@@ -2267,7 +2275,8 @@ export function ChatPanel({
                       icon={Sparkles}
                       useGlobalTheme
                     />
-                    <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
+                    <h2 className="text-2xl font-bold mb-4">{emptyStateTitle ?? `Welcome to ${getConfig('appName')}`}</h2>
+                    {!emptyStateTitle && <>
                     <p className="text-muted-foreground mb-3">
                       Start your conversation with
                     </p>
@@ -2284,6 +2293,7 @@ export function ChatPanel({
                         {agentName || "your agent"}
                       </span>
                     </div>
+                    </>}
                   </>
                 )}
               </div>
@@ -2303,7 +2313,7 @@ export function ChatPanel({
 
                     {allMessages.map((msg, index, arr) => {
                       const isLastMessage = index === arr.length - 1;
-                      const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+                      const isAssistantStreaming = (isThisConversationStreaming || isRemoteResponse) && msg.role === "assistant" && isLastMessage;
                       const messageOwner = msg.senderEmail ?? conversation?.owner_id;
                       const isOwnMessage = !messageOwner || !session?.user?.email ||
                         messageOwner === session.user.email;
@@ -2329,7 +2339,7 @@ export function ChatPanel({
                       // - For completed messages: use msg.streamEvents (persisted with the message)
                       // - For streaming (latest message): use conversation.streamEvents (live buffer)
                       // - Fall back to timestamp-based filtering if msg.streamEvents is not available
-                      const isStreaming = isLastAssistantMessage && isThisConversationStreaming;
+                      const isStreaming = isLastAssistantMessage && (isThisConversationStreaming || isRemoteResponse);
                       let turnEvents: StreamEvent[];
                       
                       if (msg.role !== "assistant") {
@@ -2353,7 +2363,7 @@ export function ChatPanel({
                       return (
                         <ChatMessage
                           key={msg.id}
-                          message={msg}
+                          message={isRemoteResponse ? { ...msg, isInterrupted: false } : msg}
                           onCopy={handleCopy}
                           canEdit={canEditMessage}
                           isEditing={editingMessageId === msg.id}
@@ -2834,6 +2844,7 @@ export function ChatPanel({
               />
 
               {/* Staged attachment previews (above the input row). */}
+              {composerHeader}
               <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
 
               <div className="relative z-20 flex items-end gap-3">
@@ -2863,14 +2874,15 @@ export function ChatPanel({
                 <TextareaAutosize
                   ref={inputRef}
                   aria-label="Message"
+                  disabled={isRemoteResponse}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={
-                    isThisConversationStreaming
+                    isRemoteResponse ? "Response is continuing in another view…" : isThisConversationStreaming
                       ? `Type to queue another message${queuedMessages.length > 0 ? ` (${queuedMessages.length} queued)` : ""}, or Cmd+Enter to send now...`
-                      : `Ask anything, or type / to see commands, skills, and agents...`
+                      : placeholder ?? `Ask anything, or type / to see commands, skills, and agents...`
                   }
                   className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                   minRows={1}
@@ -2928,7 +2940,7 @@ export function ChatPanel({
                       <Button
                         size="icon"
                         onClick={() => handleSubmit(false)}
-                        disabled={!input.trim() && attachments.length === 0}
+                        disabled={isRemoteResponse || (!input.trim() && attachments.length === 0)}
                         variant="default"
                         title="Send message"
                       >

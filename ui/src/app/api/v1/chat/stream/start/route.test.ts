@@ -1,6 +1,7 @@
 /** @jest-environment node */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { POST } from "./route";
+import { POST as STATUS } from "../status/route";
 import { normalizeLegacyAgenticAppManifest } from "../../../../../../../app-sdk/agentic-app-manifest.mjs";
 
 const mockAuthenticate = jest.fn();
@@ -110,4 +111,33 @@ it("uses Dynamic Agents when no installed app claims the assistant", async () =>
   mockLoadApps.mockReturnValue([]);
   await POST(request());
   expect(mockDynamicStream).toHaveBeenCalledTimes(1);
+});
+
+describe("app session status", () => {
+  it("uses the same resolved identity and declared JSON status route", async () => {
+    const bound = { ...app, manifest: { ...app.manifest, ui: { ...app.manifest.ui,
+      assistant: { ...app.manifest.ui.assistant, statusPath: "/api/status" } } } };
+    mockLoadApps.mockReturnValue([bound]); mockGetApp.mockReturnValue(bound);
+    const upstream = jest.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ running: true, turnId: "example-turn" }),
+      { headers: { "content-type": "application/json" } }));
+    const result = await STATUS(request());
+    expect(result.status).toBe(200); expect(await result.json()).toEqual({ running: true, turnId: "example-turn" });
+    expect(String(upstream.mock.calls[0][0])).toContain("/api/status");
+    expect(new Headers(upstream.mock.calls[0][1]?.headers).get("x-caipe-user")).toBe("primary-subject");
+    expect(mockCookieAuth).not.toHaveBeenCalled(); expect(mockDynamicStream).not.toHaveBeenCalled();
+  });
+  it("returns unsupported without invoking another runtime", async () => {
+    const upstream = jest.spyOn(global, "fetch");
+    expect((await STATUS(request())).status).toBe(501); expect(upstream).not.toHaveBeenCalled();
+    expect(mockDynamicStream).not.toHaveBeenCalled();
+  });
+  it("enforces conversation authorization before forwarding status", async () => {
+    mockConversationAccess.mockResolvedValue({ denial: NextResponse.json({ error: "Denied" }, { status: 403 }) });
+    const upstream = jest.spyOn(global, "fetch");
+    expect((await STATUS(request())).status).toBe(403); expect(upstream).not.toHaveBeenCalled();
+  });
+  it("enforces agent use before reading the conversation", async () => {
+    mockAgentPermission.mockResolvedValue(NextResponse.json({ error: "Denied" }, { status: 403 }));
+    expect((await STATUS(request())).status).toBe(403); expect(mockConversationAccess).not.toHaveBeenCalled();
+  });
 });

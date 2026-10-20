@@ -126,3 +126,26 @@ policies, or the pinned publisher artifact. The app must declare `ui.assistant`.
 Native packages that render their own assistant UI declare
 `ui.assistant.overlay: "app"`. The host skips its default launcher while retaining
 assistant discovery and stream routing. Omitting this field retains the host UI.
+
+### Host-owned native chat sessions
+
+Declare required `host.chat@1.0` and render `props.chat.Panel` with the saved
+conversation ID and deployment-bound agent ID. The host owns the request, shared
+chat store, persistence, stop action and green live-response bar. Removing the
+native screen does not abort its turn. Native packages should not render their
+bundled chat consumer alongside this panel.
+
+Apps may supply a composer header and bounded per-question `requestOptions`; these
+are forwarded as `forwarded_props` and must be validated by the app. Agent binding
+and authorization remain server-owned.
+
+For another tab to observe an active response, declare `ui.assistant.statusPath`.
+It is an authenticated POST accepting `conversation_id` and `agent_id`, returning
+`{running: boolean, turnId?: string}`. Return only the caller's current turn; never
+include SDK IDs, credentials or retained model context. Status uses the same app
+gateway and conversation-write/agent-use authorization boundary as start.
+
+The host polls active status and authorized saved messages, with a bounded watch
+and a short final-save grace period. It never resubmits the question. Apps that
+omit status keep their existing behavior. This capability does not promise durable
+SSE replay after the browser owning the request closes.
