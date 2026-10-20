@@ -115,3 +115,10 @@ The host rejects mismatches and unknown versions before mounting a component.
 The browser-safe `./contract-version` export exposes the supported versions.
 A breaking interface change requires a new contract version and a matching
 SDK major version. App package versions remain independently versioned.
+
+### Installed assistant identity
+
+A deployment may bind `installations[].bindings.resources.assistant` to its
+registered agent ID. This replaces the manifest assistant's logical `agentId`
+for discovery and stream routing. It does not change stream paths, authorization
+policies, or the pinned publisher artifact. The app must declare `ui.assistant`.

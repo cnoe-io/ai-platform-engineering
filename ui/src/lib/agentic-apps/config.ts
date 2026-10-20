@@ -248,7 +248,16 @@ export function loadConfiguredAgenticApps(
       throw new Error(
         `${path}: native package is not compiled into this image`,
       );
-    return { manifest, installation };
+    // Resource identities belong to the installation, not the publisher artifact.
+    const assistantId = installation.bindings?.resources?.assistant;
+    if (assistantId && !manifest.ui.assistant) {
+      throw new Error(`${path}: assistant binding requires a declared assistant`);
+    }
+    const boundManifest = assistantId ? {
+      ...manifest,
+      ui: { ...manifest.ui, assistant: { ...manifest.ui.assistant!, agentId: assistantId } },
+    } : manifest;
+    return { manifest: boundManifest, installation };
   });
 
   const appIds = new Set<string>();
