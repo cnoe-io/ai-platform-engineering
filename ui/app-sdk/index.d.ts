@@ -21,10 +21,26 @@ export interface NativeExtensionProps {
   navigate: (href: string) => void;
   Link?: typeof Link;
   setBreadcrumbs: (breadcrumbs: NativeExtensionBreadcrumb[]) => void;
+  chat?: NativeHostChat;
 }
 
 export interface NativeExtensionModule {
   Component: ComponentType<NativeExtensionProps>;
   /** Must equal the manifest profile's version; new publishers use 2.0. */
   contractVersion: NativeExtensionContractVersion;
+}
+
+/** Host owns streaming, history persistence and activity across native screens. */
+export interface NativeHostChat {
+  Panel: ComponentType<NativeHostChatPanelProps>;
+}
+export interface NativeHostChatPanelProps {
+  conversationId: string;
+  agentId: string;
+  agentName?: string;
+  clientContext?: Record<string, unknown>;
+  requestOptions?: Record<string, unknown>;
+  composerHeader?: import("react").ReactNode;
+  placeholder?: string;
+  emptyStateTitle?: string;
 }

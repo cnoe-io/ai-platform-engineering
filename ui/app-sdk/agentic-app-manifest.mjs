@@ -19,6 +19,7 @@ const HOST_APIS = new Set([
   "host.breadcrumbs",
   "host.theme",
   "host.session",
+  "host.chat",
   "app.gateway",
 ]);
 
@@ -203,15 +204,25 @@ export function validateAgenticAppManifest(value) {
   if (ui.assistant !== undefined) {
     const assistant = record(
       ui.assistant,
-      ["agentId", "label", "name"],
+      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay"],
       "ui.assistant",
     );
     identifier(assistant.agentId, "ui.assistant.agentId");
+    if (assistant.overlay !== undefined && !["host", "app"].includes(assistant.overlay))
+      throw new Error("assistant overlay must be host or app");
     if (
       string(assistant.label, "ui.assistant.label").length > 48 ||
       string(assistant.name, "ui.assistant.name").length > 80
     )
       throw new Error("assistant label/name is too long");
+    for (const field of ["streamPath", "resumePath", "cancelPath", "statusPath"]) {
+      if (assistant[field] === undefined) continue;
+      pathValue(assistant[field], `ui.assistant.${field}`);
+      if (!assistant[field].startsWith("/api/") || !app.runtime)
+        throw new Error(`assistant ${field} requires an app runtime API path`);
+      if (field !== "streamPath" && !assistant.streamPath)
+        throw new Error(`assistant ${field} requires streamPath`);
+    }
   }
   record(app.auth, ["mode"], "auth");
   if (
@@ -323,6 +334,13 @@ export function validateAgenticAppManifest(value) {
   }
   if (app.runtime && !policies.length)
     throw new Error("runtime must declare at least one policy action");
+  for (const field of ["streamPath", "resumePath", "cancelPath", "statusPath"]) {
+    const path = ui.assistant?.[field];
+    if (!path) continue;
+    const policy = resolveAgenticAppHttpPolicyAction(app, "POST", path);
+    if (!policy || policy.defaultEffect !== "allow")
+      throw new Error(`assistant ${field} requires an allowed POST policy`);
+  }
   record(app.provides, ["mcp", "agents", "workflows"], "provides");
   for (const kind of ["mcp", "agents", "workflows"])
     strings(app.provides[kind], `provides.${kind}`);
@@ -394,6 +412,27 @@ export function validateAgenticAppManifest(value) {
 }
 
 /** Existing deployment manifests have already passed the legacy config parser. */
+/** Shared publisher/runtime policy matching, including first-match denial. */
+export function resolveAgenticAppHttpPolicyAction(manifest, method, path) {
+  const normalize = (value) => {
+    const absolute = value.startsWith("/") ? value : `/${value}`;
+    return absolute.length > 1 ? absolute.replace(/\/+$/, "") : absolute;
+  };
+  const normalizedMethod = method.toUpperCase();
+  const actual = normalize(path).split("/").filter(Boolean);
+  const policies = manifest.access.policyActions;
+  const route = policies.find((candidate) => {
+    if (candidate.method !== normalizedMethod || typeof candidate.path !== "string") return false;
+    const expected = normalize(candidate.path).split("/").filter(Boolean);
+    return expected.length === actual.length && expected.every(
+      (segment, index) => segment.startsWith(":") || segment === actual[index],
+    );
+  });
+  if (route) return route;
+  if (policies.some((candidate) => candidate.method === normalizedMethod)) return undefined;
+  return policies.find((candidate) => candidate.action === `proxy:${normalizedMethod}`);
+}
+
 export function normalizeLegacyAgenticAppManifest(legacy) {
   return {
     ...legacy,

@@ -148,6 +148,8 @@ jobs:
       pull-requests: write
 
     strategy:
+      # Bound simultaneous per-architecture image pushes to GHCR.
+      max-parallel: 8
       matrix:
         agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
         platform: [linux/amd64, linux/arm64]
@@ -292,6 +294,8 @@ jobs:
       packages: write
       pull-requests: write
     strategy:
+      # Publish multi-architecture manifest lists in smaller batches.
+      max-parallel: 4
       matrix:
         agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
