@@ -7,6 +7,32 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 
 ---
 
+## CAS job delegation — new-service API
+
+The `/api/access/delegations` API keeps the authenticated service and effective
+user separate. This is a new-service foundation, not a migration of existing
+scheduler, bot, Dynamic Agents or gateway paths.
+
+- **Keycloak owns identity tokens.** Service bearers require the primary issuer,
+  `caipe-access` audience, canonical subject, explicit signed principal type,
+  authorized client and expiry. New BFF-managed service clients receive the
+  corresponding mappers; existing clients are not silently rewritten.
+- **CAS owns approvals inside the BFF.** A same-origin signed-in browser user
+  approves one job, exact resources/actions and an expiry of at most seven days.
+  MongoDB stores the immutable approval; idempotent creation cannot extend it
+  or undo revocation. No user token is stored or new OpenFGA grant created.
+- **A reference is not authority by itself.** CAS requires the matching service
+  subject/client/issuer/job, an active approval, and fresh OpenFGA permissions
+  for both service and user. It rechecks approval after graph checks. Logout
+  alone does not revoke it; expiry, revocation or lost permission blocks use.
+- **Audit preserves both identities.** Individual delegated decisions link to
+  approval scope/version/expiry and ordered checks. Admin audit can filter the
+  chain by delegation ID. Delivery remains best-effort and unsigned, not proof
+  that downstream work executed. Applications still enforce the decision.
+
+See [Access API](./access-api.md) and its linked component contract for endpoint
+details, onboarding prerequisites and the remaining migration boundaries.
+
 ## Helm Runtime Packaging
 
 The `0.5.0` umbrella chart can own the RBAC runtime stack for demo and managed environments:
