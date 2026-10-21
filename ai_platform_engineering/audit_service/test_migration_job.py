@@ -17,12 +17,12 @@ MIGRATION = SERVICE / "scripts" / "cas_migration"
 
 @pytest.fixture
 def job() -> dict[str, Any]:
-    return yaml.safe_load((MIGRATION / "kubernetes-job.yaml").read_text())
+    return yaml.safe_load((MIGRATION / "cas-migration-job.yaml").read_text())
 
 
 def test_job_is_a_bounded_standalone_run(job: dict[str, Any]) -> None:
     assert job["apiVersion"] == "batch/v1" and job["kind"] == "Job"
-    assert job["metadata"] == {"name": "caipe-audit-migrate-check"}
+    assert job["metadata"] == {"name": "cas-migration-job"}
     assert job["spec"]["backoffLimit"] == 0
     assert job["spec"]["activeDeadlineSeconds"] == 7200
     assert "ttlSecondsAfterFinished" not in job["spec"]  # Retain inspection evidence.
@@ -30,7 +30,7 @@ def test_job_is_a_bounded_standalone_run(job: dict[str, Any]) -> None:
     assert pod["restartPolicy"] == "Never" and pod["automountServiceAccountToken"] is False
     assert pod["securityContext"]["runAsNonRoot"] is True
     assert pod["securityContext"]["runAsUser"] == 1001
-    assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "caipe-audit-migration"
+    assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "cas-migration-job"
 
 
 def test_job_overrides_the_standard_image_command_and_defaults_to_dry_run(job: dict[str, Any]) -> None:
@@ -59,7 +59,7 @@ def test_standard_image_includes_the_migration_and_job_manifest() -> None:
     dockerfile = (SERVICE.parents[1] / "build" / "Dockerfile.audit-service").read_text()
     assert "COPY --chown=appuser:appuser ai_platform_engineering/audit_service ./ai_platform_engineering/audit_service" in dockerfile
     assert (MIGRATION / "migrate_query_store.py").is_file()
-    assert (MIGRATION / "kubernetes-job.yaml").is_file()
+    assert (MIGRATION / "cas-migration-job.yaml").is_file()
 
 
 def test_job_module_command_is_runnable(job: dict[str, Any]) -> None:

@@ -82,18 +82,23 @@ The command scans all Parquet and NDJSON/gzip-NDJSON objects under the configure
 
 Rollback: preserve MongoDB and the archive, quiesce producers, let the new archive backlog reach zero, then roll back the matching service/UI pair. No down-migration or deletion is required. Rolling back while archival is unavailable leaves Mongo-only records invisible to an old archive reader; wait for archival or retain the new reader.
 
-### Kubernetes Job (S3 archive)
+### CAS migration Job (S3 archive)
 
-[kubernetes-job.yaml](scripts/cas_migration/kubernetes-job.yaml) runs the migration
+[cas-migration-job.yaml](scripts/cas_migration/cas-migration-job.yaml) runs the migration
 already packaged in the **same audit-service image** as the collector. Only the
 command changes: the Deployment starts the HTTP server; the Job runs
 `python -m ai_platform_engineering.audit_service.scripts.cas_migration.migrate_query_store`.
 No separate migration image, shell launcher, Helm hook or startup migration.
 
+This is the reusable CAS release Job; **today it runs only the audit backfill**.
+Additional CAS migrations can share it when their code/dependencies are packaged
+in the image. Add steps explicitly in release order: each must support dry-run,
+be safe to retry and stop the Job on failure. There is no whole-Job transaction.
+
 1. From a CAIPE source checkout, copy the manifest to keep environment settings out of Git:
 
    ```bash
-   cp ai_platform_engineering/audit_service/scripts/cas_migration/kubernetes-job.yaml /tmp/caipe-audit-migration-job.yaml
+   cp ai_platform_engineering/audit_service/scripts/cas_migration/cas-migration-job.yaml /tmp/cas-migration-job.yaml
    ```
 
 2. Edit the copy: replace **every** `REPLACE_WITH_...` value. Pin the released
@@ -110,23 +115,23 @@ No separate migration image, shell launcher, Helm hook or startup migration.
    its referenced Secret must still exist for the Pod to start. Old services stay up.
 
    ```bash
-   AUDIT_CONTEXT='REPLACE_WITH_CONTEXT'
-   AUDIT_NAMESPACE='REPLACE_WITH_NAMESPACE'
-   AUDIT_JOB_NAME='caipe-audit-migrate-check'
-   kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" apply -f /tmp/caipe-audit-migration-job.yaml
-   kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" logs "job/$AUDIT_JOB_NAME"
-   kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" wait \
-     --for=condition=complete "job/$AUDIT_JOB_NAME" --timeout=125m
+   CAS_CONTEXT='REPLACE_WITH_CONTEXT'
+   CAS_NAMESPACE='REPLACE_WITH_NAMESPACE'
+   CAS_JOB_NAME='cas-migration-job'
+   kubectl --context "$CAS_CONTEXT" --namespace "$CAS_NAMESPACE" apply -f /tmp/cas-migration-job.yaml
+   kubectl --context "$CAS_CONTEXT" --namespace "$CAS_NAMESPACE" logs "job/$CAS_JOB_NAME"
+   kubectl --context "$CAS_CONTEXT" --namespace "$CAS_NAMESPACE" wait \
+     --for=condition=complete "job/$CAS_JOB_NAME" --timeout=125m
    ```
 
 For subsequent phases, edit the same copy and repeat the apply/log/wait commands,
-setting `AUDIT_JOB_NAME` to match the manifest's `metadata.name`:
+setting `CAS_JOB_NAME` to match the manifest's `metadata.name`:
 
-| Phase | `metadata.name` / `AUDIT_JOB_NAME` | Manifest `args` and prerequisite |
+| Phase | `metadata.name` / `CAS_JOB_NAME` | Manifest `args` and prerequisite |
 | --- | --- | --- |
-| Validate | `caipe-audit-migrate-check` | Leave `--apply` commented out. Review counts and successful completion. |
-| Initial import | `caipe-audit-migrate-initial` | Uncomment `--apply`; keep the reviewed bounds and image. Old services can remain active. |
-| Final import | `caipe-audit-migrate-final` | Keep `--apply`. Quiesce **all** producers; require `queue_size=0` and `accepted_events=flushed_events` on **every** old collector. Keep the original start and extend the end to UTC after the last flush. |
+| Validate | `cas-migration-job` | Leave `--apply` commented out. Review counts and successful completion. |
+| Initial import | `cas-migration-job-initial` | Uncomment `--apply`; keep the reviewed bounds and image. Old services can remain active. |
+| Final import | `cas-migration-job-final` | Keep `--apply`. Quiesce **all** producers; require `queue_size=0` and `accepted_events=flushed_events` on **every** old collector. Keep the original start and extend the end to UTC after the last flush. |
 
 Apply Jobs must complete with `mode=apply` and `matched=inserted+already_present`.
 Stop on failure, timeout, corruption or conflict. Only after the final Job succeeds,

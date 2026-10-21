@@ -1,16 +1,17 @@
 # Copy and configure before applying; REPLACE_WITH_* values are not deployable.
 # Use the same released audit-service image/digest as the collector rollout.
+# CAS release Job; its only migration today is the audit-query backfill.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: caipe-audit-migrate-check
+  name: cas-migration-job
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 7200
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: caipe-audit-migration
+        app.kubernetes.io/name: cas-migration-job
     spec:
       serviceAccountName: REPLACE_WITH_ARCHIVE_READER_SERVICE_ACCOUNT
       automountServiceAccountToken: false
