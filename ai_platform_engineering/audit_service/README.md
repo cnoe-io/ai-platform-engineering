@@ -82,6 +82,141 @@ The command scans all Parquet and NDJSON/gzip-NDJSON objects under the configure
 
 Rollback: preserve MongoDB and the archive, quiesce producers, let the new archive backlog reach zero, then roll back the matching service/UI pair. No down-migration or deletion is required. Rolling back while archival is unavailable leaves Mongo-only records invisible to an old archive reader; wait for archival or retain the new reader.
 
+### Kubernetes apply example (S3 archive)
+
+This creates a standalone Job **before updating the application Deployments**.
+The Job pulls the new audit-service image and runs its migration command; the
+old audit service and BFF stay running. No Helm hook or deployment-repo wrapper.
+
+- Use Bash and replace every `REPLACE_WITH_...` value. The image below is a
+  **future-release placeholder, not a published tag**; select the released CAS
+  audit-service image and pin its digest when available. Use that same image for
+  all three Jobs below and the collector rollout.
+- The namespace, MongoDB Secret (key `MONGODB_URI`) and archive-reader
+  ServiceAccount must already exist. Supply S3 credentials through your existing
+  workload identity; adapt Pod identity labels/annotations or mount a dedicated
+  credential Secret if your platform requires it. Do not paste credentials here.
+- Match the destination database/query retention and source bucket/prefix/region
+  to the service configuration. Permit network access to MongoDB and the archive.
+  Back up MongoDB and protect the archive before starting.
+
+```bash
+# CAS audit Kubernetes migration: run with Bash.
+AUDIT_CONTEXT='REPLACE_WITH_CONTEXT'
+AUDIT_NAMESPACE='REPLACE_WITH_NAMESPACE'
+AUDIT_IMAGE='ghcr.io/caipe-io/caipe-audit-service:REPLACE_WITH_CAS_RELEASE@sha256:REPLACE_WITH_DIGEST'
+AUDIT_SERVICE_ACCOUNT='REPLACE_WITH_ARCHIVE_READER_SERVICE_ACCOUNT'
+AUDIT_MONGODB_SECRET='REPLACE_WITH_MONGODB_SECRET'
+AUDIT_DATABASE='REPLACE_WITH_DATABASE'
+AUDIT_S3_BUCKET='REPLACE_WITH_ARCHIVE_BUCKET'
+AUDIT_S3_PREFIX='REPLACE_WITH_ARCHIVE_PREFIX'
+AUDIT_S3_REGION='REPLACE_WITH_REGION'
+AUDIT_QUERY_RETENTION_DAYS='7'
+AUDIT_SINCE='REPLACE_WITH_UTC_START'
+AUDIT_UNTIL='REPLACE_WITH_UTC_END'
+AUDIT_JOB_NAME='caipe-audit-migrate-check'
+AUDIT_MODE='dry-run'
+
+(
+  set -eu
+  case "$AUDIT_CONTEXT $AUDIT_NAMESPACE $AUDIT_IMAGE $AUDIT_SERVICE_ACCOUNT $AUDIT_MONGODB_SECRET $AUDIT_DATABASE $AUDIT_S3_BUCKET $AUDIT_S3_PREFIX $AUDIT_S3_REGION $AUDIT_SINCE $AUDIT_UNTIL" in
+    *REPLACE_WITH_*) echo 'Replace all placeholders before creating the Job.' >&2; exit 1 ;;
+  esac
+  audit_apply_arg=''
+  case "$AUDIT_MODE" in
+    dry-run) ;;
+    apply) audit_apply_arg='- --apply' ;;
+    *) echo 'AUDIT_MODE must be dry-run or apply.' >&2; exit 1 ;;
+  esac
+  kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" apply -f - <<YAML
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${AUDIT_JOB_NAME}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caipe-audit-migration
+    spec:
+      serviceAccountName: ${AUDIT_SERVICE_ACCOUNT}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: migrate
+          image: "${AUDIT_IMAGE}"
+          command:
+            - python
+            - -m
+            - ai_platform_engineering.audit_service.scripts.cas_migration.migrate_query_store
+          args:
+            - --since
+            - "${AUDIT_SINCE}"
+            - --until
+            - "${AUDIT_UNTIL}"
+            ${audit_apply_arg}
+          env:
+            - name: AUDIT_SERVICE_MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: ${AUDIT_MONGODB_SECRET}
+                  key: MONGODB_URI
+            - {name: AUDIT_SERVICE_MONGODB_DATABASE, value: "${AUDIT_DATABASE}"}
+            - {name: AUDIT_SERVICE_QUERY_RETENTION_DAYS, value: "${AUDIT_QUERY_RETENTION_DAYS}"}
+            - {name: AUDIT_SERVICE_BACKEND, value: s3}
+            - {name: AUDIT_SERVICE_S3_BUCKET, value: "${AUDIT_S3_BUCKET}"}
+            - {name: AUDIT_SERVICE_S3_PREFIX, value: "${AUDIT_S3_PREFIX}"}
+            - {name: AUDIT_SERVICE_S3_REGION, value: "${AUDIT_S3_REGION}"}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+YAML
+)
+```
+
+The default Job validates/counts archive records; it does not connect to MongoDB.
+Its Secret must still exist for Kubernetes to start the Pod. Before moving to
+the next phase, inspect status and logs (use the corresponding Job name):
+
+```bash
+kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" get job "$AUDIT_JOB_NAME"
+kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" logs "job/$AUDIT_JOB_NAME"
+kubectl --context "$AUDIT_CONTEXT" --namespace "$AUDIT_NAMESPACE" wait \
+  --for=condition=complete "job/$AUDIT_JOB_NAME" --timeout=125m
+```
+
+Run the same apply block with these explicit settings for each phase:
+
+| Phase | `AUDIT_JOB_NAME` | `AUDIT_MODE` | Range and prerequisite |
+| --- | --- | --- | --- |
+| Validate | `caipe-audit-migrate-check` | `dry-run` | Select fixed UTC start/end bounds, including `Z`. Review counts and successful completion. |
+| Initial import | `caipe-audit-migrate-initial` | `apply` | Keep those bounds. Run after reviewing the dry-run and backup; old services can remain active. |
+| Final import | `caipe-audit-migrate-final` | `apply` | Quiesce **all** producers; require `queue_size=0` and `accepted_events=flushed_events` on **every** old collector. Keep the original start, extend the end to UTC after the last flush, and import the overlapping range. |
+
+An apply Job must complete with `mode=apply` and `matched=inserted+already_present`.
+Stop on `Failed`, a wait timeout, corrupt data or conflicts; do not roll out.
+Only after the final Job succeeds, upgrade the matching BFF/audit pair while
+traffic stays quiesced, validate it, then resume producers.
+
+Applying a completed Job again does **not** rerun it. Use a new name, such as
+`caipe-audit-migrate-final-retry-1`, for a reviewed retry. Jobs/logs are retained;
+save evidence before manually removing completed Jobs. The two-hour deadline
+and memory limit are examples: size them for your archive. This S3 recipe does
+not mount local archives; local-backend Jobs need a read-only archive volume and
+`AUDIT_SERVICE_BACKEND=local` / `AUDIT_SERVICE_LOCAL_PATH` instead of S3 settings.
+See [Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
+
 ## Tests
 
 Run `uv run pytest ai_platform_engineering/audit_service`. Set `AUDIT_TEST_MONGODB_URI` to exercise the same tests against real MongoDB as well as mongomock. Tests create/drop only randomly named `audit_query_test_*` databases. CI supplies an isolated MongoDB 7 service. Browser fixtures exercise filters, Next/Previous and complete multi-page exports separately.
