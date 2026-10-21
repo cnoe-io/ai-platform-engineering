@@ -28,8 +28,8 @@ import type {
   TrustedAuthorizeContext,
 } from "./contract";
 import type { GatewayCheck, GatewayRequest, GatewayResult } from "./gateway-contract";
-import { DELEGATION_POLICY, delegationSnapshot, type DelegatedPermission, type DelegationCheck,
-  type DelegationIdentity, type DelegationReason, type DelegationRecord } from "./delegation-contract";
+import { DELEGATION_POLICY, type DelegatedPermission, type DelegationApproval, type DelegationCheck,
+  type DelegationIdentity, type DelegationReason } from "./delegation-contract";
 
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
 
@@ -299,10 +299,10 @@ export function emitGatewayDecisionAudit(req: GatewayRequest, result: GatewayRes
  * remains best-effort; neither this ID nor a job label is signed provenance. */
 export function emitDelegationAudit(
   operation: "create" | "revoke" | "check", identity: DelegationIdentity,
-  record: DelegationRecord | undefined, id: string, reason: DelegationReason,
+  authority: DelegationApproval | undefined, id: string, reason: DelegationReason,
   ctx: DecisionContext, checks: DelegationCheck[] = [], permission?: DelegatedPermission, decisionId = randomUUID(),
 ): void {
-  const subject = record ? { type: "user" as const, id: record.user_id } : identity.subject;
+  const subject = authority?.effectiveSubject ?? identity.subject;
   try {
     getAuditClient().append({
       audit_event_id: randomUUID(), ts: new Date(), type: operation === "check" ? "cas_decision" : "cas_delegation",
@@ -313,7 +313,7 @@ export function emitDelegationAudit(
       outcome: operation === "check" ? reason === "OK" ? "allow" : "deny" : reason === "OK" ? "success" : "error",
       reason_code: reason, correlation_id: ctx.correlationId ?? randomUUID(), decision_id: decisionId,
       delegation_id: id, delegation_operation: operation, delegation_policy: DELEGATION_POLICY,
-      delegation_checks: checks, ...(record ? { delegation: delegationSnapshot(record) } : {}),
+      delegation_checks: checks, ...(authority ? { delegation: authority.approval, delegation_evidence: authority.evidence } : {}),
       pdp: checks.some((item) => item.gate.endsWith("_permission")) ? "openfga" : "local",
     });
   } catch (error) {

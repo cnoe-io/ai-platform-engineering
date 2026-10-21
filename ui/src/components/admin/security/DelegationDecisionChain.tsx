@@ -19,6 +19,7 @@ export function DelegationDecisionChain({ event }: { event: UnifiedAuditEvent })
         {event.resource_ref && <><span className="text-muted-foreground"> → </span><AuditReference kind="resource" value={event.resource_ref} /></>}
       </p>
       <p className="break-all">Approval: {event.delegation_id}{approval ? ` · version ${approval.version}` : " · no matching approval verified"}</p>
+      {approval && event.delegation_evidence && <p>Authority evidence: CAS job approval · {event.delegation_evidence.reference}</p>}
       {approval && <>
         <p>Approved service: <AuditReference kind="principal" value={approval.service_ref} /> · client {approval.service.client_id}</p>
         <p>Approved at: {approval.created_at} · expires: {approval.expires_at}</p>

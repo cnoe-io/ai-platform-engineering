@@ -48,12 +48,35 @@ export interface DelegationDecision {
 export interface DelegatedRequest extends DelegatedPermission { job_id: string }
 export type DelegationIdentity = Pick<PlatformIdentity, "issuer" | "subject" | "clientId" | "expiresAt">;
 
+/** Server-derived authority, never accepted from request JSON or unsigned claims.
+ * Identity/delegation evidence is distinct from the job's approved boundaries. */
+export interface DelegationEvidence { kind: "cas_approval"; reference: string }
+export interface DelegationApproval {
+  effectiveSubject: { type: "user"; id: string };
+  evidence: DelegationEvidence;
+  approval: DelegationSnapshot;
+}
+export interface DelegationAuthority extends DelegationApproval {
+  issuer: string;
+  actor: { type: "service_account"; id: string };
+  clientId: string;
+  credentialExpiresAt: number;
+}
+
 export function delegationSnapshot(record: DelegationRecord): DelegationSnapshot {
   return {
     user_ref: `user:${record.user_id}`, service_ref: `service_account:${record.service.id}`,
     issuer: record.issuer, service: record.service, job_id: record.job_id, scope: record.scope,
     expires_at: record.expires_at, created_at: record.created_at, revoked_at: record.revoked_at, version: record.version,
   };
+}
+
+/** Display metadata only; unknown evidence formats are not silently trusted. */
+export function safeDelegationEvidence(value: unknown): DelegationEvidence | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  if (item.kind !== "cas_approval" || typeof item.reference !== "string" || !item.reference || item.reference.length > 256) return undefined;
+  return { kind: "cas_approval", reference: item.reference };
 }
 
 /** Audit ingestion is not a trust boundary. Allowlist display fields and never

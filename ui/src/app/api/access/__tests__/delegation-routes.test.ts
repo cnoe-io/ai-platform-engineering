@@ -49,7 +49,7 @@ it("requires a stable idempotency key and rejects bearer-created approvals, incl
   expect((await create(request(intent, { authorization: "Bearer test" }))).status).toBe(403);
   expect(mockCreate).not.toHaveBeenCalled();
 });
-it.each(["subject", "user_id", "context", "trustedContext", "parent_delegation_id"])("rejects caller-selected %s", async (field) => {
+it.each(["subject", "user_id", "context", "trustedContext", "parent_delegation_id", "actor", "effectiveSubject", "evidence", "approval"])("rejects caller-selected %s", async (field) => {
   expect((await create(request({ ...intent, [field]: "forged" }))).status).toBe(400);
   expect(mockCreate).not.toHaveBeenCalled();
 });

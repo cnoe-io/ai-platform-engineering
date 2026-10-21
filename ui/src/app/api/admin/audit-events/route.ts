@@ -2,7 +2,7 @@ import { ApiError, requireRbacPermission, withErrorHandler } from "@/lib/api-mid
 import { authOptions } from "@/lib/auth-config";
 import { AuditServiceError, getAuditClient, type AuditQuery } from "@/lib/audit";
 import type { GatewayCheck } from "@/lib/authz";
-import { safeDelegationChecks, safeDelegationSnapshot } from "@/lib/authz/delegation-contract";
+import { safeDelegationChecks, safeDelegationEvidence, safeDelegationSnapshot } from "@/lib/authz/delegation-contract";
 import type {
   AuditEventType,
   UnifiedAuditEvent,
@@ -72,6 +72,7 @@ interface AuditEventDocument {
   delegation_id?: string;
   delegation_operation?: "create" | "revoke" | "check";
   delegation?: unknown;
+  delegation_evidence?: unknown;
   delegation_checks?: unknown;
   delegation_policy?: string;
   pdp?: string;
@@ -419,6 +420,7 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
     delegation_id: typeof doc.delegation_id === "string" ? doc.delegation_id : undefined,
     delegation_operation: ["create", "revoke", "check"].includes(doc.delegation_operation ?? "") ? doc.delegation_operation : undefined,
     delegation: safeDelegationSnapshot(doc.delegation),
+    delegation_evidence: safeDelegationEvidence(doc.delegation_evidence),
     delegation_checks: safeDelegationChecks(doc.delegation_checks),
     delegation_policy: typeof doc.delegation_policy === "string" ? doc.delegation_policy : undefined,
     pdp: doc.pdp,

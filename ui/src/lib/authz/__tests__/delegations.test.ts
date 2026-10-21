@@ -94,6 +94,11 @@ it("checks expiry again after the graph checks", async () => {
   mockRead.mockResolvedValueOnce(record).mockResolvedValueOnce({ ...record, expires_at: new Date(0).toISOString() });
   expect((await authorizeDelegated(id, service, request, ctx)).reason).toBe("DELEGATION_EXPIRED");
 });
+it("does not change the effective user or invent a new chain during the final approval read", async () => {
+  mockRead.mockResolvedValueOnce(record).mockResolvedValueOnce({ ...record, user_id: "other-user" });
+  expect((await authorizeDelegated(id, service, request, ctx)).reason).toBe("DELEGATION_REVOKED");
+  expect(mockAudit.mock.calls[0][2].effectiveSubject).toEqual({ type: "user", id: "test-user" });
+});
 it("checks the service credential lifetime again before allowing", async () => {
   expect((await authorizeDelegated(id, { ...service, expiresAt: 0 }, request, ctx)).reason).toBe("NOT_AUTHENTICATED");
 });

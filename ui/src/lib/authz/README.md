@@ -121,6 +121,29 @@ Service S -> CAS: token + approval reference + Job J + resource/action
              -> Mongo: approval still active? -> decision + audit receipt
 ```
 
+### Identity and approval boundary
+
+- `delegation-authority.ts` binds verified identity to the stored approval and
+  produces a server-only `DelegationAuthority`: actor, effective user, client,
+  credential expiry, approval boundaries and evidence source stay separate.
+- `delegation-policy.ts` evaluates normalized authority, not JWT claims or Mongo
+  documents. Fresh service **AND** user checks remain the common policy.
+- `delegations.ts` orchestrates evidence resolution, the common policy and final
+  approval revalidation. Audit consumes the same normalized approval context;
+  Admin displays the recorded authority-evidence source. No raw token is stored.
+- HTTP bodies cannot select an actor, effective user or evidence source. The
+  current adapter is `cas_approval`; no Keycloak preview feature is enabled.
+
+For later [Keycloak delegation](https://www.keycloak.org/securing-apps/token-exchange#_token-exchange-delegation),
+add a reviewed verifier/resolver at this boundary, retaining both JWT subject
+and current actor rather than flattening them. Validate issuer, audience, client
+binding, lifetime and the permitted issuance flow; `act` alone is not consent.
+Bind the verified pair to the approved job before invoking the shared policy and
+revalidate authority after graph checks. Existing job approvals are not silently
+converted into Keycloak permissions. Prove background renewal, logout, expiry
+and revocation before cutover; a token-format change does not replace job policy.
+Until then, actor-bearing tokens remain rejected. See [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1).
+
 | Method/path | Caller | Result |
 | --- | --- | --- |
 | `POST /api/access/delegations` | Signed-in user's same-origin browser session | Approval snapshot, HTTP 201 |

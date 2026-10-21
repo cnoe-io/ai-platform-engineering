@@ -29,6 +29,12 @@ scheduler, bot, Dynamic Agents or gateway paths.
   approval scope/version/expiry and ordered checks. Admin audit can filter the
   chain by delegation ID. Delivery remains best-effort and unsigned, not proof
   that downstream work executed. Applications still enforce the decision.
+- **Evidence adapters do not own resource policy.** The current adapter binds a
+  service token and stored job approval into a server-only actor/effective-user
+  context. Policy and audit consume that context, with the evidence source
+  recorded separately. A future verified Keycloak delegation adapter can reuse
+  this boundary; it must prove consent semantics, job binding and background
+  lifetime/revocation first. Native `act` tokens are not accepted today.
 
 See [Access API](./access-api.md) and its linked component contract for endpoint
 details, onboarding prerequisites and the remaining migration boundaries.

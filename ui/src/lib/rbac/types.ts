@@ -8,7 +8,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import type { GatewayCheck } from "@/lib/authz";
-import type { DelegationCheck, DelegationSnapshot } from "@/lib/authz/delegation-contract";
+import type { DelegationCheck, DelegationEvidence, DelegationSnapshot } from "@/lib/authz/delegation-contract";
 
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
 export type RbacResource =
@@ -186,6 +186,7 @@ export interface UnifiedAuditEvent {
   delegation_id?: string;
   delegation_operation?: "create" | "revoke" | "check";
   delegation?: DelegationSnapshot;
+  delegation_evidence?: DelegationEvidence;
   delegation_checks?: DelegationCheck[];
   delegation_policy?: string;
   pdp?: string;
