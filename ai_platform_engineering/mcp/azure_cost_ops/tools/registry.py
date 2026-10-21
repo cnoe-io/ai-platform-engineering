@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Discovers customer Azure environments from kendrainfra's envs/azure/
+Discovers customer Azure environments from the infra repo's envs/azure/
 directory - same discovery mechanism as azure_power_ops/tools/registry.py,
 but the unit here is a resource group, not an aks/postgres pair: cost is
 tracked per resource group, not per individual resource.
@@ -15,7 +15,7 @@ customer-template itself is always skipped - it has neither file by design.
 Naming convention (see envs/azure/customer-template/main.tf):
   resource group:  kendra-<customer>-rg
 
-Set AZURE_COST_OPS_KENDRAINFRA_PATH to the local kendrainfra checkout this
+Set AZURE_COST_OPS_INFRA_REPO_PATH to the local infra repo checkout this
 server should read from.
 """
 
@@ -28,10 +28,10 @@ ALL_SCOPE = "all"
 
 
 def _envs_root() -> Optional[Path]:
-    kendrainfra_path = os.getenv("AZURE_COST_OPS_KENDRAINFRA_PATH", "")
-    if not kendrainfra_path:
+    infra_repo_path = os.getenv("AZURE_COST_OPS_INFRA_REPO_PATH", "")
+    if not infra_repo_path:
         return None
-    root = Path(kendrainfra_path) / "envs" / "azure"
+    root = Path(infra_repo_path) / "envs" / "azure"
     return root if root.is_dir() else None
 
 
@@ -44,7 +44,7 @@ def discover_resource_groups() -> Dict[str, str]:
     """
     Returns {customer: resource_group} for every customer env that has both
     a terraform.tfvars (names the customer) and a backend.hcl (actually
-    applied). Empty if AZURE_COST_OPS_KENDRAINFRA_PATH isn't set, the path
+    applied). Empty if AZURE_COST_OPS_INFRA_REPO_PATH isn't set, the path
     doesn't exist, or no environment has been applied yet - callers must
     treat an empty registry as "nothing to report on", not an error.
     """

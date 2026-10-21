@@ -28,7 +28,7 @@ scope - a caller never has to get the sequence right themselves.
 ## Registry is discovered, not hand-maintained
 
 Unlike `power_ops`'s VPS container list (a fixed dict - containers rarely
-change), `tools/registry.py` reads `AZURE_POWER_OPS_KENDRAINFRA_PATH`'s
+change), `tools/registry.py` reads `AZURE_POWER_OPS_INFRA_REPO_PATH`'s
 `envs/azure/` directory at call time and includes a customer only if its
 directory has both `terraform.tfvars` (names the customer) and
 `backend.hcl` (actually `tofu apply`'d - see
@@ -87,7 +87,7 @@ state, nothing else.
 
 | Variable | Description | Default |
 |---|---|---|
-| `AZURE_POWER_OPS_KENDRAINFRA_PATH` | Local path to the `kendrainfra` checkout to read `envs/azure/` from | (required to discover any environment) |
+| `AZURE_POWER_OPS_INFRA_REPO_PATH` | Local path to the infra repo checkout to read `envs/azure/` from | (required to discover any environment) |
 | `ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID` | Service principal credentials | (required for any action) |
 | `AZURE_POWER_OPS_AZ_TIMEOUT` | Per-`az`-command timeout (seconds) | `120` |
 | `MCP_MODE` | `STDIO` or `http` | `STDIO` |

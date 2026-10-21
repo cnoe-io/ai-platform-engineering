@@ -12,7 +12,7 @@ service-principal login.
 
 ## Registry is discovered, not hand-maintained
 
-`tools/registry.py` reads `AZURE_COST_OPS_KENDRAINFRA_PATH`'s `envs/azure/`
+`tools/registry.py` reads `AZURE_COST_OPS_INFRA_REPO_PATH`'s `envs/azure/`
 directory at call time and includes a customer only if its directory has
 both `terraform.tfvars` (names the customer) and `backend.hcl` (actually
 `tofu apply`'d). `customer-template` itself is always skipped. If no
@@ -83,7 +83,7 @@ resource groups - distinct roles from the plain Reader role
 
 | Variable | Description | Default |
 |---|---|---|
-| `AZURE_COST_OPS_KENDRAINFRA_PATH` | Local path to the `kendrainfra` checkout to read `envs/azure/` from | (required to discover any environment) |
+| `AZURE_COST_OPS_INFRA_REPO_PATH` | Local path to the infra repo checkout to read `envs/azure/` from | (required to discover any environment) |
 | `ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID` | Service principal credentials | (required for any action) |
 | `AZURE_COST_OPS_AZ_TIMEOUT` | Per-`az`-command timeout (seconds) | `120` |
 | `MCP_MODE` | `STDIO` or `http` | `STDIO` |

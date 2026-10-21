@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Discovers customer Azure environments from kendrainfra's envs/azure/
+Discovers customer Azure environments from the infra repo's envs/azure/
 directory and builds the allowlist of AKS/Postgres resources this server
 may power on/off.
 
@@ -20,7 +20,7 @@ Naming convention (see envs/azure/customer-template/main.tf):
   AKS cluster:     kendra-<customer>-aks
   Postgres server: kendra-<customer>-pg
 
-Set AZURE_POWER_OPS_KENDRAINFRA_PATH to the local kendrainfra checkout this
+Set AZURE_POWER_OPS_INFRA_REPO_PATH to the local infra repo checkout this
 server should read from.
 """
 
@@ -39,10 +39,10 @@ class ComponentSpec(TypedDict):
 
 
 def _envs_root() -> Optional[Path]:
-    kendrainfra_path = os.getenv("AZURE_POWER_OPS_KENDRAINFRA_PATH", "")
-    if not kendrainfra_path:
+    infra_repo_path = os.getenv("AZURE_POWER_OPS_INFRA_REPO_PATH", "")
+    if not infra_repo_path:
         return None
-    root = Path(kendrainfra_path) / "envs" / "azure"
+    root = Path(infra_repo_path) / "envs" / "azure"
     return root if root.is_dir() else None
 
 
@@ -55,7 +55,7 @@ def discover_components() -> Dict[str, ComponentSpec]:
     """
     Returns the AKS/Postgres components for every customer env that has both
     a terraform.tfvars (names the customer) and a backend.hcl (actually
-    applied). Empty if AZURE_POWER_OPS_KENDRAINFRA_PATH isn't set, the path
+    applied). Empty if AZURE_POWER_OPS_INFRA_REPO_PATH isn't set, the path
     doesn't exist, or no environment has been applied yet - callers must
     treat an empty registry as "nothing to act on", not an error.
     """

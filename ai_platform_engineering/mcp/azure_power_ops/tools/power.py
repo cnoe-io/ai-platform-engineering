@@ -49,7 +49,7 @@ async def _apply(action: str, scope: str, confirm: bool) -> Dict[str, Any]:
         return {
             "error": "No customer Azure environments registered - none applied yet "
                      "(see envs/azure/customer-template/README.md), or "
-                     "AZURE_POWER_OPS_KENDRAINFRA_PATH is not set."
+                     "AZURE_POWER_OPS_INFRA_REPO_PATH is not set."
         }
 
     groups = discover_groups(components_spec)

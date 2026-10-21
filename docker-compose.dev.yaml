@@ -574,12 +574,12 @@ services:
       - ./ai_platform_engineering/mcp/azure_power_ops:/app/ai_platform_engineering/mcp/azure_power_ops
       # Read-only: this server only discovers customer env names from
       # envs/azure/*/terraform.tfvars+backend.hcl, never writes to this repo.
-      - ${AZURE_POWER_OPS_KENDRAINFRA_HOST_PATH:-/dev/null}:/kendrainfra:ro
+      - ${AZURE_POWER_OPS_INFRA_REPO_HOST_PATH:-/dev/null}:/infra-repo:ro
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - AZURE_POWER_OPS_KENDRAINFRA_PATH=/kendrainfra
+      - AZURE_POWER_OPS_INFRA_REPO_PATH=/infra-repo
       # Azure service principal - same credentials kendrainfra's own
       # Jenkinsfile uses for Terraform. See
       # ai_platform_engineering/mcp/azure_power_ops/README.md.
@@ -615,12 +615,12 @@ services:
       - ./ai_platform_engineering/mcp/azure_cost_ops:/app/ai_platform_engineering/mcp/azure_cost_ops
       # Read-only: this server only discovers customer env names from
       # envs/azure/*/terraform.tfvars+backend.hcl, never writes to this repo.
-      - ${AZURE_COST_OPS_KENDRAINFRA_HOST_PATH:-/dev/null}:/kendrainfra:ro
+      - ${AZURE_COST_OPS_INFRA_REPO_HOST_PATH:-/dev/null}:/infra-repo:ro
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - AZURE_COST_OPS_KENDRAINFRA_PATH=/kendrainfra
+      - AZURE_COST_OPS_INFRA_REPO_PATH=/infra-repo
       # Azure service principal - same credentials kendrainfra's own
       # Jenkinsfile uses for Terraform. See
       # ai_platform_engineering/mcp/azure_cost_ops/README.md.
