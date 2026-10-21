@@ -225,6 +225,7 @@ NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 APPLY_WORKSPACE_MIGRATIONS=false
+REPAIR_PENDING_INSTALL=false
 INGEST_URLS=()
 # MetalLB: default ON. Required for real LoadBalancer IPs on kind clusters
 # and is a prerequisite for ingress. Set ENABLE_METALLB=false or pass
@@ -5081,6 +5082,83 @@ JSON
   kill "$_pf" 2>/dev/null || true
 }
 
+# Recover the first-install state in an exclusively managed local kind cluster.
+# This is opt-in: process inspection only observes Helm clients on this host.
+repair_pending_install() {
+  local original current started process_names pods nodes check
+  if ! original=$(helm status caipe -n caipe -o json 2>/dev/null); then
+    return 0
+  fi
+  case "$(printf '%s' "$original" | jq -r '.info.status')" in
+    pending-install) ;;
+    pending-upgrade|pending-rollback)
+      err "An upgrade or rollback is pending. Inspect helm history caipe -n caipe before recovery."
+      return 1
+      ;;
+    *) return 0 ;;
+  esac
+  if [[ "$(printf '%s' "$original" | jq -r '.version')" != 1 ]]; then
+    err "Automatic pending-install repair requires the first release revision."
+    return 1
+  fi
+  nodes=$(kubectl get nodes -o json) || return 1
+  if ! printf '%s' "$nodes" | jq -e '(.items | length > 0) and all(.items[]; (.spec.providerID // "") | startswith("kind://"))' >/dev/null; then
+    err "Automatic pending-install repair requires an exclusively managed local kind cluster."
+    return 1
+  fi
+  started=$(printf '%s' "$original" | jq -r '.info.last_deployed')
+  if ! python3 - "$started" <<'REPAIR_INSTALL_AGE'
+import datetime
+import sys
+
+try:
+    started = datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+    age = (datetime.datetime.now(datetime.timezone.utc) - started).total_seconds()
+except (ValueError, TypeError):
+    sys.exit(1)
+sys.exit(0 if age >= 120 else 1)
+REPAIR_INSTALL_AGE
+  then
+    err "The pending install is too recent to repair, or its start time cannot be verified. Wait at least two minutes before retrying."
+    return 1
+  fi
+  step "Checking whether the pending first install can be recovered"
+  for check in 1 2; do
+    current=$(helm status caipe -n caipe -o json) || return 1
+    if [[ "$(printf '%s' "$current" | jq -r '.info.status')" == deployed ]]; then
+      return 0
+    fi
+    if ! printf '%s' "$current" | jq -e --arg started "$started" '.version == 1 and .info.status == "pending-install" and .info.last_deployed == $started' >/dev/null; then
+      err "The Helm release changed while checking recovery; retry after inspecting its status."
+      return 1
+    fi
+    process_names=$(ps -eo comm=) || { err "Cannot verify whether a Helm process is active."; return 1; }
+    if printf '%s\n' "$process_names" | awk '$1 ~ /(^|\/)helm$/ {found=1} END {exit !found}'; then
+      err "A Helm process is still running. Wait for it to finish before retrying preparation."
+      return 1
+    fi
+    pods=$(kubectl get pods -n caipe -o json) || return 1
+    if ! printf '%s' "$pods" | jq -e '(.items | length > 0) and all(.items[];
+      .metadata.deletionTimestamp == null and (.status.phase == "Succeeded" or
+        (.status.phase == "Running" and any(.status.conditions[]?; .type == "Ready" and .status == "True"))))' >/dev/null; then
+      err "Workloads are not healthy enough for automatic pending-install repair. Inspect kubectl get pods -n caipe."
+      return 1
+    fi
+    if [[ "$check" == 1 ]]; then
+      log "Workloads are healthy and no local Helm process is active; checking again in 15 seconds"
+      sleep 15
+    fi
+  done
+  log "Reapplying saved revision 1 to recover the interrupted first install"
+  helm rollback caipe 1 -n caipe --wait --timeout 10m || return 1
+  current=$(helm status caipe -n caipe -o json) || return 1
+  if ! printf '%s' "$current" | jq -e '.info.status == "deployed"' >/dev/null; then
+    err "Helm recovery did not report a deployed release."
+    return 1
+  fi
+  log "Pending first install recovered; continuing setup"
+}
+
 # Initialize local workspaces through the same authenticated API as the UI.
 # Fresh installs opt in automatically; existing deployments require the flag.
 initialize_workspace_migrations() {
@@ -8927,6 +9005,8 @@ BANNER
   _load_caipe_config
   choose_cluster
 
+  if $REPAIR_PENDING_INSTALL; then repair_pending_install; fi
+
   # If saved config was loaded but context needed interactive cluster selection,
   # now that the cluster is set activate non-interactive for the remaining steps.
   $_SAVED_CONFIG_ACCEPTED && NON_INTERACTIVE=true
@@ -9410,6 +9490,8 @@ Options:
   --upgrade          Skip to upgrade path when CAIPE is already deployed
                      (re-collect credentials + re-deploy; skips interactive menu)
   --apply-migrations Apply workspace migrations using the local admin (also on re-runs)
+  --repair-pending-install
+                     Recover an abandoned first install on an exclusively managed kind cluster
   --no-auto-heal     Disable the auto-heal loop
   --yes, -y          Auto-confirm cleanup prompts (requires typing 'yes')
   -h, --help         Show this help message
@@ -9594,6 +9676,7 @@ for arg in "$@"; do
     --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --apply-migrations) APPLY_WORKSPACE_MIGRATIONS=true ;;
+    --repair-pending-install) REPAIR_PENDING_INSTALL=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
     --ingest-url=*)    INGEST_URLS+=("${arg#--ingest-url=}") ;;

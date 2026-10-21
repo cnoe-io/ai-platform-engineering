@@ -76,6 +76,18 @@ Existing installations keep their normal upgrade behavior. To apply pending work
 
 Automatic initialization requires the local administrator and in-chart Keycloak. With an external identity provider or local accounts disabled, apply updates through **Admin → Security & Policy → Access Operations → Migrations**.
 
+### Recover an interrupted first install
+
+For a local kind cluster managed exclusively from the current host, unattended setup can opt into recovery:
+
+```bash
+./setup-caipe.sh --non-interactive --repair-pending-install --apply-migrations
+```
+
+Recovery applies only to revision 1 marked `pending-install`, at least two minutes old. All CAIPE pods must be Ready or completed successfully, and no local Helm process may be running. Setup checks the unchanged release, process list, and pod health twice, 15 seconds apart. It then reapplies saved revision 1 through `helm rollback`, verifies `deployed`, and continues normal setup.
+
+Process inspection cannot detect Helm clients on other hosts; enable this only when the current host exclusively manages the cluster. Pending upgrades, pending rollbacks, unhealthy workloads, and unverified state stop setup for operator diagnosis. Recovery does not uninstall the release or delete its metadata or storage.
+
 ### Tear down when you’re done
 
 To remove the environment and free resources:
@@ -158,6 +170,7 @@ When sudo is denied:
 |------|-------------|
 | `--non-interactive` | Skip prompts; use env vars or defaults |
 | `--apply-migrations` | Apply workspace migrations using the local administrator, including on reruns |
+| `--repair-pending-install` | Opt into guarded recovery of revision 1 on an exclusively managed local kind cluster |
 | `--create-cluster` | Create a Kind cluster if none exists (name: `caipe`) |
 | `--rag` | Deploy the RAG stack (knowledge base, embeddings) |
 | `--graph-rag` | Deploy Graph RAG (Neo4j + ontology agent; implies `--rag`) |
