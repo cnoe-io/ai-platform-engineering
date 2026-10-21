@@ -9,7 +9,7 @@ See the `.github/workflows/` directory for the full list of CI/CD workflows.
 ### MCP registry concurrency
 
 - `ci-mcp-servers.yml` and `prebuild-mcp-servers.yml` each allow at most
-  **4 image-build jobs** and **2 manifest-publishing jobs** at a time.
+  **8 image-build jobs** and **4 manifest-publishing jobs** at a time.
 - Both architectures and every selected MCP server still build; excess matrix
   jobs queue instead of starting together. Failure reporting remains unchanged.
 - These are per-matrix limits within each workflow run. Separate runs and other
