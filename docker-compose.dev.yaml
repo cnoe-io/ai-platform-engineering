@@ -641,6 +641,47 @@ services:
     profiles:
       - azure-cost-ops-agent
 
+  mcp-azure-cluster-ops:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=azure_cluster_ops
+    image: ghcr.io/cnoe-io/mcp-azure-cluster-ops:${IMAGE_TAG:-localtag}
+    container_name: mcp-azure-cluster-ops
+    env_file: [.env]
+    ports: ["18019:8000"]
+    volumes:
+      - ./ai_platform_engineering/mcp/azure_cluster_ops:/app/ai_platform_engineering/mcp/azure_cluster_ops
+      # Read-only: this server only discovers customer env names from
+      # envs/azure/*/terraform.tfvars+backend.hcl, never writes to this repo.
+      - ${AZURE_CLUSTER_OPS_INFRA_REPO_HOST_PATH:-/dev/null}:/infra-repo:ro
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - AZURE_CLUSTER_OPS_INFRA_REPO_PATH=/infra-repo
+      # Azure service principal - same credentials kendrainfra's own
+      # Jenkinsfile uses for Terraform. See
+      # ai_platform_engineering/mcp/azure_cluster_ops/README.md.
+      - ARM_CLIENT_ID=${AZURE_CLUSTER_OPS_ARM_CLIENT_ID:-}
+      - ARM_CLIENT_SECRET=${AZURE_CLUSTER_OPS_ARM_CLIENT_SECRET:-}
+      - ARM_TENANT_ID=${AZURE_CLUSTER_OPS_ARM_TENANT_ID:-}
+      - ARM_SUBSCRIPTION_ID=${AZURE_CLUSTER_OPS_ARM_SUBSCRIPTION_ID:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # Not part of the default `mcp-servers` bundle, and kept in its own
+    # profile separate from azure-power-ops-agent/azure-cost-ops-agent: this
+    # tool's write action (node pool scaling) has a different blast radius
+    # than power on/off or a budget alert. Enable explicitly with the
+    # `azure-cluster-ops-agent` profile.
+    profiles:
+      - azure-cluster-ops-agent
+
   ####################################################################################################
   #                                      CAIPE UI                                                    #
   ####################################################################################################
