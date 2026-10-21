@@ -145,6 +145,9 @@ caipe-ui:
           key: projects/example/test/mongodb
           property: MONGODB_URI
       # Keep the other UI Secret entries here.
+
+dynamic-agents:
+  existingSecret: caipe-runtime-secrets
 ```
 
 The chart uses the configured `secretStoreRef` and preserves the URI entry's
