@@ -64,6 +64,18 @@ The script is **interactive** and will:
 
 When it finishes, you’ll have CAIPE running locally. The script will tell you how to open the UI and run your first queries.
 
+### Workspace initialization
+
+Fresh installations with the installer-managed local administrator apply workspace migrations before setup reports success. Setup uses the authenticated admin API, checks for failed updates and missing schema versions, and removes its temporary sign-in client. An initialization failure stops setup.
+
+Existing installations keep their normal upgrade behavior. To apply pending workspace updates during a rerun, use:
+
+```bash
+./setup-caipe.sh --non-interactive --apply-migrations
+```
+
+Automatic initialization requires the local administrator and in-chart Keycloak. With an external identity provider or local accounts disabled, apply updates through **Admin → Security & Policy → Access Operations → Migrations**.
+
 ### Tear down when you’re done
 
 To remove the environment and free resources:
@@ -145,6 +157,7 @@ When sudo is denied:
 | Flag | Description |
 |------|-------------|
 | `--non-interactive` | Skip prompts; use env vars or defaults |
+| `--apply-migrations` | Apply workspace migrations using the local administrator, including on reruns |
 | `--create-cluster` | Create a Kind cluster if none exists (name: `caipe`) |
 | `--rag` | Deploy the RAG stack (knowledge base, embeddings) |
 | `--graph-rag` | Deploy Graph RAG (Neo4j + ontology agent; implies `--rag`) |

@@ -224,6 +224,7 @@ AUTO_YES=false
 NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
+APPLY_WORKSPACE_MIGRATIONS=false
 INGEST_URLS=()
 # MetalLB: default ON. Required for real LoadBalancer IPs on kind clusters
 # and is a prerequisite for ingress. Set ENABLE_METALLB=false or pass
@@ -5080,6 +5081,125 @@ JSON
   kill "$_pf" 2>/dev/null || true
 }
 
+# Initialize local workspaces through the same authenticated API as the UI.
+# Fresh installs opt in automatically; existing deployments require the flag.
+initialize_workspace_migrations() {
+  if ! _local_admin_active; then
+    err "Automatic workspace migrations require the installer-managed local admin. Apply migrations from the admin UI for brokered identities."
+    return 1
+  fi
+  step "Initializing workspace migrations"
+  local script=""
+  IFS= read -r -d '' script <<'CAIPE_WORKSPACE_MIGRATIONS_JS' || [[ -n "$script" ]]
+const { randomBytes } = require("node:crypto");
+async function main() {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const items = JSON.parse(input).items;
+  const field = (name, key) => {
+    const value = items?.find(item => item.metadata?.name === name)?.data?.[key];
+    if (!value) throw new Error(`Missing setup credential: ${name}/${key}`);
+    return Buffer.from(value, "base64").toString("utf8");
+  };
+  const kc = (process.env.KEYCLOAK_URL || "http://caipe-keycloak:8080").replace(/\/$/, "");
+  const realm = encodeURIComponent(process.env.KEYCLOAK_REALM || "caipe");
+  const ui = "http://127.0.0.1:3000/api/admin/rebac/migrations";
+  const token = async (realmName, values) => {
+    const r = await fetch(`${kc}/realms/${realmName}/protocol/openid-connect/token`, {
+      method: "POST", body: new URLSearchParams(values), signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) throw new Error(`Keycloak authentication failed (HTTP ${r.status})`);
+    const body = await r.json();
+    if (!body.access_token) throw new Error("Keycloak returned no access token");
+    return body.access_token;
+  };
+  const masterToken = () => token("master", {
+    grant_type: "password", client_id: "admin-cli",
+    username: field("caipe-keycloak-admin", "username"),
+    password: field("caipe-keycloak-admin", "password"),
+  });
+  // A confidential, short-lived client gets the UI audience without changing
+  // existing clients, token validation, or the user's authorization.
+  const clientId = `caipe-setup-${randomBytes(12).toString("hex")}`;
+  const clientSecret = randomBytes(32).toString("hex");
+  let clientUuid, clientCreationAttempted = false;
+  try {
+    const admin = await masterToken();
+    clientCreationAttempted = true;
+    const created = await fetch(`${kc}/admin/realms/${realm}/clients`, {
+      method: "POST", signal: AbortSignal.timeout(30000),
+      headers: { Authorization: `Bearer ${admin}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId, secret: clientSecret, enabled: true, publicClient: false,
+        standardFlowEnabled: false, directAccessGrantsEnabled: true,
+        serviceAccountsEnabled: false, defaultClientScopes: ["profile", "email"],
+        attributes: { "access.token.lifespan": "600" },
+        protocolMappers: [{
+          name: "setup-ui-audience", protocol: "openid-connect", protocolMapper: "oidc-audience-mapper",
+          config: { "included.client.audience": process.env.OIDC_CLIENT_ID || "caipe-ui",
+            "access.token.claim": "true", "id.token.claim": "false" },
+        }],
+      }),
+    });
+    if (created.status !== 201) throw new Error(`Setup client creation failed (HTTP ${created.status})`);
+    clientUuid = created.headers.get("location")?.split("/").pop();
+    if (!clientUuid) throw new Error("Keycloak returned no setup client ID");
+    const accessToken = await token(realm, {
+      grant_type: "password", client_id: clientId, client_secret: clientSecret,
+      username: field("caipe-local-admin", "email"), password: field("caipe-local-admin", "password"),
+      scope: "openid email profile",
+    });
+    const api = async (path, body) => {
+      const r = await fetch(ui + path, {
+        method: body ? "POST" : "GET", signal: AbortSignal.timeout(300000),
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (!r.ok) throw new Error(`Workspace migration API failed (HTTP ${r.status})`);
+      const json = await r.json();
+      if (json.success !== true || !json.data) throw new Error("Invalid workspace migration response");
+      return json.data;
+    };
+    const result = await api("/apply-all", { confirmation: "APPLY ALL PENDING MIGRATIONS" });
+    if (result.failed_count !== 0 || !Array.isArray(result.results)) {
+      throw new Error("Workspace migrations did not all succeed; inspect Access Operations before continuing");
+    }
+    const state = await api("");
+    if (!Array.isArray(state.migrations) || !Array.isArray(state.schema_versions)) {
+      throw new Error("Invalid workspace migration verification response");
+    }
+    const pending = state.migrations.filter(m => m.required && m.status !== "completed");
+    const unversioned = state.schema_versions.filter(s => s.current_version === null && s.target_version !== null);
+    if (pending.length || unversioned.length) throw new Error("Workspace migration verification still requires attention");
+    console.log(`Workspace migrations: ${result.applied_count} applied; no required updates or version initialization pending`);
+  } finally {
+    if (clientCreationAttempted) {
+      const admin = await masterToken();
+      if (!clientUuid) {
+        const lookup = await fetch(`${kc}/admin/realms/${realm}/clients?clientId=${encodeURIComponent(clientId)}`, {
+          headers: { Authorization: `Bearer ${admin}` }, signal: AbortSignal.timeout(30000),
+        });
+        if (!lookup.ok) throw new Error(`Setup client cleanup lookup failed (HTTP ${lookup.status})`);
+        clientUuid = (await lookup.json()).find(client => client.clientId === clientId)?.id;
+      }
+      if (clientUuid) {
+        const removed = await fetch(`${kc}/admin/realms/${realm}/clients/${encodeURIComponent(clientUuid)}`, {
+          method: "DELETE", headers: { Authorization: `Bearer ${admin}` }, signal: AbortSignal.timeout(30000),
+        });
+        if (!removed.ok) throw new Error(`Setup client cleanup failed (HTTP ${removed.status})`);
+      }
+    }
+  }
+}
+main().catch(error => { console.error(error.message); process.exitCode = 1; });
+CAIPE_WORKSPACE_MIGRATIONS_JS
+  if ! kubectl get secrets caipe-local-admin caipe-keycloak-admin -n caipe -o json \
+    | kubectl exec -i deployment/caipe-caipe-ui -n caipe -- node -e "$script"; then
+    err "Workspace initialization failed. Resolve the error before using CAIPE; retry setup with --apply-migrations."
+    return 1
+  fi
+}
+
 _patch_rag_server_envfrom() {
   # The rag-stack subchart template builds envFrom from a hardcoded llm-secret
   # reference; it does not expose envFrom as a values key that propagates from
@@ -8811,10 +8931,13 @@ BANNER
   # now that the cluster is set activate non-interactive for the remaining steps.
   $_SAVED_CONFIG_ACCEPTED && NON_INTERACTIVE=true
 
+  local fresh_install=true
+
   # ── Fast re-run detection ──
   # If CAIPE is already deployed, offer the user a shortcut instead of
   # running the full setup flow again.
   if helm status caipe -n caipe &>/dev/null; then
+    fresh_install=false
     local deployed_version
     deployed_version=$(helm get metadata caipe -n caipe -o json 2>/dev/null \
       | jq -r '.version // empty' 2>/dev/null || echo "unknown")
@@ -8853,6 +8976,7 @@ BANNER
         log "Skipping to monitor mode"
         detect_deployed_features
         ensure_healthy
+        if $APPLY_WORKSPACE_MIGRATIONS; then initialize_workspace_migrations; fi
         monitor_port_forwards
         return
         ;;
@@ -9064,6 +9188,9 @@ BANNER
   fi
 
   ensure_healthy
+  if $APPLY_WORKSPACE_MIGRATIONS || { $fresh_install && _local_admin_active; }; then
+    initialize_workspace_migrations
+  fi
   monitor_port_forwards
 }
 
@@ -9282,6 +9409,7 @@ Options:
                      broken PVCs, missing secrets, RAG misconfig (every 30s)
   --upgrade          Skip to upgrade path when CAIPE is already deployed
                      (re-collect credentials + re-deploy; skips interactive menu)
+  --apply-migrations Apply workspace migrations using the local admin (also on re-runs)
   --no-auto-heal     Disable the auto-heal loop
   --yes, -y          Auto-confirm cleanup prompts (requires typing 'yes')
   -h, --help         Show this help message
@@ -9465,6 +9593,7 @@ for arg in "$@"; do
     --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;
     --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
     --upgrade)         FORCE_UPGRADE=true ;;
+    --apply-migrations) APPLY_WORKSPACE_MIGRATIONS=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
     --ingest-url=*)    INGEST_URLS+=("${arg#--ingest-url=}") ;;
