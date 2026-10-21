@@ -68,6 +68,8 @@ app_context_prompt:
 - Invalid/expired context, input over 16 KiB, or formatted output over the configured limit is omitted.
   Limits include the complete formatted reference block; oversize data is not silently truncated into invalid JSON.
   Expiration is rechecked when preparing model requests, including after a long-running tool.
+- When PII middleware is enabled, the adapter omits the projection. PII middleware checks graph-state
+  messages before this request-only block is added, so it cannot redact or block the projected data.
 - The root agent receives a labelled, untrusted reference block in a copy of its current model request.
   The UI question, system instructions, attachments, and checkpoint messages are not rewritten.
   Subagents are not implicitly opted in. Context is task-local and reset on success, exception or cancellation.

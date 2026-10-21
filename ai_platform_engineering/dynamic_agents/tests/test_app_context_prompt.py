@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,11 +12,13 @@ import pytest
 from fastapi import HTTPException
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.pii import PIIDetectionError
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import ValidationError
 
+from dynamic_agents.config import Settings
 from dynamic_agents.models import AppContextPromptConfig, ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.routes.chat import (
     _collect_invoke_response,
@@ -23,6 +26,7 @@ from dynamic_agents.routes.chat import (
     _generate_sse_events,
     apply_config_override,
 )
+from dynamic_agents.services import agent_runtime
 from dynamic_agents.services.app_context_prompt import AppContextPromptMiddleware, app_context_scope, format_app_context
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -296,3 +300,55 @@ async def test_invoke_and_resume_use_fresh_context(monkeypatch: pytest.MonkeyPat
     assert "Primary" in captured[0]
     assert "Secondary" in captured[1] and "Primary" not in captured[1]
     assert captured[2] == json.dumps("My question")
+
+
+@pytest.mark.parametrize("enabled,strategy", [(False, "redact"), (True, "redact"), (True, "block")])
+async def test_runtime_omits_projection_with_pii_and_preserves_input_handling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, enabled: bool, strategy: str
+) -> None:
+    observed: list[str] = []
+
+    class ObserveModelRequest(AgentMiddleware):
+        async def awrap_model_call(
+            self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+        ) -> ModelResponse | AIMessage:
+            observed.append(str(request.messages[-1].content))
+            return await handler(request)
+
+    def create_graph(**kwargs: object) -> object:
+        return create_agent(model=kwargs["model"], middleware=[*kwargs["middleware"], ObserveModelRequest()])
+
+    monkeypatch.setenv("ENABLE_TRACING", "false")
+    monkeypatch.setattr(
+        agent_runtime, "get_llm", lambda *args: FakeMessagesListChatModel(responses=[AIMessage(content="Example response")])
+    )
+    monkeypatch.setattr(agent_runtime, "create_deep_agent", create_graph)
+    runtime = agent_runtime.AgentRuntime(
+        config=DynamicAgentConfig(
+            _id="primary",
+            name="Primary",
+            owner_id="owner@example.test",
+            system_prompt="Example",
+            model={"id": "example-model", "provider": "example"},
+            app_context_prompt=POLICY,
+            features={"middleware": [{"type": "pii", "enabled": enabled, "params": {"strategy": strategy}}]},
+        ),
+        mcp_servers=[],
+        settings=Settings(default_runtime_backend="state", attachment_local_path=str(tmp_path)),
+        ephemeral=True,
+    )
+    await runtime.initialize()
+    with app_context_scope(POLICY, context(title="snapshot@example.test")):
+        await runtime._graph.ainvoke({"messages": [HumanMessage(content="My question")]})
+    assert ("untrusted_app_data" in observed[0]) is not enabled
+    assert ("snapshot@example.test" in observed[0]) is not enabled
+    if enabled:
+        pii_input = {"messages": [HumanMessage(content="Contact user@example.test")]}
+        if strategy == "block":
+            with pytest.raises(PIIDetectionError):
+                await runtime._graph.ainvoke(pii_input)
+            assert len(observed) == 1
+        else:
+            await runtime._graph.ainvoke(pii_input)
+            assert "user@example.test" not in observed[-1]
+            assert "[REDACTED_EMAIL]" in observed[-1]
