@@ -1,5 +1,9 @@
 # Agent Creation UI Architecture
 
+> **Delivery scope:** [Phase 1](delivery-phases.md) exposes supported profiles/options and prevents unsupported controls from implying functionality. Phase 2 adds the full capability/schema/panel architecture with `DeepAgentsAdapter`; Phase 4 enables cross-harness delegation controls only after runtime support is qualified.
+
+> **Pending interface sketches:** [Deep Agents Adapter and Pluggable Agent Builder](deep-agents-integration-pending.md) details capability-driven panels, schema validation, and migration pseudocode. These interfaces are proposed work, not current functionality.
+
 > **Implemented vertical slice (2026-08-18):** The existing editor now fetches
 > descriptors from the independent Harness Engine, renders sanitized operator
 > profiles and primitive JSON-Schema options, performs server-side draft
@@ -10,14 +14,14 @@
 
 ## Goal
 
-Evolve the existing `DynamicAgentEditor` into a Harness Engine agent builder. The selected harness controls compatibility, available models, field behavior, validation, and operator context without changing the existing five-step navigation or default Deep Agents experience.
+Evolve the existing `DynamicAgentEditor` into a Harness Engine agent builder. The selected harness controls compatibility, available models, field behavior, validation, and operator context without changing the existing step navigation or default Deep Agents experience.
 
 ## Current UI baseline
 
 The current editor:
 
 - is one client component with local React state;
-- has fixed `basic`, `instructions`, `tools`, `skills`, and `advanced` steps;
+- has fixed `basic`, `instructions`, `tools`, `knowledge`, `skills`, and `advanced` steps;
 - fetches one unfiltered model list on mount;
 - renders tools, skills, middleware, subagents, interrupts, and workflows unconditionally;
 - computes only local required-field blockers;
