@@ -42,6 +42,8 @@ Production installs must still supply ExternalSecrets and persistent datastore s
   canonical `sub`, explicit signed `caipe_principal_type`, authorized client
   (`azp`) and issuance/expiry are required. It does not infer identity type from
   email or username, use secondary-keyset fallback, or flatten `act` tokens.
+  Issuance may lead the BFF clock by at most 30 seconds; token expiry and any
+  not-before boundary remain strict.
 - Newly created BFF-managed service clients receive access-token-only mappers
   for the audience and `service_account` principal type. Existing clients and
   ordinary bearer/session authentication are unchanged.

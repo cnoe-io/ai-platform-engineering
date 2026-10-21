@@ -126,6 +126,10 @@ async function getJWKS(signal?: AbortSignal): Promise<ReturnType<typeof createRe
   return _cachedJWKS;
 }
 
+// Issuance is descriptive, unlike exp/nbf validity bounds. Allow a small issuer
+// clock lead without extending token expiry or accepting a future not-before.
+const PLATFORM_IAT_SKEW_SECONDS = 30;
+
 /**
  * Strict profile for new delegated Access APIs. Legacy bearer callers retain
  * their existing contract in validateBearerJWT; this grants no delegation.
@@ -151,7 +155,7 @@ export async function validatePlatformBearerJWT(token: string): Promise<Platform
   if (typeof sub !== 'string' || sub.length > 256 || !/^[A-Za-z0-9._%+\-@]+$/.test(sub)) return invalid('sub');
   const clientId = payload.azp;
   if (typeof clientId !== 'string' || !clientId || clientId !== clientId.trim() || clientId.length > 256) return invalid('azp');
-  if (typeof payload.iat !== 'number' || !Number.isFinite(payload.iat) || payload.iat > Date.now() / 1000 ||
+  if (typeof payload.iat !== 'number' || !Number.isFinite(payload.iat) || payload.iat > Date.now() / 1000 + PLATFORM_IAT_SKEW_SECONDS ||
       typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || payload.exp <= payload.iat) return invalid('iat');
   // An actor-bearing token needs a reviewed delegation validator; never flatten it.
   if (payload.act !== undefined) return invalid('act');

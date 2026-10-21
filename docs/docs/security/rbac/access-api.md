@@ -61,7 +61,7 @@ CAS owns the decisions and changes to relationships.
 
 New-service onboarding starts with an explicit signed identity profile for the
 upcoming delegated API. It does not replace existing caller authentication yet.
-See the [identity contract](https://github.com/caipe-io/ai-platform-engineering/blob/prebuild/feat/cas-authz/ui/src/lib/authz/README.md#new-service-identity-profile--foundation).
+See the [identity profile](./architecture.md#new-service-identity-foundation).
 Trusted background delegation is required for this MVP, not supplied by ordinary
 self-checks. Explicit job authorization may outlive browser logout; permission
 revocation and delegation expiry/revocation must still block subsequent operations.
