@@ -72,6 +72,45 @@ Routes are thin entry points. Existing `/api/authz/v1/*` consumers are unchanged
 their eventual migration should remove obsolete paths rather than maintain
 permanent aliases. The gateway-only contract below is separate from this self-check API.
 
+## New-service identity profile — foundation
+
+`validatePlatformBearerJWT()` verifies the identity that the forthcoming
+delegated Access API will use. **No route uses this profile yet; it does not
+authorize on-behalf-of execution.** Existing bearer/session callers are unchanged.
+
+| Signed claim | Required meaning |
+| --- | --- |
+| `iss` | The configured primary `OIDC_ISSUER`; no additional-JWKS fallback |
+| `sub` | Canonical platform subject ID; never substituted with email/username |
+| `caipe_principal_type` | Exactly `user` or `service_account`, assigned by the issuer |
+| `azp` | The authorized client, distinct from the subject |
+| `aud` | Includes `caipe-access`, not an audience inherited from legacy settings |
+| `typ` | `Bearer` (the Keycloak access-token payload claim, not a JWT header) |
+| `iat` | Required numeric issuance; at most 30 seconds ahead of the BFF clock |
+| `exp` | Required numeric expiry after issuance; expiry is strict, without a grace period |
+| `nbf` | Optional; when present, its not-before boundary is strict |
+
+- Only RS256/ES256 signatures are accepted. Actor-bearing (`act`) tokens are
+  rejected rather than flattened into an ordinary caller.
+- Issuer + subject identify the account. One configured primary issuer maps
+  into existing `user:<sub>` / `service_account:<sub>` grants; switching issuers
+  requires an explicit identity migration, not an email join.
+- Newly created BFF-managed service clients receive access-token-only Keycloak
+  mappers for this audience and the explicit `service_account` type. They remain
+  client-credentials-only; neither mapper grants any resource permission.
+- Existing clients/realm configuration are not rewritten. Operators must review
+  their mappers before adopting the new profile. Human-only clients require a
+  `user` mapping; do not hardcode one type on a client that mixes human and
+  service-account flows. These are issuer-controlled claims, not editable user attributes.
+- The profile does not change which audiences existing APIs accept, prove user
+  consent, or make legacy impersonation safe. The OBO review remains #2890.
+
+For the new-service MVP, trusted on-behalf-of/background access is required
+(#2891). Explicit job authorization may survive browser logout, but expiry,
+revocation and current user/service permissions must still stop the next
+protected operation. A durable, scoped service/user/execution binding is the
+next slice; no user-token storage, delegation endpoint or renewal is implemented here.
+
 ## Gateway authorization foundation
 
 `/api/access/gateway/check` is a workload-only HTTP authorization adapter.

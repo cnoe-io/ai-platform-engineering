@@ -35,6 +35,22 @@ Production installs must still supply ExternalSecrets and persistent datastore s
 
 **Technically:** Keycloak acts as an OIDC Authorization Server and IdP broker. It proxies login to Duo SSO via an OIDC client, mirrors external group claims into identity attributes for sync, and issues its own signed JWT — so downstream services only ever need to trust one issuer. CAIPE authorization decisions are no longer encoded as Keycloak realm roles.
 
+### New-service identity foundation
+
+- `validatePlatformBearerJWT()` defines the strict profile for forthcoming CAS
+  consumer APIs: the configured primary issuer, `caipe-access` audience,
+  canonical `sub`, explicit signed `caipe_principal_type`, authorized client
+  (`azp`) and issuance/expiry are required. It does not infer identity type from
+  email or username, use secondary-keyset fallback, or flatten `act` tokens.
+  Issuance may lead the BFF clock by at most 30 seconds; token expiry and any
+  not-before boundary remain strict.
+- Newly created BFF-managed service clients receive access-token-only mappers
+  for the audience and `service_account` principal type. Existing clients and
+  ordinary bearer/session authentication are unchanged.
+- This slice is an identity foundation, not permission or delegation proof.
+  No route uses the new verifier yet; it does not authorize acting for a user.
+  See [Access API](./access-api.md) for the consumer boundary and remaining work.
+
 ### Realm Roles (configured realm, default `caipe`)
 
 
