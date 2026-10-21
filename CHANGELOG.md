@@ -1,3 +1,10 @@
+## 1.3.0-rc.13 (2026-10-21)
+
+### Feat
+
+- **chat**: add personal folders and agent grouping (#3019)
+- **agentic-apps**: unify assistant overlay and app-owned chat routing (#2693)
+
 ## 1.3.0-rc.12 (2026-10-19)
 
 ### Feat
