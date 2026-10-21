@@ -7,7 +7,7 @@ import {
 } from "./delegation-contract";
 import { insertDelegation, readDelegation, revokeDelegationRecord } from "./delegation-store";
 import { checkDelegationPermission } from "./engines/openfga";
-import { HttpAuthzError } from "./http";
+import { HttpAuthzError } from "./errors";
 
 function approvalReason(record: DelegationRecord): DelegationReason {
   if (record.revoked_at) return "DELEGATION_REVOKED";

@@ -94,18 +94,38 @@ it("never falls back to an additional keyset", async () => {
   expect(createRemoteJWKSet).toHaveBeenCalledTimes(1);
 });
 
-it("rejects expired credentials", async () => {
-  const now = Math.floor(Date.now() / 1000);
-  await expect(validatePlatformBearerJWT(await token({ iat: now - 600, exp: now - 300 }))).rejects.toMatchObject({ code: "ERR_JWT_EXPIRED" });
-});
+describe("issuance clock skew does not relax validity bounds", () => {
+  const now = Date.UTC(2026, 9, 21, 12) / 1000;
+  beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(now * 1000); });
+  afterEach(() => { jest.useRealTimers(); });
 
-it("rejects a token whose issued-at time is in the future", async () => {
-  const now = Math.floor(Date.now() / 1000);
-  await expect(validatePlatformBearerJWT(await token({ iat: now + 60, exp: now + 300 }))).rejects.toMatchObject({ claim: "iat" });
-});
+  it.each([0, 1, 29, 30])("accepts an issuer clock lead of %s seconds without extending expiry", async (offset) => {
+    expect(await validatePlatformBearerJWT(await token({ iat: now + offset, exp: now + 300 })))
+      .toMatchObject({ subject: { type: "service_account", id: "test-subject" }, expiresAt: now + 300 });
+  });
 
-it("rejects a future not-before time", async () => {
-  await expect(validatePlatformBearerJWT(await token({ nbf: Math.floor(Date.now() / 1000) + 60 }))).rejects.toMatchObject({ claim: "nbf" });
+  it.each([31, 60])("rejects issuance %s seconds ahead", async (offset) => {
+    await expect(validatePlatformBearerJWT(await token({ iat: now + offset, exp: now + 300 })))
+      .rejects.toMatchObject({ claim: "iat" });
+  });
+
+  it.each([-1, 0])("rejects expiry %s seconds from now with no grace period", async (offset) => {
+    await expect(validatePlatformBearerJWT(await token({ iat: now - 300, exp: now + offset })))
+      .rejects.toMatchObject({ code: "ERR_JWT_EXPIRED" });
+  });
+
+  it.each([1, 30])("rejects not-before %s seconds ahead even within issuance skew", async (offset) => {
+    await expect(validatePlatformBearerJWT(await token({ nbf: now + offset })))
+      .rejects.toMatchObject({ claim: "nbf" });
+  });
+
+  it("accepts not-before exactly at the validation time", async () => {
+    expect(await validatePlatformBearerJWT(await token({ nbf: now }))).toHaveProperty("expiresAt", now + 300);
+  });
+
+  it("accepts a token one second before its unchanged expiry", async () => {
+    expect(await validatePlatformBearerJWT(await token({ exp: now + 1 }))).toHaveProperty("expiresAt", now + 1);
+  });
 });
 
 it("rejects a tampered signature even when the key ID and claims match", async () => {

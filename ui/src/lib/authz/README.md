@@ -86,7 +86,9 @@ below. Ordinary Access API callers retain their existing authentication.
 | `azp` | The authorized client, distinct from the subject |
 | `aud` | Includes `caipe-access`, not an audience inherited from legacy settings |
 | `typ` | `Bearer` (the Keycloak access-token payload claim, not a JWT header) |
-| `iat`, `exp` | Required numeric issuance/expiry; expired, not-yet-valid and future-issued tokens fail |
+| `iat` | Required numeric issuance; at most 30 seconds ahead of the BFF clock |
+| `exp` | Required numeric expiry after issuance; expiry is strict, without a grace period |
+| `nbf` | Optional; when present, its not-before boundary is strict |
 
 - Only RS256/ES256 signatures are accepted. Actor-bearing (`act`) tokens are
   rejected rather than flattened into an ordinary caller.

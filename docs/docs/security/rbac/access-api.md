@@ -61,12 +61,12 @@ CAS owns the decisions and changes to relationships.
 
 New-service onboarding includes a strict signed service identity profile and a
 job-scoped delegation API. It does not replace existing caller authentication.
-See the [identity contract](https://github.com/caipe-io/ai-platform-engineering/blob/prebuild/feat/cas-authz/ui/src/lib/authz/README.md#new-service-identity-profile--foundation).
+See the [identity profile](./architecture.md#new-service-identity-foundation).
 Ordinary self-checks do not authorize acting for someone else. The user approves
 bounded work in a browser session; CAS stores the approval in MongoDB. The service
 keeps its own identity, and CAS requires the approval **and** current user/service
 permissions. Audit shows both identities and the approval, including denied uses.
-See the [delegation contract](https://github.com/caipe-io/ai-platform-engineering/blob/prebuild/feat/cas-authz/ui/src/lib/authz/README.md#job-delegation-api).
+See the [delegation architecture](./architecture.md#cas-job-delegation--new-service-api).
 Existing background consumers are not migrated. Explicit authorization may outlive
 browser logout, but not its expiry, revocation or loss of required permissions.
 

@@ -1,6 +1,6 @@
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import type { DelegationIdentity, DelegationIntent, DelegationRecord } from "./delegation-contract";
-import { HttpAuthzError } from "./http";
+import { HttpAuthzError } from "./errors";
 
 async function collection() {
   if (!isMongoDBConfigured) throw new Error("MongoDB is required for delegation");
