@@ -266,9 +266,9 @@ async function getPlatformConfig(request: NextRequest) {
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         slack_discovery_cache_ttl_minutes: slackDiscoveryTtlMinutes,
         webex_discovery_cache_ttl_minutes: webexDiscoveryTtlMinutes,
-        // Default (no config saved yet) is "disable all" — operators opt in
-        // per provider rather than every built-in showing up unconfigured.
-        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog, []),
+        // Default (no config saved yet) is "enable all" so built-in providers
+        // appear in the Add Server catalog without requiring admin setup.
+        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog),
         rag_default_search_team_slug:
           ragIngestorLimits.shared.max_search_teams > 0
             ? normalizeRagDefaultSearchTeamSlug(doc?.rag_default_search_team_slug)
