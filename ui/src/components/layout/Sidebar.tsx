@@ -1099,13 +1099,18 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 </span>
                               )
                             )}
-                            <span className="ml-auto shrink-0">
+                            <span
+                              className="ml-auto shrink-0"
+                              title={isLive || isInputRequired || isUnviewed
+                                ? undefined
+                                : `Last updated: ${conv.updatedAt.toLocaleString()}`}
+                            >
                               {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
                             </span>
                           </div>
                         </div>
 
-                        <div className="col-start-2 flex min-h-6 min-w-0 items-center justify-end gap-0.5 opacity-70 transition-opacity group-hover/conv:opacity-100 group-focus-within/conv:opacity-100">
+                        <div className="col-start-2 flex min-h-6 min-w-0 items-center justify-end gap-0.5">
                           {titleBadge && !isEditingTitle && (
                             <span
                               className={cn(
@@ -1119,6 +1124,16 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               {titleBadge.label}
                             </span>
                           )}
+                          <div
+                            role="group"
+                            aria-label={`Actions for ${conv.title}`}
+                            className={cn(
+                              "ml-auto flex items-center gap-0.5 transition-opacity pointer-events-none opacity-0",
+                              "group-hover/conv:pointer-events-auto group-hover/conv:opacity-100 group-focus-within/conv:pointer-events-auto group-focus-within/conv:opacity-100",
+                              "[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                              isEditingTitle && "pointer-events-auto opacity-100",
+                            )}
+                          >
                           {allowChatFolders && !runKind && !isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0"
                             aria-label="Move conversation to folder" title="Move to folder" disabled={!organization.ready || organization.saving}
                             onClick={event => { event.stopPropagation(); setOrganizationDialog({ kind: "move", id: conv.id, title: conv.title }); }}>
@@ -1281,6 +1296,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           </Tooltip>
                           </TooltipProvider>
                           )}
+                          </div>
                         </div>
                       </>
                     )}
