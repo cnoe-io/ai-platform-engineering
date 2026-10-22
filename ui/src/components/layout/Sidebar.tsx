@@ -1110,11 +1110,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           </div>
                         </div>
 
-                        <div className="col-start-2 flex min-h-6 min-w-0 items-center justify-end gap-0.5">
-                          {titleBadge && !isEditingTitle && (
+                        {titleBadge && !isEditingTitle && (
+                          <div className="col-start-2 min-w-0">
                             <span
                               className={cn(
-                                "mr-auto min-w-0 max-w-[132px] truncate rounded border px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal",
+                                "block w-fit max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal",
                                 titleBadge.kind === "autonomous"
                                   ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
                                   : "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
@@ -1123,12 +1123,14 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                             >
                               {titleBadge.label}
                             </span>
-                          )}
+                          </div>
+                        )}
+                        <div className="col-start-2 flex min-h-6 min-w-0 items-center justify-end">
                           <div
                             role="group"
                             aria-label={`Actions for ${conv.title}`}
                             className={cn(
-                              "ml-auto flex items-center gap-0.5 transition-opacity pointer-events-none opacity-0",
+                              "ml-auto flex shrink-0 items-center gap-0.5 transition-opacity pointer-events-none opacity-0",
                               "group-hover/conv:pointer-events-auto group-hover/conv:opacity-100 group-focus-within/conv:pointer-events-auto group-focus-within/conv:opacity-100",
                               "[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
                               isEditingTitle && "pointer-events-auto opacity-100",

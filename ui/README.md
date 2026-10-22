@@ -90,6 +90,8 @@ beside the date or live status. The app/harness logo sits on the avatar corner.
 Folder, rename, share, and archive actions occupy a separate line, so their
 visibility does not reduce the text width. Actions appear when that row is hovered
 or contains keyboard focus; touch devices and an active rename keep them visible.
+Scheduled and autonomous run badges occupy their own line, so long labels cannot
+crowd the action icons. Personal folders apply to regular chats, not run history.
 The date uses the conversation's last update time, including messages and edits;
 its tooltip shows the full local timestamp.
 
