@@ -44,10 +44,10 @@ export default function HostConversationActions({ appId, conversationId, agentId
 
   return <div className="flex items-center gap-1" aria-label="Host conversation actions">
     {conversation?.access_level === "owner" && <>
-      <div inert={disabled || pending ? true : undefined}>
+      {!disabled && !pending && (
         <ShareButton conversationId={conversationId} conversationTitle={conversation.title}
           isOwner sharing={conversation.sharing} accessLevel="owner" />
-      </div>
+      )}
       <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6"
         aria-label="Archive conversation" disabled={disabled || pending} onClick={() => void archive()}>
         <Archive className="h-3 w-3" aria-hidden />
