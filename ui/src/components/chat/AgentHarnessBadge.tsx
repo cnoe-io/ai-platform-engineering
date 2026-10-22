@@ -25,7 +25,11 @@ export function AgentHarnessBadge({
   const { label } = identity;
 
   return (
-    <Tooltip className={cn("inline-flex shrink-0 align-middle", className)}>
+    <Tooltip className={cn(
+      "inline-flex shrink-0 align-middle",
+      className,
+      identity.logoSrc === "/provider-logos/agentcore.svg" && "rounded-full",
+    )}>
       <TooltipTrigger asChild>
         <span
           role="img"
@@ -33,7 +37,6 @@ export function AgentHarnessBadge({
           className={cn(
             "inline-flex shrink-0 items-center justify-center",
             compact ? "h-4 w-4" : "h-5 w-5",
-            identity.logoSrc === "/provider-logos/agentcore.svg" && "overflow-hidden rounded-full bg-white",
           )}
         >
           {presentation?.app ? (
@@ -48,10 +51,7 @@ export function AgentHarnessBadge({
               alt=""
               width={20}
               height={20}
-              className={cn(
-                "h-full w-full object-contain",
-                identity.logoSrc === "/provider-logos/agentcore.svg" && "origin-[48%_55%] scale-150",
-              )}
+              className="h-full w-full object-contain"
               aria-hidden="true"
             />
           ) : (
