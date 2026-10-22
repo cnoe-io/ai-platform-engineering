@@ -3,7 +3,7 @@ revision = 3
 requires-python = "==3.14.*"
 
 [manifest]
-constraints = [{ name = "uv", specifier = "==0.12.6" }]
+constraints = [{ name = "uv", specifier = "==0.13.4" }]
 
 [[package]]
 name = "aiofile"
