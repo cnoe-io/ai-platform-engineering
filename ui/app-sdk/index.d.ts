@@ -43,4 +43,8 @@ export interface NativeHostChatPanelProps {
   composerHeader?: import("react").ReactNode;
   placeholder?: string;
   emptyStateTitle?: string;
+  /** Show the configured audit logging notice. Defaults to true; does not change audit logging. */
+  showAuditNotice?: boolean;
+  /** App-owned copy linking to the host feedback form when reporting is enabled. */
+  feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }

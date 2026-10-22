@@ -4,6 +4,7 @@ import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { ContextUsageIndicator } from "@/components/chat/ContextUsageIndicator";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
@@ -14,6 +15,7 @@ import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getDeterministicAgentThemeId } from "@/lib/agent-theme";
 import { interruptedAuthReason,interruptedTurnFallbackText } from "@/lib/chat-interrupt";
 import { getConfig } from "@/lib/config";
+import { captureChatFeedbackContext } from "@/lib/chat-feedback";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
 import { getGradientColors } from "@/lib/gradient-themes";
@@ -113,6 +115,10 @@ interface ChatPanelProps {
   composerHeader?: React.ReactNode;
   placeholder?: string;
   emptyStateTitle?: string;
+  /** Show the audit logging notice when configured. Defaults to true. */
+  showAuditNotice?: boolean;
+  /** App-owned copy for the host correction form; omitted for the standard disclaimer. */
+  feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }
 
 export function ChatPanel({
@@ -125,7 +131,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
-  requestOptions, composerHeader, placeholder, emptyStateTitle,
+  requestOptions, composerHeader, placeholder, emptyStateTitle, showAuditNotice = true, feedbackPrompt,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -193,6 +199,9 @@ export function ChatPanel({
   );
 
   const [input, setInput] = useState("");
+  const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
+  const [feedbackChatContext, setFeedbackChatContext] = useState<string>();
+  const showFeedbackPrompt = Boolean(feedbackPrompt && getConfig("reportProblemEnabled"));
   const [hasRelinkedAgent, setHasRelinkedAgent] = useState(false);
   const relinkRestoresWriteAccess = hasRelinkedAgent && (
     readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled'
@@ -292,6 +301,11 @@ export function ChatPanel({
     updateConversationTitle,
     clearConversationInputRequired,
   } = useChatStore();
+
+  useEffect(() => {
+    setFeedbackFormOpen(false);
+    setFeedbackChatContext(undefined);
+  }, [conversationId, activeConversationId]);
 
   // Re-link this deprecated/deleted-agent conversation to the platform default agent,
   // then reload the page so ChatContainer picks up the new participants.
@@ -2970,8 +2984,21 @@ export function ChatPanel({
 
           <div className="relative flex min-h-6 items-center justify-center">
             <p className="px-28 text-center text-xs text-muted-foreground max-sm:px-0 max-sm:pr-24">
-              {getConfig('appName')} can make mistakes. Verify important info.
-              {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
+              {showFeedbackPrompt && feedbackPrompt ? <>
+                {feedbackPrompt.message && <>{feedbackPrompt.message}{" "}</>}
+                <button type="button" className="underline underline-offset-2 hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    const current = conversation?.id === (conversationId ?? activeConversationId) ? conversation : undefined;
+                    setFeedbackChatContext(current
+                      ? captureChatFeedbackContext(current, window.location.origin, isThisConversationStreaming || isRemoteResponse)
+                      : undefined);
+                    setFeedbackFormOpen(true);
+                  }}>
+                  {feedbackPrompt.actionLabel}
+                </button>
+                {feedbackPrompt.trailingText && <> {feedbackPrompt.trailingText}</>}
+              </> : <>{getConfig('appName')} can make mistakes. Verify important info.</>}
+              {showAuditNotice && getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
             </p>
             {showContextUsage && contextUsage && (
               <div className="absolute right-0">
@@ -2983,6 +3010,9 @@ export function ChatPanel({
       </div>
       )}
 
+      {showFeedbackPrompt && feedbackFormOpen && (
+        <ReportProblemDialog open={feedbackFormOpen} onOpenChange={setFeedbackFormOpen} chatContext={feedbackChatContext} />
+      )}
       <RewindConfirmationDialog
         open={isRewindConfirmationOpen}
         messageCount={rewindMessageCount}

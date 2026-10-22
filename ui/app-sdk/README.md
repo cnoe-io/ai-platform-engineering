@@ -158,3 +158,12 @@ catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
 agents. App proxy calls still validate the live catalog and fail closed when it
 is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
 the snapshot; a UI restart revalidates it before serving traffic.
+
+## Native chat feedback
+
+- Optional `chat.Panel.feedbackPrompt` supplies app-owned `message`, `actionLabel`, and optional `trailingText`. An empty message renders the link and trailing text alone.
+- The host opens its existing feedback form and respects `reportProblemEnabled`. Without a prompt or when reporting is disabled, it renders the standard disclaimer.
+- Optional `showAuditNotice` defaults to true. Setting it false hides the footer sentence without changing audit logging.
+- **Include your chat** starts unchecked. Opting in displays an editable snapshot of the latest question and response, plus its chat reference. Each message is limited to 6,000 characters with a truncation marker; partial responses are labeled.
+- Tool payloads and attachments are excluded. Unchecking omits the excerpt from the submission. Closing the form or switching conversations resets consent.
+- These optional presentation properties preserve App Contract 2.0. Older hosts retain their previous footer.
