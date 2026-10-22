@@ -548,14 +548,14 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByText('Jan 1, 2026')).toBeInTheDocument()
     })
 
-    it('shows schedule title badge for scheduled conversations', () => {
+    it('keeps the schedule title in the avatar tooltip without a badge row', () => {
       mockLoadConversationsFromServer.mockResolvedValue(undefined)
       mockConversations = [
         makeConv('conv-1', 'Scheduled Chat', {
           metadata: {
             source: 'scheduler',
             schedule_id: 'sched_ec7107dfab744ddd',
-            schedule_title: 'Important Team 2 Meeting Prep',
+            schedule_title: 'Example meeting preparation',
           },
         }),
       ]
@@ -563,7 +563,8 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       selectConversationFilter('Scheduled')
-      expect(screen.getByText('Important Team 2 Meeting Prep')).toBeInTheDocument()
+      expect(screen.getByTitle('Scheduled run sched_ec7107dfab744ddd: Example meeting preparation')).toBeInTheDocument()
+      expect(screen.queryByText('Example meeting preparation')).not.toBeInTheDocument()
       expect(screen.queryByText('sched_ec7107dfab744ddd')).not.toBeInTheDocument()
     })
 
@@ -578,10 +579,10 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       selectConversationFilter('Scheduled')
-      expect(screen.getByText('sched_ec7107dfab744ddd')).toBeInTheDocument()
+      expect(screen.getByTitle('Scheduled run sched_ec7107dfab744ddd')).toBeInTheDocument()
     })
 
-    it('shows an autonomous task title badge with distinct violet styling', () => {
+    it('keeps autonomous task details in the avatar tooltip without a badge row', () => {
       mockLoadConversationsFromServer.mockResolvedValue(undefined)
       mockConversations = [
         makeConv('conv-1', '[Autonomous] Review open pull requests', {
@@ -594,16 +595,8 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       selectConversationFilter('Autonomous')
-      const badge = screen.getByText('Review open pull requests')
-      expect(badge).toHaveClass(
-        'border-violet-500/30',
-        'bg-violet-500/10',
-        'text-violet-700',
-      )
-      expect(badge).toHaveAttribute(
-        'title',
-        'Autonomous task review-open-prs-a1b2: Review open pull requests',
-      )
+      expect(screen.getByTitle('Autonomous task review-open-prs-a1b2: Review open pull requests')).toBeInTheDocument()
+      expect(screen.queryByText('Review open pull requests')).not.toBeInTheDocument()
     })
 
     it('uses the conversation title for existing autonomous conversations', () => {
@@ -618,7 +611,7 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       selectConversationFilter('Autonomous')
-      expect(screen.getByText('Legacy task title')).toHaveClass('border-violet-500/30')
+      expect(screen.getByTitle('Autonomous task legacy-task-a1b2: Legacy task title')).toBeInTheDocument()
     })
 
     it.each([
@@ -632,9 +625,9 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
       selectConversationFilter('Chat')
       expect(screen.getByText('Normal Chat')).toBeInTheDocument()
-      expect(screen.queryByText('Legacy task')).not.toBeInTheDocument()
+      expect(screen.queryByText('[Autonomous] Legacy task')).not.toBeInTheDocument()
       selectConversationFilter('Autonomous')
-      expect(screen.getByText('Legacy task')).toBeInTheDocument()
+      expect(screen.getByText('[Autonomous] Legacy task')).toBeInTheDocument()
       expect(screen.queryByText('Normal Chat')).not.toBeInTheDocument()
     })
 

@@ -108,6 +108,8 @@ const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 500;
 const SIDEBAR_WIDTH_STORAGE_KEY = "caipe-chat-sidebar-width";
 const HISTORY_FILTER_STORAGE_KEY = "caipe-chat-history-filter";
+const CHAT_HISTORY_ACTION_CLASS_NAME =
+  "h-5 w-5 shrink-0 [&_svg]:size-3.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11";
 
 function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
@@ -947,8 +949,10 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                       onLostPointerCapture={clearChatDrag}
                       onDragStart={event => event.preventDefault()}
                       className={cn(
-                        "group relative gap-x-2 gap-y-1 p-2 rounded-lg cursor-pointer transition-colors min-w-0",
-                        collapsed ? "flex items-center" : "grid grid-cols-[2rem_minmax(0,1fr)] items-start",
+                        "group relative gap-x-2 rounded-lg cursor-pointer transition-colors min-w-0",
+                        collapsed
+                          ? "flex items-center p-2"
+                          : "grid grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.25rem] items-center px-2 py-[7px] [@media(pointer:coarse)]:grid-rows-[1.25rem_1.25rem_auto]",
                         organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing select-none",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
@@ -979,7 +983,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                       } : undefined}
 
                     >
-                    <div className={cn("relative shrink-0", !collapsed && "row-span-2")}>
+                    <div
+                      className={cn("relative shrink-0", !collapsed && "col-start-1 row-start-1 row-span-2")}
+                      title={titleBadge?.title}
+                    >
+                      {titleBadge && <span className="sr-only">{titleBadge.title}</span>}
                       {conversationAgentId ? (
                         <AgentAvatar
                           agent={conversationAgent ?? { _id: conversationAgentId }}
@@ -1044,7 +1052,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
                     {!collapsed && (
                       <>
-                        <div className="min-w-0">
+                        <div className="col-start-2 row-start-1 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
                             {isEditingTitle ? (
                               <input
@@ -1062,19 +1070,21 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                     cancelTitleEdit();
                                   }
                                 }}
-                                className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm font-medium outline-none focus:border-primary"
+                                className="h-5 min-w-0 flex-1 rounded border border-border bg-background px-1.5 text-sm font-medium outline-none focus:border-primary"
                                 aria-label="Conversation title"
                               />
                             ) : (
                               <>
-                                <p className="text-sm font-medium truncate flex-1" title={conv.title}>
+                                <p className="text-sm leading-5 font-medium truncate flex-1" title={conv.title}>
                                   {conv.title}
                                 </p>
                               </>
                             )}
                           </div>
-                          <div className={cn(
-                            "mt-0.5 flex min-w-0 items-center gap-2 text-[10px]",
+                        </div>
+                        <span
+                          className={cn(
+                            "col-start-3 row-start-1 whitespace-nowrap text-right text-[11px] leading-5",
                             isLive
                               ? "text-emerald-600 dark:text-emerald-400 font-medium"
                               : isInputRequired
@@ -1082,50 +1092,32 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 : isUnviewed
                                   ? "text-blue-600 dark:text-blue-400 font-medium"
                                   : "text-muted-foreground"
-                          )}>
+                          )}
+                          title={isLive || isInputRequired || isUnviewed
+                            ? undefined
+                            : `Last updated: ${conv.updatedAt.toLocaleString()}`}
+                        >
+                          {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
+                        </span>
+                        <div className="col-start-2 row-start-2 flex min-w-0 items-center">
                             {/* Dynamic Agent indicator */}
                             {conversationAgentId && (
                               !conversationAgent && agentNamesLoading ? (
                                 <Skeleton
-                                  className="h-2.5 min-w-0 max-w-28 flex-1 rounded-full"
+                                  className="h-3 min-w-0 max-w-28 flex-1 rounded-full"
                                   data-testid="agent-name-skeleton"
                                 />
                               ) : (
                                 <span
-                                  className="min-w-0 flex-1 truncate text-[11px] text-foreground/75"
+                                  className="min-w-0 flex-1 truncate text-xs leading-5 text-foreground/75"
                                   title={conversationAgentName}
                                 >
                                   {conversationAgentName}
                                 </span>
                               )
                             )}
-                            <span
-                              className="ml-auto shrink-0"
-                              title={isLive || isInputRequired || isUnviewed
-                                ? undefined
-                                : `Last updated: ${conv.updatedAt.toLocaleString()}`}
-                            >
-                              {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
-                            </span>
-                          </div>
                         </div>
-
-                        {titleBadge && !isEditingTitle && (
-                          <div className="col-start-2 min-w-0">
-                            <span
-                              className={cn(
-                                "block w-fit max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal",
-                                titleBadge.kind === "autonomous"
-                                  ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
-                                  : "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-                              )}
-                              title={titleBadge.title}
-                            >
-                              {titleBadge.label}
-                            </span>
-                          </div>
-                        )}
-                        <div className="col-start-2 flex min-h-6 min-w-0 items-center justify-end">
+                        <div className="col-start-3 row-start-2 flex min-w-0 items-center justify-end [@media(pointer:coarse)]:col-start-2 [@media(pointer:coarse)]:col-span-2 [@media(pointer:coarse)]:row-start-3">
                           <div
                             role="group"
                             aria-label={`Actions for ${conv.title}`}
@@ -1136,7 +1128,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               isEditingTitle && "pointer-events-auto opacity-100",
                             )}
                           >
-                          {allowChatFolders && !runKind && !isEditingTitle && <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0"
+                          {allowChatFolders && !runKind && !isEditingTitle && <Button size="icon" variant="ghost" className={CHAT_HISTORY_ACTION_CLASS_NAME}
                             aria-label="Move conversation to folder" title="Move to folder" disabled={!organization.ready || organization.saving}
                             onClick={event => { event.stopPropagation(); setOrganizationDialog({ kind: "move", id: conv.id, title: conv.title }); }}>
                             <Folder className="h-3 w-3" />
@@ -1149,7 +1141,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-6 w-6"
+                                      className={CHAT_HISTORY_ACTION_CLASS_NAME}
                                       aria-label="Save title"
                                       disabled={isSavingTitle || !editingTitle.trim()}
                                       onClick={(event) => void commitTitleEdit(event, conv)}
@@ -1168,7 +1160,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-6 w-6"
+                                      className={CHAT_HISTORY_ACTION_CLASS_NAME}
                                       aria-label="Cancel rename"
                                       disabled={isSavingTitle}
                                       onClick={cancelTitleEdit}
@@ -1191,7 +1183,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-6 w-6 shrink-0"
+                                        className={CHAT_HISTORY_ACTION_CLASS_NAME}
                                         aria-label="Rename conversation"
                                         onClick={(event) => beginTitleEdit(event, conv)}
                                       >
@@ -1213,6 +1205,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                   sharedBy={sharedByLabel}
                                   sharing={conv.sharing}
                                   accessLevel={conv.accessLevel}
+                                  className={CHAT_HISTORY_ACTION_CLASS_NAME}
                                 />
                               </div>
                             </>
@@ -1224,7 +1217,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 shrink-0"
+                            className={CHAT_HISTORY_ACTION_CLASS_NAME}
                             aria-label="Archive conversation"
                             onClick={async (e) => {
                               console.log('[Sidebar] Archive clicked for:', conv.id);

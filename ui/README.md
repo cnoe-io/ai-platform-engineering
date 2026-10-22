@@ -94,13 +94,14 @@ entries open each task's delivery timeline.
 Collapsible agent and folder group names use 16px text; their chat counts remain
 smaller secondary labels. Long names truncate with the full name on hover.
 
-History rows give the conversation title its own line and show the agent name
-beside the date or live status. The app/harness logo sits on the avatar corner.
-Folder, rename, share, and archive actions occupy a separate line, so their
-visibility does not reduce the text width. Actions appear when that row is hovered
-or contains keyboard focus; touch devices and an active rename keep them visible.
-Scheduled and autonomous run badges occupy their own line, so long labels cannot
-crowd the action icons. Personal folders apply to regular chats, not run history.
+History rows use a compact two-line layout: title and date/live status above the
+agent name and inline actions. Desktop rows are 56px tall without growing on
+hover. The app/harness logo sits on the avatar corner. Folder, rename, share, and
+archive actions appear when that row is hovered or contains keyboard focus;
+touch devices and an active rename keep them visible. Coarse pointers receive
+larger touch targets on an additional action line. Scheduled and autonomous task
+details appear in the avatar tooltip instead of a separate badge row.
+Personal folders apply to regular chats, not run history.
 The date uses the conversation's last update time, including messages and edits;
 its tooltip shows the full local timestamp.
 
