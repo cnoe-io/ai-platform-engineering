@@ -998,9 +998,15 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       body.execution_harness_id,
     );
   }
+  const previousHarnessId = normalizeExecutionHarnessId(agent.execution_harness_id);
   const nextHarnessId = normalizeExecutionHarnessId(updateData.execution_harness_id ?? agent.execution_harness_id);
-  const model = normalizeAgentModel(body.model === undefined ? agent.model : body.model, nextHarnessId === "dynamic_agents");
-  if (body.model !== undefined) updateData.model = model;
+  if (body.model !== undefined) {
+    updateData.model = normalizeAgentModel(body.model, nextHarnessId === "dynamic_agents");
+  } else if (nextHarnessId === "dynamic_agents" && previousHarnessId !== "dynamic_agents") {
+    // Switching runtimes needs a valid execution model; unrelated partial
+    // updates keep existing agents' saved model settings untouched.
+    normalizeAgentModel(agent.model, true);
+  }
   if (Object.prototype.hasOwnProperty.call(updateData, "allowed_remote_agents")) {
     updateData.allowed_remote_agents = await validateRemoteAgentIds(updateData.allowed_remote_agents);
   }
