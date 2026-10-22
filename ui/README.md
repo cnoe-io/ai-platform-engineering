@@ -85,6 +85,11 @@ order, with icons and search. Automation choices appear when their platform
 features are enabled. The selected view persists in browser storage; webhook
 entries open each task's delivery timeline.
 
+History rows give the conversation title its own line and show the agent name
+beside the date or live status. The app/harness logo sits on the avatar corner.
+Folder, rename, share, and archive actions occupy a separate line, so their
+visibility does not reduce the text width.
+
 1. The user selects or opens a conversation in the UI.
 2. The BFF validates auth/RBAC and forwards stream requests to Dynamic Agents.
 3. Dynamic Agents streams AG-UI/SSE events back through the BFF.
