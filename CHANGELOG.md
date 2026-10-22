@@ -1,3 +1,16 @@
+## 1.3.0-rc.15 (2026-10-22)
+
+### Feat
+
+- **harness-engine**: add portable runtime and BFF gateway (#2401)
+- **ui**: restyle CAIPE chat composer (#3036)
+
+### Fix
+
+- **setup**: initialize and recover fresh local workspaces (#3028)
+- **ui**: stop skill workspace refetching store in a loop for catalog skills (#2991)
+- **deps**: upgrade uv to 0.13.4 to remove compromised CA trust (#3041)
+
 ## 1.3.0-rc.14 (2026-10-22)
 
 ### Feat
