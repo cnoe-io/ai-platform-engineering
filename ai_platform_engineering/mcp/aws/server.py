@@ -136,8 +136,8 @@ def _validate_aws_command(command: str) -> tuple[bool, str]:
     parts = command.split()
     if not parts:
         return False, "Empty command provided."
-    # Stopping one developer VM is the only write action allowed. Keep its
-    # argument shape strict; IAM checks ownership/admin and VPC tags.
+    # Stopping one EC2 instance is the only write action allowed. Keep the
+    # argument shape strict; IAM enforces deployment-specific authorization.
     if parts[:2] == ["ec2", "stop-instances"]:
         if (
             len(parts) == 4
@@ -165,7 +165,7 @@ def _validate_aws_command(command: str) -> tuple[bool, str]:
 
 
 def _authenticated_username() -> str | None:
-    """Return preferred_username from the JWT already verified by middleware."""
+    """Return the configured identity claim from the JWT verified by middleware."""
     token = current_bearer_token.get()
     if not token:
         return None
@@ -177,18 +177,15 @@ def _authenticated_username() -> str | None:
     except jwt.InvalidTokenError:
         return None
 
-    username = claims.get("preferred_username")
-    if (
-        not isinstance(username, str)
-        or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", username)
-        or username.lower().startswith("service-account-")
-    ):
+    claim_name = os.getenv("MCP_AUTH_USERNAME_CLAIM", "preferred_username")
+    username = claims.get(claim_name)
+    if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", username):
         return None
     return username
 
 
-async def _stop_owned_developer_vm(instance_id: str, username: str) -> str:
-    """Assume the target role with a trusted username tag, then stop one VM."""
+async def _stop_instance(instance_id: str, username: str, profile: str, region: str) -> str:
+    """Assume the configured target role with a trusted identity tag, then stop one instance."""
     accounts: dict[str, str] = {}
     for entry in os.getenv("AWS_ACCOUNT_LIST", "").split(","):
         entry = entry.strip()
@@ -199,13 +196,13 @@ async def _stop_owned_developer_vm(instance_id: str, username: str) -> str:
             accounts[account_name.strip()] = account_id.strip()
         else:
             accounts[entry] = entry
-    account_id = accounts.get("outshift-common-dev")
+    account_id = accounts.get(profile)
     if not account_id:
-        return "❌ outshift-common-dev is not configured for the AWS agent."
+        return f"❌ AWS profile '{profile}' is not configured for cross-account access."
 
     role_name = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
     role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
-    session_name = re.sub(r"[^A-Za-z0-9_+=,.@-]", "_", f"caipe-{username}")[:64]
+    session_name = re.sub(r"[^A-Za-z0-9_+=,.@-]", "_", f"mcp-{username}")[:64]
 
     source_env = {**os.environ}
     source_env.pop("AWS_PROFILE", None)
@@ -236,7 +233,7 @@ async def _stop_owned_developer_vm(instance_id: str, username: str) -> str:
             await assume_proc.wait()
             raise
         if assume_proc.returncode != 0:
-            return f"❌ Could not assume the tagged developer VM role: {assume_err.decode(errors='replace')}"
+            return f"❌ Could not assume the tagged AWS role: {assume_err.decode(errors='replace')}"
         credentials = json.loads(assume_out).get("Credentials", {})
         if not all(credentials.get(key) for key in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
             return "❌ AWS STS did not return temporary credentials."
@@ -248,12 +245,12 @@ async def _stop_owned_developer_vm(instance_id: str, username: str) -> str:
             "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
             "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
             "AWS_SESSION_TOKEN": credentials["SessionToken"],
-            "AWS_REGION": "us-east-2",
-            "AWS_DEFAULT_REGION": "us-east-2",
+            "AWS_REGION": region,
+            "AWS_DEFAULT_REGION": region,
         })
         stop_proc = await asyncio.create_subprocess_exec(
             "aws", "ec2", "stop-instances", "--instance-ids", instance_id,
-            "--region", "us-east-2", "--output", "json",
+            "--region", region, "--output", "json",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=stop_env,
@@ -286,12 +283,12 @@ async def aws_cli_execute(
     jq_filter: Optional[str] = None,
 ) -> str:
     """
-    Execute a read-only AWS CLI command, or stop one owned developer VM.
+    Execute a read-only AWS CLI command, or stop one EC2 instance.
 
     The 'aws' prefix must be omitted — pass only the service and subcommand.
     All write/destructive operations are blocked except a single
-    ``ec2 stop-instances --instance-ids i-...`` request, which is limited to
-    ``outshift-common-dev`` in ``us-east-2`` and authorized by instance tags.
+    ``ec2 stop-instances --instance-ids i-...`` request. The target role's IAM
+    policy defines which accounts, regions, and tagged instances are authorized.
 
     Args:
         command: AWS CLI command without the 'aws' prefix.
@@ -300,10 +297,11 @@ async def aws_cli_execute(
         profile: AWS profile name for the target account. REQUIRED — when the
             user asks for 'all accounts', make separate calls with each profile.
             If AWS_ACCOUNT_LIST is not configured, pass an empty string to use
-            environment-variable credentials directly.
+            environment-variable credentials directly. Stop requests require a
+            configured cross-account profile so the identity session tag can be passed.
         region: AWS region override. Defaults to AWS_REGION / AWS_DEFAULT_REGION
-            environment variable, or 'us-west-2' if neither is set. Stopping a
-            developer VM requires profile='outshift-common-dev' and region='us-east-2'.
+            environment variable, or 'us-west-2' if neither is set. IAM policies
+            determine which regions and resources can be modified.
         output_format: CLI output format — json (default), text, table, or yaml.
         jq_filter: Optional jq expression applied to JSON output. Useful for
             extracting specific fields, e.g.
@@ -321,13 +319,13 @@ async def aws_cli_execute(
     profile_prefix = f"--profile {profile} " if (configured_profiles and profile) else ""
 
     if command.split()[:2] == ["ec2", "stop-instances"]:
-        if profile != "outshift-common-dev" or aws_region != "us-east-2":
-            return "❌ Stop requests are limited to outshift-common-dev in us-east-2."
+        if os.getenv("MCP_AUTH_MODE", "none").lower() != "oauth2":
+            return "❌ Stop requests require OAuth2 bearer-token authentication."
         username = _authenticated_username()
         if not username:
-            return "❌ Stop requests require a verified Keycloak user identity."
+            return "❌ Stop requests require a verified identity claim."
         async with _aws_cli_semaphore:
-            return await _stop_owned_developer_vm(command.split()[3], username)
+            return await _stop_instance(command.split()[3], username, profile, aws_region)
 
     if "--region" in command:
         full_command = f"aws {profile_prefix}{command} --output {output_fmt}"
