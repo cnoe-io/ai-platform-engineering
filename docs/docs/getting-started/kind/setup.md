@@ -81,10 +81,12 @@ Automatic initialization requires the local administrator and in-chart Keycloak.
 For a local kind cluster managed exclusively from the current host, unattended setup can opt into recovery:
 
 ```bash
-./setup-caipe.sh --non-interactive --repair-pending-install --apply-migrations
+./setup-caipe.sh --non-interactive --repair-pending-install
 ```
 
 Recovery applies only to revision 1 marked `pending-install`, at least two minutes old. All CAIPE pods must be Ready or completed successfully, and no local Helm process may be running. Setup checks the unchanged release, process list, and pod health twice, 15 seconds apart. It then reapplies saved revision 1 through `helm rollback`, verifies `deployed`, and continues normal setup.
+
+After a successful repair, setup initializes the workspace using the local administrator before entering monitor mode or completing an upgrade. The additional `--apply-migrations` flag is not required for a repaired first install. External identity providers and disabled local accounts retain the manual migration flow.
 
 Process inspection cannot detect Helm clients on other hosts; enable this only when the current host exclusively manages the cluster. Pending upgrades, pending rollbacks, unhealthy workloads, and unverified state stop setup for operator diagnosis. Recovery does not uninstall the release or delete its metadata or storage.
 

@@ -226,6 +226,7 @@ CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 APPLY_WORKSPACE_MIGRATIONS=false
 REPAIR_PENDING_INSTALL=false
+REPAIRED_PENDING_INSTALL=false
 INGEST_URLS=()
 # MetalLB: default ON. Required for real LoadBalancer IPs on kind clusters
 # and is a prerequisite for ingress. Set ENABLE_METALLB=false or pass
@@ -5109,10 +5110,14 @@ repair_pending_install() {
   started=$(printf '%s' "$original" | jq -r '.info.last_deployed')
   if ! python3 - "$started" <<'REPAIR_INSTALL_AGE'
 import datetime
+import re
 import sys
 
 try:
-    started = datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+    raw = sys.argv[1].replace("Z", "+00:00")
+    # Python before 3.11 requires 3 or 6 fractional digits; Helm can emit 9.
+    raw = re.sub(r"(\.\d{1,6})\d*", lambda match: match.group(1).ljust(7, "0"), raw)
+    started = datetime.datetime.fromisoformat(raw)
     age = (datetime.datetime.now(datetime.timezone.utc) - started).total_seconds()
 except (ValueError, TypeError):
     sys.exit(1)
@@ -5156,6 +5161,7 @@ REPAIR_INSTALL_AGE
     err "Helm recovery did not report a deployed release."
     return 1
   fi
+  REPAIRED_PENDING_INSTALL=true
   log "Pending first install recovered; continuing setup"
 }
 
@@ -9056,7 +9062,9 @@ BANNER
         log "Skipping to monitor mode"
         detect_deployed_features
         ensure_healthy
-        if $APPLY_WORKSPACE_MIGRATIONS; then initialize_workspace_migrations; fi
+        if $APPLY_WORKSPACE_MIGRATIONS || { $REPAIRED_PENDING_INSTALL && _local_admin_active; }; then
+          initialize_workspace_migrations
+        fi
         monitor_port_forwards
         return
         ;;
@@ -9268,7 +9276,7 @@ BANNER
   fi
 
   ensure_healthy
-  if $APPLY_WORKSPACE_MIGRATIONS || { $fresh_install && _local_admin_active; }; then
+  if $APPLY_WORKSPACE_MIGRATIONS || { { $fresh_install || $REPAIRED_PENDING_INSTALL; } && _local_admin_active; }; then
     initialize_workspace_migrations
   fi
   monitor_port_forwards
