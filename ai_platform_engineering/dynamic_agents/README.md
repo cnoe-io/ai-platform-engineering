@@ -48,6 +48,38 @@ Dynamic Agents provide a flexible way to create purpose-built AI assistants with
 - Exactly one terminal outcome per turn: `success`, `error`, `interrupted`, or `cancelled`
 - Time to first user-visible response and end-to-end turn latency histograms
 
+### Optional app-context prompt adapter
+
+- Structured `client_context` remains separate from the user's message.
+- Off by default. Operators may opt in an agent through its deployment-owned YAML definition:
+
+```yaml
+app_context_prompt:
+  app_ids: [example-app]
+  fields: [title, selection.city, selection.forecast.temperature]
+  max_bytes: 4096
+```
+
+- A chat `config_override` cannot enable or change this policy; the ordinary agent editor does not edit it.
+- Send `source: agentic_app_context`, `trust: untrusted_user_visible_data`, the matching `appId`,
+  and a timezone-qualified `expiresAt` in the next ten minutes. `selection` may be an object or JSON string.
+- Only configured scalar paths are projected: `title`, `summary`, `route`, or dotted `selection.*` paths.
+  Whole objects/arrays, credential-named paths, bearer/JWT-looking values and strings over 2,048 characters are omitted.
+- Invalid/expired context, input over 16 KiB, or formatted output over the configured limit is omitted.
+  Limits include the complete formatted reference block; oversize data is not silently truncated into invalid JSON.
+  Expiration is rechecked when preparing model requests, including after a long-running tool.
+- When PII middleware is enabled, the adapter omits the projection. PII middleware checks graph-state
+  messages before this request-only block is added, so it cannot redact or block the projected data.
+- The root agent receives a labelled, untrusted reference block in a copy of its current model request.
+  The UI question, system instructions, attachments, and checkpoint messages are not rewritten.
+  Subagents are not implicitly opted in. Context is task-local and reset on success, exception or cancellation.
+- Streaming, invoke and resume use only the current request, including when the runtime is cached. Resume requires
+  resending fresh context; no old snapshot is replayed. This adapter does not add snapshots to checkpoint state.
+- App IDs, resource references and trust labels from the browser are not authorization evidence. Existing API/tool
+  permissions remain authoritative. Delimiters and heuristics are not a prompt-injection defense or a secret scanner.
+- Selected data reaches the model and may appear in provider traces/logs. Include only necessary, approved data.
+  Existing raw-context tooling/templates and their telemetry are unchanged; this adapter is not a general DLP layer.
+
 ## Running Locally
 
 ### Prerequisites
