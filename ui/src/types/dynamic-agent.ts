@@ -446,7 +446,7 @@ export interface DynamicAgentConfig {
   allowed_remote_agents?: string[];
   remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig; // Built-in tools configuration
-  model: ModelConfig; // Required: LLM model configuration
+  model?: ModelConfig; // Required for Deep Agents; other harnesses use their operator profile.
   visibility: VisibilityType;
   shared_with_teams?: string[];
   subagents: SubAgentRef[]; // Other dynamic agents that can be delegated to
@@ -523,7 +523,7 @@ export interface DynamicAgentConfigCreate {
   allowed_remote_agents?: string[];
   remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig;
-  model: ModelConfig; // Required: LLM model configuration
+  model?: ModelConfig; // Required for Deep Agents; other harnesses use their operator profile.
   /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
   visibility?: LegacyVisibilityType;
   shared_with_teams?: string[];

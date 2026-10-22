@@ -53,6 +53,7 @@ import type {
   DynamicAgentConfig,
   DynamicAgentConfigWithPermissions,
   LegacyVisibilityType,
+  ModelConfig,
   SubAgentRef,
   VisibilityType,
 } from "@/types/dynamic-agent";
@@ -332,6 +333,32 @@ function normalizeExecutionHarnessId(value: unknown): string {
     throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
   }
   return harnessId;
+}
+
+function normalizeAgentModel(
+  value: unknown,
+  required: boolean,
+): ModelConfig | undefined {
+  if (value === undefined && !required) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("Model selection is required for Deep Agents (model.id and model.provider)", 400);
+  }
+  const model = value as Record<string, unknown>;
+  if (typeof model.id !== "string" || !model.id.trim()) {
+    throw new ApiError("Model ID is required (model.id)", 400);
+  }
+  if (typeof model.provider !== "string" || !model.provider.trim()) {
+    throw new ApiError("Model provider is required (model.provider)", 400);
+  }
+  const reasoningEffort = model.reasoning_effort ?? "medium";
+  if (typeof reasoningEffort !== "string" || !["low", "medium", "high", "max"].includes(reasoningEffort)) {
+    throw new ApiError("Invalid model.reasoning_effort", 400);
+  }
+  return {
+    id: model.id,
+    provider: model.provider,
+    reasoning_effort: reasoningEffort as ModelConfig["reasoning_effort"],
+  };
 }
 
 function normalizeDatasourceIds(value: unknown): string[] | undefined {
@@ -714,16 +741,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     delete body.model_id;
     delete body.model_provider;
   }
-  if (!body.model?.id || typeof body.model.id !== "string") {
-    throw new ApiError("Model ID is required (model.id)", 400);
-  }
-  if (!body.model?.provider || typeof body.model.provider !== "string") {
-    throw new ApiError("Model provider is required (model.provider)", 400);
-  }
-  body.model.reasoning_effort ??= "medium";
-  if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
-    throw new ApiError("Invalid model.reasoning_effort", 400);
-  }
+  const executionHarnessId = normalizeExecutionHarnessId(body.execution_harness_id);
+  body.model = normalizeAgentModel(body.model, executionHarnessId === "dynamic_agents");
   const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
   const requestedOwnerTeamId = normalizeString(body.owner_team_id);
   // Coerce any legacy 'private' on the wire to 'team' (private visibility was
@@ -861,7 +880,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const allowedRemoteAgents = await validateRemoteAgentIds(body.allowed_remote_agents);
   const doc: DynamicAgentConfig = {
     _id: agentId,
-    execution_harness_id: normalizeExecutionHarnessId(body.execution_harness_id),
+    execution_harness_id: executionHarnessId,
     name: body.name as string,
     description: (body.description as string) ?? "",
     system_prompt: body.system_prompt as string,
@@ -870,7 +889,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     allowed_remote_agents: allowedRemoteAgents,
     remote_agent_timeouts: normalizeRemoteAgentTimeouts(body.remote_agent_timeouts, allowedRemoteAgents),
     builtin_tools: body.builtin_tools ?? undefined,
-    model: body.model as DynamicAgentConfig["model"],
+    ...(body.model ? { model: body.model as ModelConfig } : {}),
     visibility,
     shared_with_teams: sharedTeamSlugs,
     owner_team_slug: ownerTeamSlug ?? undefined,
@@ -955,15 +974,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
 
   const body = await request.json();
-  if (body.model !== undefined) {
-    if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) {
-      throw new ApiError("model must be an object", 400);
-    }
-    body.model.reasoning_effort ??= "medium";
-    if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
-      throw new ApiError("Invalid model.reasoning_effort", 400);
-    }
-  }
   const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
   // Verify agent exists
@@ -988,6 +998,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       body.execution_harness_id,
     );
   }
+  const nextHarnessId = normalizeExecutionHarnessId(updateData.execution_harness_id ?? agent.execution_harness_id);
+  const model = normalizeAgentModel(body.model === undefined ? agent.model : body.model, nextHarnessId === "dynamic_agents");
+  if (body.model !== undefined) updateData.model = model;
   if (Object.prototype.hasOwnProperty.call(updateData, "allowed_remote_agents")) {
     updateData.allowed_remote_agents = await validateRemoteAgentIds(updateData.allowed_remote_agents);
   }

@@ -559,17 +559,42 @@ export function DynamicAgentEditor({
   const [catalogRevision, setCatalogRevision] = React.useState<string | null>(null);
   const [harnessRevision, setHarnessRevision] = React.useState<number | null>(null);
   const [harnessLoading, setHarnessLoading] = React.useState(true);
+  const [harnessLoadError, setHarnessLoadError] = React.useState<string | null>(null);
+  const harnessDrafts = React.useRef(
+    new Map<string, { profileId: string; options: Record<string, unknown> }>(),
+  );
   const selectedHarness = React.useMemo(
     () => harnessDescriptors.find((descriptor) => descriptor.id === harnessId),
     [harnessDescriptors, harnessId],
   );
+  const isDeepAgents = harnessId === "dynamic_agents";
+  const toolCapability = selectedHarness?.capabilities["tools.broker"];
+  const supportsTools =
+    isDeepAgents || toolCapability?.level === "native" || toolCapability?.level === "emulated";
+  const hasHarnessOptions =
+    Object.keys(selectedHarness?.options_schema.properties ?? {}).length > 0;
+  const steps = STEPS.filter((step) => {
+    if (step.id === "tools") return supportsTools;
+    if (step.id === "knowledge" || step.id === "skills") return isDeepAgents;
+    if (step.id === "advanced") return isDeepAgents || hasHarnessOptions;
+    return true;
+  }).map((step) =>
+    step.id === "advanced" && !isDeepAgents
+      ? { ...step, hint: "Configure options supported by this harness" }
+      : step,
+  );
 
   const selectHarness = React.useCallback((nextHarnessId: string) => {
+    harnessDrafts.current.set(harnessId, {
+      profileId: harnessProfileId,
+      options: harnessOptions,
+    });
     setHarnessId(nextHarnessId);
-    setHarnessOptions({});
+    const draft = harnessDrafts.current.get(nextHarnessId);
+    setHarnessOptions(draft?.options ?? {});
     const descriptor = harnessDescriptors.find((item) => item.id === nextHarnessId);
-    setHarnessProfileId(descriptor?.profiles.find((profile) => profile.available)?.id ?? "");
-  }, [harnessDescriptors]);
+    setHarnessProfileId(draft?.profileId ?? descriptor?.profiles.find((profile) => profile.available)?.id ?? "");
+  }, [harnessDescriptors, harnessId, harnessOptions, harnessProfileId]);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt =
@@ -792,6 +817,9 @@ export function DynamicAgentEditor({
       try {
         const catalogResponse = await fetch("/api/harness-engine/harnesses");
         const catalog = await catalogResponse.json();
+        if (!catalogResponse.ok || !catalog.success) {
+          throw new Error(catalog.error || "Harness catalog could not be loaded");
+        }
         const descriptors = Array.isArray(catalog.data?.harnesses)
           ? catalog.data.harnesses as HarnessDescriptor[]
           : [];
@@ -801,25 +829,32 @@ export function DynamicAgentEditor({
 
         const persistedHarnessId = source?.execution_harness_id;
         if (persistedHarnessId) setHarnessId(persistedHarnessId);
-        if (source?._id && persistedHarnessId !== "dynamic_agents") {
+        if (source?._id && persistedHarnessId && persistedHarnessId !== "dynamic_agents") {
           const overlayResponse = await fetch(
             `/api/harness-engine/agents/${encodeURIComponent(source._id)}`,
           );
-          if (overlayResponse.ok) {
-            const overlay = await overlayResponse.json();
-            const saved = overlay.data?.version?.blueprint;
-            if (!cancelled && saved?.harness?.id) {
-              setHarnessId(saved.harness.id);
-              setHarnessProfileId(saved.harness.profile_id);
-              setHarnessOptions(saved.harness.options ?? {});
-              setHarnessRevision(overlay.data.record?.revision ?? null);
-            }
+          const overlay = await overlayResponse.json();
+          if (!overlayResponse.ok || !overlay.success) {
+            throw new Error(overlay.error || "Saved harness configuration could not be loaded");
+          }
+          const saved = overlay.data?.version?.blueprint;
+          if (!saved?.harness?.id) {
+            throw new Error("Saved harness configuration is missing");
+          }
+          if (!cancelled) {
+            setHarnessId(saved.harness.id);
+            setHarnessProfileId(saved.harness.profile_id);
+            setHarnessOptions(saved.harness.options ?? {});
+            setHarnessRevision(overlay.data.record?.revision ?? null);
           }
         }
       } catch (err) {
         // Harness Engine is opt-in. Its absence must not affect the existing
         // Dynamic Agents creation/edit path.
-        console.info("Harness Engine is unavailable; using Dynamic Agents", err);
+        console.info("Harness configuration could not be loaded", err);
+        if (!cancelled && source?.execution_harness_id && source.execution_harness_id !== "dynamic_agents") {
+          setHarnessLoadError(getErrorMessage(err, "Saved harness configuration could not be loaded"));
+        }
       } finally {
         if (!cancelled) setHarnessLoading(false);
       }
@@ -927,7 +962,8 @@ export function DynamicAgentEditor({
   }, [agent?._id]);
 
   // Step wizard state
-  const [activeStep, setActiveStep] = React.useState<StepId>(initialStep);
+  const [requestedStep, setActiveStep] = React.useState<StepId>(initialStep);
+  const activeStep = steps.some((step) => step.id === requestedStep) ? requestedStep : "basic";
 
   React.useEffect(() => {
     setActiveStep(initialStep);
@@ -1019,12 +1055,12 @@ export function DynamicAgentEditor({
     currentValues: currentFormValues,
     snapshotKey,
   });
-  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
-  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+  const currentStepIndex = steps.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = steps.find((s) => s.id === activeStep);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      selectStep(STEPS[currentStepIndex - 1].id);
+      selectStep(steps[currentStepIndex - 1].id);
     }
   };
 
@@ -1049,8 +1085,8 @@ export function DynamicAgentEditor({
       // Review passed — clear any stale blocking banner from a prior attempt.
       setBlockingMessage(null);
     }
-    if (currentStepIndex < STEPS.length - 1) {
-      selectStep(STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex < steps.length - 1) {
+      selectStep(steps[currentStepIndex + 1].id);
     }
   };
 
@@ -1076,10 +1112,10 @@ export function DynamicAgentEditor({
             description: description || undefined,
             system_prompt: systemPrompt || undefined,
             allowed_tools:
-              Object.keys(allowedTools).length > 0 ? allowedTools : undefined,
-            builtin_tools: builtinTools,
+              supportsTools && Object.keys(allowedTools).length > 0 ? allowedTools : undefined,
+            builtin_tools: isDeepAgents ? builtinTools : undefined,
             subagents:
-              subagents.length > 0
+              isDeepAgents && subagents.length > 0
                 ? subagents.map((s) => ({
                     agent_id: s.agent_id,
                     name: s.name || s.agent_id,
@@ -1244,7 +1280,7 @@ export function DynamicAgentEditor({
     }
 
     // Validate required fields
-    if (!modelId || !modelProvider) {
+    if (isDeepAgents && (!modelId || !modelProvider)) {
       setError("Model selection is required");
       setLoading(false);
       return;
@@ -1291,7 +1327,7 @@ export function DynamicAgentEditor({
       // Restricted: send the real (possibly empty) arrays. Unrestricted with
       // nothing to clear: omit both fields entirely. Unrestricted after
       // having been restricted: explicitly clear both back to unset.
-      const knowledgeFields = restrictKnowledge
+      const knowledgeFields = !isDeepAgents ? {} : restrictKnowledge
         ? { datasource_ids: datasourceIds, rag_collection_ids: ragCollectionIds }
         : hadExplicitKnowledgeScope
           ? { datasource_ids: null, rag_collection_ids: null }
@@ -1300,6 +1336,25 @@ export function DynamicAgentEditor({
       if (harnessId !== "dynamic_agents" && !harnessProfileId) {
         throw new Error("Select an operator profile for the execution harness before saving");
       }
+      if (!isDeepAgents && (harnessLoading || harnessLoadError ||
+        selectedHarness?.availability !== "available" || selectedHarness.certification === "blocked")) {
+        throw new Error(harnessLoadError || "The selected harness is unavailable");
+      }
+
+      // Keep saved Deep Agents settings intact while another harness is active.
+      // Only supported settings are published into its execution blueprint.
+      const runtimeFields = isDeepAgents ? {
+        allowed_tools: allowedTools,
+        allowed_remote_agents: allowedRemoteAgents,
+        remote_agent_timeouts: Object.fromEntries(Object.entries(remoteAgentTimeouts).filter(([id]) => allowedRemoteAgents.includes(id))),
+        builtin_tools: builtinTools,
+        subagents: subagents.length > 0 ? subagents : undefined,
+        skills,
+        ...knowledgeFields,
+        model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+        features,
+        interrupt_on: interruptOn,
+      } : supportsTools ? { allowed_tools: allowedTools } : {};
 
       const targetAgentId = isEditing ? agent._id : generatedId;
       let preparedHarnessSave: {
@@ -1312,13 +1367,15 @@ export function DynamicAgentEditor({
       // document. This keeps an invalid provider configuration from changing
       // an existing Dynamic Agent or creating a half-configured new one.
       if (harnessId !== "dynamic_agents") {
-        const toolBindings = Object.entries(allowedTools).flatMap(
-          ([serverId, tools]) =>
-            Array.isArray(tools)
-              ? tools.map((toolName) => ({
-                  tool_id: `${serverId}.${toolName}`,
-                }))
-              : [],
+        const toolBindings = Object.entries(supportsTools ? allowedTools : {}).flatMap(
+          ([serverId, tools]) => {
+            if (tools === true) {
+              throw new Error("Select individual tools for this harness instead of all tools on a server");
+            }
+            return Array.isArray(tools)
+              ? tools.map((toolName) => ({ tool_id: `${serverId}.${toolName}` }))
+              : [];
+          },
         );
         const blueprint: AgentBlueprint = {
           id: targetAgentId,
@@ -1339,8 +1396,8 @@ export function DynamicAgentEditor({
           workspace: { persistence: "none" },
           streaming: { protocol: "canonical", replay: "required" },
           delegation: {
-            agents: subagents.map((subagent) => subagent.agent_id),
-            max_depth: subagents.length > 0 ? 1 : 0,
+            agents: [],
+            max_depth: 0,
             max_parallel: 1,
           },
         };
@@ -1384,17 +1441,8 @@ export function DynamicAgentEditor({
           visibility,
           shared_with_teams:
             visibility === "team" ? sharedWithTeams : undefined,
-          allowed_tools: allowedTools,
-          allowed_remote_agents: allowedRemoteAgents,
-          remote_agent_timeouts: Object.fromEntries(Object.entries(remoteAgentTimeouts).filter(([id]) => allowedRemoteAgents.includes(id))),
-          builtin_tools: builtinTools,
-          subagents: subagents.length > 0 ? subagents : undefined,
-          skills,
-          ...knowledgeFields,
-          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+          ...runtimeFields,
           ui: uiConfig,
-          features: features,
-          interrupt_on: interruptOn,
           // Ownership transfer (US3): only send owner_team_slug when the user
           // changed the owner picker, so a normal edit never trips the route's
           // transfer guard.
@@ -1437,17 +1485,8 @@ export function DynamicAgentEditor({
           owner_team_slug: ownerTeamSlug,
           shared_with_teams:
             visibility === "team" ? sharedWithTeams : undefined,
-          allowed_tools: allowedTools,
-          allowed_remote_agents: allowedRemoteAgents,
-          remote_agent_timeouts: Object.fromEntries(Object.entries(remoteAgentTimeouts).filter(([id]) => allowedRemoteAgents.includes(id))),
-          builtin_tools: builtinTools,
-          subagents: subagents.length > 0 ? subagents : undefined,
-          skills,
-          ...knowledgeFields,
-          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+          ...runtimeFields,
           ui: uiConfig,
-          features: features,
-          interrupt_on: interruptOn,
           ...(lastReview ? { last_review: lastReview } : {}),
         };
 
@@ -1566,7 +1605,7 @@ export function DynamicAgentEditor({
       if (!name.trim()) {
         list.push({ field: "name", label: "Agent name", step: "basic" });
       }
-      if (availableModels.length === 0) {
+      if (isDeepAgents && availableModels.length === 0) {
         // Distinct from "model not picked" — the user can't pick anything
         // because nothing is configured. Surfacing this separately tells the
         // operator the problem is upstream (no providers configured).
@@ -1575,8 +1614,17 @@ export function DynamicAgentEditor({
           label: "At least one model provider must be configured",
           step: "basic",
         });
-      } else if (!modelId) {
+      } else if (isDeepAgents && (!modelId || !modelProvider)) {
         list.push({ field: "model", label: "Model", step: "basic" });
+      }
+      if (!isDeepAgents) {
+        if (harnessLoading) {
+          list.push({ field: "harnessLoading", label: "Load the harness configuration", step: "basic" });
+        } else if (harnessLoadError || selectedHarness?.availability !== "available" || selectedHarness.certification === "blocked") {
+          list.push({ field: "harnessAvailability", label: "An available execution harness", step: "basic" });
+        } else if (!selectedHarness.profiles.some((profile) => profile.id === harnessProfileId && profile.available)) {
+          list.push({ field: "harnessProfile", label: "An available operator profile", step: "basic" });
+        }
       }
       if (ownerTeamMissing) {
         list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
@@ -1597,7 +1645,7 @@ export function DynamicAgentEditor({
       // already had an explicit scope may still be intentionally cleared
       // to opt out - only gate the "just enabled, nothing picked" case.
       if (
-        restrictKnowledge &&
+        isDeepAgents && restrictKnowledge &&
         !hadExplicitKnowledgeScope &&
         datasourceIds.length === 0 &&
         ragCollectionIds.length === 0
@@ -1613,7 +1661,13 @@ export function DynamicAgentEditor({
       name,
       systemPrompt,
       modelId,
+      modelProvider,
       availableModels.length,
+      isDeepAgents,
+      harnessLoading,
+      harnessLoadError,
+      selectedHarness,
+      harnessProfileId,
       ownerTeamMissing,
       restrictKnowledge,
       hadExplicitKnowledgeScope,
@@ -1624,7 +1678,7 @@ export function DynamicAgentEditor({
   const isValid = blockers.length === 0;
   const firstBlocker = blockers[0];
   const blockerStepLabel = firstBlocker
-    ? (STEPS.find((s) => s.id === firstBlocker.step)?.label ??
+    ? (steps.find((s) => s.id === firstBlocker.step)?.label ??
       firstBlocker.step)
     : null;
 
@@ -1705,7 +1759,7 @@ export function DynamicAgentEditor({
               </p>
             </div>
             <StepIndicator
-              steps={STEPS}
+              steps={steps}
               currentStep={activeStep}
               onStepClick={selectStep}
             />
@@ -1720,7 +1774,7 @@ export function DynamicAgentEditor({
                 <div className="space-y-2">
                   <Label htmlFor="harnessId">Execution harness</Label>
                   <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
-                    <select
+                    <Select
                       id="harnessId"
                       value={harnessId}
                       onChange={(event) => selectHarness(event.target.value)}
@@ -1730,6 +1784,9 @@ export function DynamicAgentEditor({
                       <option value="dynamic_agents">
                         LangChain Deep Agents (default)
                       </option>
+                      {!isDeepAgents && !selectedHarness && (
+                        <option value={harnessId}>{harnessId} (unavailable)</option>
+                      )}
                       {harnessDescriptors.map((descriptor) => (
                         <option
                           key={descriptor.id}
@@ -1742,7 +1799,7 @@ export function DynamicAgentEditor({
                           {descriptor.display_name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                     {selectedHarness && (
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
@@ -1771,7 +1828,7 @@ export function DynamicAgentEditor({
                             </Tooltip>
                           </TooltipProvider>
                         </div>
-                        <select
+                        <Select
                           id="harnessProfile"
                           value={harnessProfileId}
                           onChange={(event) =>
@@ -1780,6 +1837,10 @@ export function DynamicAgentEditor({
                           disabled={loading || !!readOnly}
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         >
+                          <option value="" disabled>Select an operator profile</option>
+                          {harnessProfileId && !selectedHarness.profiles.some((profile) => profile.id === harnessProfileId) && (
+                            <option value={harnessProfileId} disabled>{harnessProfileId} (unavailable)</option>
+                          )}
                           {selectedHarness.profiles.map((profile) => (
                             <option
                               key={profile.id}
@@ -1789,27 +1850,28 @@ export function DynamicAgentEditor({
                               {profile.display_name}
                             </option>
                           ))}
-                        </select>
-                        <HarnessOptionsForm
-                          schema={selectedHarness.options_schema}
-                          value={harnessOptions}
-                          onChange={setHarnessOptions}
-                          disabled={loading || !!readOnly}
-                        />
+                        </Select>
                         <p className="text-xs text-muted-foreground">
-                          {selectedHarness.execution_mode.replaceAll("_", " ")}{" "}
-                          · {selectedHarness.certification}. Profiles map to
-                          operator-managed resources; the browser never receives
-                          credentials, commands, images, or provider resource
-                          IDs.
+                          Profiles are managed by your administrator and define
+                          the execution model, security settings, and limits.
                         </p>
                       </div>
                     )}
-                    {harnessId === "dynamic_agents" && (
+                    {isDeepAgents ? (
                       <p className="text-xs text-muted-foreground">
-                        Uses the existing LangChain Deep Agents runtime without
-                        changing its stored document or execution path.
+                        Configure tools, knowledge, and skills for LangChain Deep
+                        Agents. Subagents, approvals, and middleware are under Advanced.
                       </p>
+                    ) : (
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>The operator profile selects the execution model and runtime settings.</p>
+                        {!supportsTools && <p>Tool configuration is unavailable for this harness.</p>}
+                        <p>Knowledge, skills, subagents, approval rules, and middleware are not configurable for this harness.</p>
+                        {isEditing && <p>Saved Deep Agents settings are retained and apply when Deep Agents is selected.</p>}
+                      </div>
+                    )}
+                    {!isDeepAgents && harnessLoadError && (
+                      <p role="alert" className="text-xs text-destructive">{harnessLoadError}. Reopen the editor to retry.</p>
                     )}
                   </div>
                 </div>
@@ -1852,13 +1914,81 @@ export function DynamicAgentEditor({
                 </div>
 
                 {/* LLM Model - right after name so AI Suggest buttons can use it */}
-                <div className="space-y-2">
-                  <Label htmlFor="modelId">
-                    LLM Model <span className="text-destructive">*</span>
-                  </Label>
-                  <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                {isDeepAgents ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="modelId">
+                        LLM Model <span className="text-destructive">*</span>
+                      </Label>
+                      <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                        <ModelPicker
+                          id="modelId"
+                          options={availableModels}
+                          modelId={modelId}
+                          modelProvider={modelProvider}
+                          onChange={(selectedId, selectedProvider) => {
+                            setModelId(selectedId);
+                            setModelProvider(selectedProvider);
+                          }}
+                          loading={modelsLoading}
+                          disabled={
+                            loading ||
+                            !!readOnly
+                          }
+                          triggerClassName="font-medium"
+                        />
+                        {!modelsLoading && availableModels.length === 0 ? (
+                          <p className="text-xs text-destructive mt-2">
+                            No LLM models available. Please check your deployment
+                            configuration.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            The language model that powers this agent&apos;s
+                            reasoning.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="reasoningEffort">Default reasoning effort</Label>
+                      <Select
+                        id="reasoningEffort"
+                        value={reasoningEffort}
+                        onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+                        disabled={loading || !!readOnly || supportedReasoningEfforts === null || supportedReasoningEfforts.length === 0}
+                      >
+                        {(["low", "medium", "high", "max"] as ReasoningEffort[]).map((effort) => (
+                          <option
+                            key={effort}
+                            value={effort}
+                            disabled={supportedReasoningEfforts !== null && !supportedReasoningEfforts.includes(effort)}
+                          >
+                            {effort}
+                          </option>
+                        ))}
+                      </Select>
+                      {supportedReasoningEfforts !== null && supportedReasoningEfforts.length === 0 ? (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          This model does not advertise configurable reasoning. The saved value is ignored, and the provider uses its own behavior.
+                        </p>
+                      ) : supportedReasoningEfforts !== null ? (
+                        <p className="text-xs text-muted-foreground">
+                          New conversations start at this level. Each chat can override it.
+                        </p>
+                      ) : null}
+                    </div>
+
+                  </>
+                ) : (
+                  <CollapsibleSection
+                    title="AI writing assistant"
+                    description="Optional model for AI Suggest when writing agent details and instructions"
+                  >
+                    <Label htmlFor="authoringModel">Writing assistant model</Label>
                     <ModelPicker
-                      id="modelId"
+                      id="authoringModel"
                       options={availableModels}
                       modelId={modelId}
                       modelProvider={modelProvider}
@@ -1867,54 +1997,13 @@ export function DynamicAgentEditor({
                         setModelProvider(selectedProvider);
                       }}
                       loading={modelsLoading}
-                      disabled={
-                        loading ||
-                        !!readOnly
-                      }
-                      triggerClassName="font-medium"
+                      disabled={loading || !!readOnly}
                     />
-                    {!modelsLoading && availableModels.length === 0 ? (
-                      <p className="text-xs text-destructive mt-2">
-                        No LLM models available. Please check your deployment
-                        configuration.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        The language model that powers this agent&apos;s
-                        reasoning.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="reasoningEffort">Default reasoning effort</Label>
-                  <Select
-                    id="reasoningEffort"
-                    value={reasoningEffort}
-                    onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
-                    disabled={loading || !!readOnly || supportedReasoningEfforts === null || supportedReasoningEfforts.length === 0}
-                  >
-                    {(["low", "medium", "high", "max"] as ReasoningEffort[]).map((effort) => (
-                      <option
-                        key={effort}
-                        value={effort}
-                        disabled={supportedReasoningEfforts !== null && !supportedReasoningEfforts.includes(effort)}
-                      >
-                        {effort}
-                      </option>
-                    ))}
-                  </Select>
-                  {supportedReasoningEfforts !== null && supportedReasoningEfforts.length === 0 ? (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      This model does not advertise configurable reasoning. The saved value is ignored, and the provider uses its own behavior.
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Used only by AI Suggest. The agent runs with the model configured by its operator profile.
                     </p>
-                  ) : supportedReasoningEfforts !== null ? (
-                    <p className="text-xs text-muted-foreground">
-                      New conversations start at this level. Each chat can override it.
-                    </p>
-                  ) : null}
-                </div>
+                  </CollapsibleSection>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between relative">
@@ -2694,11 +2783,11 @@ export function DynamicAgentEditor({
             {activeStep === "tools" && (
               <div className="space-y-6 pt-2">
                 {/* Built-in Tools */}
-                <BuiltinToolsPicker
+                {isDeepAgents && <BuiltinToolsPicker
                   value={builtinTools}
                   onChange={setBuiltinTools}
                   disabled={loading || !!readOnly}
-                />
+                />}
 
                 {/* MCP Tools */}
                 <div className="space-y-4">
@@ -2803,7 +2892,7 @@ export function DynamicAgentEditor({
             )}
 
             {/* Advanced Step */}
-            {activeStep === "advanced" && (
+            {activeStep === "advanced" && (isDeepAgents ? (
               <AdvancedStep
                 agent={agent}
                 subagents={subagents}
@@ -2824,7 +2913,22 @@ export function DynamicAgentEditor({
                 loading={loading || !!readOnly}
                 visibility={visibility}
               />
-            )}
+            ) : (
+              <div className="space-y-4 pt-2">
+                <div>
+                  <Label>{selectedHarness?.display_name} options</Label>
+                  <p className="text-xs text-muted-foreground">Configure the options available for the selected operator profile.</p>
+                </div>
+                {selectedHarness && (
+                  <HarnessOptionsForm
+                    schema={selectedHarness.options_schema}
+                    value={harnessOptions}
+                    onChange={setHarnessOptions}
+                    disabled={loading || !!readOnly}
+                  />
+                )}
+              </div>
+            ))}
 
             {/* Error */}
             {error && (
@@ -2869,7 +2973,7 @@ export function DynamicAgentEditor({
               type="button"
               variant="outline"
               onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              disabled={currentStepIndex === steps.length - 1 || loading}
               size="sm"
             >
               Next
@@ -2884,12 +2988,14 @@ export function DynamicAgentEditor({
         <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
           {readOnly ? (
             "This agent is config-driven and cannot be modified"
-          ) : (
+          ) : isDeepAgents ? (
             <>
               {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
               {Object.keys(allowedTools).length} MCP server(s),{" "}
               {subagents.length} subagent(s)
             </>
+          ) : (
+            <>{selectedHarness?.display_name ?? harnessId} · {selectedHarness?.profiles.find((profile) => profile.id === harnessProfileId)?.display_name || "Select an operator profile"}</>
           )}
         </div>
         <Button

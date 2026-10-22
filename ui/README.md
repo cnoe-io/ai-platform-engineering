@@ -38,6 +38,17 @@ Browser chat traffic goes through the BFF routes under
 `/api/v1/chat/stream/*`; the browser does not call the Dynamic Agents service
 directly.
 
+### Agent Builder harness controls
+
+- Deep Agents retains its model, tools, knowledge, skills, and Advanced controls.
+- Engine-backed agents use an operator profile for their execution model. Schema-declared harness options appear under Advanced.
+- Tools appear only when the harness declares supported tool bindings. Both current Claude SDK and AgentCore adapters report builder tool bindings unavailable.
+- An optional writing-assistant model powers AI Suggest without changing the agent's execution model.
+- `/api/dynamic-agents` requires `model` for Deep Agents. Engine-backed metadata may omit it; switching back to Deep Agents requires a valid model.
+- Saved Deep Agents settings remain in metadata while another harness is selected and are excluded from its execution blueprint.
+
+See [Agent Creation UI Architecture](../docs/docs/specs/2026-08-17-harness-engine/agent-creation-ui.md) for Phase 1 behavior and the Phase 2 contract.
+
 ## Development Commands
 
 ```bash

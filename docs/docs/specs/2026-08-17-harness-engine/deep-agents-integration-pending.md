@@ -65,7 +65,7 @@ The future diagram shows the common execution path after Phase 2 migration. Duri
 | Runtime emits SSE strings through encoders | Extract typed runtime events; reuse existing parsing and encoders |
 | Gateway drops some namespace/subagent information | Carry correlation through persistence, replay and both wire formats |
 | Runtime captures caller credentials when constructed | Make caller identity and credential lifetime explicit for each execution |
-| Builder renders Deep Agents Advanced controls unconditionally | Render declared, supported features through a host-owned panel registry |
+| Phase 1 builder shows Deep Agents controls only for Deep Agents, gates tools on the descriptor, and places SDK options under Advanced | Extend the compatibility branch into declared features, bounded schemas and a host-owned panel registry |
 | Engine and Dynamic Agents have separate dependency sets | Resolve Python, package pins, startup, cleanup and image compatibility |
 
 See the existing [adapter contract](../../../../ai_platform_engineering/harness_engine/src/harness_engine/adapters/base.py), [coordinator](../../../../ai_platform_engineering/harness_engine/src/harness_engine/coordinator.py), [runtime](../../../../ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py), and [builder](../../../../ui/src/components/dynamic-agents/DynamicAgentEditor.tsx).
