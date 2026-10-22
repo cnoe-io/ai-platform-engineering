@@ -8,17 +8,17 @@ A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
 | | |
 |---|---|
-| **Version** | `0.5.68` |
+| **Version** | `1.1.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 1.1.0
 
 # Upgrade an existing release
-helm upgrade rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm upgrade rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 1.1.0
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 1.1.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
+helm install rag-stack oci://ghcr.io/caipe-io/charts/rag-stack --version 1.1.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/rag-stack --version 1.1.0
 ```
 
 ## Reading the Values Table
@@ -57,7 +57,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | agent-ontology.enabled | bool | `true` |  |
 | agent-ontology.fullnameOverride | string | `"agent-ontology"` |  |
 | agent-ontology.image.pullPolicy | string | `"Always"` |  |
-| agent-ontology.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-agent-ontology"` |  |
+| agent-ontology.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-agent-ontology"` |  |
 | agent-ontology.image.tag | string | `""` |  |
 | agent-ontology.livenessProbe.failureThreshold | int | `3` |  |
 | agent-ontology.livenessProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
@@ -91,8 +91,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | agent-ontology.startupProbe.timeoutSeconds | int | `5` |  |
 | agent-ontology.syncInterval | int | `0` |  |
 | agentExports.data.enabled | bool | `true` |  |
-| global.image | object | `{"channel":"","tag":""}` | Global image tag override. When set, overrides appVersion-based image tags for all rag-stack subcharts. Individual subchart image.tag values still take highest precedence. |
-| global.image.channel | string | `""` | Image repository channel for maintained CAIPE images. Empty means auto: rc/hotfix/dev chart appVersions use `pre-release/`, final release appVersions use the root published image repositories. Set to `pre-release` or `release` to force either repository channel. |
+| global.image | object | `{"tag":""}` | Global image tag override. When set, overrides appVersion-based image tags for all rag-stack subcharts. Individual subchart image.tag values still take highest precedence. |
 | global.llmSecrets.create | bool | `true` |  |
 | global.llmSecrets.data | object | `{}` |  |
 | global.llmSecrets.externalSecrets.data | list | `[]` |  |
@@ -101,6 +100,13 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | global.llmSecrets.externalSecrets.secretStoreRef.name | string | `""` |  |
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
+| global.rag.ingestorOidc.clientId | string | `""` |  |
+| global.rag.ingestorOidc.clientSecretRef.key | string | `"INGESTOR_OIDC_CLIENT_SECRET"` |  |
+| global.rag.ingestorOidc.clientSecretRef.name | string | `""` |  |
+| global.rag.ingestorOidc.discoveryUrl | string | `""` |  |
+| global.rag.ingestorOidc.issuer | string | `""` |  |
+| global.rag.ingestorOidc.jwksUrl | string | `""` |  |
+| global.rag.ingestorOidc.scope | string | `""` |  |
 | global.rag.neo4j.host | string | `"rag-neo4j"` |  |
 | global.rag.neo4j.password | string | `"dummy_password"` |  |
 | global.rag.neo4j.port | int | `7687` |  |
@@ -113,21 +119,53 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | global.rag.redis.db | int | `0` |  |
 | global.rag.redis.host | string | `"rag-redis"` |  |
 | global.rag.redis.port | int | `6379` |  |
+| milvus.containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |
+| milvus.containerSecurityContext.capabilities.drop[0] | string | `"ALL"` |  |
+| milvus.containerSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | milvus.dataNode.annotations | object | `{}` |  |
 | milvus.dataNode.podDisruptionBudget.enabled | bool | `false` |  |
 | milvus.dataNode.resources.limits.cpu | string | `"200m"` |  |
 | milvus.dataNode.resources.limits.memory | string | `"256Mi"` |  |
+| milvus.enabled | bool | `true` |  |
+| milvus.etcd.containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |
+| milvus.etcd.containerSecurityContext.capabilities.drop[0] | string | `"ALL"` |  |
+| milvus.etcd.containerSecurityContext.enabled | bool | `true` |  |
+| milvus.etcd.containerSecurityContext.runAsNonRoot | bool | `true` |  |
+| milvus.etcd.containerSecurityContext.runAsUser | int | `1001` |  |
+| milvus.etcd.containerSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | milvus.etcd.podAnnotations | object | `{}` |  |
 | milvus.etcd.podDisruptionBudget.enabled | bool | `false` |  |
+| milvus.etcd.podSecurityContext.enabled | bool | `true` |  |
+| milvus.etcd.podSecurityContext.fsGroup | int | `1001` |  |
+| milvus.etcd.podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
+| milvus.etcd.resources.limits.cpu | string | `"500m"` |  |
+| milvus.etcd.resources.limits.memory | string | `"512Mi"` |  |
+| milvus.etcd.resources.requests.cpu | string | `"100m"` |  |
+| milvus.etcd.resources.requests.memory | string | `"128Mi"` |  |
+| milvus.etcd.serviceAccount.automountServiceAccountToken | bool | `false` |  |
+| milvus.etcd.serviceAccount.create | bool | `true` |  |
 | milvus.minio.podAnnotations | object | `{}` |  |
 | milvus.minio.podDisruptionBudget.enabled | bool | `false` |  |
 | milvus.mixCoordinator.annotations | object | `{}` |  |
+| milvus.mixCoordinator.resources.limits.cpu | string | `"500m"` |  |
+| milvus.mixCoordinator.resources.limits.memory | string | `"512Mi"` |  |
+| milvus.mixCoordinator.resources.requests.cpu | string | `"100m"` |  |
+| milvus.mixCoordinator.resources.requests.memory | string | `"128Mi"` |  |
 | milvus.proxy.annotations | object | `{}` |  |
+| milvus.proxy.resources.limits.cpu | string | `"500m"` |  |
+| milvus.proxy.resources.limits.memory | string | `"512Mi"` |  |
+| milvus.proxy.resources.requests.cpu | string | `"100m"` |  |
+| milvus.proxy.resources.requests.memory | string | `"128Mi"` |  |
 | milvus.pulsarv3.enabled | bool | `false` |  |
 | milvus.queryNode.annotations | object | `{}` |  |
 | milvus.queryNode.podDisruptionBudget.enabled | bool | `false` |  |
 | milvus.queryNode.resources.limits.cpu | string | `"200m"` |  |
 | milvus.queryNode.resources.limits.memory | string | `"256Mi"` |  |
+| milvus.securityContext | object | `{}` |  |
+| milvus.serviceAccount.annotations | object | `{}` |  |
+| milvus.serviceAccount.create | bool | `false` |  |
+| milvus.serviceAccount.name | string | `"rag-milvus"` |  |
+| milvus.serviceAccount.ragStackManaged | bool | `true` |  |
 | milvus.woodpecker.enabled | bool | `true` |  |
 | neo4j.apoc_config."apoc.import.file.enabled" | string | `"true"` |  |
 | neo4j.apoc_config."apoc.trigger.enabled" | string | `"true"` |  |
@@ -135,6 +173,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | neo4j.config."dbms.security.procedures.unrestricted" | string | `"apoc.*"` |  |
 | neo4j.config."server.config.strict_validation.enabled" | string | `"false"` |  |
 | neo4j.config."server.directories.plugins" | string | `"/var/lib/neo4j/labs"` |  |
+| neo4j.containerSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | neo4j.disableLookups | bool | `true` |  |
 | neo4j.enabled | bool | `true` |  |
 | neo4j.fullnameOverride | string | `"rag-neo4j"` |  |
@@ -143,11 +182,29 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | neo4j.neo4j.resources.cpu | string | `"1"` |  |
 | neo4j.neo4j.resources.memory | string | `"2Gi"` |  |
 | neo4j.podSpec.annotations | object | `{}` |  |
+| neo4j.podSpec.serviceAccountName | string | `"rag-neo4j"` |  |
+| neo4j.serviceAccount.annotations | object | `{}` |  |
+| neo4j.serviceAccount.automount | bool | `false` |  |
+| neo4j.serviceAccount.create | bool | `true` |  |
+| neo4j.serviceAccount.name | string | `"rag-neo4j"` |  |
 | neo4j.services.neo4j.enabled | bool | `false` |  |
+| neo4j.volumes.data.dynamic.accessModes[0] | string | `"ReadWriteOnce"` |  |
+| neo4j.volumes.data.dynamic.requests.storage | string | `"100Gi"` |  |
 | neo4j.volumes.data.dynamic.storageClassName | string | `"gp2"` |  |
 | neo4j.volumes.data.mode | string | `"dynamic"` |  |
-| rag-ingestors.enabled | bool | `false` |  |
-| rag-ingestors.ingestors | list | `[]` |  |
+| rag-ingestors.enabled | bool | `true` |  |
+| rag-ingestors.ingestors[0].env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
+| rag-ingestors.ingestors[0].envFrom | list | `[]` |  |
+| rag-ingestors.ingestors[0].initDelaySeconds | int | `0` |  |
+| rag-ingestors.ingestors[0].logLevel | string | `"INFO"` |  |
+| rag-ingestors.ingestors[0].name | string | `"webloader"` |  |
+| rag-ingestors.ingestors[0].resources.limits.cpu | string | `"500m"` |  |
+| rag-ingestors.ingestors[0].resources.limits.ephemeral-storage | string | `"1Gi"` |  |
+| rag-ingestors.ingestors[0].resources.limits.memory | string | `"1Gi"` |  |
+| rag-ingestors.ingestors[0].resources.requests.cpu | string | `"100m"` |  |
+| rag-ingestors.ingestors[0].resources.requests.ephemeral-storage | string | `"256Mi"` |  |
+| rag-ingestors.ingestors[0].resources.requests.memory | string | `"256Mi"` |  |
+| rag-ingestors.ingestors[0].type | string | `"webloader"` |  |
 | rag-ingestors.ragServerUrl | string | `"http://rag-server:9446"` |  |
 | rag-redis.enabled | bool | `true` |  |
 | rag-redis.fullnameOverride | string | `"rag-redis"` |  |
@@ -188,7 +245,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-server.envFrom | list | `[]` |  |
 | rag-server.fullnameOverride | string | `"rag-server"` |  |
 | rag-server.image.pullPolicy | string | `"Always"` |  |
-| rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
+| rag-server.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-server"` |  |
 | rag-server.image.tag | string | `""` |  |
 | rag-server.podAnnotations | object | `{}` |  |
 | rag-server.resources.limits.cpu | string | `"500m"` |  |
@@ -199,30 +256,18 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-server.resources.requests.memory | string | `"128Mi"` |  |
 | rag-server.service.port | int | `9446` |  |
 | rag-server.service.type | string | `"ClusterIP"` |  |
-| rag-server.webIngestor.enabled | bool | `true` |  |
-| rag-server.webIngestor.env.LOG_LEVEL | string | `"INFO"` |  |
-| rag-server.webIngestor.env.WEBLOADER_MAX_CONCURRENCY | string | `"10"` |  |
-| rag-server.webIngestor.env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
-| rag-server.webIngestor.env.WEBLOADER_RELOAD_INTERVAL | string | `"86400"` |  |
-| rag-server.webIngestor.envFrom | list | `[]` |  |
-| rag-server.webIngestor.image.pullPolicy | string | `"Always"` |  |
-| rag-server.webIngestor.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
-| rag-server.webIngestor.image.tag | string | `""` |  |
-| rag-server.webIngestor.resources.limits.cpu | string | `"500m"` |  |
-| rag-server.webIngestor.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
-| rag-server.webIngestor.resources.limits.memory | string | `"1Gi"` |  |
-| rag-server.webIngestor.resources.requests.cpu | string | `"100m"` |  |
-| rag-server.webIngestor.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
-| rag-server.webIngestor.resources.requests.memory | string | `"256Mi"` |  |
 | sunnyTesting | bool | `true` |  |
+
+Neo4j uses the existing `gp2` StorageClass by default. To use the cluster's
+default StorageClass instead, set `neo4j.volumes.data.mode=defaultStorageClass`.
 
 ## Dependencies
 
 | Name | Version | Condition / Tags |
 |------|---------|------------------|
-| rag-server | `0.5.68` | `rag-server.enabled` |
-| agent-ontology | `0.5.68` | `agent-ontology.enabled` |
-| rag-ingestors | `0.5.68` | `rag-ingestors.enabled` |
+| rag-server | `1.1.0` | `rag-server.enabled` |
+| agent-ontology | `1.1.0` | `agent-ontology.enabled` |
+| rag-ingestors | `1.1.0` | `rag-ingestors.enabled` |
 | neo4j | `2025.07.1` | `neo4j.enabled` |
-| rag-redis | `0.5.68` | `rag-redis.enabled` |
+| rag-redis | `1.1.0` | `rag-redis.enabled` |
 | milvus | `5.0.2` | `milvus.enabled` |

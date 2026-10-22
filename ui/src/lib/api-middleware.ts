@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
+import { reconcileConversationOwnerIdentity } from '@/lib/conversation-owner-identity';
 import { getCollection } from '@/lib/mongodb';
 import type { Conversation, User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
@@ -151,8 +152,18 @@ type SessionAuthSession = {
   canViewAdmin?: boolean;
   isAuthorized?: boolean;
   isServiceAccount?: boolean;
+  serviceAccountClientId?: string;
   org?: string;
   principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
+  /**
+   * Which literal auth path the request took, per getAuthFromBearerOrSession.
+   * NOT derivable from principalType: an OBO-exchanged Bearer token (Slack,
+   * Webex, external scripts) and a genuine browser session cookie both yield
+   * principalType 'oidc_user'. A real browser session NEVER sends an
+   * Authorization header for its own first-party requests, so 'bearer' here
+   * is a caller-authenticated-via-Bearer signal a caller cannot fake.
+   */
+  authMethod?: 'bearer' | 'session';
   role?: string;
   sub?: string;
   user?: {
@@ -263,7 +274,39 @@ export function clearSessionAuthCacheForTests(): void {
   sessionAuthCache.clear();
 }
 
-function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+// Keycloak subject mapping + conversation-owner-identity reconciliation is
+// idempotent bookkeeping, not per-request state, so it doesn't need to run on
+// every call. The cookie-session path already gets this for free via
+// `sessionAuthCache` (10s TTL keyed by cookie), but the Bearer-token path
+// (service accounts: smoke tests, Slack bot, etc.) authenticates the same
+// static token on every request with no equivalent cache, so it re-ran the
+// full write path — including the `conversations.updateMany` in
+// `reconcileConversationOwnerIdentity` — on every single call. Under bursty
+// concurrent traffic from one service-account identity, that produced
+// `MongoServerError 40333 (Concurrent operations on the same resource)`.
+//
+// Dedup by keycloak sub, independent of auth path: concurrent callers for the
+// same subject join the one in-flight write instead of racing, and callers
+// within the TTL after it settles reuse the same resolved promise instead of
+// re-writing. The in-flight join mirrors `_inflightRefreshes` in
+// `auth-config.ts`, but unlike that map (which deletes its entry as soon as
+// the exchange settles) this one deliberately keeps entries around for the
+// TTL to also debounce non-concurrent repeat calls, so it needs its own
+// bound — mirrors `sessionAuthCache`'s LRU eviction above instead.
+//
+// This is a per-pod in-memory cache: it fully covers today's deployment
+// (`replicaCount: 1` in both dev and prod values), but a burst spread across
+// multiple replicas would only be deduped per-replica if that's ever raised.
+const KEYCLOAK_SUB_MAPPING_DEDUP_TTL_MS = 10_000;
+const MAX_KEYCLOAK_SUB_MAPPING_CACHE_ENTRIES = 500;
+const keycloakSubMappingCache = new Map<string, { promise: Promise<void>; expiresAt: number }>();
+
+/** Reset the Keycloak subject mapping dedup cache (for testing only). */
+export function _resetKeycloakSubMappingCacheForTests(): void {
+  keycloakSubMappingCache.clear();
+}
+
+export function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
   }
@@ -287,32 +330,73 @@ async function persistKeycloakSubMapping(
   const keycloakSub = resolveKeycloakSubFromSession(session);
   if (!keycloakSub) return;
 
-  const now = new Date();
-  try {
-    const users = await getCollection<User>('users');
-    await users.updateOne(
-      { email: user.email },
-      {
-        $set: {
-          keycloak_sub: keycloakSub,
-          'metadata.keycloak_sub': keycloakSub,
-          updated_at: now,
-        },
-        $setOnInsert: {
-          email: user.email,
-          name: user.name,
-          created_at: now,
-          last_login: now,
-          'metadata.sso_provider': 'keycloak',
-          'metadata.sso_id': keycloakSub,
-          'metadata.role': user.role === 'admin' ? 'admin' : 'user',
-        },
-      },
-      { upsert: true }
-    );
-  } catch (error) {
-    console.warn('[Auth] Could not persist Keycloak subject mapping:', error);
+  const cacheKey = `${keycloakSub}:${user.email}`;
+  const cached = keycloakSubMappingCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
   }
+
+  const promise = runKeycloakSubMappingWrites(keycloakSub, user);
+  while (keycloakSubMappingCache.size >= MAX_KEYCLOAK_SUB_MAPPING_CACHE_ENTRIES) {
+    const oldestKey = keycloakSubMappingCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    keycloakSubMappingCache.delete(oldestKey);
+  }
+  keycloakSubMappingCache.set(cacheKey, {
+    promise,
+    expiresAt: Date.now() + KEYCLOAK_SUB_MAPPING_DEDUP_TTL_MS,
+  });
+  return promise;
+}
+
+async function runKeycloakSubMappingWrites(
+  keycloakSub: string,
+  user: { email: string; name: string; role: string }
+): Promise<void> {
+  const now = new Date();
+  await Promise.all([
+    (async () => {
+      try {
+        const users = await getCollection<User>('users');
+        await users.updateOne(
+          { email: user.email },
+          {
+            $set: {
+              keycloak_sub: keycloakSub,
+              'metadata.keycloak_sub': keycloakSub,
+              updated_at: now,
+            },
+            $setOnInsert: {
+              email: user.email,
+              name: user.name,
+              created_at: now,
+              last_login: now,
+              'metadata.sso_provider': 'keycloak',
+              'metadata.sso_id': keycloakSub,
+              'metadata.role': user.role === 'admin' ? 'admin' : 'user',
+            },
+          },
+          { upsert: true }
+        );
+      } catch (error) {
+        console.warn('[Auth] Could not persist Keycloak subject mapping:', error);
+      }
+    })(),
+    (async () => {
+      try {
+        const conversations = await getCollection<Conversation>('conversations');
+        await reconcileConversationOwnerIdentity(
+          conversations,
+          keycloakSub,
+          [user.email],
+        );
+      } catch (error) {
+        console.warn('[Auth] Could not reconcile conversation owner identity:', error);
+      }
+    })(),
+  ]);
 }
 
 /**
@@ -440,9 +524,6 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   if (pathname === '/api/auth/my-roles' || pathname === '/api/auth/role') {
     return { resource: 'self_profile', scope: 'read' };
   }
-  if (pathname === '/api/auth/slack-link' || pathname === '/api/auth/webex-link') {
-    return { resource: 'self_profile', scope: 'write' };
-  }
   if (pathname.startsWith('/api/settings')) {
     return method === 'GET'
       ? { resource: 'user_settings', scope: 'read' }
@@ -488,6 +569,16 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
+  }
+  // Autonomous-agents proxy is intentionally per-user, NOT admin-gated (see
+  // app/api/autonomous/[...path]/route.ts): any chat-capable user may manage
+  // their OWN tasks — per-task ownership is enforced by the autonomous
+  // service (`_assert_task_access`) and per-agent authorization by
+  // dynamic-agents/CAS (`can_use` / organization `can_automate`). Without this mapping the
+  // default below admin-gates every non-GET call, 403ing regular users before
+  // the request ever reaches the backend.
+  if (pathname.startsWith('/api/autonomous')) {
+    return { resource: 'chat', scope: 'invoke' };
   }
 
   if (pathname.startsWith('/api/skills/seed')) {
@@ -595,6 +686,7 @@ export async function getAuthFromBearerOrSession(
         canViewAdmin: false,
         sub: ownerSub,
         principalType: 'catalog_api_key',
+        authMethod: 'bearer',
         authScopes: ['catalog:read'],
       },
     };
@@ -638,6 +730,7 @@ export async function getAuthFromBearerOrSession(
           role: 'user',
           sub: localIdentity.sub,
           principalType: 'skills_api_key',
+          authMethod: 'bearer',
           authScopes: localIdentity.scopes,
         },
       };
@@ -669,7 +762,9 @@ export async function getAuthFromBearerOrSession(
       // first-party service callers (e.g. the Slack bot) as
       // `service_account:<sub>` rather than `user:<sub>`.
       isServiceAccount: identity.isServiceAccount === true,
+      serviceAccountClientId: identity.serviceAccountClientId,
       principalType: identity.isServiceAccount === true ? 'service_account' as const : 'oidc_user' as const,
+      authMethod: 'bearer' as const,
       user: { email: identity.email, name: identity.name },
     };
     if (process.env.NODE_ENV !== 'test') {
@@ -683,7 +778,7 @@ export async function getAuthFromBearerOrSession(
 
   // Path 2: Session cookie (existing NextAuth flow)
   const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
-  return { user, session };
+  return { user, session: { ...session, authMethod: 'session' as const } };
 }
 
 export async function withRbacAuth<T>(
@@ -801,6 +896,20 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
+  if (resource === 'rag') {
+    // RAG has three independent organization-level gates. Keep the coarse
+    // route capability aligned with the operation; object-level source and
+    // collection checks are applied separately by the route handlers.
+    if (scope === 'query' || scope === 'invoke' || scope === 'kb.query') {
+      return 'can_search';
+    }
+    if (scope === 'ingest' || scope === 'create' || scope === 'kb.ingest') {
+      return 'can_ingest';
+    }
+    if (scope === 'view' || scope === 'read' || scope === 'use' || scope === 'tool.view') {
+      return 'can_use';
+    }
+  }
   if (resource === 'skill') {
     // Skills are a self-service member feature. Browsing/running AND authoring
     // (create/configure) plus minting the caller's own catalog API keys are
@@ -824,11 +933,11 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
 function resourceScopedTupleFor(
   resource: RbacResource,
   scope: RbacScope,
-  subject: string
+  principal: string,
 ): { user: string; relation: string; object: string } | null {
   if (resource === 'rag' && scope === 'admin') {
     return {
-      user: `user:${subject}`,
+      user: principal,
       relation: 'can_manage',
       object: 'admin_surface:rag_datasources',
     };
@@ -879,6 +988,7 @@ export async function requireRbacPermission(
     role?: string;
     user?: { email?: string };
     principalType?: SessionAuthSession['principalType'];
+    isServiceAccount?: boolean;
   },
   resource: RbacResource,
   scope: RbacScope,
@@ -886,6 +996,9 @@ export async function requireRbacPermission(
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+  const principal = subject
+    ? `${session.isServiceAccount === true ? 'service_account' : 'user'}:${subject}`
+    : null;
 
   if (session.principalType === 'catalog_api_key' || session.principalType === 'skills_api_key') {
     throw new ApiError(
@@ -964,7 +1077,9 @@ export async function requireRbacPermission(
     return;
   }
 
-  const resourceScopedTuple = subject ? resourceScopedTupleFor(resource, scope, subject) : null;
+  const resourceScopedTuple = principal
+    ? resourceScopedTupleFor(resource, scope, principal)
+    : null;
   if (resourceScopedTuple) {
     try {
       const result = await checkOpenFgaTuple(resourceScopedTuple);
@@ -1028,7 +1143,7 @@ export async function requireRbacPermission(
   const relation = organizationRelationFor(resource, scope);
   const object = organizationObjectId();
   const tuple = {
-    user: `user:${subject}`,
+    user: principal ?? 'user:unknown',
     relation,
     object,
   };
@@ -1306,6 +1421,25 @@ export function validateUUID(uuid: string): boolean {
 }
 
 /**
+ * Validate a conversation identifier accepted by the chat API.
+ *
+ * New conversations use UUIDs, but releases before server-owned ID generation
+ * also persisted opaque, URL-safe identifiers. Keep those records operable so
+ * users can read, rename, archive, or delete their existing history. The
+ * identifier is still used only as an exact MongoDB string match; authorization
+ * is enforced after the record is loaded.
+ */
+export function validateConversationId(id: string): boolean {
+  if (validateUUID(id)) return true;
+
+  // Legacy IDs are bounded URL-safe slugs. Excluding path separators, query
+  // delimiters, whitespace, and MongoDB operator characters keeps route
+  // handling unambiguous while accepting historical IDs such as
+  // "legacy-demo-conversation".
+  return /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$/.test(id);
+}
+
+/**
  * Parse and validate pagination parameters
  */
 export function getPaginationParams(request: NextRequest) {
@@ -1494,7 +1628,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<Collection<ConversationAccessDocument>>,
-  session?: { role?: string; sub?: string }
+  session?: { role?: string; sub?: string; canViewAdmin?: boolean }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1566,8 +1700,9 @@ export async function requireConversationAccess(
     };
   }
 
-  // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin') {
+  // Admins and sessions explicitly allowed to view admin data get read-only
+  // audit access to any conversation.
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
   }
 

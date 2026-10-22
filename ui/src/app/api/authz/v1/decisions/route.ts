@@ -57,7 +57,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await enforceSubjectBinding(caller, subject, ctx);
 
     const context = sanitizeAdvisoryContext(b.context);
-    const interaction = trustedInteractionFromInternalHeaders(request.headers);
+    const interaction = caller.type === "user" && subject.type === "user" && caller.id === subject.id
+      ? trustedInteractionFromInternalHeaders(request.headers, subject.id)
+      : { source: "api" as const, conversationKind: "unknown" as const, verified: false };
     const result = await authorize(
       {
         subject,

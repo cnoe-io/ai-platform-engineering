@@ -50,6 +50,7 @@ function KnowledgeBasesLayoutContent({
     ?? KNOWLEDGE_NAV_ITEMS[0];
   const graphAvailable = ragHealth === "connected" && graphRagEnabled;
   const pageDescriptions: Record<string,string> = {
+    collections: "Group data sources once, then assign and update them together.",
     graph: "Explore entities and relationships across your knowledge sources.",
     ingest: "Ingest and manage the sources available to knowledge retrieval.",
     "mcp-tools": "Configure the knowledge search tools exposed through MCP.",

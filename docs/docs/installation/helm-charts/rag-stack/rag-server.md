@@ -14,17 +14,17 @@ RAG server
 
 | | |
 |---|---|
-| **Version** | `0.5.68` |
+| **Version** | `1.1.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install rag-server oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68
+helm install rag-server oci://ghcr.io/caipe-io/charts/rag-server --version 1.1.0
 
 # Upgrade an existing release
-helm upgrade rag-server oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68
+helm upgrade rag-server oci://ghcr.io/caipe-io/charts/rag-server --version 1.1.0
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-server oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68 \
+helm install rag-server oci://ghcr.io/caipe-io/charts/rag-server --version 1.1.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-server oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68 \
+helm install rag-server oci://ghcr.io/caipe-io/charts/rag-server --version 1.1.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/rag-server --version 1.1.0
 ```
 
 ## Reading the Values Table
@@ -64,7 +64,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68
 | extraVolumes | list | `[]` |  |
 | fullnameOverride | string | `"rag-server"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-rag-server"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | initContainers | list | `[]` |  |
@@ -114,22 +114,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-server --version 0.5.68
 | vpa.minAllowed.cpu | string | `"50m"` |  |
 | vpa.minAllowed.memory | string | `"128Mi"` |  |
 | vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
-| webIngestor.enabled | bool | `true` |  |
-| webIngestor.env | object | `{}` |  |
-| webIngestor.envFrom | list | `[]` |  |
-| webIngestor.extraVolumeMounts | list | `[]` |  |
-| webIngestor.image.pullPolicy | string | `"IfNotPresent"` |  |
-| webIngestor.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
-| webIngestor.image.tag | string | `""` |  |
-| webIngestor.resources.limits.cpu | string | `"500m"` |  |
-| webIngestor.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
-| webIngestor.resources.limits.memory | string | `"1Gi"` |  |
-| webIngestor.resources.requests.cpu | string | `"100m"` |  |
-| webIngestor.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
-| webIngestor.resources.requests.memory | string | `"256Mi"` |  |
-| webIngestor.securityContext.allowPrivilegeEscalation | bool | `false` |  |
-| webIngestor.securityContext.capabilities.drop[0] | string | `"ALL"` |  |
-| webIngestor.securityContext.readOnlyRootFilesystem | bool | `false` |  |
-| webIngestor.securityContext.runAsNonRoot | bool | `true` |  |
-| webIngestor.securityContext.runAsUser | int | `1001` |  |
-| webIngestor.securityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |

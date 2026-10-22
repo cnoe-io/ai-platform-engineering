@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import type { TrustedAuthorizeContext } from "./contract";
 
 const MAX_CLOCK_SKEW_SECONDS = 90;
@@ -131,6 +131,7 @@ function internalSecret(): string {
 export function addTrustedInteractionToBody(
   body: Record<string, unknown>,
   interaction: TrustedInteraction,
+  subject?: string,
 ): void {
   const existing = body.client_context;
   const context = existing && typeof existing === "object" && !Array.isArray(existing)
@@ -139,7 +140,9 @@ export function addTrustedInteractionToBody(
   delete context._caipe_trusted_interaction;
   delete context._caipe_trusted_interaction_signature;
 
-  const headers = trustedInteractionProofHeaders(interaction);
+  const headers = trustedInteractionProofHeaders(interaction, subject && typeof body.agent_id === "string"
+    ? { subject, agentId: body.agent_id, executionId: randomUUID() }
+    : undefined);
   const token = headers[INTERNAL_CONTEXT_HEADER];
   const signature = headers[INTERNAL_SIGNATURE_HEADER];
   if (token && signature) {
@@ -161,6 +164,7 @@ function isPermittedPrivateInteraction(interaction: TrustedInteraction): boolean
 /** Mint the short-lived BFF proof forwarded to credential and MCP enforcement. */
 export function trustedInteractionProofHeaders(
   interaction: TrustedInteraction,
+  execution?: { subject: string; agentId: string; executionId: string },
 ): Record<string, string> {
   const secret = internalSecret();
   if (!secret || !isPermittedPrivateInteraction(interaction)) return {};
@@ -170,6 +174,10 @@ export function trustedInteractionProofHeaders(
     conversationKind: interaction.conversationKind,
     iat: now,
     exp: now + MAX_CLOCK_SKEW_SECONDS,
+    ...(execution ? {
+      subject: execution.subject, agent_id: execution.agentId,
+      execution_id: execution.executionId, renewal_exp: now + 900,
+    } : {}),
   })).toString("base64url");
   return {
     [INTERNAL_CONTEXT_HEADER]: token,
@@ -177,7 +185,7 @@ export function trustedInteractionProofHeaders(
   };
 }
 
-export function trustedInteractionFromInternalHeaders(headers: Headers): TrustedInteraction {
+export function trustedInteractionFromInternalHeaders(headers: Headers, subject?: string): TrustedInteraction {
   const token = headers.get(INTERNAL_CONTEXT_HEADER)?.trim() || "";
   const suppliedSignature = headers.get(INTERNAL_SIGNATURE_HEADER)?.trim() || "";
   const secret = internalSecret();
@@ -195,6 +203,7 @@ export function trustedInteractionFromInternalHeaders(headers: Headers): Trusted
         || ((payload.source === "slack" || payload.source === "webex")
           && payload.conversationKind === "direct")
       )
+      || (payload.subject !== undefined && payload.subject !== subject)
       || typeof payload.iat !== "number"
       || typeof payload.exp !== "number"
       || payload.iat > now + MAX_CLOCK_SKEW_SECONDS

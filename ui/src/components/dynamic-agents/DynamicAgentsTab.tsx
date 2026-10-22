@@ -5,10 +5,13 @@ import { getErrorMessage } from "@/lib/error-utils";
 // assisted-by Codex Codex-sonnet-4-6
 
 import { LastReviewBadge } from "@/components/ai-review";
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardHeader } from "@/components/ui/card";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
+import { Card,CardContent } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
+import { useChatStore } from "@/store/chat-store";
 import type { DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import {
 Bot,
@@ -23,6 +26,7 @@ Download,
 Globe,
 Loader2,
 Lock,
+MessageSquare,
 Plus,
 RefreshCw,
 Search,
@@ -31,9 +35,12 @@ ToggleRight,
 Trash2,
 Users,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import React from "react";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { AgentAvatar } from "./AgentAvatar";
+import { AgentEditorSkeleton,AgentsListSkeleton } from "./AgentsLoadingSkeleton";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import type { AgentSetupStep } from "./deep-linking";
 
@@ -63,6 +70,7 @@ interface DynamicAgentsTabProps {
   selectedAgentId?: string | null;
   initialStep?: AgentSetupStep;
   onSelectedAgentChange?: (agentId: string | null) => void;
+  onSelectedAgentNameChange?: (agentName: string | null) => void;
   onStepChange?: (step: AgentSetupStep) => void;
 }
 
@@ -70,8 +78,11 @@ export function DynamicAgentsTab({
   selectedAgentId,
   initialStep,
   onSelectedAgentChange,
+  onSelectedAgentNameChange,
   onStepChange,
 }: DynamicAgentsTabProps = {}) {
+  const router = useRouter();
+  const createConversation = useChatStore((state) => state.createConversation);
   const [agents, setAgents] = React.useState<DynamicAgentConfigWithPermissions[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,6 +95,7 @@ export function DynamicAgentsTab({
   const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
+  const [startingChatAgentId, setStartingChatAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
   const [search, setSearch] = React.useState("");
   const [searchInput, setSearchInput] = React.useState("");
@@ -133,7 +145,10 @@ export function DynamicAgentsTab({
   }, [fetchAgents]);
 
   React.useEffect(() => {
-    if (selectedAgentId === undefined) return;
+    if (selectedAgentId === undefined) {
+      onSelectedAgentNameChange?.(null);
+      return;
+    }
 
     const requestId = ++selectionRequestRef.current;
     if (!selectedAgentId) {
@@ -141,6 +156,7 @@ export function DynamicAgentsTab({
       setEditingAgent(null);
       setSelectionError(null);
       setSelectionLoading(false);
+      onSelectedAgentNameChange?.(null);
       return;
     }
 
@@ -152,6 +168,7 @@ export function DynamicAgentsTab({
 
     setSelectionLoading(true);
     setSelectionError(null);
+    onSelectedAgentNameChange?.(null);
     void (async () => {
       try {
         const response = await fetch(
@@ -167,12 +184,14 @@ export function DynamicAgentsTab({
             ...data.data,
             permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
           });
+          onSelectedAgentNameChange?.(data.data.name ?? null);
         }
       } catch (err: unknown) {
         if (selectionRequestRef.current === requestId) {
           loadedSelectionIdRef.current = null;
           setEditingAgent(null);
           setSelectionError(errorMessage(err, "Failed to load agent"));
+          onSelectedAgentNameChange?.(null);
         }
       } finally {
         if (selectionRequestRef.current === requestId) {
@@ -180,7 +199,7 @@ export function DynamicAgentsTab({
         }
       }
     })();
-  }, [selectedAgentId]);
+  }, [onSelectedAgentNameChange, selectedAgentId]);
 
   // Debounce search input
   React.useEffect(() => {
@@ -300,6 +319,23 @@ export function DynamicAgentsTab({
     }
   };
 
+  const handleStartChat = async (agent: DynamicAgentConfigWithPermissions) => {
+    if (!agent.enabled || startingChatAgentId) return;
+    setStartingChatAgentId(agent._id);
+    clearRowActionError(agent._id);
+    try {
+      const conversationId = await createConversation(agent._id);
+      router.push(`/chat/${conversationId}`);
+    } catch (err: unknown) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]: errorMessage(err, "Failed to start chat"),
+      }));
+    } finally {
+      setStartingChatAgentId(null);
+    }
+  };
+
   /**
    * Export agent configuration as YAML file.
    */
@@ -350,6 +386,7 @@ export function DynamicAgentsTab({
     setSelectionError(null);
     setEditingAgent(agent);
     onSelectedAgentChange?.(agent._id);
+    onSelectedAgentNameChange?.(agent.name);
   };
 
   const closeAgentEditor = () => {
@@ -360,6 +397,7 @@ export function DynamicAgentsTab({
     setCloningAgent(null);
     setSelectionError(null);
     setSelectionLoading(false);
+    onSelectedAgentNameChange?.(null);
     onSelectedAgentChange?.(null);
   };
 
@@ -388,13 +426,7 @@ export function DynamicAgentsTab({
   const hasMatchingSelectedAgent = editingAgent?._id === selectedAgentId;
 
   if (selectedAgentId && selectionLoading && !hasMatchingSelectedAgent) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    );
+    return <AgentEditorSkeleton />;
   }
 
   if (selectedAgentId && selectionError && !hasMatchingSelectedAgent) {
@@ -430,33 +462,32 @@ export function DynamicAgentsTab({
   }
 
   return (
-    <Card className="rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="px-0 pb-5 pt-0">
+    <>
+      <WorkspacePageActions>
         <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name or ID..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="pl-9 h-9 w-48"
-              />
-            </div>
-            <Button variant="outline" size="sm" onClick={fetchAgents} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button size="sm" onClick={() => setIsCreating(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Agent
-            </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="px-0 pt-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or ID..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="h-9 w-48 pl-9"
+            />
           </div>
+          <Button variant="outline" size="sm" onClick={fetchAgents} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button size="sm" onClick={() => setIsCreating(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Agent
+          </Button>
+        </div>
+      </WorkspacePageActions>
+      <Card className="rounded-none border-0 bg-transparent shadow-none">
+        <CardContent className="px-0 pt-0">
+        {loading ? (
+          <AgentsListSkeleton />
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-destructive">{error}</p>
@@ -520,7 +551,7 @@ export function DynamicAgentsTab({
                 className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
                 onClick={() => openAgent(agent)}
               >
-                <div className="col-span-3">
+                <div className="col-span-4 min-w-0">
                     <div className="flex items-center gap-3">
                       <AgentAvatar
                         agent={agent}
@@ -529,7 +560,13 @@ export function DynamicAgentsTab({
                         iconSize="h-5 w-5"
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium text-sm truncate">{agent.name}</div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="truncate font-medium text-sm" title={agent.name}>{agent.name}</div>
+                          <AgentHarnessBadge
+                            harnessId={agent.execution_harness_id}
+                            presentation={agent.presentation}
+                          />
+                        </div>
                         {agent.description && (
                           <div className="text-xs text-muted-foreground truncate">
                             {agent.description}
@@ -606,6 +643,21 @@ export function DynamicAgentsTab({
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => void handleStartChat(agent)}
+                    aria-label={`Chat with ${agent.name}`}
+                    title={agent.enabled ? `Chat with ${agent.name}` : "This agent is disabled"}
+                    disabled={!agent.enabled || startingChatAgentId !== null}
+                  >
+                    {startingChatAgentId === agent._id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageSquare className="h-4 w-4" />
+                    )}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -757,7 +809,7 @@ export function DynamicAgentsTab({
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
-                  <select
+                  <Select
                     value={pageSize}
                     onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
                     className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -765,13 +817,14 @@ export function DynamicAgentsTab({
                     {[10, 20, 50, 100].map((size) => (
                       <option key={size} value={size}>{size}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </>
   );
 }

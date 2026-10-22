@@ -7,7 +7,7 @@
  * - Sign In when unauthenticated
  * - User initials, first name, dropdown
  * - User email, Admin/User badge, SSO info
- * - System button, Sign Out, Personal Insights
+ * - Settings, Sign Out, Personal Insights, problem reporting
  * - signOut call, outside click
  * - User image, missing name fallback
  */
@@ -32,6 +32,7 @@ jest.mock("next-auth/react", () => ({
 let mockConfig: Record<string, unknown> = {
   ssoEnabled: true,
   mongodbEnabled: true,
+  reportProblemEnabled: false,
   appName: "CAIPE",
   tagline: "Test tagline",
 };
@@ -139,6 +140,15 @@ jest.mock("@/components/ui/tabs", () => ({
   TabsContent: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
+jest.mock("@/components/ticket/ReportProblemDialog", () => ({
+  ReportProblemDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="report-problem-dialog">ReportProblemDialog</div> : null,
+}));
+
+jest.mock("@/components/layout/ApplicationVersion", () => ({
+  ApplicationVersion: () => <div>Version: v0.6.0</div>,
+}));
+
 jest.mock("@/lib/utils", () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
@@ -159,6 +169,7 @@ describe("UserMenu", () => {
     mockConfig = {
       ssoEnabled: true,
       mongodbEnabled: true,
+      reportProblemEnabled: false,
       appName: "CAIPE",
       tagline: "Test tagline",
     };
@@ -222,6 +233,14 @@ describe("UserMenu", () => {
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
   });
 
+  it("shows build information in About instead of the navigation footer", () => {
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
+    fireEvent.click(screen.getByRole("button", { name: "About" }));
+
+    expect(screen.getByText("Version: v0.6.0")).toBeInTheDocument();
+  });
+
   it("shows Admin badge and Personal Insights when role is admin and mongodb is enabled", () => {
     mockConfig = { ...mockConfig, mongodbEnabled: true };
     mockUseSession.mockReturnValue({
@@ -243,6 +262,25 @@ describe("UserMenu", () => {
     render(<UserMenu />);
     fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
     expect(screen.queryByText("Personal Insights")).not.toBeInTheDocument();
+  });
+
+  it("opens problem reporting from the user menu when enabled", () => {
+    mockConfig = { ...mockConfig, reportProblemEnabled: true };
+    render(<UserMenu />);
+
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Report a Problem" }));
+
+    expect(screen.getByTestId("report-problem-dialog")).toBeInTheDocument();
+    expect(screen.queryByText("john@example.com")).not.toBeInTheDocument();
+  });
+
+  it("hides problem reporting when disabled", () => {
+    render(<UserMenu />);
+
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
+
+    expect(screen.queryByRole("button", { name: "Report a Problem" })).not.toBeInTheDocument();
   });
 
   it("calls signOut and closes dropdown on Sign Out", () => {

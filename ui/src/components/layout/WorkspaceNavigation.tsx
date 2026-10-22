@@ -11,8 +11,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Select } from "@/components/ui/select";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
-import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
+import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
 import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,8 @@ export function CollapsedNavigationFlyout({
 }: CollapsedNavigationFlyoutProps): React.ReactElement {
   const [open,setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   const cancelClose = () => {
     if (closeTimerRef.current) {
@@ -102,7 +105,15 @@ export function CollapsedNavigationFlyout({
   };
   const scheduleClose = () => {
     cancelClose();
-    closeTimerRef.current = setTimeout(() => setOpen(false),80);
+    closeTimerRef.current = setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (
+        activeElement
+        && (contentRef.current?.contains(activeElement)
+          || triggerRef.current?.contains(activeElement))
+      ) return;
+      setOpen(false);
+    },80);
   };
 
   useEffect(() => () => cancelClose(),[]);
@@ -128,6 +139,7 @@ export function CollapsedNavigationFlyout({
             setOpen(true);
           }}
           onMouseLeave={scheduleClose}
+          ref={triggerRef}
           type="button"
         >
           <span
@@ -145,7 +157,7 @@ export function CollapsedNavigationFlyout({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="max-h-[calc(100dvh-1rem)] w-64 space-y-2 overflow-y-auto overscroll-contain p-2 duration-0"
+        className="max-h-[calc(100dvh-1rem)] w-64 overflow-y-auto overscroll-contain p-2 duration-0"
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) scheduleClose();
         }}
@@ -155,10 +167,12 @@ export function CollapsedNavigationFlyout({
         side="right"
         sideOffset={8}
       >
-        <div className="border-b border-border/70 px-2 pb-2 pt-1 text-sm font-semibold">
-          {label}
+        <div className="space-y-2" ref={contentRef}>
+          <div className="border-b border-border/70 px-2 pb-2 pt-1 text-sm font-semibold">
+            {label}
+          </div>
+          {open ? children(close) : null}
         </div>
-        {open ? children(close) : null}
       </PopoverContent>
     </Popover>
   );
@@ -235,7 +249,7 @@ function NavigationItem({
       {contents}
     </span>
   ) : item.href ? (
-    <NavigationProgressLink
+    <GuardedNavigationLink
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
@@ -243,9 +257,10 @@ function NavigationItem({
       data-testid={item.testId}
       href={item.href}
       onClick={handleNavigate}
+      prefetch={item.prefetch}
     >
       {contents}
-    </NavigationProgressLink>
+    </GuardedNavigationLink>
   ) : (
     <button
       aria-current={active ? "page" : undefined}
@@ -263,10 +278,8 @@ function NavigationItem({
     </button>
   );
 
-  if (!collapsed && !item.disabled) return control;
-
   return (
-    <Tooltip>
+    <Tooltip className="block w-full">
       <TooltipTrigger asChild>{control}</TooltipTrigger>
       <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
         {item.disabled ? item.disabledReason ?? `${item.label} is unavailable` : item.label}
@@ -364,46 +377,53 @@ export function WorkspaceNavigationList({
                   }
                   return (
                     <div className="space-y-2" key={item.id}>
-                      <button
-                        aria-controls={childrenId}
-                        aria-expanded={expanded}
-                        className={cn(
-                          "group flex w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-muted-foreground outline-none transition-colors",
-                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                          density === "descriptive" ? "min-h-14" : "min-h-12",
-                          active
-                            ? "bg-muted/50 font-medium text-foreground"
-                            : "hover:bg-muted/60 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          setExpandedItemIds((current) => {
-                            const next = new Set(current);
-                            if (next.has(item.id)) {
-                              next.delete(item.id);
-                            } else {
-                              next.add(item.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        type="button"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{item.label}</span>
-                          {density === "descriptive" && item.description ? (
-                            <span className="block truncate text-xs font-normal text-muted-foreground">
-                              {item.description}
+                      <Tooltip className="block w-full">
+                        <TooltipTrigger asChild>
+                          <button
+                            aria-controls={childrenId}
+                            aria-expanded={expanded}
+                            className={cn(
+                              "group flex w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-muted-foreground outline-none transition-colors",
+                              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              density === "descriptive" ? "min-h-14" : "min-h-12",
+                              active
+                                ? "workspace-navigation-active font-medium text-foreground"
+                                : "hover:bg-muted/60 hover:text-foreground",
+                            )}
+                            onClick={() => {
+                              setExpandedItemIds((current) => {
+                                const next = new Set(current);
+                                if (next.has(item.id)) {
+                                  next.delete(item.id);
+                                } else {
+                                  next.add(item.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            type="button"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">{item.label}</span>
+                              {density === "descriptive" && item.description ? (
+                                <span className="block truncate text-xs font-normal text-muted-foreground">
+                                  {item.description}
+                                </span>
+                              ) : null}
                             </span>
-                          ) : null}
-                        </span>
-                        <ChevronDown
-                          aria-hidden="true"
-                          className={cn(
-                            "h-4 w-4 shrink-0 transition-transform",
-                            expanded && "rotate-180",
-                          )}
-                        />
-                      </button>
+                            <ChevronDown
+                              aria-hidden="true"
+                              className={cn(
+                                "h-4 w-4 shrink-0 transition-transform",
+                                expanded && "rotate-180",
+                              )}
+                            />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
+                          {item.label}
+                        </TooltipContent>
+                      </Tooltip>
 
                       {expanded ? (
                         <div
@@ -458,7 +478,7 @@ export function WorkspaceSectionPicker({
       <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor={id}>
         {ariaLabel}
       </label>
-      <select
+      <Select
         aria-label={ariaLabel}
         className="h-12 w-full appearance-none rounded-xl border border-input bg-background px-3 pr-10 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         id={id}
@@ -486,7 +506,7 @@ export function WorkspaceSectionPicker({
             <optgroup key={group.id} label="Sections">{options}</optgroup>
           );
         })}
-      </select>
+      </Select>
       <ChevronDown
         aria-hidden="true"
         className="pointer-events-none absolute bottom-4 right-3 h-4 w-4 text-muted-foreground"
@@ -581,9 +601,19 @@ export function WorkspaceHierarchicalNavigationList({
   onNavigate,
 }: WorkspaceHierarchicalNavigationListProps): React.ReactElement {
   const navigationId = useId();
-  const [expandedCategoryIds,setExpandedCategoryIds] = useState<Set<string>>(
-    () => new Set([activeCategoryId]),
-  );
+  const [categoryDisclosure,setCategoryDisclosure] = useState(() => ({
+    activeCategoryId,
+    expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+    userInitiated: false,
+  }));
+  if (categoryDisclosure.activeCategoryId !== activeCategoryId) {
+    setCategoryDisclosure({
+      activeCategoryId,
+      expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+      userInitiated: false,
+    });
+  }
+  const expandedCategoryIds = categoryDisclosure.expandedCategoryIds;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -647,24 +677,28 @@ export function WorkspaceHierarchicalNavigationList({
               aria-controls={destinationsId}
               aria-expanded={expanded}
               className={cn(
-                "group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left outline-none transition-colors",
+                "group flex min-h-11 w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 active
-                  ? "bg-muted/60 font-medium text-foreground"
+                  ? "workspace-navigation-active font-medium text-foreground"
                   : expanded
                     ? "text-foreground"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
               data-active={active || undefined}
               onClick={() => {
-                setExpandedCategoryIds((current) => {
-                  const next = new Set(current);
+                setCategoryDisclosure((current) => {
+                  const next = new Set(current.expandedCategoryIds);
                   if (next.has(category.id)) {
                     next.delete(category.id);
                   } else {
                     next.add(category.id);
                   }
-                  return next;
+                  return {
+                    ...current,
+                    expandedCategoryIds: next,
+                    userInitiated: true,
+                  };
                 });
               }}
               type="button"
@@ -673,7 +707,7 @@ export function WorkspaceHierarchicalNavigationList({
                 aria-hidden="true"
                 className={cn(
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors",
-                  active && "bg-primary/10 text-primary",
+                  active && "gradient-primary-br text-white shadow-sm",
                   !active && "group-hover:bg-background group-hover:text-foreground",
                 )}
               >
@@ -692,47 +726,63 @@ export function WorkspaceHierarchicalNavigationList({
             </button>
           );
           return (
-            <section className="space-y-2" key={category.id}>
-              {categoryControl}
+            <section key={category.id}>
+              <Tooltip className="block w-full">
+                <TooltipTrigger asChild>{categoryControl}</TooltipTrigger>
+                <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
+                  {category.label}
+                </TooltipContent>
+              </Tooltip>
 
-              {expanded ? (
-                <div
-                  className="ml-4 space-y-4 border-l border-border/70 pl-3"
-                  id={destinationsId}
-                >
-                  {category.groups.map((group) => {
-                    const headingId = `${navigationId}-${category.id}-${group.id}`;
-                    return (
-                      <section
-                        aria-labelledby={group.label ? headingId : undefined}
-                        className="space-y-1.5"
-                        key={group.id}
-                      >
-                        {group.label ? (
-                          <h2
-                            className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                            id={headingId}
-                          >
-                            {group.label}
-                          </h2>
-                        ) : null}
-                        <div className="space-y-1">
-                          {group.items.map((item) => (
-                            <NavigationItem
-                              active={item.id === activeItemId}
-                              collapsed={false}
-                              density="compact"
-                              item={item}
-                              key={item.id}
-                              onNavigate={onNavigate}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    );
-                  })}
+              <div
+                aria-hidden={!expanded}
+                className={cn(
+                  "grid",
+                  categoryDisclosure.userInitiated
+                    && "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                  expanded
+                    ? "grid-rows-[1fr] opacity-100"
+                    : "pointer-events-none grid-rows-[0fr] opacity-0",
+                )}
+                id={destinationsId}
+                inert={!expanded}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="ml-4 space-y-4 border-l border-border/70 pb-1 pl-3 pt-2">
+                    {category.groups.map((group) => {
+                      const headingId = `${navigationId}-${category.id}-${group.id}`;
+                      return (
+                        <section
+                          aria-labelledby={group.label ? headingId : undefined}
+                          className="space-y-1.5"
+                          key={group.id}
+                        >
+                          {group.label ? (
+                            <h2
+                              className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                              id={headingId}
+                            >
+                              {group.label}
+                            </h2>
+                          ) : null}
+                          <div className="space-y-1">
+                            {group.items.map((item) => (
+                              <NavigationItem
+                                active={item.id === activeItemId}
+                                collapsed={false}
+                                density="compact"
+                                item={item}
+                                key={item.id}
+                                onNavigate={onNavigate}
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
                 </div>
-              ) : null}
+              </div>
             </section>
           );
         })}

@@ -1,3 +1,7 @@
+"use client";
+
+import { HeaderBreadcrumbPortal } from "@/components/layout/HeaderBreadcrumbSlot";
+import { useWorkspacePageActionsTarget } from "@/components/layout/WorkspacePageActions";
 import { cn } from "@/lib/utils";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { ChevronRight } from "lucide-react";
@@ -20,14 +24,16 @@ interface WorkspacePageHeaderProps {
 export function WorkspaceBreadcrumbs({
   breadcrumbs,
   className,
+  portal = true,
 }: {
   breadcrumbs: WorkspaceBreadcrumbItem[];
   className?: string;
+  portal?: boolean;
 }): React.ReactElement {
-  return (
+  const breadcrumb = (
     <nav
       aria-label="Breadcrumb"
-      className={cn("border-b border-border/60 pb-3",className)}
+      className={cn("min-w-0",className)}
     >
       <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
         {breadcrumbs.map((item,index) => {
@@ -63,6 +69,10 @@ export function WorkspaceBreadcrumbs({
       </ol>
     </nav>
   );
+
+  return portal ? (
+    <HeaderBreadcrumbPortal>{breadcrumb}</HeaderBreadcrumbPortal>
+  ) : breadcrumb;
 }
 
 /**
@@ -79,6 +89,8 @@ export function WorkspacePageHeader({
   title,
   titleId,
 }: WorkspacePageHeaderProps): React.ReactElement {
+  const actionsRef = useWorkspacePageActionsTarget();
+
   return (
     <header className={cn("space-y-3",className)}>
       <WorkspaceBreadcrumbs breadcrumbs={breadcrumbs} />
@@ -88,7 +100,14 @@ export function WorkspacePageHeader({
           <h1 className="text-2xl font-semibold tracking-tight" id={titleId}>{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        {actions || actionsRef ? (
+          <div
+            className="flex flex-wrap items-center gap-2"
+            ref={actionsRef}
+          >
+            {actions}
+          </div>
+        ) : null}
       </div>
     </header>
   );

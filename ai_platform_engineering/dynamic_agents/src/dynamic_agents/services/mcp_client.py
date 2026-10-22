@@ -181,7 +181,64 @@ def warn_if_agent_gateway_missing_hmac() -> None:
     )
 
 
-def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., httpx.AsyncClient]:
+class InteractionRenewal:
+    """An immutable, bounded BFF authorization captured before its proof expires.
+
+    Only an authenticated execution with a matching subject and agent may renew.
+    No endpoint accepts an expired proof or caller-authored renewal parameters.
+    """
+
+    def __init__(self, proof: dict[str, str] | None, agent_id: str | None, bearer: str | None) -> None:
+        self._payload: dict[str, Any] | None = None
+        self._secret = os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
+        self._bearer = bearer
+        self._deadline = 0
+        if not proof or not self._secret or not bearer or not agent_id:
+            return
+        token, signature = proof.get("token", ""), proof.get("signature", "")
+        expected = hmac.new(self._secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+            claims_part = bearer.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(claims_part + "=" * (-len(claims_part) % 4)))
+            now = int(time.time())
+            permitted = (payload.get("source"), payload.get("conversationKind")) in {
+                ("web", "personal"), ("slack", "direct"), ("webex", "direct"),
+            }
+            times = [payload.get(key) for key in ("iat", "exp", "renewal_exp")]
+            if not all(type(value) is int for value in times):
+                return
+            issued, expires, deadline = times
+            if not (permitted and issued <= now <= expires <= issued + 90
+                    and expires <= deadline <= issued + 900
+                    and payload.get("subject") == claims.get("sub")
+                    and payload.get("agent_id") == agent_id
+                    and isinstance(payload.get("execution_id"), str) and payload["execution_id"]
+                    and not str(claims.get("preferred_username", "")).startswith("service-account-")):
+                return
+            bearer_exp = claims.get("exp")
+            if type(bearer_exp) is not int or bearer_exp <= now:
+                return
+            self._deadline = min(deadline, bearer_exp)
+            self._payload = payload
+        except (ValueError, IndexError, TypeError, AttributeError):
+            return
+
+    def headers(self) -> dict[str, str]:
+        now = int(time.time())
+        # A different request's bearer cannot reuse this execution's renewal.
+        active_bearer = current_user_token.get()
+        if not self._payload or now >= self._deadline or (active_bearer and active_bearer != self._bearer):
+            return {}
+        payload = {**self._payload, "iat": now, "exp": min(now + 90, self._deadline)}
+        token = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+        signature = hmac.new(self._secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+        return {"X-CAIPE-Trusted-Interaction": token, "X-CAIPE-Trusted-Interaction-Signature": signature}
+
+
+def build_httpx_client_factory(agent_id: str | None = None, *, trusted_interaction: dict[str, str] | None = None, auth_bearer: str | None = None, execution_agent_id: str | None = None) -> Callable[..., httpx.AsyncClient]:
     """Build an httpx.AsyncClient factory that injects per-request CAIPE auth.
 
     Spec 102 Phase 8 / T106. Each MCP HTTP connection opened by
@@ -196,6 +253,7 @@ def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., htt
     Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
     ``SSL_CERT_FILE`` and ``SSL_VERIFY=false``.
     """
+    renewal = InteractionRenewal(trusted_interaction, execution_agent_id or agent_id, auth_bearer or current_user_token.get())
     ca_bundle = (
         os.getenv("CUSTOM_CA_BUNDLE")
         or os.getenv("REQUESTS_CA_BUNDLE")
@@ -231,8 +289,16 @@ def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., htt
                 ):
                     del merged[key]
             merged.update(build_agent_context_headers(agent_id))
+        async def refresh_context(request: httpx.Request) -> None:
+            if agent_id:
+                request.headers.update(build_agent_context_headers(agent_id))
+            renewed = renewal.headers()
+            if renewed:
+                request.headers.update(renewed)
+
         return httpx.AsyncClient(
             headers=merged,
+            event_hooks={"request": [refresh_context]},
             timeout=timeout or httpx.Timeout(30.0),
             auth=auth,
             verify=verify,
@@ -248,6 +314,7 @@ def build_mcp_connection_config(
     auth_bearer: str | None = None,
     agent_id: str | None = None,
     trusted_interaction: dict[str, str] | None = None,
+    execution_agent_id: str | None = None,
 ) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
@@ -272,7 +339,7 @@ def build_mcp_connection_config(
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
     # per-request user JWT and signed agent context are injected on every
     # outbound connection, even after this config is built.
-    factory = build_httpx_client_factory(agent_id=agent_id)
+    factory = build_httpx_client_factory(agent_id=agent_id, trusted_interaction=trusted_interaction, auth_bearer=auth_bearer, execution_agent_id=execution_agent_id)
     token = current_user_token.get()
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
@@ -330,6 +397,7 @@ def build_mcp_connections(
     auth_bearer: str | None = None,
     agent_id: str | None = None,
     trusted_interaction: dict[str, str] | None = None,
+    execution_agent_id: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
@@ -367,6 +435,7 @@ def build_mcp_connections(
             auth_bearer=auth_bearer,
             agent_id=agent_id,
             trusted_interaction=trusted_interaction,
+            **({"execution_agent_id": execution_agent_id} if execution_agent_id else {}),
         )
 
     return connections
@@ -922,10 +991,11 @@ async def _diagnose_endpoint_failure(endpoint: str) -> str:
 
 
 # Bounded retry policy for transient MCP tool-load failures (cold-start
-# ext_authz timeouts, mid-stream disconnects). Kept small so a healthy
-# enumeration is not slowed (success path does zero retries) and a permanent
-# failure / denial is not retried needlessly.
-_DEFAULT_LOAD_MAX_ATTEMPTS = 3
+# ext_authz timeouts, AgentGateway 5xx readiness, mid-stream disconnects).
+# Five attempts cover the route-visible/upstream-not-ready window observed
+# during coordinated rollouts while keeping the success path at one request;
+# permanent failures and authorization denials still fail immediately.
+_DEFAULT_LOAD_MAX_ATTEMPTS = 5
 _DEFAULT_LOAD_BASE_BACKOFF_S = 0.25
 
 
@@ -949,7 +1019,7 @@ async def get_tools_with_resilience(
 
     Args:
         connections: Dict mapping server_id to connection config.
-        max_attempts: Max connect attempts per server (>=1). Default 3.
+        max_attempts: Max connect attempts per server (>=1). Default 5.
         base_backoff_s: Base backoff for exponential+jitter delay. Default 0.25s.
 
     Returns:
@@ -1325,3 +1395,104 @@ def wrap_tools_with_error_handling(
 
     logger.info(f"[{agent_name}] Wrapped {len(wrapped)} tools with error handling")
     return wrapped
+
+
+def pin_datasource_filters(
+    tools: list[BaseTool],
+    datasource_ids: list[str] | None,
+    agent_name: str = "agent",
+    rag_server_ids: set[str] | None = None,
+    datasource_ids_provider: Callable[[], list[str]] | None = None,
+) -> list[BaseTool]:
+    """Pin RAG search-style tools to a configured set of datasource ids.
+
+    Only tools belonging to a configured RAG MCP server are affected. RAG
+    tools whose schema accepts a ``filters`` argument are wrapped; RAG tools
+    without that argument are removed because they cannot enforce the agent's
+    source selection. Tools from every other MCP server remain untouched,
+    including tools that coincidentally expose a field named ``filters``.
+
+    This is the client-side half
+    of the agent<->datasource binding: the server independently intersects
+    with the caller's RBAC-accessible datasources (``server/tools.py``), so
+    the effective scope is always (this pin) ∩ (caller's RBAC access) —
+    narrows, never widens.
+
+    Narrows, never widens at this layer too: if the model supplies its own
+    ``filters["datasource_id"]``, it is intersected with ``datasource_ids``
+    rather than overridden, so the model cannot escape the pin by asking for
+    a different id.
+    """
+    # ``None`` is the backward-compatible legacy state: no agent-level pin.
+    # An explicit empty list keeps filter-capable RAG tools available while
+    # pinning them to an empty scope, so calls return no indexed content.
+    if datasource_ids is None and datasource_ids_provider is None:
+        return tools
+
+    if rag_server_ids is None:
+        configured = os.getenv("RAG_MCP_SERVER_IDS", "knowledge-base")
+        rag_server_ids = {value.strip() for value in configured.split(",") if value.strip()}
+
+    pinned: list[BaseTool] = []
+    for tool in tools:
+        is_rag_tool = any(tool.name.startswith(f"{server_id}_") for server_id in rag_server_ids)
+        if not is_rag_tool:
+            pinned.append(tool)
+            continue
+
+        schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        original_coro = getattr(tool, "coroutine", None)
+        if not isinstance(properties, dict) or "filters" not in properties or original_coro is None:
+            logger.warning(
+                "[%s] Removed RAG tool '%s': it cannot enforce configured datasource_ids",
+                agent_name,
+                tool.name,
+            )
+            continue
+
+        async def _pinned_coro(
+            *args: Any,
+            _orig: Any = original_coro,
+            _ids: list[str] = datasource_ids or [],
+            _ids_provider: Callable[[], list[str]] | None = datasource_ids_provider,
+            **kwargs: Any,
+        ) -> Any:
+            effective_ids = (
+                await asyncio.to_thread(_ids_provider)
+                if _ids_provider is not None
+                else _ids
+            )
+            requested = kwargs.get("filters")
+            existing = requested.get("datasource_id") if isinstance(requested, dict) else None
+            if existing is None:
+                scoped: list[str] = list(effective_ids)
+            elif isinstance(existing, str):
+                scoped = [existing] if existing in effective_ids else []
+            elif isinstance(existing, (list, tuple, set)):
+                scoped = [x for x in existing if x in effective_ids]
+            else:
+                scoped = []
+            merged = dict(requested) if isinstance(requested, dict) else {}
+            merged["datasource_id"] = scoped
+            kwargs["filters"] = merged
+            return await _orig(*args, **kwargs)
+
+        # Preserve the adapter-provided tool's tags, response behavior, error
+        # handlers, and any future BaseTool fields. Reconstructing a bare
+        # StructuredTool here silently discarded those attributes.
+        if hasattr(tool, "model_copy"):
+            pinned_tool = tool.model_copy(update={"coroutine": _pinned_coro})
+        else:  # pragma: no cover - compatibility with pre-Pydantic-v2 tools
+            pinned_tool = copy.copy(tool)
+            pinned_tool.coroutine = _pinned_coro
+        pinned.append(pinned_tool)
+        logger.info(
+            "[%s] Pinned tool '%s' to datasource_ids=%s%s",
+            agent_name,
+            tool.name,
+            datasource_ids,
+            " plus dynamic collections" if datasource_ids_provider else "",
+        )
+
+    return pinned

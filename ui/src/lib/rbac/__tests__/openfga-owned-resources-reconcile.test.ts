@@ -425,3 +425,42 @@ describe("reconcileMcpServerRelationships", () => {
     );
   });
 });
+
+describe("private MCP wildcard isolation", () => {
+  it("does not expand a wildcard team on private creation", async () => {
+    mockReadOpenFgaTuples.mockImplementation(async ({ tuple }) => tuplePage(
+      tuple.object === "tool:*"
+        ? [{ user: "team:primary#member", relation: "caller", object: "tool:*" }]
+        : [],
+    ));
+    await reconcileMcpServerRelationships({ serverId: "example", ownerSubject: "test-user", personalOwnerAccess: true });
+    const diff = mockReconcileTupleDiff.mock.calls[0][0];
+    expect(diff.writes).toEqual(expect.arrayContaining([
+      { user: "user:test-user", relation: "owner", object: "mcp_server:example" },
+      { user: expect.stringMatching(/^organization:/), relation: "private_marker", object: "mcp_server:example" },
+    ]));
+    expect(diff.writes.some((tuple: { user: string }) => tuple.user.startsWith("team:") || tuple.user.startsWith("agent:"))).toBe(false);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+  });
+
+  it("revokes expanded server and exact/wildcard tool grants when converting to private", async () => {
+    const stale = [
+      { user: "team:primary#member", relation: "invoker", object: "mcp_server:example" },
+      { user: "team:primary#admin", relation: "manager", object: "mcp_server:example" },
+      { user: "team:primary#member", relation: "caller", object: "tool:example/*" },
+      { user: "agent:unrelated", relation: "caller", object: "tool:example/search" },
+    ];
+    mockReadOpenFgaTuples.mockImplementation(async ({ tuple }) => tuplePage(stale.filter((entry) =>
+      tuple.object.endsWith(":") ? entry.object.startsWith(tuple.object) : entry.object === tuple.object,
+    )));
+    await reconcileMcpServerRelationships({ serverId: "example", ownerSubject: "test-user", personalOwnerAccess: true,
+      previousGlobalOrganizationAccess: true, previousOwnerTeamSlug: "primary" });
+    const diff = mockReconcileTupleDiff.mock.calls[0][0];
+    expect(diff.deletes).toEqual(expect.arrayContaining(stale));
+    expect(diff.writes.some((tuple: { user: string }) => tuple.user.startsWith("team:") || tuple.user === "agent:unrelated")).toBe(false);
+    // A later private reconcile must not reintroduce the wildcard team's grants.
+    mockReconcileTupleDiff.mockClear();
+    await reconcileMcpServerRelationships({ serverId: "example", ownerSubject: "test-user", personalOwnerAccess: true });
+    expect(mockReconcileTupleDiff.mock.calls[0][0].writes.some((tuple: { user: string }) => tuple.user.startsWith("team:"))).toBe(false);
+  });
+});

@@ -6,18 +6,47 @@ sidebar_position: 1
 
 Users reach CAIPE through Slack, Webex, the UI, or CLI. Keycloak authenticates every path, CAIPE Agent(s) run the request, and AgentGateway routes MCP tool calls after OpenFGA authorization.
 
-![Solution Architecture](images/6_solution_architecture.svg)
+## CAIPE System Architecture
 
-## Client authentication
+![CAIPE System Architecture](images/caipe-system-architecture.svg)
 
-- **Slack / Webex bots** — platform events → bot integration → OBO JWT token exchange (bot as actor)
-- **CAIPE UI / CLI** — PKCE flow
+## Harness Engine
 
-Keycloak federates to your IdP and issues JWTs with realm roles.
+Harness Gateway preserves the existing CAIPE chat APIs while routing each
+authorized agent to either the unchanged Dynamic Agents runtime or the
+independent Harness Engine. Solid paths are implemented in PR #2401; dashed
+paths are portable interfaces or sandbox capabilities planned for later work.
 
-## Agent and tool path
+![Harness Engine system architecture](images/harness-engine-system-architecture.svg)
 
-1. CAIPE Agent(s) receive the user JWT and run the selected agent profile.
-2. AgentGateway calls OpenFGA (`ext_authz`) before routing to MCP servers.
+Editable source: [CAIPE system architecture](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/excalidraw/caipe-system-architecture.excalidraw)
 
-See [Gateway Architecture](./gateway.md) for AgentGateway details and [Scheduler](./scheduler.md) for scheduled runs.
+### Source graph
+
+The source graph shows where the compatibility boundary, durable control plane,
+provider adapters, deployment configuration, contracts, and regression tests
+live in the repository.
+
+![Harness Engine high-level source graph](images/harness-engine-source-graph.svg)
+
+Editable source: [Harness Engine source graph](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/excalidraw/harness-engine-source-graph.excalidraw)
+
+
+## CAIPE Dynamic Agents
+
+![](images/caipe-dynamic-agents.svg)
+
+## CAIPE Authorization Flow
+
+### Authz High Level 
+
+![](images/caipe-mcp-auth.svg)
+
+### Authz OpenFGA
+
+![](images/interaction-model.svg)
+
+
+## CAIPE Supporting Services
+
+![](images/supporting-services.svg)

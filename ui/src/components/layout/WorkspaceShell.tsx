@@ -1,6 +1,7 @@
 "use client";
 
 import { useRegisterApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
+import { WorkspacePageActionsProvider } from "@/components/layout/WorkspacePageActions";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceShellProps {
@@ -34,24 +35,26 @@ export function WorkspaceShell({
   });
 
   return (
-    <main className={cn("min-h-0 flex-1 overflow-y-auto", className)}>
-      <div
-        className={cn(
-          "mx-auto min-h-full w-full space-y-6 px-4 pb-6 pt-3 sm:px-6 lg:pb-8",
-          maxWidthClassName,
-          containerClassName,
-        )}
-      >
-        <div className="[&>header]:mb-0">
-          {header}
-        </div>
-        {!registeredWithApplicationShell ? navigation : null}
-        <section
-          className={cn("min-w-0",contentClassName)}
+    <WorkspacePageActionsProvider>
+      <main className={cn("min-h-0 flex-1 overflow-y-auto", className)}>
+        <div
+          className={cn(
+            "mx-auto flex min-h-full w-full flex-col gap-4 px-4 pb-6 pt-3 sm:px-6 lg:pb-8",
+            maxWidthClassName,
+            containerClassName,
+          )}
         >
-          {children}
-        </section>
-      </div>
-    </main>
+          <div className="[&>header]:mb-0">
+            {header}
+          </div>
+          {!registeredWithApplicationShell ? navigation : null}
+          <section
+            className={cn("min-h-0 min-w-0 flex-1",contentClassName)}
+          >
+            {children}
+          </section>
+        </div>
+      </main>
+    </WorkspacePageActionsProvider>
   );
 }

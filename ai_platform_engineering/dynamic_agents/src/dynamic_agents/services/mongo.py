@@ -139,6 +139,11 @@ class MongoDBService:
         servers_coll = self._get_servers_collection()
         servers_coll.create_index([("enabled", ASCENDING)])
 
+        self._db["autonomous_follow_up_chats"].create_index([
+            ("task_id", ASCENDING), ("owner_id", ASCENDING), ("state", ASCENDING),
+        ])
+        self._db["autonomous_follow_up_copy_attempts"].create_index([("cleanup_after", ASCENDING)])
+
         logger.info("MongoDB indexes ensured")
 
     def _get_agents_collection(self) -> Collection:
@@ -153,6 +158,12 @@ class MongoDBService:
             raise RuntimeError("MongoDB not connected")
         return self._db[self.settings.mcp_servers_collection]
 
+    def _get_remote_agents_collection(self) -> Collection:
+        """Get the admin-managed remote A2A agent registry."""
+        if self._db is None:
+            raise RuntimeError("MongoDB not connected")
+        return self._db[self.settings.remote_agents_collection]
+
     # =========================================================================
     # Read-only agent access
     # =========================================================================
@@ -163,6 +174,43 @@ class MongoDBService:
         if doc:
             return DynamicAgentConfig(**_strip_nulls(doc))
         return None
+
+    def resolve_rag_datasource_ids(
+        self,
+        collection_ids: list[str],
+        datasource_ids: list[str] | None = None,
+    ) -> list[str]:
+        """Expand RAG collections into current datasource ids.
+
+        Collections are control-plane documents only; chunks remain keyed by
+        ``datasource_id`` in Milvus. Reading membership for each tool call
+        means a Platform/team knowledge-base update automatically propagates
+        to cached agent runtimes without rebuilding or rewriting agents.
+
+        Mongo errors fail closed to the explicitly pinned datasource ids.
+        """
+        direct = list(dict.fromkeys(datasource_ids or []))
+        if not collection_ids:
+            return direct
+        if self._db is None:
+            logger.warning("Cannot resolve RAG collections: MongoDB is not connected")
+            return direct
+        try:
+            docs = self._db["rag_collections"].find(
+                {"_id": {"$in": list(dict.fromkeys(collection_ids))}},
+                {"source_ids": 1},
+            )
+            combined = direct[:]
+            seen = set(combined)
+            for doc in docs:
+                for source_id in doc.get("source_ids") or []:
+                    if isinstance(source_id, str) and source_id and source_id not in seen:
+                        seen.add(source_id)
+                        combined.append(source_id)
+            return combined
+        except PyMongoError as exc:
+            logger.error("Failed to resolve RAG collection membership: %s", exc)
+            return direct
 
 
 
@@ -184,6 +232,17 @@ class MongoDBService:
             MCPServerConfig(**_strip_nulls(_inject_builtin_credential_sources(doc)))
             for doc in docs
         ]
+
+    def get_remote_agents_by_ids(self, remote_agent_ids: list[str]) -> list[dict]:
+        """Return enabled registry entries selected by a dynamic agent."""
+        if not remote_agent_ids:
+            return []
+        return list(
+            self._get_remote_agents_collection().find(
+                {"_id": {"$in": remote_agent_ids}, "enabled": {"$ne": False}},
+                {"_id": 1, "name": 1, "description": 1, "endpoint": 1, "timeout_seconds": 1, "streaming": 1, "credential_source": 1, "updated_at": 1},
+            )
+        )
 
     def get_agent_mcp_servers(self, agent: DynamicAgentConfig) -> list[MCPServerConfig]:
         """Get MCP servers for an agent AND all its subagents.

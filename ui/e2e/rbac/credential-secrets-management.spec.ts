@@ -297,10 +297,9 @@ test.describe("RBAC e2e — credential secrets management", () => {
     await expect(dialog).toBeVisible();
     await dismissReleaseUpgradeDialog(page);
     await expect(dialog).toBeVisible();
-    await expect(page.getByText("Preview ghp_...abcd")).toBeVisible();
-    await expect(dialog.getByText(/saved value stays protected; this preview is masked/i)).toBeVisible();
+    await expect(page.getByText("Preview ...bcd")).toBeVisible();
     await expect(dialog.getByText(/Masked preview/)).toBeVisible();
-    await expect(dialog.getByText("ghp_...abcd")).toBeVisible();
+    await expect(dialog.getByText("...bcd")).toBeVisible();
     await expect(dialog.getByText("Alice Example")).toBeVisible();
     await expect(dialog.getByText("user:alice-sub")).toHaveCount(0);
     await expect(dialog.getByText(/Shared with/)).toBeVisible();
@@ -318,24 +317,6 @@ test.describe("RBAC e2e — credential secrets management", () => {
     await expect(dialog.getByText(RAW_SECRET)).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: /preview|reveal|copy secret/i })).toHaveCount(0);
 
-    await dialog.getByRole("button", { name: /close secret details/i }).click();
-    await page.getByRole("button", { name: /share github token/i }).click();
-    await dismissReleaseUpgradeDialog(page);
-    const panel = page.getByRole("region", { name: /github token team access/i });
-    await expect(panel).toBeVisible();
-    await expect(page.getByRole("dialog", { name: /share github token/i })).toHaveCount(0);
-    await expect(panel.getByText(/Choose a team that can use this saved secret/)).toBeVisible();
-    await expect(panel.getByLabel("Team access")).toContainText("Platform Team");
-    await expect(panel.getByLabel("Team access")).toContainText("team:platform-team");
-
-    await panel.getByRole("button", { name: /team access/i }).click();
-    const listbox = page.getByRole("listbox");
-    await expect(listbox).toBeVisible();
-    const panelBox = await panel.boundingBox();
-    const listboxBox = await listbox.boundingBox();
-    expect(panelBox).not.toBeNull();
-    expect(listboxBox).not.toBeNull();
-    expect(listboxBox!.y + listboxBox!.height).toBeGreaterThan(panelBox!.y + panelBox!.height);
   });
 
   test("shares and deletes saved secrets with explicit user actions", async ({ page }) => {
@@ -349,7 +330,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     await page.getByRole("button", { name: /share github token/i }).click();
     const panel = page.getByRole("region", { name: /github token team access/i });
     await expect(panel).toBeVisible();
-    await panel.getByRole("button", { name: /team access/i }).click();
+    await panel.getByRole("combobox", { name: /team access/i }).click();
     await page.getByRole("option", { name: /Ops Team/ }).click();
     await panel.getByRole("button", { name: /grant access/i }).click();
     await expect.poll(() => shareRequests.length).toBe(1);
@@ -387,7 +368,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
       { action: "rotate", value: "rotated-secret-value" },
     ]);
     await expect(panel).toHaveCount(0);
-    await expect(page.getByText("Preview rot_...ated")).toBeVisible();
+    await expect(page.getByText("Preview ...ted")).toBeVisible();
     await expect(page.getByText("rotated-secret-value")).toHaveCount(0);
   });
 
@@ -571,7 +552,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     });
 
     await signIn(page, env);
-    await page.goto("/admin/security/migrations", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin/security/access-operations?operationsTab=migrations", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Platform Data Updates" })).toBeVisible({

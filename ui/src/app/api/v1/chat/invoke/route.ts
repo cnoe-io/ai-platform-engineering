@@ -1,11 +1,16 @@
 /**
- * POST /api/v1/chat/invoke — transparent proxy to Dynamic Agents.
+ * POST /api/v1/chat/invoke — Harness Gateway entry point with persisted API turns.
  *
  * Body: { message, conversation_id, agent_id, trace_id?, client_context? }
  * Response: JSON { success, content, agent_id, conversation_id, trace_id }
  */
 
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { reconcileConversationOwnerIdentity } from "@/lib/conversation-owner-identity";
+import {
+  invokeHarnessGatewayRun,
+  resolveHarnessGatewayTarget,
+} from "@/lib/harness-gateway";
 import { createAuthzTraceContext, type AuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { addTrustedInteractionToBody, trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
@@ -20,13 +25,15 @@ import type { Conversation } from "@/types/mongodb";
 import type { Document, UpdateFilter } from "mongodb";
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { requireConversationWriteAccess } from "../_conversation-authz";
+import {
+authorizeConversationWriteAccess,
+resolveConversationRuntimeId,
+} from "../_conversation-authz";
 import {
   authenticateRequest,
   getDynamicAgentsConfig,
   proxyJSONRequest,
   type AuthResult,
-  type DynamicAgentsConfig,
 } from "../_helpers";
 
 export const runtime = "nodejs";
@@ -91,6 +98,11 @@ async function ensureScheduledConversation(
   const now = new Date();
 
   const conversations = await getCollection<ScheduledConversation>("conversations");
+  await reconcileConversationOwnerIdentity(
+    conversations,
+    owner.sub,
+    [owner.email],
+  );
   const idempotencyKey = `scheduler:${requestedConversationId}`;
   const existing = await conversations.findOne({ idempotency_key: idempotencyKey });
   if (
@@ -125,6 +137,7 @@ async function ensureScheduledConversation(
       title,
       owner_id: owner.email,
       owner_subject: owner.sub,
+      owner_canonical_subject: owner.sub,
       owner_identity_version: 2,
       idempotency_key: idempotencyKey,
       participants: buildParticipants(agentId, owner.email),
@@ -156,10 +169,11 @@ async function ensureScheduledConversation(
   return conversationId;
 }
 
-async function persistScheduledInvokeMessages(
+async function persistInvokeMessages(
   body: Record<string, unknown>,
   ownerUserId: string,
   response: Response,
+  source: "api" | "scheduler",
 ): Promise<void> {
   if (!isMongoDBConfigured) return;
 
@@ -167,12 +181,25 @@ async function persistScheduledInvokeMessages(
   const userContent = String(body.message || "").trim();
   if (!conversationId || !userContent) return;
 
+  const conversations = await getCollection<Conversation>("conversations");
+  let ownerId = ownerUserId;
+  if (source === "api") {
+    const conversation = await conversations.findOne(
+      { _id: conversationId },
+      { projection: { client_type: 1, owner_id: 1, source: 1 } },
+    );
+    if (!conversation || (conversation.client_type !== "api" && conversation.source !== "api")) {
+      return;
+    }
+    ownerId = conversation.owner_id || ownerUserId;
+  }
+
   let result: Record<string, unknown> | null = null;
   try {
     const parsed = await response.json();
     result = objectValue(parsed);
   } catch (error) {
-    console.warn("[invoke] Scheduled run response was not JSON; skipping message persistence", error);
+    console.warn(`[invoke] ${source} response was not JSON; skipping message persistence`, error);
     return;
   }
 
@@ -180,28 +207,45 @@ async function persistScheduledInvokeMessages(
   const clientContext = objectValue(body.client_context);
   const scheduleId = stringValue(clientContext.schedule_id);
   const scheduleTitle = stringValue(clientContext.schedule_title);
-  const traceId = stringValue(body.trace_id) || conversationId;
-  const runId = stringValue(clientContext.run_id) || traceId;
+  const traceId =
+    stringValue(body.trace_id) ||
+    stringValue(result.trace_id) ||
+    (source === "scheduler" ? conversationId : uuidv4());
+  const runId = source === "scheduler"
+    ? stringValue(clientContext.run_id) || traceId
+    : undefined;
   const turnId = `turn-${traceId}`;
   const succeeded = result.success !== false && response.ok;
+  if (source === "api" && !succeeded) return;
   const assistantContent =
     stringValue(result.content) ||
     stringValue(result.error) ||
     (succeeded ? "" : "Scheduled run failed.");
 
   const messages = await getCollection<Document>("messages");
-  const conversations = await getCollection<Conversation>("conversations");
   const userCreatedAt = new Date();
   const assistantCreatedAt = new Date(userCreatedAt.getTime() + 1);
+  let agentName = agentId;
+  if (source === "api" && agentId) {
+    const agents = await getCollection<{ _id: string; name?: string }>("dynamic_agents");
+    const agent = await agents.findOne(
+      { _id: agentId },
+      { projection: { _id: 1, name: 1 } },
+    );
+    agentName = agent?.name || agentId;
+  }
   const commonMetadata = {
     turn_id: turnId,
-    source: "scheduler",
-    schedule_id: scheduleId,
-    schedule_title: scheduleTitle,
-    run_id: runId,
+    source,
     trace_id: traceId,
     agent_id: agentId,
-    actor_client_id: schedulerActorClientId(),
+    ...(source === "api" && { agent_name: agentName }),
+    ...(source === "scheduler" && {
+      schedule_id: scheduleId,
+      schedule_title: scheduleTitle,
+      run_id: runId,
+      actor_client_id: schedulerActorClientId(),
+    }),
   };
   const messageMetadata = compactMetadata(commonMetadata);
 
@@ -221,10 +265,10 @@ async function persistScheduledInvokeMessages(
         conversation_id: conversationId,
         role: "user",
         created_at: userCreatedAt,
-        ...(ownerUserId && {
-          owner_id: ownerUserId,
-          sender_email: ownerUserId,
-          sender_name: ownerUserId,
+        ...(ownerId && {
+          owner_id: ownerId,
+          sender_email: ownerId,
+          sender_name: ownerId,
         }),
       },
     },
@@ -249,7 +293,7 @@ async function persistScheduledInvokeMessages(
           conversation_id: conversationId,
           role: "assistant",
           created_at: assistantCreatedAt,
-          ...(ownerUserId && { owner_id: ownerUserId }),
+          ...(ownerId && { owner_id: ownerId }),
         },
       },
       { upsert: true },
@@ -263,8 +307,10 @@ async function persistScheduledInvokeMessages(
       $set: {
         updated_at: assistantCreatedAt,
         "metadata.total_messages": totalMessages,
-        "metadata.last_run_at": assistantCreatedAt,
-        "metadata.last_status": succeeded ? "ok" : "error",
+        ...(source === "scheduler" && {
+          "metadata.last_run_at": assistantCreatedAt,
+          "metadata.last_status": succeeded ? "ok" : "error",
+        }),
       },
     },
   );
@@ -300,7 +346,6 @@ function ownerUserContextHeader(email: string): string {
 async function handleScheduledInvoke(
   request: NextRequest,
   body: Record<string, unknown>,
-  daConfig: DynamicAgentsConfig,
   traceContext: AuthzTraceContext,
 ): Promise<Response> {
   if (!isSchedulerTokenConfigured()) {
@@ -417,19 +462,30 @@ async function handleScheduledInvoke(
   }
   body = { ...body, conversation_id: conversationId };
 
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;
-  const response = await proxyJSONRequest(
-    backendUrl,
-    JSON.stringify(body),
-    authResult,
-    "[invoke]",
-  );
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
+    subject: authResult.subject, conversationId: String(body.conversation_id),
+  });
+  if (target instanceof NextResponse) return target;
+  let response: Response;
+  if (target.kind === "harness_engine") {
+    response = await invokeHarnessGatewayRun(body, authResult, request.signal);
+  } else {
+    const daConfig = getDynamicAgentsConfig();
+    if (daConfig instanceof NextResponse) return daConfig;
+    response = await proxyJSONRequest(
+        `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`,
+        JSON.stringify(body),
+        authResult,
+        "[invoke]",
+      );
+  }
 
   try {
-    await persistScheduledInvokeMessages(
+    await persistInvokeMessages(
       body,
       scheduledRun.email,
       response.clone(),
+      "scheduler",
     );
   } catch (error) {
     console.error("[invoke] Failed to persist scheduled invoke messages:", error);
@@ -439,10 +495,6 @@ async function handleScheduledInvoke(
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
-  // Check dynamic agents config
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
-
   const traceContext = createAuthzTraceContext(request.headers.get("traceparent"));
 
   // Parse body
@@ -467,7 +519,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // user session. They take a dedicated path that mints a real owner bearer
   // and runs the owner gates (see handleScheduledInvoke).
   if (request.headers.get("X-Scheduler-Token")) {
-    return handleScheduledInvoke(request, body, daConfig, traceContext);
+    return handleScheduledInvoke(request, body, traceContext);
   }
 
   // Interactive caller (session cookie or Bearer token).
@@ -486,20 +538,53 @@ export async function POST(request: NextRequest): Promise<Response> {
     trustedContext: { interaction },
   });
   if (authzResponse) return authzResponse;
-  addTrustedInteractionToBody(body, interaction);
+  addTrustedInteractionToBody(body, interaction, authResult.subject);
 
-  const conversationAuthzResponse = await requireConversationWriteAccess(
+  const conversationAuthz = await authorizeConversationWriteAccess(
     authResult,
     String(body.conversation_id),
+    body.agent_id,
   );
-  if (conversationAuthzResponse) return conversationAuthzResponse;
+  if (conversationAuthz.denial) return conversationAuthz.denial;
 
-  // Forward body as-is to DA backend (same path, same body format)
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;
-  return proxyJSONRequest(
-    backendUrl,
-    JSON.stringify(body),
-    authResult,
-    "[invoke]",
-  );
+  body = {
+    ...body,
+    conversation_id: await resolveConversationRuntimeId(
+      conversationAuthz.conversation,
+    ),
+  };
+
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id), {
+    subject: authResult.subject, conversationId: String(body.conversation_id),
+  });
+  if (target instanceof NextResponse) return target;
+  let response: Response;
+  if (target.kind === "harness_engine") {
+    response = await invokeHarnessGatewayRun(body, authResult, request.signal);
+  } else {
+    const daConfig = getDynamicAgentsConfig();
+    if (daConfig instanceof NextResponse) return daConfig;
+    response = await proxyJSONRequest(
+      `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`,
+      JSON.stringify(body),
+      authResult,
+      "[invoke]",
+    );
+  }
+
+  // The non-streaming API has no browser store to persist its transcript.
+  // Keep the BFF message collection aligned so API conversations are readable
+  // and can continue through the web chat surface.
+  try {
+    await persistInvokeMessages(
+      body,
+      authResult.email,
+      response.clone(),
+      "api",
+    );
+  } catch (error) {
+    console.error("[invoke] Failed to persist API invoke messages:", error);
+  }
+
+  return response;
 }

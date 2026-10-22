@@ -1,4 +1,4 @@
-# Copyright 2025 CNOE Contributors
+# Copyright 2025 CAIPE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
 SSE client for Dynamic Agents streaming via AG-UI protocol.
@@ -445,6 +445,7 @@ class SSEClient:
     client_context: Optional[Dict[str, Any]] = None,
     bearer_token: Optional[str] = None,
     files: Optional[list[Dict[str, Any]]] = None,
+    reasoning_effort: Optional[str] = None,
   ) -> Iterator[SSEEvent]:
     """Stream a chat response from a dynamic agent.
 
@@ -474,6 +475,8 @@ class SSEClient:
       payload["client_context"] = client_context
     if files:
       payload["files"] = files
+    if reasoning_effort:
+      payload["reasoning_effort"] = reasoning_effort
 
     url = f"{self.base_url}/api/v1/chat/stream/start"
     yield from self._stream_sse(url, payload, bearer_token=bearer_token)
@@ -524,6 +527,7 @@ class SSEClient:
     client_context: Optional[Dict[str, Any]] = None,
     bearer_token: Optional[str] = None,
     files: Optional[list[Dict[str, Any]]] = None,
+    reasoning_effort: Optional[str] = None,
   ) -> Dict[str, Any]:
     """Non-streaming chat invocation for bot users.
 
@@ -552,6 +556,8 @@ class SSEClient:
       payload["client_context"] = client_context
     if files:
       payload["files"] = files
+    if reasoning_effort:
+      payload["reasoning_effort"] = reasoning_effort
 
     headers = self._get_headers(bearer_token=bearer_token)
     headers.update(signed_interaction_headers(

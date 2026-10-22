@@ -35,7 +35,9 @@ export type AdminDestinationId =
   | "defaults"
   | "announcements"
   | "agents"
+  | "autonomous"
   | "mcp"
+  | "rag"
   | "skills"
   | "service-accounts"
   | "credentials"
@@ -50,16 +52,14 @@ export type AdminDestinationId =
   | "health"
   | "access-before-sign-in"
   | "ai-review"
-  | "action-audit"
-  | "access-explorer"
-  | "rbac-self-check"
-  | "audit-logs"
-  | "keycloak"
-  | "migrations";
+  | "audit"
+  | "approvals"
+  | "access-operations";
 
 export interface AdminDestinationDefinition {
   description: string;
   gateKey: string;
+  gateKeys?: string[];
   href: string;
   icon: LucideIcon;
   id: AdminDestinationId;
@@ -149,6 +149,14 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Manage the remote MCP providers available to users.",
         icon: Plug,
         gateKey: "mcp",
+      },
+      {
+        id: "rag",
+        href: "/admin/platform/rag",
+        label: "RAG",
+        description: "Configure knowledge base defaults, ingestion, and publication review.",
+        icon: Database,
+        gateKey: "rag",
       },
       {
         id: "skills",
@@ -269,58 +277,42 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         subgroup: "Policy",
       },
       {
-        id: "action-audit",
-        href: "/admin/security/rbac-audit",
-        label: "RBAC Audit",
-        description: "Review authorization mutations and administrative actions.",
-        icon: Shield,
-        gateKey: "action_audit",
-        subgroup: "Authorization",
+        id: "autonomous",
+        href: "/admin/security/autonomous-enablement",
+        label: "Autonomous Enablement",
+        description: "Control which teams may use autonomous agents.",
+        icon: Bot,
+        gateKey: "autonomous",
+        subgroup: "Policy",
       },
       {
-        id: "access-explorer",
-        href: "/admin/security/access-explorer",
-        label: "Access Explorer",
-        description: "Explore effective access and authorization relationships.",
-        icon: Shield,
-        gateKey: "openfga",
-        subgroup: "Authorization",
-      },
-      {
-        id: "rbac-self-check",
-        href: "/admin/security/self-check",
-        label: "Self Check",
-        description: "Validate the current authorization configuration.",
-        icon: ListChecks,
-        gateKey: "openfga",
-        subgroup: "Authorization",
-      },
-      {
-        id: "audit-logs",
-        href: "/admin/security/chat-audit",
-        label: "Chat Audit",
-        description: "Review retained conversation activity and audit records.",
+        id: "audit",
+        href: "/admin/security/audit",
+        label: "Audit",
+        description: "Review authorization activity, conversations, and policy self-checks.",
         icon: FileText,
-        gateKey: "audit_logs",
+        gateKey: "action_audit",
+        gateKeys: ["action_audit", "audit_logs", "openfga"],
         subgroup: "Audit",
       },
       {
-        id: "keycloak",
-        href: "/admin/security/keycloak",
-        label: "Keycloak",
-        description: "Review identity-provider migration health.",
+        id: "approvals",
+        href: "/admin/security/approvals",
+        label: "Approvals",
+        description: "Review publication requests and your request history.",
         icon: ShieldCheck,
-        gateKey: "migrations",
-        subgroup: "Identity & maintenance",
+        gateKey: "approvals",
+        subgroup: "Authorization",
       },
       {
-        id: "migrations",
-        href: "/admin/security/migrations",
-        label: "Migrations",
-        description: "Run and monitor platform data migrations.",
-        icon: Database,
-        gateKey: "migrations",
-        subgroup: "Identity & maintenance",
+        id: "access-operations",
+        href: "/admin/security/access-operations",
+        label: "Access Operations",
+        description: "Inspect authorization state, identity health, and required migrations.",
+        icon: ShieldCheck,
+        gateKey: "openfga",
+        gateKeys: ["openfga","migrations"],
+        subgroup: "Authorization",
       },
     ],
   },
@@ -361,7 +353,9 @@ export function filterAdminCategories(
   return ADMIN_CATEGORIES.map((category) => ({
     ...category,
     destinations: category.destinations.filter(
-      (destination) => gateValues[destination.gateKey],
+      (destination) => (destination.gateKeys ?? [destination.gateKey]).some(
+        (gateKey) => gateValues[gateKey],
+      ),
     ),
   })).filter((category) => category.destinations.length > 0);
 }

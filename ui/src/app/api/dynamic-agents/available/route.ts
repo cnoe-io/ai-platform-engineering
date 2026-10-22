@@ -17,6 +17,7 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { dynamicAgentsForBrowser } from "@/lib/dynamic-agent-response";
+import { projectAgentAppIdentity } from "@/lib/agentic-apps/agent-catalog";
 import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
@@ -172,7 +173,7 @@ async function getAvailableAgents(request: NextRequest) {
   });
 
   // Normalize legacy model_id/model_provider → model
-  const normalizedAgents = visibleAgents.map((agent) => {
+  const normalizedAgents = projectAgentAppIdentity(visibleAgents, session, { availableOnly: true }).map((agent) => {
     const doc = agent as unknown as Record<string, unknown>;
     if (doc.model_id && !doc.model) {
       doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };

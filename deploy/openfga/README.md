@@ -31,8 +31,9 @@ Mongo-backed config bridge.
 
 The bridge has no subject allowlist. For a concrete human MCP target it checks
 the existing `mcp_server#can_invoke` capability, falls back to
-`mcp_server#can_discover` for agent-mediated global access, and treats a direct
-`owner` grant as private for trusted personal/DM context enforcement. Restricted
+`mcp_server#can_discover` for agent-mediated global access. A resource-level
+`private_marker` requires the human owner's grant and trusted personal/DM context,
+independently of any stale team or tool capability. Restricted
 targets still require `can_invoke`. Service accounts keep their explicit
 gateway, agent, and caller-tool grants; a service-account owner cannot execute a
 private MCP server.
@@ -45,11 +46,17 @@ gateway may consume the bearer token and provide only verified JWT metadata to
 as the end user. Moving this check behind CAS requires a dedicated authenticated
 internal CAS protocol, not a caller-supplied subject header.
 
-`mcp_server#private_marker` remains in the authorization model as an inert,
-deprecated compatibility stub for one rolling upgrade. New code never checks or
-writes it. Keeping the relation temporarily prevents old bridge replicas from
-failing while a new model is activated; it can be deleted after every bridge is
-on the capability-based implementation.
+MCP reconciliation writes `organization:<org> private_marker mcp_server:<id>`
+for private servers and removes it when broadening visibility. Wildcard team
+expansion excludes these servers. Conversion to private removes unrelated server
+and exact/wildcard tool grants. The bridge checks the marker before agent/tool
+policy, so a stale non-owner capability cannot bypass private policy.
+
+Interaction proofs last at most 90 seconds. A fresh BFF-signed execution binding
+allows the authenticated runtime to renew proofs per outbound HTTP request, until
+the earlier of bearer expiry and the original 15-minute execution deadline.
+Expired incoming proofs, mismatched callers/agents, and group contexts cannot
+establish renewal authority.
 
 ## ReBAC model
 

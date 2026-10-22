@@ -1,33 +1,29 @@
 /**
- * POST /api/v1/chat/stream/start — transparent proxy to Dynamic Agents.
+ * POST /api/v1/chat/stream/start — agent stream routed by server-owned bindings.
  *
  * Body: { message, conversation_id, agent_id, protocol?, trace_id?, client_context? }
  * Response: SSE stream (text/event-stream)
  */
 
+import { NextRequest, NextResponse } from "next/server";
+
+import { authenticateRequest } from "@/lib/da-proxy";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { addTrustedInteractionToBody, trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
-import { NextRequest,NextResponse } from "next/server";
-import { requireConversationWriteAccess } from "../../_conversation-authz";
-import {
-authenticateRequest,
-getDynamicAgentsConfig,
-proxySSEStream,
-} from "../../_helpers";
+
+import { authorizeConversationWriteAccess } from "../../_conversation-authz";
+import { dispatchChatStream } from "../../_stream-gateway";
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // 5 minutes
+export const maxDuration = 960; // Allows long native app streams plus cleanup.
 
 export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate caller (session cookie or Bearer token)
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check dynamic agents config
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
-
+  const forwardedRequest = request.clone();
   // Parse body
   let body: Record<string, unknown>;
   try {
@@ -39,7 +35,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!body.message || !body.conversation_id || !body.agent_id) {
+  if (!body || typeof body.message !== "string" || !body.message.trim() || typeof body.conversation_id !== "string" || !body.conversation_id || typeof body.agent_id !== "string" || !body.agent_id) {
     return NextResponse.json(
       { success: false, error: "Missing required fields: message, conversation_id, agent_id" },
       { status: 400 },
@@ -60,21 +56,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     trustedContext: { interaction },
   });
   if (authzResponse) return authzResponse;
-  addTrustedInteractionToBody(body, interaction);
+  addTrustedInteractionToBody(body, interaction, authResult.subject);
 
-  const conversationAuthzResponse = await requireConversationWriteAccess(
+  const conversationAuthz = await authorizeConversationWriteAccess(
     authResult,
     String(body.conversation_id),
+    body.agent_id,
   );
-  if (conversationAuthzResponse) return conversationAuthzResponse;
+  if (conversationAuthz.denial) return conversationAuthz.denial;
 
-  // Forward body as-is to DA backend (same path, same body format)
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start`;
-
-  return proxySSEStream(
-    backendUrl,
-    JSON.stringify(body),
-    authResult,
-    "[stream/start]",
+  return dispatchChatStream(
+    forwardedRequest, authResult, conversationAuthz.conversation, body, "start",
   );
 }

@@ -42,6 +42,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
             "--set",
             "openfga-authz-bridge.audit.serviceUrl=http://audit-service:8010",
             "--set",
+            "openfga-authz-bridge.organizationKey=example-org",
+            "--set",
             "openfga-authz-bridge.restrictedMcpServers[0]=scheduler",
         ],
         check=True,
@@ -58,6 +60,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'value: "RS256"' in rendered
     assert "name: AUDIT_SERVICE_URL" in rendered
     assert 'value: "http://audit-service:8010"' in rendered
+    assert "name: CAIPE_ORG_KEY" in rendered
+    assert 'value: "example-org"' in rendered
     assert "name: CAIPE_RESTRICTED_MCP_SERVERS" in rendered
     assert 'value: "scheduler"' in rendered
     assert "name: MONGODB_DATABASE" not in rendered
@@ -136,7 +140,7 @@ def test_umbrella_values_define_webex_bot_section() -> None:
     assert webex["config"]["WEBEX_ADMIN_JWT_AUDIENCE"] == "caipe-webex-bot-admin"
     assert webex["config"]["WEBEX_ADMIN_API_ENABLED"] == "true"
     assert webex["config"]["WEBEX_ADMIN_API_PORT"] == "3002"
-    assert "ghcr.io/cnoe-io/caipe-webex-bot" in webex["image"]["repository"]
+    assert "ghcr.io/caipe-io/caipe-webex-bot" in webex["image"]["repository"]
 
 
 def test_caipe_ui_values_wire_webex_bot_admin_env() -> None:
@@ -246,7 +250,7 @@ def test_openfga_helm_model_is_the_single_json_artifact() -> None:
     assert not (root / "deploy/openfga/init/authorization-model.json").exists()
 
 
-def test_bridge_has_no_subject_bypass_or_runtime_private_marker_dependency() -> None:
+def test_bridge_uses_private_marker_without_subject_bypass() -> None:
     root = _repo_root()
     bridge_values = (
         root / "charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml"
@@ -265,8 +269,8 @@ def test_bridge_has_no_subject_bypass_or_runtime_private_marker_dependency() -> 
 
     assert "bypassSubs" not in bridge_values
     assert "OPENFGA_BYPASS_SUBS" not in bridge_deployment
-    assert "private_marker" not in bridge_source
-    assert "Deprecated compatibility stub" in model_dsl
+    assert "private_marker" in bridge_source
+    assert "define private_marker: [organization]" in model_dsl
     mcp_server = next(
         definition
         for definition in model_json["type_definitions"]

@@ -4,18 +4,45 @@
 
 ```
 ai_platform_engineering/   # Python backend
-  agents/                  # Per-tool MCP servers (GitHub, ArgoCD, etc.)
+  mcp/                     # Per-tool MCP servers (GitHub, ArgoCD, etc.)
   dynamic_agents/          # Dynamic agents runtime (FastAPI, MongoDB, AG-UI/SSE)
+  integrations/            # Slack and Webex bot integrations
+  autonomous_agents/       # Scheduled and event-driven autonomous tasks
+  audit_service/           # Audit-event service
+  scheduler/               # Scheduler service
+  cron-runner/             # Cron job runner
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
   skills_middleware/       # Skill scanning / catalog middleware
   utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
-docker-compose/            # Docker configs for services
+docker-compose*.yaml       # Canonical Docker Compose configurations
 tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
 ```
+
+## Find the Canonical Implementation
+
+Start with the narrowest owning module; do not add a parallel implementation
+until you have checked the shared locations below.
+
+| Need | Start here | Reuse before adding new code |
+|---|---|---|
+| UI page or API route | `ui/src/app/` | `ui/src/components/`, `ui/src/lib/`, `ui/src/store/` |
+| UI component | `ui/src/components/` | `ui/src/components/ui/` and `ui/src/components/shared/`, then an existing component in the same feature area |
+| UI selection control | `ui/src/components/ui/{select,searchable-picker}.tsx` | Follow `docs/docs/ui/selection-controls.md`; reuse a domain picker before adding a base or custom listbox |
+| UI state or browser data | `ui/src/store/` | Existing store and `ui/src/lib/` helpers |
+| Application manifest or native UI package | `ui/app-sdk/agentic-app-manifest.mjs` | CAIPE App Contract: shared `AgenticAppManifest` types/validation, `ui/src/lib/agentic-apps/` installation adapters, and the native component interface |
+| MCP integration | `ai_platform_engineering/mcp/<provider>/` | `ai_platform_engineering/mcp/common/` |
+| Slack or Webex behavior | `ai_platform_engineering/integrations/{slack_bot,webex_bot}/` | The BFF/API contract and shared auth utilities |
+| Dynamic/custom-agent runtime | `ai_platform_engineering/dynamic_agents/` | Its `src/` modules and tests |
+| RAG/ingestion | `ai_platform_engineering/knowledge_bases/rag/` | `common/`, `server/`, or `ingestors/` as applicable |
+| Authentication, authorization, or audit helpers | `ai_platform_engineering/utils/{auth,audit_backends}/`, `ui/src/lib/authz/`, `ui/src/lib/rbac/`, and `ui/src/lib/audit/` | Use the existing domain boundary; do not add direct OpenFGA checks outside an approved adapter |
+
+Tests live beside their component (`**/tests/`, `**/__tests__/`) unless they
+exercise a cross-component contract. Repository-wide checks are in `tests/`;
+RBAC integration and browser coverage is in `tests/rbac/` and `ui/e2e/rbac/`.
 
 Each component has its own environment variables - see `env.example` in `ui/` and READMEs in `ai_platform_engineering/knowledge_bases/rag/`.
 
@@ -51,11 +78,25 @@ AI agents operating in this repository **must** follow these rules on every comm
   - Example: `prebuild/feat/rag-batch-job-status`
 - **PR descriptions** - Follow the template in `.github/pull_request_template.md`
 
+## Pull Requests and Review
+
+- One logical change per PR. Aim for under 500 changed lines of hand-written code; keep
+  refactors out of behaviour changes.
+- The description states why the change exists, links the issue, and says how it was
+  verified.
+- Disclose AI assistance in the description. Never add AI co-author or `assisted-by`
+  trailers - see [DCO Policy](#dco-policy).
+- Never apply a review suggestion with GitHub's "Commit suggestion" button; the commit it
+  creates names the suggestion's author as a co-author who has not signed off, which
+  fails DCO. Apply it locally.
+- Do not resolve review threads on a pull request you do not own.
+- Full policy: `docs/docs/repo-ops/code-review.md`
+
 ## Issue Tracking
 
 This project uses **GitHub Issues** for issue tracking.
 
-- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Create follow-up work as GitHub Issues in `caipe-io/ai-platform-engineering`.
 - Reference related issues in PR descriptions when applicable.
 - Do not use repo-local Beads or `bd` issue tracking.
 
@@ -84,6 +125,7 @@ Do not add Slack/Webex bots to that default path.
 - **Imports at top** - All imports must be at the top of the file, unless otherwise specified
 - **Type hints required** - Python functions should have type hints for parameters and return values
 - **Error handling** - Use specific exceptions, log errors with context, don't silently swallow exceptions
+- **Comments** - Explain current intent or an invariant. Do not add tool/model provenance or rely on historical spec IDs as the explanation.
 
 ## Test Data and Generic Examples
 
@@ -99,3 +141,8 @@ Do not add Slack/Webex bots to that default path.
 - Python + Slack Bolt, Slack SDK, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
 - MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
 - Service accounts: dynamic Keycloak confidential clients + OpenFGA `service_account` tuples + Mongo `service_accounts` collection; BFF (Next.js) orchestrates create/rotate/revoke/scope; caller-keyed tool authz added to the OpenFGA ext_authz bridge (2026-06-05-service-accounts)
+- Independent Python 3.13 Harness Engine with a managed AgentCore adapter; Dynamic Agents remains unchanged and additional local/sandbox harnesses are future adapters (2026-08-17-harness-engine)
+- Separate MongoDB `harness_agent_configs`, `harness_runs`, and `harness_events` collections provide overlays and cursor replay; stable AgentCore session IDs preserve thread context while scoped long-term memory remains future work (2026-08-17-harness-engine)
+
+## Recent Changes
+- 2026-08-17-harness-engine: Added an independent AgentCore Harness Engine with detached runs, replayable sessions, and W3C trace propagation

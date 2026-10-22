@@ -1,13 +1,16 @@
 """Pydantic models for Dynamic Agents service."""
 
 import logging
+import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
+
+ReasoningEffort = Literal["low", "medium", "high", "max"]
 
 
 class TransportType(str, Enum):
@@ -47,6 +50,11 @@ class UserContext(BaseModel):
 
     email: str
     name: str | None = None
+    # Keycloak subject (UUID). OpenFGA/CAS key subjects by ``sub``, so this is
+    # what agent-use authorization evaluates against. For autonomous
+    # (unattended) runs the scheduler puts the task owner's sub here so the
+    # decision is made on the owner, not the service principal.
+    sub: str | None = None
     groups: list[str] = []
     is_admin: bool = False
     raw_claims: dict[str, Any] = {}
@@ -115,6 +123,26 @@ class MCPCredentialSource(BaseModel):
     )
 
 
+class RemoteAgentCredentialSource(BaseModel):
+    """Caller-scoped authentication injected into an A2A HTTP header."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    kind: Literal["caller_token", "secret_ref", "provider_connection"] = "caller_token"
+    target: Literal["header"] = "header"
+    name: str = Field(default="Authorization", min_length=1, max_length=256, pattern=r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+    secret_ref: str | None = None
+    provider: str | None = None
+
+    @model_validator(mode="after")
+    def require_credential_reference(self) -> "RemoteAgentCredentialSource":
+        if self.kind == "secret_ref" and not self.secret_ref:
+            raise ValueError("A saved secret reference is required")
+        if self.kind == "provider_connection" and not self.provider:
+            raise ValueError("A connected credential provider is required")
+        return self
+
+
 class MCPServerConfig(MCPServerConfigBase):
     """Full MCP server config as stored in MongoDB."""
 
@@ -165,6 +193,10 @@ class ModelConfig(BaseModel):
 
     id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
     provider: str = Field(..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)")
+    reasoning_effort: ReasoningEffort = Field(
+        "medium",
+        description="Portable default reasoning effort; ignored when the model does not support configurable reasoning",
+    )
 
 
 # =============================================================================
@@ -516,12 +548,39 @@ class InterruptConfig(BaseModel):
     )
 
 
+class AppContextPromptConfig(BaseModel):
+    """Deployment-owned opt-in projection of untrusted app data into model input."""
+
+    model_config = ConfigDict(extra="forbid")
+    app_ids: list[Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")]] = Field(min_length=1, max_length=16)
+    fields: list[
+        Annotated[str, Field(max_length=128, pattern=r"^(title|summary|route|selection\.[A-Za-z_][A-Za-z0-9_.-]*)$")]
+    ] = Field(min_length=1, max_length=12)
+    max_bytes: int = Field(default=4096, ge=512, le=8192, strict=True)
+
+    @field_validator("fields")
+    @classmethod
+    def validate_projection(cls, fields: list[str]) -> list[str]:
+        for path in fields:
+            if len(path.split(".")) > 8 or any(
+                part in {"__proto__", "prototype", "constructor"}
+                or not part
+                or re.search(r"api[_-]?key|authorization|cookie|password|secret|token", part, re.I)
+                for part in path.split(".")
+            ):
+                raise ValueError("app context fields must be bounded, non-sensitive data paths")
+        return list(dict.fromkeys(fields))
+
+
 class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 
     name: str = Field(..., description="Display name")
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
+    app_context_prompt: AppContextPromptConfig | None = Field(
+        None, description="Deployment-owned app context projection; off by default"
+    )
     allowed_tools: dict[str, list[str] | bool] = Field(
         default_factory=dict,
         description=(
@@ -529,6 +588,14 @@ class DynamicAgentConfigBase(BaseModel):
             "true = all tools from server, false = server disabled, "
             "list = specific tools only, [] = legacy (treated as true)"
         ),
+    )
+    allowed_remote_agents: list[str] = Field(
+        default_factory=list,
+        description="Remote A2A agent registry IDs available to this agent",
+    )
+    remote_agent_timeouts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-agent timeout overrides in seconds for selected A2A agents",
     )
     model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
@@ -540,6 +607,25 @@ class DynamicAgentConfigBase(BaseModel):
     skills: list[str] = Field(
         default_factory=list,
         description="Skill document IDs from agent_skills collection",
+    )
+    datasource_ids: list[str] | None = Field(
+        None,
+        description=(
+            "RAG datasource ids (== source_id == knowledge_base_id) this agent's "
+            "search tool is pinned to. Narrows, never widens: the runtime "
+            "intersects this list with the caller's RBAC-accessible datasources, "
+            "so None preserves the legacy 'search everything the caller can see' "
+            "behavior, while an explicit empty list keeps RAG tools available "
+            "with no indexed content in scope."
+        ),
+    )
+    rag_collection_ids: list[str] | None = Field(
+        None,
+        description=(
+            "RAG collection ids expanded from MongoDB at tool-call time. "
+            "The resulting datasource ids are unioned with datasource_ids; "
+            "the RAG server still intersects them with caller authorization."
+        ),
     )
     builtin_tools: BuiltinToolsConfig | None = Field(
         None,
@@ -645,8 +731,23 @@ class ChatRequest(BaseModel):
     )
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
+    turn_id: str | None = Field(
+        None,
+        description="Client turn ID used to correlate persisted messages with LangGraph state",
+    )
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
+    reasoning_effort: ReasoningEffort | None = Field(
+        None,
+        description="Conversation-level reasoning effort override",
+    )
+    autonomous: bool = Field(
+        False,
+        description=(
+            "True when the scheduler/webhook runtime drives this call unattended. "
+            "Requires autonomous team entitlement in addition to agent use access."
+        ),
+    )
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
     config_override: dict | None = Field(
         None,

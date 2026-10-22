@@ -7,6 +7,7 @@ const mockReplace = jest.fn();
 
 jest.mock("next/navigation",() => ({
   useRouter: () => ({ push: mockPush,replace: mockReplace }),
+  usePathname: () => "/credentials/connections",
 }));
 
 jest.mock("../SecretsManager",() => ({

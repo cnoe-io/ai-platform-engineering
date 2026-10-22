@@ -41,7 +41,7 @@ class _FakeRuntimeCache:
         return True
 
 
-async def _deny(agent_id: str, _trusted_interaction: object | None = None) -> None:
+async def _deny(agent_id: str, delegated_user_sub: str | None = None, trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=403,
         detail={
@@ -53,7 +53,7 @@ async def _deny(agent_id: str, _trusted_interaction: object | None = None) -> No
     )
 
 
-async def _unavailable(agent_id: str, _trusted_interaction: object | None = None) -> None:
+async def _unavailable(agent_id: str, delegated_user_sub: str | None = None, trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=503,
         detail={
@@ -65,7 +65,7 @@ async def _unavailable(agent_id: str, _trusted_interaction: object | None = None
     )
 
 
-async def _missing_bearer(agent_id: str, _trusted_interaction: object | None = None) -> None:
+async def _missing_bearer(agent_id: str, delegated_user_sub: str | None = None, trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=401,
         detail={
@@ -77,7 +77,7 @@ async def _missing_bearer(agent_id: str, _trusted_interaction: object | None = N
     )
 
 
-async def _invalid_bearer(agent_id: str, _trusted_interaction: object | None = None) -> None:
+async def _invalid_bearer(agent_id: str, delegated_user_sub: str | None = None, trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=401,
         detail={
@@ -153,7 +153,7 @@ async def test_start_route_preserves_authz_failure_shape(monkeypatch, authz, sta
 async def test_start_route_passes_internal_interaction_proof_to_authz(monkeypatch):
     captured: dict[str, object] = {}
 
-    async def capture(agent_id: str, trusted_interaction: object | None = None) -> None:
+    async def capture(agent_id: str, trusted_interaction: object | None = None, **_kwargs) -> None:
         captured["agent_id"] = agent_id
         captured["trusted_interaction"] = trusted_interaction
         raise HTTPException(status_code=418, detail="captured")
@@ -186,7 +186,7 @@ async def test_start_route_passes_internal_interaction_proof_to_authz(monkeypatc
 
 @pytest.mark.asyncio
 async def test_cancel_stream_remains_openfga_ungated(monkeypatch):
-    async def fail_if_called(agent_id: str) -> None:
+    async def fail_if_called(agent_id: str, delegated_user_sub: str | None = None) -> None:
         raise AssertionError("cancel must not be OpenFGA gated")
 
     cache = _FakeRuntimeCache()

@@ -5,7 +5,7 @@ import {
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
-import { Database,GitFork,Search,Wrench } from "lucide-react";
+import { Database,GitFork,Layers3,Search,Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 interface KnowledgeSidebarProps {
@@ -35,6 +35,13 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
     description: "Ingest and manage sources",
   },
   {
+    id: "collections",
+    label: "Collections",
+    href: "/knowledge-bases/collections",
+    icon: Layers3,
+    description: "Group and delegate RAG sources",
+  },
+  {
     id: "graph",
     label: "Graph",
     href: "/knowledge-bases/graph",
@@ -53,9 +60,10 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
 
 export function knowledgeTabForPath(pathname: string | null): string {
   if (!pathname?.startsWith("/knowledge-bases")) return "";
-  if (pathname?.includes("/mcp-tools")) return "mcp-tools";
-  if (pathname?.includes("/ingest")) return "ingest";
-  if (pathname?.includes("/graph")) return "graph";
+  if (pathname.includes("/mcp-tools")) return "mcp-tools";
+  if (pathname.includes("/collections")) return "collections";
+  if (pathname.includes("/ingest")) return "ingest";
+  if (pathname.includes("/graph")) return "graph";
   return "search";
 }
 
@@ -63,12 +71,13 @@ function NoKnowledgeBaseAccessBanner({ testId }: { testId: string }): React.Reac
   return (
     <div
       aria-live="polite"
-      className="rounded-lg border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200"
+      className="rounded-md border border-amber-500/40 bg-card px-3 py-2 text-xs leading-relaxed text-foreground shadow-sm"
       data-testid={testId}
       role="status"
     >
-      You don&apos;t have access to any knowledge bases yet. Ask a team admin to share one
-      with your team.
+      You don&apos;t have Knowledge Base access yet. Ask an admin to grant your
+      team permission to create data sources or search sources shared with your
+      team.
     </div>
   );
 }
@@ -79,7 +88,6 @@ export function KnowledgeSidebar({
   const pathname = usePathname();
   const { gates,loading: gatesLoading,orgAdminBypass } = useKbTabGates();
   const activeTab = knowledgeTabForPath(pathname);
-
   const hasExplicitCapability = gates.can_ingest === true || gates.can_search === true;
   const showNoKbBanner =
     !gatesLoading &&

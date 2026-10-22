@@ -20,13 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2  # v2.22.2
         with:
           egress-policy: audit
 
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
@@ -49,7 +49,7 @@ jobs:
           echo "Publishing version: $NEW_VERSION"
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
         with:
           node-version: 'lts/*'
           package-manager-cache: false
@@ -98,7 +98,7 @@ jobs:
 
           # persist-credentials: false means the checkout step does not configure
           # git credentials. Wire the App token into the remote URL so git push works.
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/cnoe-io/ai-platform-engineering.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/caipe-io/ai-platform-engineering.git"
 
           # Only the published-versions list (and any current-version helm docs that
           # legitimately changed) are committed — versioned_docs is never committed.

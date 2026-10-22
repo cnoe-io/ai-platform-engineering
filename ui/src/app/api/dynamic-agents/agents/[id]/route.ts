@@ -14,6 +14,7 @@ withErrorHandler,
 import { getCollection } from "@/lib/mongodb";
 import { dynamicAgentForBrowser } from "@/lib/dynamic-agent-response";
 import { isPrivateAgentOwner } from "@/lib/rbac/agent-ownership-scope";
+import { projectAgentAppIdentity } from "@/lib/agentic-apps/agent-catalog";
 import {
 agentRowPermissionsOrDefault,
 requireAgentPermission,
@@ -82,6 +83,8 @@ export const GET = withErrorHandler(
         permissions: agentRowPermissionsOrDefault(rows, resourceId),
       };
 
-      return successResponse(result);
+      const [projected] = projectAgentAppIdentity([result], session);
+      if (!projected) throw new ApiError("Agent not found", 404);
+      return successResponse(projected);
   }
 );

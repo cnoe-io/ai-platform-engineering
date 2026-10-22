@@ -226,6 +226,16 @@ async function installSharedHomeMocks(
   sessionEmail: string,
   conversations: ConversationFixture[],
 ) {
+  // Shared Conversations is optional in the minimal default home layout.
+  // Turn it on for these focused sharing regressions.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "caipe-home-widgets",
+      JSON.stringify(["heroComposer", "quickStart", "sharedConversations"]),
+    );
+    localStorage.setItem("caipe-home-widgets-version", "2");
+  });
+
   await page.route("**/*", async (route) => {
     const req = route.request();
     const accept = req.headers()["accept"] ?? "";
@@ -243,10 +253,12 @@ async function installSharedHomeMocks(
       await route.fulfill({ response });
       return;
     }
-    const body = (await response.text()).replace(
-      /"storageMode"\s*:\s*"localStorage"/g,
-      '"storageMode":"mongodb"',
-    );
+    const body = (await response.text())
+      .replace(/"storageMode"\s*:\s*"localStorage"/g, '"storageMode":"mongodb"')
+      .replace(
+        /\\"storageMode\\"\s*:\s*\\"localStorage\\"/g,
+        '\\"storageMode\\":\\"mongodb\\"',
+      );
     await route.fulfill({ response, body });
   });
 
@@ -254,6 +266,19 @@ async function installSharedHomeMocks(
     session: { email: sessionEmail, name: "Recipient User" },
     handlers: [
       async ({ route, path, method }) => {
+        if (path === "/api/settings" && method === "GET") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              preferences: {
+                home_widgets: ["heroComposer", "quickStart", "sharedConversations"],
+                home_widgets_version: 2,
+                home_experience: "new",
+              },
+            },
+          });
+          return true;
+        }
         if (path === "/api/chat/shared" && method === "GET") {
           await fulfillJson(route, paginatedResponse(conversations));
           return true;
@@ -452,9 +477,7 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
     );
 
     await selectAccessRowPermission(dialog, RECIPIENT.email, "view");
-    await selectAccessRowPermission(dialog, TEAM.name, "comment");
-
-    expect(shareRequests).toContainEqual(
+    await expect.poll(() => shareRequests).toContainEqual(
       expect.objectContaining({
         method: "PATCH",
         body: {
@@ -463,7 +486,10 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
         },
       }),
     );
-    expect(shareRequests).toContainEqual(
+    await expect(accessRow(dialog, RECIPIENT.email).locator("select")).toHaveValue("view");
+
+    await selectAccessRowPermission(dialog, TEAM.name, "comment");
+    await expect.poll(() => shareRequests).toContainEqual(
       expect.objectContaining({
         method: "PATCH",
         body: {
@@ -472,6 +498,7 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
         },
       }),
     );
+    await expect(accessRow(dialog, TEAM.name).locator("select")).toHaveValue("comment");
   });
 
   test("recipient sees direct user shares on the Shared with me home tab", async ({

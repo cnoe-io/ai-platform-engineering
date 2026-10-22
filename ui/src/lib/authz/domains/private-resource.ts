@@ -15,11 +15,13 @@ interface VisibilityDocument {
   _id?: string;
   id?: string;
   visibility?: string;
-  owner?: { type?: string };
+  owner?: { type?: string; id?: string };
+  owner_subject?: string;
+  owner_subject_kind?: string;
   sharedWithTeams?: string[];
 }
 
-async function loadVisibility(req: AuthorizeRequest): Promise<ResourceVisibility> {
+async function loadResource(req: AuthorizeRequest): Promise<VisibilityDocument | null> {
   let document: VisibilityDocument | null = null;
   if (req.resource.type === "agent") {
     const collection = await getCollection<VisibilityDocument>("dynamic_agents");
@@ -34,19 +36,27 @@ async function loadVisibility(req: AuthorizeRequest): Promise<ResourceVisibility
     return null;
   }
 
-  if (!document) return null;
+  return document;
+}
+
+function visibilityOf(document: VisibilityDocument, resourceType: string): ResourceVisibility {
   if (document.visibility === "private" || document.visibility === "team" || document.visibility === "global") {
     return document.visibility;
   }
-  if (req.resource.type === "secret_ref") {
-    return document.owner?.type === "user" && (document.sharedWithTeams?.length ?? 0) === 0
-      ? "private"
-      : "team";
-  }
-  return null;
+  return resourceType === "secret_ref" && document.owner?.type === "user"
+    && (document.sharedWithTeams?.length ?? 0) === 0 ? "private" : null;
 }
 
 export async function privateResourcePreCheck(req: AuthorizeRequest): Promise<AuthorizeResult | null> {
   if (!isPrivateResourcesEnabled() || !PRIVATE_DATA_ACTIONS.has(req.action)) return null;
-  return evaluatePrivateResourceContext(req, await loadVisibility(req));
+  const resource = await loadResource(req);
+  if (!resource) return null;
+  const visibility = visibilityOf(resource, req.resource.type);
+  if (visibility === "private") {
+    const owner = req.resource.type === "secret_ref" ? resource.owner?.id : resource.owner_subject;
+    if (req.subject.type !== "user" || !owner || owner !== req.subject.id) {
+      return { decision: "DENY", reason: "NO_CAPABILITY", retriable: false, via: "private_resource_owner" };
+    }
+  }
+  return evaluatePrivateResourceContext(req, visibility);
 }

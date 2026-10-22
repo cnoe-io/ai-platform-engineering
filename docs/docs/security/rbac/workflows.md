@@ -6,6 +6,52 @@ Sequence diagrams and flow narratives for "what happens when X". Pair this with 
 
 ---
 
+## Installed app assistant streams
+
+- Browser chat, app overlays and linked-user bot chats use the same start,
+  resume and cancel routes. The saved conversation's agent selects a
+  deployment-configured app; browser context and runtime hints grant no access.
+- Existing agent-use and conversation-write checks run before dispatch. The app
+  gateway then checks launch access and the declared POST policy using the exact
+  resolved caller. A second cookie lookup cannot replace a bearer identity.
+- Private origins stay server-side. The gateway uses the app's declared token
+  mode; service accounts cannot impersonate an interactive user for this path.
+- Disabled/conflicting app bindings fail closed. An app denial, unsupported
+  operation or upstream failure never falls back to another execution runtime.
+  Unclaimed agents use their pinned native/provider Harness Gateway path.
+- Apps remain responsible for resource authorization and runtime sessions. The
+  host forwards the authorized visible conversation ID without assigning a
+  Dynamic Agents checkpoint ID to the app.
+
+## Shared chat and Harness Gateway authorization
+
+| Operation | Required checks |
+|---|---|
+| Start, resume, Stop and app status | Authenticated principal, current agent use, conversation write, and a matching saved agent participant |
+| App-owned operation | The checks above, interactive-user identity, installed/enabled app, app launch access and declared HTTP policy |
+| Engine run detail, event polling and replay subscription | Engine run ownership, current agent use, conversation read and matching saved agent |
+| Engine cancellation by run ID | Engine run ownership, current agent use, conversation write and matching saved agent |
+| Direct Engine run admission | Current agent use and conversation write, matching saved agent and a provider-owned Harness Gateway binding |
+
+- Agent selection in a request cannot override a saved conversation participant.
+  Legacy conversations without an agent participant retain their existing
+  agent-use and conversation-access checks.
+- Service-account classification comes from authentication and remains
+  `service_account:<sub>` in CAS/OpenFGA checks. App-owned streams require an
+  interactive user. Engine requests carry an internal service credential and
+  the verified caller subject; provider SDKs receive no user bearer token.
+- The existing Slack write exception applies only to stored Slack conversations
+  and still requires agent use and a matching saved agent. History and replay
+  reads require conversation read permission; the write exception grants no
+  read access.
+- Engine ownership is checked before the BFF exposes run metadata or opens an
+  event subscription. The BFF rechecks current grants on each request and
+  reconnect, so retaining a run ID cannot bypass revoked access.
+- Existing open streams are not continuously reauthorized. Downstream app and
+  tool services retain their own resource authorization responsibilities.
+
+---
+
 ## Login + First-Time Broker Login
 
 This is the **once-per-session** flow. After it completes, the user holds a Keycloak-backed UI session and usually never sees Keycloak (or the upstream IdP — Okta / Duo SSO / etc.) again until the Keycloak SSO session can no longer be refreshed.
@@ -198,7 +244,7 @@ sequenceDiagram
 ```
 
 The same sequence applies to `POST /api/v1/chat/invoke`,
-`POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel` (cancel
+`POST /api/v1/chat/stream/resume`, `POST /api/v1/chat/stream/status`, and `POST /api/v1/chat/stream/cancel` (cancel
 does not start runtime work, but it still requires agent use and conversation write authorization). The RBAC Audit tab
 surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
 `pdp=openfga` and the checked tuple in `resource_ref`. audit-service
@@ -206,11 +252,40 @@ is authoritative for compliance and history; Jaeger/OTel can still be enabled
 for request-flow debugging, but the Admin UI does not need it to show authz
 decisions.
 
+After these checks, start/resume/cancel/status share the chat stream dispatcher.
+An installed app's declared operation uses the already authenticated caller in
+the shared app proxy; app errors and unsupported operations cannot dispatch to
+Dynamic Agents or Harness Engine. Native/provider operations retain their pinned
+Harness Gateway binding. App-owned assistants return 501 from non-streaming
+invoke, which has no declared app operation.
+
 Slack follow-up bookkeeping uses `PATCH /api/chat/conversations/[id]/metadata`
 after a response is posted. That endpoint uses the same implicit-owner-or-explicit
 conversation write check, so a Slack OBO token for the conversation owner can
 update thread metadata such as `last_processed_ts` without a separate
 `conversation:<id>#writer` tuple.
+
+## Autonomous Runs and Private Follow-ups
+
+- Unattended tasks request a short-lived owner bearer using the configured
+  scheduler-runner token-exchange client. The requested subject comes from the
+  stored task owner, not webhook payloads. Dynamic Agents checks the owner's
+  Autonomous eligibility (`organization:automate`) and agent access (`agent:use`)
+  through CAS before execution; downstream tools receive that owner bearer.
+- The Helm credential wiring also applies when Autonomous is enabled but the
+  separate scheduler feature is disabled. This does not narrow Keycloak's
+  token-exchange policy: operators must restrict the client credential's access
+  and review the subjects/audiences it can impersonate.
+- Private follow-up endpoints require a validated interactive-user bearer.
+  Identity and admin flags from `X-User-Context` are ignored. A token without
+  email uses the persisted subject-to-email directory; unresolved identities
+  fail closed. Task/run ownership is checked, with admin access decided by CAS's
+  organization `manage` policy. Creating a copy also requires agent-use access.
+- Each caller/run has its own private follow-up. Copy attempts are journaled and
+  lease-fenced; recovery isolates bad records and retries failed cleanup without
+  modifying successful chats. Missing destination checkpoints cannot reopen as
+  empty chats. After permanent deletion, an explicit continuation creates a new
+  copy only if the original run's saved context remains available.
 
 ## Service Account Create & External Call
 
@@ -315,7 +390,7 @@ sequenceDiagram
 - **Canonical subject namespacing is applied at FOUR layers**, all using the same T002 rule
   (`preferred_username` starts `service-account-` → `service_account:<sub>`, else `user:<sub>`):
   (1) BFF resource-authz, (2) **BFF agent-use check `requireAgentUsePermission`** (the layer the SA
-  invoke path hits — added for #35), (3) Dynamic Agents backend (`openfga_authz.py`, WS-G), and
+  invoke path hits — added for #35), (3) Dynamic Agents CAS client (`auth/authz.py`, WS-G), and
   (4) the AgentGateway bridge (WS-F). For SA subjects the BFF agent-use check also **skips** the
   email-principal and team-union fallbacks — those are human concepts; an SA's access is its own direct
   grants only (FR-020 static access).
@@ -344,8 +419,8 @@ Subject namespacing is consistent across every enforcement layer: a token is a
 **service account** iff its `preferred_username` claim starts with
 `service-account-` (Keycloak client-credentials tokens). Such callers are graphed
 as `service_account:<sub>`; everyone else is `user:<sub>`. The same rule is used
-by the BFF (`ui/src/lib/jwt-validation.ts`), the Dynamic Agents backend
-(`auth/openfga_authz.py`), and the bridge (`deploy/openfga/bridge/main.py`).
+by the BFF (`ui/src/lib/jwt-validation.ts`), the Dynamic Agents CAS client
+(`auth/authz.py`), and the bridge (`deploy/openfga/bridge/main.py`).
 
 The bridge's per-`tools/call` decision (replaces the single agent-tool check above):
 
@@ -1403,11 +1478,11 @@ sequenceDiagram
 
 ---
 
-## Slack Identity Linking (Auto-Bootstrap + JIT + Forced Link)
+## Slack Identity Linking (Auto-Bootstrap + JIT)
 
-There are three onboarding paths, in priority order: **(1) auto-link to existing Keycloak user**, **(2) JIT-create a new shell user** (spec 103), **(3) HMAC-signed link URL** as fallback.
+There are two onboarding paths, in priority order: **(1) auto-link to existing Keycloak user**, **(2) JIT-create a new shell user** (spec 103).
 
-### 1. Auto-bootstrap (default, `SLACK_FORCE_LINK=false`)
+### 1. Auto-bootstrap
 
 On the user's first Slack message the bot:
 
@@ -1424,25 +1499,15 @@ When no existing Keycloak user matches the Slack email, and JIT is enabled, the 
 2. **POSTs to the BFF `/api/admin/users/provision-shell`** with its `caipe-slack-bot` service-account token (gated `writer admin_surface:user_provisioning` in OpenFGA). The BFF — not the bot — calls Keycloak Admin to create-or-resolve the user.
 3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>` (the BFF owns the `created_by`/`created_at` stamping).
 4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID (handled BFF-side).
-5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and falls through to step 3.
+5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and the user is treated as unlinked.
 
-JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case all unknown emails go to the link URL below.
+JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case an unmatched user is treated as unlinked and told to contact an admin.
 
 > **First-party-BFF design.** The bot holds no Keycloak Admin credentials: provisioning (and every other Keycloak user operation) goes through the BFF authenticated by the bot's `caipe-slack-bot` service-account token and authorized by an OpenFGA grant (`writer admin_surface:user_provisioning`). Realm-management privilege lives only in the BFF. All JIT actions are logged with stable `event=jit_*` tokens for SIEM. This superseded spec 103's earlier single-credential design (which reused the `caipe-platform` admin client directly from the bot) — see spec [2026-06-09-slack-bot-remove-direct-keycloak-admin](../../specs/2026-06-09-slack-bot-remove-direct-keycloak-admin/plan.md).
 
-### 3. Explicit link URL (fallback or `SLACK_FORCE_LINK=true`)
+There is no interactive/bearer-link onboarding path: a signed link is redeemable by whoever holds it, not provably by the intended Slack user, so it was removed as a security hole. When auto-link returns no user **and** JIT is disabled / domain not allow-listed / JIT failed, the user is treated as unlinked (minimum-access fallback, contact-admin messaging) rather than offered a link.
 
-Whenever auto-link returns no user **and** JIT is disabled / domain not allow-listed / JIT failed, the bot DMs an HMAC-signed URL:
-
-```
-/api/auth/slack-link?slack_user_id=U09TC6RR8KX&ts=1713196400&sig=<HMAC-SHA256>
-```
-
-The HMAC signature uses `SLACK_LINK_HMAC_SECRET`, prevents forged links, and is time-bound (TTL enforced server-side). After OIDC login, the server writes `slack_user_id` to the Keycloak user via the Admin API.
-
-The user **always** gets an actionable path forward — the previous "contact your admin" dead-end was removed in spec 103 (FR-007).
-
-In all three modes, once the link is established, all future Slack messages carry the user's Keycloak identity automatically — no repeated login.
+In both modes, once the link is established, all future Slack messages carry the user's Keycloak identity automatically — no repeated login.
 
 ### Privacy in logs
 

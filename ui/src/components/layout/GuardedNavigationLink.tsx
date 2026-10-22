@@ -9,6 +9,7 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
+  "/knowledge-bases/collections",
 ];
 
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
@@ -35,6 +36,8 @@ export function isOnHeaderDialogEditor(
 interface GuardedNavigationLinkProps {
   "aria-current"?: "page";
   "aria-label"?: string;
+  "data-navigation-leaf"?: string;
+  "data-testid"?: string;
   children: React.ReactNode;
   className?: string;
   dataNavKey?: string;
@@ -57,6 +60,8 @@ export function GuardedNavigationLink({
   title,
   "aria-current": ariaCurrent,
   "aria-label": ariaLabel,
+  "data-navigation-leaf": dataNavigationLeaf,
+  "data-testid": testId,
 }: GuardedNavigationLinkProps): React.ReactElement {
   const { hasUnsavedChanges,requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
@@ -75,7 +80,9 @@ export function GuardedNavigationLink({
       aria-current={ariaCurrent}
       aria-label={ariaLabel}
       className={className}
+      data-navigation-leaf={dataNavigationLeaf}
       data-nav-key={dataNavKey}
+      data-testid={testId}
       href={href}
       onClick={handleClick}
       prefetch={prefetch}

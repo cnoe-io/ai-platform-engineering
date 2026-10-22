@@ -6,13 +6,13 @@
 // Enums
 // =============================================================================
 
-export type TransportType = 'stdio' | 'sse' | 'http';
+export type TransportType = "stdio" | "sse" | "http";
 
 /**
  * Visibility of a dynamic agent.
  *
- *   - `private`: only the human owner may use it, and only from a verified
- *                Slack DM or Webex 1:1 interaction.
+ *   - `private`: only the human owner may use it, and only from a personal
+ *                web session or verified Slack/Webex direct message.
  *   - `team`:   the owner team's members get `can_use`; the owner team's
  *               admins get `can_manage`. Additional teams in
  *               `shared_with_teams` get `can_use`.
@@ -22,12 +22,7 @@ export type TransportType = 'stdio' | 'sse' | 'http';
  */
 export type VisibilityType = 'private' | 'team' | 'global';
 
-/**
- * Wire-level type accepted on the way IN to the BFF. We still accept the
- * historical `'private'` string so old clients (and Mongo docs being
- * re-saved) don't fail outright — the BFF normalizes it to `'team'` and
- * surfaces a deprecation warning in the response.
- */
+/** Compatibility alias for API clients using the older type name. */
 export type LegacyVisibilityType = VisibilityType;
 
 // =============================================================================
@@ -39,14 +34,14 @@ export interface MCPServerConfig {
   name: string;
   description?: string;
   transport: TransportType;
-  endpoint?: string;  // For sse/http transports
-  command?: string;   // For stdio transport
-  args?: string[];    // For stdio transport
-  env?: Record<string, string>;  // For stdio transport
+  endpoint?: string; // For sse/http transports
+  command?: string; // For stdio transport
+  args?: string[]; // For stdio transport
+  env?: Record<string, string>; // For stdio transport
   credential_sources?: MCPCredentialSource[];
   enabled: boolean;
-  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
-  source?: 'manual' | 'config' | 'agentgateway';
+  config_driven?: boolean; // Whether loaded from config.yaml (not editable)
+  source?: "manual" | "config" | "agentgateway";
   agentgateway_discovered?: boolean;
   agentgateway_endpoint?: string;
   agentgateway_target_endpoint?: string;
@@ -59,6 +54,26 @@ export interface MCPServerConfig {
   shared_with_teams?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface RemoteAgentRegistryEntry {
+  _id: string;
+  name: string;
+  description?: string;
+  endpoint?: string;
+  timeout_seconds: number;
+  streaming?: boolean;
+  credential_source?: RemoteAgentCredentialSource;
+  protocol_version?: string;
+  protocol_bindings?: string[];
+}
+
+export interface RemoteAgentCredentialSource {
+  kind: "caller_token" | "secret_ref" | "provider_connection";
+  target: "header";
+  name: string;
+  secret_ref?: string;
+  provider?: string;
 }
 
 /** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */
@@ -78,8 +93,8 @@ export interface MCPServerConfigWithPermissions extends MCPServerConfig {
 }
 
 export interface MCPCredentialSource {
-  kind: 'secret_ref' | 'provider_connection' | 'caller_token';
-  target: 'env' | 'header';
+  kind: "secret_ref" | "provider_connection" | "caller_token";
+  target: "env" | "header";
   name: string;
   secret_ref?: string;
   provider_connection_id?: string;
@@ -90,7 +105,7 @@ export interface MCPCredentialSource {
    * reused for all callers — was removed for security; the value is still
    * accepted on the wire so old documents parse, but it is ignored.
    */
-  connection_scope?: 'caller' | 'pinned';
+  connection_scope?: "caller" | "pinned";
   /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
   fallback_env?: string;
   /** caller_token: mint a service client-credentials token when no user JWT. */
@@ -98,7 +113,7 @@ export interface MCPCredentialSource {
 }
 
 export interface MCPServerConfigCreate {
-  id: string;  // User-provided slug ID
+  id: string; // User-provided slug ID
   name: string;
   description?: string;
   transport: TransportType;
@@ -155,11 +170,11 @@ export interface MCPServerProbeResult {
  * Returned by the /api/v1/builtin-tools endpoint.
  */
 export interface BuiltinToolConfigField {
-  name: string;           // Field name (e.g., 'allowed_domains')
-  type: 'string' | 'number' | 'boolean';
-  label: string;          // Display label for UI
-  description: string;    // Help text for users
-  default?: string | number | boolean;  // Default value
+  name: string; // Field name (e.g., 'allowed_domains')
+  type: "string" | "number" | "boolean";
+  label: string; // Display label for UI
+  description: string; // Help text for users
+  default?: string | number | boolean; // Default value
   required?: boolean;
 }
 
@@ -167,9 +182,9 @@ export interface BuiltinToolConfigField {
  * Definition of a built-in tool returned by the API.
  */
 export interface BuiltinToolDefinition {
-  id: string;             // Tool identifier (e.g., 'fetch_url')
-  name: string;           // Display name
-  description: string;    // What the tool does
+  id: string; // Tool identifier (e.g., 'fetch_url')
+  name: string; // Display name
+  description: string; // What the tool does
   enabled_by_default: boolean;
   config_fields: BuiltinToolConfigField[];
 }
@@ -179,7 +194,7 @@ export interface BuiltinToolDefinition {
  */
 export interface FetchUrlToolConfig {
   enabled: boolean;
-  /** 
+  /**
    * Comma-separated domain patterns.
    * - "*" allows all domains
    * - "*.cisco.com" allows any subdomain of cisco.com
@@ -208,7 +223,7 @@ export interface UserInfoToolConfig {
  */
 export interface SleepToolConfig {
   enabled: boolean;
-  max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
+  max_seconds?: number; // Maximum sleep duration in seconds (default: 300)
 }
 
 /**
@@ -220,7 +235,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
-  workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
+  workflows?: string[] | null; // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }
@@ -247,9 +262,9 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
  * Used when gradient_theme is "custom".
  */
 export interface CustomThemeConfig {
-  gradient_from: string;   // CSS color for gradient start (hex, hsl, etc.)
-  gradient_to: string;     // CSS color for gradient end
-  accent_color: string;    // Tint color for the bot avatar SVG stroke
+  gradient_from: string; // CSS color for gradient start (hex, hsl, etc.)
+  gradient_to: string; // CSS color for gradient end
+  accent_color: string; // Tint color for the bot avatar SVG stroke
 }
 
 /**
@@ -257,8 +272,8 @@ export interface CustomThemeConfig {
  * Controls visual appearance like gradient themes.
  */
 export interface AgentUIConfig {
-  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset'), "custom", or empty for global default
-  custom_theme_config?: CustomThemeConfig;  // Only used when gradient_theme === "custom"
+  gradient_theme?: string; // Theme ID (e.g., 'ocean', 'sunset'), "custom", or empty for global default
+  custom_theme_config?: CustomThemeConfig; // Only used when gradient_theme === "custom"
 }
 
 // =============================================================================
@@ -270,7 +285,7 @@ export interface AgentUIConfig {
  * Entries are ordered — the list defines execution order.
  */
 export interface MiddlewareEntry {
-  type: string;    // Middleware type key (e.g. 'model_retry', 'pii')
+  type: string; // Middleware type key (e.g. 'model_retry', 'pii')
   enabled: boolean;
   params: Record<string, unknown>;
 }
@@ -314,9 +329,12 @@ export interface MiddlewareDefinition {
  * Groups model identifier and provider into a single nested object.
  */
 export interface ModelConfig {
-  id: string;       // LLM model identifier (e.g., 'claude-sonnet-4-20250514')
+  id: string; // LLM model identifier (e.g., 'claude-sonnet-4-20250514')
   provider: string; // LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)
+  reasoning_effort?: ReasoningEffort;
 }
+
+export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 // =============================================================================
 // Dynamic Agent Types
@@ -327,9 +345,9 @@ export interface ModelConfig {
  * When configured, the parent agent can delegate tasks to this subagent.
  */
 export interface SubAgentRef {
-  agent_id: string;     // MongoDB ObjectId of the subagent
-  name: string;         // Routing identifier (e.g., 'code-reviewer')
-  description: string;  // Description for LLM routing decisions
+  agent_id: string; // MongoDB ObjectId of the subagent
+  name: string; // Routing identifier (e.g., 'code-reviewer')
+  description: string; // Description for LLM routing decisions
 }
 
 /**
@@ -348,7 +366,10 @@ export interface InterruptToolConfig {
  * Tool name "*" means all tools in that namespace.
  * `true` is shorthand for { allowed_decisions: ["approve", "edit", "reject"] }.
  */
-export type InterruptOn = Record<string, Record<string, boolean | InterruptToolConfig>>;
+export type InterruptOn = Record<
+  string,
+  Record<string, boolean | InterruptToolConfig>
+>;
 
 /**
  * SSE interrupt payload — discriminated union by `type`.
@@ -357,7 +378,13 @@ export interface FormInputInterrupt {
   type: "form_input";
   interrupt_id: string;
   prompt: string;
-  fields: Array<{ field_name: string; field_type: string; description?: string; required?: boolean; options?: string[] }>;
+  fields: Array<{
+    field_name: string;
+    field_type: string;
+    description?: string;
+    required?: boolean;
+    options?: string[];
+  }>;
   agent: string;
 }
 
@@ -387,24 +414,64 @@ export type ResumeData =
   | { type: "form_input"; dismissed: true }
   | { type: "tool_approval"; decision: "approve" }
   | { type: "tool_approval"; decision: "reject" }
-  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> }
-  | { type: "tool_approval"; decisions: Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }> };
+  | {
+      type: "tool_approval";
+      decision: "edit";
+      edited_args: Record<string, unknown>;
+    }
+  | {
+      type: "tool_approval";
+      decisions: Array<{
+        decision: string;
+        tool_name?: string;
+        edited_args?: Record<string, unknown>;
+      }>;
+    };
+
+/** Read-only catalog projection. Never persisted or used to select a runtime or grant access. */
+export interface AgentPresentation {
+  app: { id: string; name: string; icon?: string };
+  available: boolean;
+}
 
 export interface DynamicAgentConfig {
+  /** Deployment-owned, opt-in model-input projection. Not a permission grant. */
+  app_context_prompt?: { app_ids: string[]; fields: string[]; max_bytes?: number };
   _id: string;
+  readonly presentation?: AgentPresentation;
+  /** Runtime selected by Harness Gateway. Missing legacy values mean Dynamic Agents. */
+  execution_harness_id?: string;
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools: Record<string, string[] | boolean>;  // server_id -> tool names, true=all, false=disabled
-  builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
-  model: ModelConfig;  // Required: LLM model configuration
+  allowed_tools: Record<string, string[] | boolean>; // server_id -> tool names, true=all, false=disabled
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
+  builtin_tools?: BuiltinToolsConfig; // Built-in tools configuration
+  model?: ModelConfig; // Required for Deep Agents; other harnesses use their operator profile.
   visibility: VisibilityType;
   shared_with_teams?: string[];
-  subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
-  skills: string[];  // Skill document IDs from agent_skills collection
-  ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
-  features?: FeaturesConfig;  // Middleware and feature flags
-  interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
+  subagents: SubAgentRef[]; // Other dynamic agents that can be delegated to
+  skills: string[]; // Skill document IDs from agent_skills collection
+  /**
+   * RAG datasource ids (== source_id == knowledge_base_id) this agent's
+   * search tool is pinned to. Narrows, never widens: the runtime intersects
+   * this list with the caller's RBAC-accessible datasources. Leaving both
+   * this and rag_collection_ids unset is the intentional "unrestricted"
+   * default - the agent searches whatever the calling user can already
+   * access, with no additional agent-level narrowing. An explicit empty
+   * list is a deliberate opt-out that disables RAG tools entirely.
+   */
+  datasource_ids?: string[];
+  /**
+   * RAG collection ids expanded to their current datasource membership at
+   * tool-call time. This keeps delegated collections automatically updated
+   * without rewriting every agent whenever a maintainer adds/removes a source.
+   */
+  rag_collection_ids?: string[];
+  ui?: AgentUIConfig; // UI configuration (gradient theme, etc.)
+  features?: FeaturesConfig; // Middleware and feature flags
+  interrupt_on?: InterruptOn; // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
   owner_subject?: string;
@@ -419,7 +486,7 @@ export interface DynamicAgentConfig {
   owner_team_slug?: string;
   owner_team_id?: string;
   is_system: boolean;
-  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  config_driven?: boolean; // Whether loaded from config.yaml (not editable)
   /**
    * Set by the "Import from YAML" admin flow. Once true, seed-config.ts's
    * seedAgents()/cleanupStaleConfigDriven() skip this agent ID entirely —
@@ -464,13 +531,16 @@ export type DynamicAgentConfigWithPermissions = DynamicAgentBrowserConfig & {
 };
 
 export interface DynamicAgentConfigCreate {
-  id: string;  // Required: User-friendly slug ID derived from name
+  id: string; // Required: User-friendly slug ID derived from name
+  execution_harness_id?: string;
   name: string;
   description?: string;
   system_prompt: string;
   allowed_tools?: Record<string, string[] | boolean>;
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig;
-  model: ModelConfig;  // Required: LLM model configuration
+  model?: ModelConfig; // Required for Deep Agents; other harnesses use their operator profile.
   /** Access scope for the agent. */
   visibility?: LegacyVisibilityType;
   shared_with_teams?: string[];
@@ -479,6 +549,10 @@ export interface DynamicAgentConfigCreate {
   owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
+  /** Omit entirely for the unrestricted default (see DynamicAgentConfig). */
+  datasource_ids?: string[];
+  /** Omit entirely for the unrestricted default (see DynamicAgentConfig). */
+  rag_collection_ids?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;
@@ -487,10 +561,13 @@ export interface DynamicAgentConfigCreate {
 }
 
 export interface DynamicAgentConfigUpdate {
+  execution_harness_id?: string;
   name?: string;
   description?: string;
   system_prompt?: string;
   allowed_tools?: Record<string, string[] | boolean>;
+  allowed_remote_agents?: string[];
+  remote_agent_timeouts?: Record<string, number>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
   /** Access scope for the agent. */
@@ -501,6 +578,10 @@ export interface DynamicAgentConfigUpdate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];
+  /** `null` clears back to the unrestricted default; omit to leave as-is. */
+  datasource_ids?: string[] | null;
+  /** `null` clears back to the unrestricted default; omit to leave as-is. */
+  rag_collection_ids?: string[] | null;
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;
@@ -525,19 +606,19 @@ export interface AvailableSubagent {
 // =============================================================================
 
 export interface LLMModelConfig {
-  _id: string;          // model_id
+  _id: string; // model_id
   model_id: string;
   name: string;
   provider: string;
   description?: string;
-  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  config_driven?: boolean; // Whether loaded from config.yaml (not editable)
   owner_subject?: string;
   owner_id?: string;
   updated_at: string;
 }
 
 export interface LLMModelCreate {
-  model_id: string;     // Unique model identifier (e.g., "gpt-4o")
+  model_id: string; // Unique model identifier (e.g., "gpt-4o")
   name: string;
   provider: string;
   description?: string;
@@ -560,7 +641,7 @@ export interface ChatRequest {
 }
 
 export interface ChatEvent {
-  type: 'content' | 'tool_start' | 'tool_end' | 'error' | 'done';
+  type: "content" | "tool_start" | "tool_end" | "error" | "done";
   data?: string | Record<string, unknown>;
 }
 

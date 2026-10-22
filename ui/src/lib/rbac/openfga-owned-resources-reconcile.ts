@@ -1,3 +1,4 @@
+import { getCollection } from "@/lib/mongodb";
 // assisted-by Cursor:composer-2.5
 // assisted-by Codex Codex-sonnet-4-6
 //
@@ -39,6 +40,11 @@ import {
   type ShareableResourceInput,
 } from "./openfga-owned-resources";
 import { openFgaResourceId } from "./openfga-resource-ids";
+import {
+  isEveryoneKnowledgeAudience,
+  reconcileExistingUnlinkedKnowledgeAccess,
+  withUnlinkedEveryoneKnowledgeAccess,
+} from "./unlinked-knowledge-access";
 
 export { OpenFgaReconcileRequiredError } from "@/lib/authz";
 
@@ -159,15 +165,51 @@ export async function reconcileShareableResource(
   return reconcileOwnedResource(buildShareableResourceTupleDiff(input));
 }
 
+async function privateMcpServerTupleDiff(
+  input: McpServerRelationshipInput,
+  base: TeamResourceTupleDiff,
+): Promise<TeamResourceTupleDiff> {
+  const owner = `user:${input.ownerSubject}`;
+  const serverObject = `mcp_server:${input.serverId}`;
+  const agents = await getCollection<{ _id: string }>("dynamic_agents");
+  const ownedAgents = await agents.find({
+    visibility: "private", owner_subject: input.ownerSubject,
+    [`allowed_tools.${input.serverId}`]: { $exists: true, $ne: false },
+  }).toArray();
+  const permittedAgents = new Set(ownedAgents.map((agent) => `agent:${agent._id}`));
+  const existing = await readAllTuplesForObject(serverObject);
+  // OpenFGA's type-only read includes exact tool ids as well as both legacy
+  // and gateway wildcards. Read every page before issuing the CAS diff.
+  for (const type of ["tool:", "mcp_tool:"]) {
+    const tuples = await readAllTuplesForObject(type);
+    existing.push(...tuples.filter((tuple) =>
+      tuple.object.startsWith(`${type}${input.serverId}/`)
+      || tuple.object === `${type}${input.serverId}_*`,
+    ));
+  }
+  const allowed = (tuple: OpenFgaTupleKey): boolean => {
+    if (tuple.object === serverObject) {
+      return tuple.relation === "creator" || tuple.relation === "private_marker"
+        || (tuple.user === owner && tuple.relation === "owner");
+    }
+    return tuple.user === owner || permittedAgents.has(tuple.user);
+  };
+  const writes = base.writes.filter(allowed);
+  return {
+    writes,
+    deletes: uniqueTuples([...base.deletes, ...existing.filter((tuple) => !allowed(tuple))]),
+  };
+}
+
 export async function reconcileMcpServerRelationships(
   input: McpServerRelationshipInput,
   ctx?: TupleReconcileContext,
 ): Promise<OpenFgaReconcileResult> {
   const ownerKind = input.ownerSubjectKind ?? "user";
-  const diff = await withMcpServerToolWildcardBackfill(
-    input.serverId,
-    buildMcpServerRelationshipTupleDiff(input),
-  );
+  const base = buildMcpServerRelationshipTupleDiff(input);
+  const diff = input.personalOwnerAccess
+    ? await privateMcpServerTupleDiff(input, base)
+    : await withMcpServerToolWildcardBackfill(input.serverId, base);
   return reconcileTupleDiff(diff, {
     ...ctx,
     source: ctx?.source ?? "mcp_server_create",
@@ -222,7 +264,26 @@ export async function reconcileConfigDrivenLlmModelRelationships(
 export async function reconcileKnowledgeBaseRelationships(
   input: KnowledgeBaseRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildKnowledgeBaseRelationshipTupleDiff(input));
+  const previousEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.previousSharedTeamSlugs,
+  );
+  const nextEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.nextSharedTeamSlugs,
+  );
+  const diff = await withUnlinkedEveryoneKnowledgeAccess(
+    {
+      type: "datasource",
+      id: input.knowledgeBaseId,
+      previousEveryoneAccess,
+      nextEveryoneAccess,
+    },
+    buildKnowledgeBaseRelationshipTupleDiff(input),
+  );
+  const result = await reconcileOwnedResource(diff);
+  if (previousEveryoneAccess && !nextEveryoneAccess) {
+    await reconcileExistingUnlinkedKnowledgeAccess();
+  }
+  return result;
 }
 
 export async function reconcileDataSourceRelationships(
@@ -243,6 +304,57 @@ export async function reconcileIngestionSourceRelationships(
   return reconcileOwnedResource(buildIngestionSourceRelationshipTupleDiff(input));
 }
 
+async function deleteAllRelationshipTuplesForObject(
+  object: string,
+  source: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  if (!isOpenFgaReconciliationEnabled()) {
+    throw new OpenFgaReconcileRequiredError();
+  }
+
+  const deletes = await readAllTuplesForObject(object);
+  const diff = { writes: [] as OpenFgaTupleKey[], deletes: uniqueTuples(deletes) };
+  assertReconciliationEnabled(diff);
+  return reconcileTupleDiff(diff, { ...ctx, source: ctx?.source ?? source });
+}
+
+/** Remove every management tuple for an ingestion-source config row. */
+export async function deleteAllIngestionSourceRelationshipTuples(
+  sourceId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `ingestion_source:${sourceId}`,
+    "ingestion_source_delete",
+    ctx,
+  );
+}
+
+/** Remove every query/share tuple for a knowledge base. */
+export async function deleteAllKnowledgeBaseRelationshipTuples(
+  knowledgeBaseId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `knowledge_base:${knowledgeBaseId}`,
+    "knowledge_base_delete",
+    ctx,
+  );
+}
+
+/** Remove every tuple for a datasource, including its parent_kb edge. */
+export async function deleteAllDataSourceRelationshipTuples(
+  dataSourceId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  return deleteAllRelationshipTuplesForObject(
+    `data_source:${dataSourceId}`,
+    "data_source_delete",
+    ctx,
+  );
+}
+
 /**
  * Remove every tuple targeting `mcp_tool:<toolId>` so deleting a custom MCP
  * tool leaves no orphaned grants.
@@ -250,25 +362,10 @@ export async function reconcileIngestionSourceRelationships(
 export async function deleteAllMcpToolRelationshipTuples(
   toolId: string,
 ): Promise<OpenFgaReconcileResult> {
-  if (!isOpenFgaReconciliationEnabled()) {
-    throw new OpenFgaReconcileRequiredError();
-  }
-
-  const object = `mcp_tool:${toolId}`;
-  const allTuples: OpenFgaTupleKey[] = [];
-  let continuationToken: string | undefined;
-  do {
-    const page = await readOpenFgaTuples({ tuple: { object }, continuationToken });
-    allTuples.push(...page.tuples.map((tuple) => tuple.key));
-    continuationToken = page.continuationToken;
-  } while (continuationToken);
-
-  const diff = {
-    writes: [] as OpenFgaTupleKey[],
-    deletes: allTuples.filter((tuple) => tuple.object === object),
-  };
-  assertReconciliationEnabled(diff);
-  return reconcileTupleDiff(diff, { source: "mcp_tool_delete" });
+  return deleteAllRelationshipTuplesForObject(
+    `mcp_tool:${toolId}`,
+    "mcp_tool_delete",
+  );
 }
 
 const MCP_TOOL_WILDCARD_SUFFIX = "_*";

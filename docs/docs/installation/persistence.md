@@ -4,25 +4,45 @@ sidebar_position: 5
 
 # Persistence
 
-CAIPE stores chat history and dynamic-agent runtime state in MongoDB.
+CAIPE stores platform state through the MongoDB wire protocol. MongoDB remains
+the default provider; the open-source, PostgreSQL-backed
+[DocumentDB](https://github.com/documentdb/documentdb) provider is opt-in.
 
 ## What Persists
 
 | Data | Owner | Storage |
 |---|---|---|
-| Conversation list and metadata | UI/BFF | MongoDB `conversations` collection |
-| Dynamic-agent checkpoints | Dynamic Agents | MongoDB `checkpoints_conversation` collection |
-| Dynamic-agent checkpoint writes | Dynamic Agents | MongoDB `checkpoint_writes_conversation` collection |
-| Dynamic-agent file state | Dynamic Agents | MongoDB GridFS |
-| UI configuration and admin data | UI/BFF | MongoDB collections |
+| Conversation list and metadata | UI/BFF | `conversations` collection |
+| Dynamic-agent checkpoints | Dynamic Agents | `checkpoints_conversation` collection |
+| Dynamic-agent checkpoint writes | Dynamic Agents | `checkpoint_writes_conversation` collection |
+| Dynamic-agent file state | Dynamic Agents | GridFS |
+| UI configuration and admin data | UI/BFF | Document collections |
 
 Dynamic Agents use LangGraph's MongoDB checkpointer internally, but operators
 configure it with the shared `MONGODB_URI` and `MONGODB_DATABASE` settings.
 
 ## Docker Compose
 
-The default compose files include MongoDB. Set `MONGODB_URI` only when pointing
-the stack at an external MongoDB or DocumentDB instance.
+The default Compose profile includes MongoDB. To use DocumentDB with the setup
+helper:
+
+```bash
+./setup-caipe.sh --docker-compose --database=documentdb
+```
+
+For a direct Compose invocation, select the DocumentDB profile and URI:
+
+```bash
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-documentdb,web_ingestor
+DATABASE_PROVIDER=documentdb
+MONGODB_URI=mongodb://admin:changeme@caipe-documentdb:10260/caipe?tls=true&tlsAllowInvalidCertificates=true&retryWrites=false&directConnection=true
+```
+
+The `tlsAllowInvalidCertificates` setting is limited to the bundled local image,
+which generates a self-signed certificate. Use a trusted CA for external or
+production DocumentDB deployments.
+
+The MongoDB default remains:
 
 ```bash
 MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin
@@ -37,8 +57,7 @@ COMPOSE_PROFILES=caipe-ui,dynamic-agents,caipe-mongodb docker compose -f docker-
 
 ## Helm
 
-The umbrella chart can deploy the bundled MongoDB subchart for the UI and
-dynamic-agent runtime:
+The umbrella chart can deploy either provider. MongoDB is the default:
 
 ```yaml
 tags:
@@ -54,6 +73,36 @@ dynamic-agents:
     MONGODB_DATABASE: caipe
 ```
 
+To opt into DocumentDB, first create the shared connection Secret. Replace the
+release-name placeholder if your Helm release is not `caipe`:
+
+```bash
+kubectl create secret generic caipe-documentdb-uri \
+  --from-literal=MONGODB_URI='mongodb://admin:<password>@caipe-documentdb:10260/caipe?tls=true&tlsAllowInvalidCertificates=true&retryWrites=false&directConnection=true'
+```
+
+```yaml
+caipe-ui:
+  existingSecret: caipe-documentdb-uri
+  mongodb:
+    enabled: true
+
+mongodb:
+  provider: documentdb
+  nameOverride: documentdb
+  strictPasswords: true
+  auth:
+    rootUsername: admin
+    rootPassword: <password>
+    database: caipe
+
+dynamic-agents:
+  existingSecret: caipe-documentdb-uri
+```
+
+See `charts/ai-platform-engineering/values-documentdb.yaml.example` for the
+complete opt-in values shape.
+
 For an external MongoDB, provide the connection string through a Secret or
 ExternalSecret that is mounted into both `caipe-ui` and `dynamic-agents` as
 `MONGODB_URI`.
@@ -68,9 +117,58 @@ dynamic-agents:
     MONGODB_DATABASE: caipe
 ```
 
+### AWS DocumentDB with External Secrets Operator
+
+The optional `caipeDatabase` values let the parent chart manage the shared UI
+ExternalSecret. They select the URI source and health-check host; they do not
+deploy a database or migrate data. MongoDB remains the default backend.
+
+```yaml
+caipeDatabase:
+  manageExternalSecret: true
+  backend: documentdb
+  secretName: caipe-runtime-secrets
+  documentdb:
+    remoteKey: projects/example/test/documentdb
+    host: cluster.example.test
+
+caipe-ui:
+  existingSecret: caipe-runtime-secrets
+  externalSecrets:
+    enabled: false # The parent chart owns this ExternalSecret.
+    secretStoreRef:
+      name: example-store
+      kind: ClusterSecretStore
+    data:
+      - secretKey: MONGODB_URI
+        remoteRef:
+          key: projects/example/test/mongodb
+          property: MONGODB_URI
+      # Keep the other UI Secret entries here.
+
+dynamic-agents:
+  existingSecret: caipe-runtime-secrets
+```
+
+The chart uses the configured `secretStoreRef` and preserves the URI entry's
+`remoteRef.property`, so the store can be Vault, AWS Secrets Manager, or another
+External Secrets Operator provider. For MongoDB, set `backend: mongodb` and keep
+the existing URI key and `caipe-ui.config.MONGODB_HOST`.
+
+For AWS DocumentDB, use a URI with verified TLS, `authSource=admin`, and
+`retryWrites=false`. Distribute the required CA ConfigMap to the application
+namespace and mount its `global-bundle.pem` into every consumer at the path
+referenced by the URI. The chart does not create the CA ConfigMap. Restart
+consumers after the shared Secret or CA bundle changes.
+
 ## Runtime Notes
 
 - Browser chat uses persistent dynamic-agent sessions.
 - `POST /invoke` is stateless by default to avoid surprise MongoDB writes.
 - Set `dynamic-agents.config.INVOKE_PERSIST_HISTORY=true` only for callers that
   reuse `conversation_id` and need `/invoke` history.
+- The bundled DocumentDB image is pinned to `pg17-0.113.0`; upstream warns that
+  `0.114.0` closes active connections after two hours.
+- Switching providers does not migrate existing data. Back up with `mongodump`,
+  restore with `mongorestore`, compare collection counts and indexes, and keep
+  the source volume until rollback is no longer needed.

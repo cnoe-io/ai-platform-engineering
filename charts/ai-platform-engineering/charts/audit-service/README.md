@@ -8,17 +8,17 @@ Lightweight CAIPE audit log read/write service
 
 | | |
 |---|---|
-| **Version** | `0.5.68` |
+| **Version** | `1.1.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install audit-service oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
+helm install audit-service oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0
 
 # Upgrade an existing release
-helm upgrade audit-service oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
+helm upgrade audit-service oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install audit-service oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68 \
+helm install audit-service oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install audit-service oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68 \
+helm install audit-service oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
+helm show values oci://ghcr.io/caipe-io/charts/audit-service --version 1.1.0
 ```
 
 ## Reading the Values Table
@@ -57,7 +57,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
 | extraEnvFrom | list | `[]` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-audit-service"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-audit-service"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | livenessProbe.failureThreshold | int | `3` |  |
@@ -73,6 +73,9 @@ helm show values oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
 | persistence.size | string | `"10Gi"` |  |
 | persistence.storageClass | string | `""` |  |
 | podAnnotations | object | `{}` |  |
+| podDisruptionBudget.annotations | object | `{}` |  |
+| podDisruptionBudget.enabled | bool | `false` |  |
+| podDisruptionBudget.maxUnavailable | int | `1` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext.fsGroup | int | `1001` |  |
 | podSecurityContext.runAsGroup | int | `1001` |  |
@@ -82,8 +85,10 @@ helm show values oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
 | queue.flushIntervalSeconds | float | `1` |  |
 | queue.maxSize | int | `10000` |  |
 | read.defaultLimit | int | `1000` |  |
+| read.maxConcurrent | int | `2` | Maximum simultaneous history scans per process; additional reads return HTTP 503. |
 | read.maxDays | int | `31` |  |
 | read.maxLimit | int | `10000` |  |
+| read.timeoutSeconds | int | `30` | History scan deadline in seconds; expired reads return HTTP 504 and stop scheduling storage work. |
 | readinessProbe.failureThreshold | int | `3` |  |
 | readinessProbe.httpGet.path | string | `"/readyz"` |  |
 | readinessProbe.httpGet.port | string | `"http"` |  |
@@ -106,7 +111,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/audit-service --version 0.5.68
 | service.port | int | `8010` |  |
 | service.type | string | `"ClusterIP"` |  |
 | serviceAccount.annotations | object | `{}` |  |
-| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.automount | bool | `false` |  |
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | startupProbe.failureThreshold | int | `18` |  |

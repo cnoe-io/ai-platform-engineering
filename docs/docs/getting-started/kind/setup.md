@@ -12,15 +12,17 @@ This guide gets you from zero to a running **CAIPE** (Community AI Platform Engi
 
 ## Quickstart
 
+> **Sudo consent:** Setup asks for permission before privileged installation or host changes. Use `--no-sudo` to forbid sudo or `--allow-sudo` to permit it without a consent prompt. `--non-interactive` alone does not grant permission. See [sudo consent](#sudo-consent) for details and fallback behavior.
+
 No clone required. Run this in your terminal and follow the prompts:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
+curl -fsSL https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/main/setup-caipe.sh | bash
 ```
 
 The interactive script will ask for your LLM provider, API key, and optional components (RAG, tracing, persistence). That's it.
 
-> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
+> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/caipe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
 
 <iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
 
@@ -61,6 +63,32 @@ The script is **interactive** and will:
 4. **Optionally enable RAG and tracing** — You can add a RAG stack and Langfuse tracing when asked.
 
 When it finishes, you’ll have CAIPE running locally. The script will tell you how to open the UI and run your first queries.
+
+### Workspace initialization
+
+Fresh installations with the installer-managed local administrator apply workspace migrations before setup reports success. Setup uses the authenticated admin API, checks for failed updates and missing schema versions, and removes its temporary sign-in client. An initialization failure stops setup.
+
+Existing installations keep their normal upgrade behavior. To apply pending workspace updates during a rerun, use:
+
+```bash
+./setup-caipe.sh --non-interactive --apply-migrations
+```
+
+Automatic initialization requires the local administrator and in-chart Keycloak. With an external identity provider or local accounts disabled, apply updates through **Admin → Security & Policy → Access Operations → Migrations**.
+
+### Recover an interrupted first install
+
+For a local kind cluster managed exclusively from the current host, unattended setup can opt into recovery:
+
+```bash
+./setup-caipe.sh --non-interactive --repair-pending-install
+```
+
+Recovery applies only to revision 1 marked `pending-install`, at least two minutes old. All CAIPE pods must be Ready or completed successfully, and no local Helm process may be running. Setup checks the unchanged release, process list, and pod health twice, 15 seconds apart. It then reapplies saved revision 1 through `helm rollback`, verifies `deployed`, and continues normal setup.
+
+After a successful repair, setup initializes the workspace using the local administrator before entering monitor mode or completing an upgrade. The additional `--apply-migrations` flag is not required for a repaired first install. External identity providers and disabled local accounts retain the manual migration flow.
+
+Process inspection cannot detect Helm clients on other hosts; enable this only when the current host exclusively manages the cluster. Pending upgrades, pending rollbacks, unhealthy workloads, and unverified state stop setup for operator diagnosis. Recovery does not uninstall the release or delete its metadata or storage.
 
 ### Tear down when you’re done
 
@@ -109,11 +137,42 @@ For automation, use `--non-interactive` and environment variables:
 
 Credentials are read from `~/.config/claude.txt` and `~/.config/openai.txt` when set. You can override with `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
+### Sudo consent
+
+The setup script asks for permission before privileged installation or host-configuration steps and remembers your answer for the rest of the run. EOF or a failed prompt read denies permission. `--non-interactive` alone does not authorize sudo.
+
+| Setting | Behavior |
+|---------|----------|
+| `--allow-sudo` | Permit sudo without a consent prompt; unrelated prompts retain their normal behavior. |
+| `--no-sudo` | Deny sudo, even with `--allow-sudo` or `--yes`, regardless of argument order. |
+| `--yes`, `-y` | Answer yes to confirmation prompts and permit sudo unless explicitly denied. |
+| `CAIPE_ALLOW_SUDO=0` or `false` | Deny sudo, including when CLI flags request approval. |
+| `CAIPE_ALLOW_SUDO=1` or `true` | Permit sudo without a consent prompt, unless `--no-sudo` is set. |
+
+Environment booleans are case-insensitive. An unset or empty `CAIPE_ALLOW_SUDO` uses normal consent handling; other values are rejected before CLI flags are parsed. Permission to use sudo does not bypass sudo's own authentication requirements.
+
+```bash
+# Permit privileged steps during unattended setup
+./setup-caipe.sh --non-interactive --create-cluster --allow-sudo
+
+# Forbid sudo during unattended setup
+./setup-caipe.sh --non-interactive --create-cluster --no-sudo
+```
+
+When sudo is denied:
+
+- Supported direct binary installers for kubectl, kind, and Helm use `~/.local/bin`; the script adds it to its current `PATH` and prints guidance for future shells when needed.
+- Missing prerequisites that require privileged package installation stop setup with manual installation instructions. Automatic Docker installation also requires consent. jq is installed only through a supported package manager.
+- Privileged k9s installation is skipped.
+- Linux ingress host routing, `/etc/hosts` edits, and reboot persistence are skipped; the script prints manual configuration and port-forward guidance. The Kubernetes ingress controller can still be installed.
+
 ### Options
 
 | Flag | Description |
 |------|-------------|
 | `--non-interactive` | Skip prompts; use env vars or defaults |
+| `--apply-migrations` | Apply workspace migrations using the local administrator, including on reruns |
+| `--repair-pending-install` | Opt into guarded recovery of revision 1 on an exclusively managed local kind cluster |
 | `--create-cluster` | Create a Kind cluster if none exists (name: `caipe`) |
 | `--rag` | Deploy the RAG stack (knowledge base, embeddings) |
 | `--graph-rag` | Deploy Graph RAG (Neo4j + ontology agent; implies `--rag`) |
@@ -123,7 +182,9 @@ Credentials are read from `~/.config/claude.txt` and `~/.config/openai.txt` when
 | `--litellm-db` | Like `--litellm`, plus persist LiteLLM virtual keys/spend in the shared Postgres |
 | `--ingest-url=URL` | Ingest a URL into the RAG knowledge base (implies `--rag`; repeatable) |
 | `--auto-heal` | Enable auto-heal loop (every 30s) |
-| `--yes`, `-y` | Auto-confirm cleanup prompts |
+| `--yes`, `-y` | Answer yes to confirmation prompts and permit sudo unless explicitly denied |
+| `--allow-sudo` | Permit sudo without a consent prompt; see [sudo consent](#sudo-consent) |
+| `--no-sudo` | Deny sudo regardless of other approval flags |
 | `-h`, `--help` | Show help |
 
 ---
@@ -233,4 +294,3 @@ You can monitor progress in the CAIPE UI under the Knowledge Base tab.
 
 - [Configure LLM providers for KinD](./configure-llms) — More detail on keys and providers
 - [Configure agent secrets for KinD](./configure-agent-secrets) — Agent-specific secrets
-- [CAIPE Labs: Introduction](/docs/workshop/caipeintro) — Guided labs to learn CAIPE step by step
