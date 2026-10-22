@@ -17,6 +17,7 @@ import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getDeterministicAgentThemeId } from "@/lib/agent-theme";
 import { interruptedAuthReason,interruptedTurnFallbackText } from "@/lib/chat-interrupt";
 import { getConfig } from "@/lib/config";
+import { captureChatFeedbackContext } from "@/lib/chat-feedback";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
 import { getGradientColors } from "@/lib/gradient-themes";
@@ -200,6 +201,7 @@ export function ChatPanel({
 
   const [input, setInput] = useState("");
   const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
+  const [feedbackChatContext, setFeedbackChatContext] = useState<string>();
   const showFeedbackPrompt = Boolean(feedbackPrompt && getConfig("reportProblemEnabled"));
   const [hasRelinkedAgent, setHasRelinkedAgent] = useState(false);
   const relinkRestoresWriteAccess = hasRelinkedAgent && (
@@ -300,6 +302,11 @@ export function ChatPanel({
     updateConversationTitle,
     clearConversationInputRequired,
   } = useChatStore();
+
+  useEffect(() => {
+    setFeedbackFormOpen(false);
+    setFeedbackChatContext(undefined);
+  }, [conversationId, activeConversationId]);
 
   // Re-link this deprecated/deleted-agent conversation to the platform default agent,
   // then reload the page so ChatContainer picks up the new participants.
@@ -3008,7 +3015,13 @@ export function ChatPanel({
               {showFeedbackPrompt && feedbackPrompt ? <>
                 {feedbackPrompt.message}{" "}
                 <button type="button" className="underline underline-offset-2 hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => setFeedbackFormOpen(true)}>
+                  onClick={() => {
+                    const current = conversation?.id === (conversationId ?? activeConversationId) ? conversation : undefined;
+                    setFeedbackChatContext(current
+                      ? captureChatFeedbackContext(current, window.location.origin, isThisConversationStreaming || isRemoteResponse)
+                      : undefined);
+                    setFeedbackFormOpen(true);
+                  }}>
                   {feedbackPrompt.actionLabel}
                 </button>
                 {feedbackPrompt.trailingText && <> {feedbackPrompt.trailingText}</>}
@@ -3025,8 +3038,8 @@ export function ChatPanel({
       </div>
       )}
 
-      {showFeedbackPrompt && (
-        <ReportProblemDialog open={feedbackFormOpen} onOpenChange={setFeedbackFormOpen} />
+      {showFeedbackPrompt && feedbackFormOpen && (
+        <ReportProblemDialog open={feedbackFormOpen} onOpenChange={setFeedbackFormOpen} chatContext={feedbackChatContext} />
       )}
       <RewindConfirmationDialog
         open={isRewindConfirmationOpen}

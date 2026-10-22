@@ -119,3 +119,5 @@ visibility does not reduce the text width.
 Native app chat panels may pass `showAgentHeader: false` when their own toolbar already identifies the assistant. The default is `true`, preserving the agent identity row in regular chat.
 
 Native panels can supply `feedbackPrompt` (`message`, `actionLabel`, optional `trailingText`) to replace the default disclaimer with an inline action opening the existing host feedback form. This respects `reportProblemEnabled`; when reporting is disabled, the standard disclaimer remains. The audit logging notice is preserved.
+
+Chat feedback offers an unchecked option to attach the latest question and response. It captures a snapshot when the form opens, limits each message to 6,000 characters with a truncation marker, and excludes tools and attachments. The reporter can edit the preview before submission; unchecking omits the excerpt from the request. Consent resets when the form closes.
