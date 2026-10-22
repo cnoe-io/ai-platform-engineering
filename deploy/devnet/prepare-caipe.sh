@@ -6,6 +6,9 @@ set -euo pipefail
 WORK_DIR="$HOME/src"
 VERSION=1.3.0-rc.12
 INSTALLER_REF=5bcfc13184c3c3a3201bafbbe0d4c3212cac7a7d
+# Temporary backend-only build of the LLM_STREAMING fix (PR #3035, ad41ea687).
+# Replace this pin with the released image after the fix is tagged.
+DYNAMIC_AGENTS_IMAGE_TAG='1.2.0-fix-llm-streaming-control-1@sha256:08b160e09e37589adff732364b4ba0f74b6f8b855cc4d41cbc8578f4137c3c46'
 MODEL="${CAIPE_LAB_MODEL:-gpt-4o}"
 mkdir -p "$WORK_DIR"
 LOG_FILE="$WORK_DIR/caipe-setup.log"
@@ -82,8 +85,13 @@ progress '[3/7] Downloading the CAIPE installer...'
 run_logged curl -fsSL "https://raw.githubusercontent.com/caipe-io/ai-platform-engineering/$INSTALLER_REF/setup-caipe.sh" -o setup-caipe.sh
 sed -i 's#^OPENAI_ENDPOINT=.*#OPENAI_ENDPOINT="${OPENAI_ENDPOINT:-$OPENAI_BASE_URL}"#' setup-caipe.sh
 sed -i 's#^OPENAI_MODEL_NAME=.*#OPENAI_MODEL_NAME="${OPENAI_MODEL_NAME:-gpt-4o}"#' setup-caipe.sh
+# Keep these values in Helm so a rerun preserves the proxy compatibility fix.
+sed -i '/--set "dynamic-agents.llmSecret=llm-secret"/a\
+      --set-string "dynamic-agents.config.LLM_STREAMING=false"\
+      --set-string "dynamic-agents.image.tag=${CAIPE_LAB_DYNAMIC_AGENTS_IMAGE_TAG}"' setup-caipe.sh
 progress '[4/7] Installing CAIPE and initializing the workspace...'
 run_logged env CAIPE_CHART_VERSION="$VERSION" LLM_PROVIDER=openai OPENAI_MODEL_NAME="$MODEL" \
+  CAIPE_LAB_DYNAMIC_AGENTS_IMAGE_TAG="$DYNAMIC_AGENTS_IMAGE_TAG" \
   bash ./setup-caipe.sh --non-interactive --no-metallb --domain=caipe.localtest.me \
   --ui-url="$DEVENV_APP_8081_URL" --idp-url="$DEVENV_APP_8080_URL" \
   --expose=nodeport --apply-migrations --repair-pending-install </dev/null
