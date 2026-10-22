@@ -161,15 +161,15 @@ const HARNESS_STATUS_PRESENTATION: Record<
 > = {
   certified: {
     label: "Stable",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    className: "border-emerald-500/30 bg-emerald-500/10",
   },
   experimental: {
     label: "Experimental",
-    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    className: "border-amber-500/30 bg-amber-500/10",
   },
   blocked: {
     label: "Blocked",
-    className: "border-destructive/30 bg-destructive/10 text-destructive",
+    className: "border-destructive/30 bg-destructive/10",
   },
 };
 
