@@ -79,6 +79,9 @@ ui/src/types/               Shared TypeScript types
 
 ## Current Chat Flow
 
+The chat header shows the conversation title above the agent name. Long titles
+and names truncate independently, with their full text available on hover.
+
 The themed conversation picker below New Chat defaults to All chats and offers
 Web chats, API chats, Autonomous runs, Scheduled runs, and Webhook runs in that
 order, with icons and search. Automation choices appear when their platform

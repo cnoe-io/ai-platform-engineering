@@ -382,6 +382,9 @@ export function ChatPanel({
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
+  const conversationTitle = useChatStore((state) => state.conversations
+    .find((item) => item.id === (conversationId ?? state.activeConversationId))
+    ?.title?.trim()) || "New chat";
   const isAutonomousHistory = conversation?.source === "autonomous";
   const autonomousFollowUps = useAutonomousFollowUps(
     isAutonomousHistory && !panelReadOnly ? conversation?.task_id : undefined,
@@ -2272,7 +2275,7 @@ export function ChatPanel({
     <div className="h-full w-full flex flex-col bg-background relative">
       {showAgentHeader && <div
         className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
-        aria-label={`Talking to ${agentName || agentId}`}
+        aria-label={`Chat: ${conversationTitle}`}
       >
         <AgentAvatar
           agent={agent}
@@ -2283,10 +2286,10 @@ export function ChatPanel({
           isLoading={!agent && !readOnly}
         />
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Talking to
-          </p>
-          <p className="truncate text-sm font-semibold" title={agentName || agentId}>
+          <h1 className="truncate text-sm font-semibold" title={conversationTitle}>
+            {conversationTitle}
+          </h1>
+          <p className="truncate text-xs text-muted-foreground" title={agentName || agentId}>
             {agentName || agentId}
           </p>
         </div>
