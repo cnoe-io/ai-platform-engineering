@@ -55,4 +55,6 @@ export interface NativeHostChatPanelProps {
   emptyStateTitle?: string;
   /** Whether to show the agent identity row. Defaults to true; embedded surfaces may opt out. */
   showAgentHeader?: boolean;
+  /** Replace the default disclaimer with a link to the host feedback form, when reporting is enabled. */
+  feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }

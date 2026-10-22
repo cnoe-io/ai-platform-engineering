@@ -117,3 +117,5 @@ visibility does not reduce the text width.
 - [Helm chart reference](../docs/docs/installation/helm-charts/ai-platform-engineering/caipe-ui.md)
 
 Native app chat panels may pass `showAgentHeader: false` when their own toolbar already identifies the assistant. The default is `true`, preserving the agent identity row in regular chat.
+
+Native panels can supply `feedbackPrompt` (`message`, `actionLabel`, optional `trailingText`) to replace the default disclaimer with an inline action opening the existing host feedback form. This respects `reportProblemEnabled`; when reporting is disabled, the standard disclaimer remains. The audit logging notice is preserved.

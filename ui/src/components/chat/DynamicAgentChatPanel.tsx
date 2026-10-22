@@ -5,6 +5,7 @@ import { ContextUsageIndicator } from "@/components/chat/ContextUsageIndicator";
 import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -116,6 +117,8 @@ interface ChatPanelProps {
   placeholder?: string;
   emptyStateTitle?: string;
   showAgentHeader?: boolean;
+  /** App-owned copy for the host correction form; omitted for the standard disclaimer. */
+  feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }
 
 export function ChatPanel({
@@ -128,7 +131,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
-  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true,
+  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true, feedbackPrompt,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -196,6 +199,8 @@ export function ChatPanel({
   );
 
   const [input, setInput] = useState("");
+  const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
+  const showFeedbackPrompt = Boolean(feedbackPrompt && getConfig("reportProblemEnabled"));
   const [hasRelinkedAgent, setHasRelinkedAgent] = useState(false);
   const relinkRestoresWriteAccess = hasRelinkedAgent && (
     readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled'
@@ -3000,7 +3005,14 @@ export function ChatPanel({
 
           <div className="relative flex min-h-6 items-center justify-center">
             <p className="px-28 text-center text-xs text-muted-foreground max-sm:px-0 max-sm:pr-24">
-              {getConfig('appName')} can make mistakes. Verify important info.
+              {showFeedbackPrompt && feedbackPrompt ? <>
+                {feedbackPrompt.message}{" "}
+                <button type="button" className="underline underline-offset-2 hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setFeedbackFormOpen(true)}>
+                  {feedbackPrompt.actionLabel}
+                </button>
+                {feedbackPrompt.trailingText && <> {feedbackPrompt.trailingText}</>}
+              </> : <>{getConfig('appName')} can make mistakes. Verify important info.</>}
               {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
             </p>
             {showContextUsage && contextUsage && (
@@ -3013,6 +3025,9 @@ export function ChatPanel({
       </div>
       )}
 
+      {showFeedbackPrompt && (
+        <ReportProblemDialog open={feedbackFormOpen} onOpenChange={setFeedbackFormOpen} />
+      )}
       <RewindConfirmationDialog
         open={isRewindConfirmationOpen}
         messageCount={rewindMessageCount}
