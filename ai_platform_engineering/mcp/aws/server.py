@@ -128,24 +128,41 @@ def _get_configured_profiles() -> list[str]:
 # AWS CLI tool
 # ---------------------------------------------------------------------------
 
+def _configured_write_operations() -> set[str]:
+    """Return explicitly enabled AWS write operations (service.operation)."""
+    configured = os.getenv("AWS_ALLOWED_WRITE_COMMANDS", "ec2.stop-instances")
+    return {item.strip().lower() for item in configured.split(",") if item.strip()}
+
+
 def _validate_aws_command(command: str) -> tuple[bool, str]:
     command = command.strip()
     for char in [";", "|", "&", "`", "$", "<", ">", "\\"]:
         if char in command:
             return False, f"Command contains shell character '{char}'. Use --query for filtering."
-    parts = command.split()
-    if not parts:
-        return False, "Empty command provided."
-    # Stopping one EC2 instance is the only write action allowed. Keep the
-    # argument shape strict; IAM enforces deployment-specific authorization.
-    if parts[:2] == ["ec2", "stop-instances"]:
-        if (
-            len(parts) == 4
-            and parts[2] == "--instance-ids"
-            and re.fullmatch(r"i-[0-9a-f]{8,17}", parts[3])
-        ):
-            return True, ""
-        return False, "Only one EC2 instance ID may be stopped per request."
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        return False, f"Invalid command syntax: {exc}"
+    if len(parts) < 2:
+        return False, "A service and operation are required."
+
+    operation = ".".join(parts[:2]).lower()
+    if operation in _configured_write_operations():
+        # The target profile and region must come from tool inputs. Do not let
+        # command arguments switch credentials, region, endpoint, or output.
+        protected_options = {"--profile", "--region", "--output", "--endpoint-url"}
+        if any(part.split("=", 1)[0] in protected_options for part in parts[2:]):
+            return False, "Write commands cannot override profile, region, output, or endpoint options."
+        if operation == "ec2.stop-instances":
+            if (
+                len(parts) == 4
+                and parts[2] == "--instance-ids"
+                and re.fullmatch(r"i-[0-9a-f]{8,17}", parts[3])
+            ):
+                return True, ""
+            return False, "Only one EC2 instance ID may be stopped per request."
+        return True, ""
+
     for pattern in BLOCKED_COMMAND_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return False, f"Command matches blocked pattern '{pattern}'. Destructive operations are disabled."
@@ -157,10 +174,10 @@ def _validate_aws_command(command: str) -> tuple[bool, str]:
         "add-", "remove-", "copy-", "import-", "export-",
         "run-", "invoke-", "execute-", "send-",
     ]
-    action = parts[1] if len(parts) > 1 else ""
+    action = parts[1]
     for indicator in write_indicators:
         if indicator in action.lower():
-            return False, f"Write operation '{action}' detected. Only read operations are allowed."
+            return False, f"Write operation '{action}' is not enabled. Configure AWS_ALLOWED_WRITE_COMMANDS to allow it."
     return True, ""
 
 
@@ -184,8 +201,10 @@ def _authenticated_username() -> str | None:
     return username
 
 
-async def _stop_instance(instance_id: str, username: str, profile: str, region: str) -> str:
-    """Assume the configured target role with a trusted identity tag, then stop one instance."""
+async def _execute_authorized_write(
+    command_parts: list[str], username: str, profile: str, region: str, output_format: str
+) -> str:
+    """Assume a tagged target role and execute an explicitly allowed operation."""
     accounts: dict[str, str] = {}
     for entry in os.getenv("AWS_ACCOUNT_LIST", "").split(","):
         entry = entry.strip()
@@ -203,6 +222,7 @@ async def _stop_instance(instance_id: str, username: str, profile: str, region: 
     role_name = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
     role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
     session_name = re.sub(r"[^A-Za-z0-9_+=,.@-]", "_", f"mcp-{username}")[:64]
+    tag_key = os.getenv("AWS_IDENTITY_SESSION_TAG", "username")
 
     source_env = {**os.environ}
     source_env.pop("AWS_PROFILE", None)
@@ -211,8 +231,8 @@ async def _stop_instance(instance_id: str, username: str, profile: str, region: 
         "aws", "sts", "assume-role",
         "--role-arn", role_arn,
         "--role-session-name", session_name,
-        "--tags", f"Key=username,Value={username}",
-        "--transitive-tag-keys", "username",
+        "--tags", f"Key={tag_key},Value={username}",
+        "--transitive-tag-keys", tag_key,
         "--duration-seconds", "900",
         "--output", "json",
     ]
@@ -238,41 +258,41 @@ async def _stop_instance(instance_id: str, username: str, profile: str, region: 
         if not all(credentials.get(key) for key in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
             return "❌ AWS STS did not return temporary credentials."
 
-        stop_env = {**source_env}
-        stop_env.pop("AWS_ROLE_ARN", None)
-        stop_env.pop("AWS_WEB_IDENTITY_TOKEN_FILE", None)
-        stop_env.update({
+        write_env = {**source_env}
+        write_env.pop("AWS_ROLE_ARN", None)
+        write_env.pop("AWS_WEB_IDENTITY_TOKEN_FILE", None)
+        write_env.update({
             "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
             "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
             "AWS_SESSION_TOKEN": credentials["SessionToken"],
             "AWS_REGION": region,
             "AWS_DEFAULT_REGION": region,
         })
-        stop_proc = await asyncio.create_subprocess_exec(
-            "aws", "ec2", "stop-instances", "--instance-ids", instance_id,
-            "--region", region, "--output", "json",
+        aws_command = ["aws", *command_parts, "--region", region, "--output", output_format]
+        operation_proc = await asyncio.create_subprocess_exec(
+            *aws_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=stop_env,
+            env=write_env,
         )
         try:
-            stop_out, stop_err = await asyncio.wait_for(
-                stop_proc.communicate(), timeout=AWS_CLI_TIMEOUT
+            operation_out, operation_err = await asyncio.wait_for(
+                operation_proc.communicate(), timeout=AWS_CLI_TIMEOUT
             )
         except asyncio.TimeoutError:
-            stop_proc.kill()
-            await stop_proc.wait()
+            operation_proc.kill()
+            await operation_proc.wait()
             raise
-        if stop_proc.returncode != 0:
-            return f"❌ Could not stop {instance_id}: {stop_err.decode(errors='replace')}"
-        return stop_out.decode(errors="replace") or f"✅ Stop request sent for {instance_id}."
+        if operation_proc.returncode != 0:
+            return f"❌ AWS operation failed: {operation_err.decode(errors='replace')}"
+        return operation_out.decode(errors="replace") or "✅ AWS operation completed."
     except asyncio.TimeoutError:
         return f"❌ AWS operation timed out after {AWS_CLI_TIMEOUT} seconds."
     except FileNotFoundError:
         return "❌ AWS CLI not found. Ensure it is installed in the container."
     except (json.JSONDecodeError, OSError) as exc:
-        logger.error("AWS stop-instance operation failed: %s", exc)
-        return "❌ AWS stop-instance operation failed."
+        logger.error("AWS write operation failed: %s", exc)
+        return "❌ AWS write operation failed."
 
 
 async def aws_cli_execute(
@@ -283,12 +303,12 @@ async def aws_cli_execute(
     jq_filter: Optional[str] = None,
 ) -> str:
     """
-    Execute a read-only AWS CLI command, or stop one EC2 instance.
+    Execute a read-only AWS CLI command or an explicitly enabled write operation.
 
-    The 'aws' prefix must be omitted — pass only the service and subcommand.
-    All write/destructive operations are blocked except a single
-    ``ec2 stop-instances --instance-ids i-...`` request. The target role's IAM
-    policy defines which accounts, regions, and tagged instances are authorized.
+    The 'aws' prefix must be omitted — pass only the service and operation.
+    Configure ``AWS_ALLOWED_WRITE_COMMANDS`` with comma-separated
+    ``service.operation`` names. OAuth2 identity is passed as an STS session tag;
+    the target role's IAM policy authorizes the actual account, region, and resources.
 
     Args:
         command: AWS CLI command without the 'aws' prefix.
@@ -297,7 +317,7 @@ async def aws_cli_execute(
         profile: AWS profile name for the target account. REQUIRED — when the
             user asks for 'all accounts', make separate calls with each profile.
             If AWS_ACCOUNT_LIST is not configured, pass an empty string to use
-            environment-variable credentials directly. Stop requests require a
+            environment-variable credentials directly. Write requests require a
             configured cross-account profile so the identity session tag can be passed.
         region: AWS region override. Defaults to AWS_REGION / AWS_DEFAULT_REGION
             environment variable, or 'us-west-2' if neither is set. IAM policies
@@ -318,14 +338,16 @@ async def aws_cli_execute(
     configured_profiles = _get_configured_profiles()
     profile_prefix = f"--profile {profile} " if (configured_profiles and profile) else ""
 
-    if command.split()[:2] == ["ec2", "stop-instances"]:
+    command_parts = shlex.split(command)
+    operation = ".".join(command_parts[:2]).lower()
+    if operation in _configured_write_operations():
         if os.getenv("MCP_AUTH_MODE", "none").lower() != "oauth2":
-            return "❌ Stop requests require OAuth2 bearer-token authentication."
+            return "❌ Write requests require OAuth2 bearer-token authentication."
         username = _authenticated_username()
         if not username:
-            return "❌ Stop requests require a verified identity claim."
+            return "❌ Write requests require a verified identity claim."
         async with _aws_cli_semaphore:
-            return await _stop_instance(command.split()[3], username, profile, aws_region)
+            return await _execute_authorized_write(command_parts, username, profile, aws_region, output_fmt)
 
     if "--region" in command:
         full_command = f"aws {profile_prefix}{command} --output {output_fmt}"
