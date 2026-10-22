@@ -33,7 +33,7 @@ export function AgentHarnessBadge({
           className={cn(
             "inline-flex shrink-0 items-center justify-center",
             compact ? "h-4 w-4" : "h-5 w-5",
-            identity.logoSrc === "/provider-logos/agentcore.svg" && "rounded-full bg-white p-0.5",
+            identity.logoSrc === "/provider-logos/agentcore.svg" && "overflow-hidden rounded-full bg-white",
           )}
         >
           {presentation?.app ? (
