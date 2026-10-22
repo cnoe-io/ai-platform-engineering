@@ -98,10 +98,10 @@ visibility does not reduce the text width.
 
 ## Existing AgentCore agents
 
-- **Agents → Add existing AgentCore agent** is available to callers authorized
+- **Agent Builder → Execution harness → Add existing AgentCore agent** is available to callers authorized
   to administer platform configuration. It registers an existing Harness or
-  Runtime ARN as an immutable shared operator profile, then opens the existing
-  Agent Builder with that connection selected.
+  Runtime ARN as an immutable shared operator profile and selects that connection
+  in the current Builder. Existing draft fields are preserved; save the agent to apply it.
 - Assign instructions, ownership and access in the Builder. Registration does
   not copy AWS tools, permissions or history and does not provision AWS resources.
 - Connection IDs start with `existing-`. The AWS Region must match the ARN.

@@ -76,6 +76,7 @@ import remarkGfm from "remark-gfm";
 import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { ConnectAgentCoreDialog, useAgentCoreConnectionAccess } from "./ConnectAgentCoreDialog";
 import { DatasourcePicker } from "./DatasourcePicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
@@ -94,7 +95,6 @@ interface DynamicAgentEditorProps {
   readOnly?: boolean; // true for view-only mode
   readOnlyReason?: "config" | "permissions"; // why readOnly is true
   initialStep?: AgentSetupStep;
-  initialHarness?: { id: string; profileId: string };
   onStepChange?: (step: AgentSetupStep) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -439,7 +439,6 @@ export function DynamicAgentEditor({
   readOnly,
   readOnlyReason,
   initialStep = "basic",
-  initialHarness,
   onStepChange,
   onSave,
   onCancel,
@@ -447,6 +446,8 @@ export function DynamicAgentEditor({
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
+  const connectionConfigured = useAgentCoreConnectionAccess();
+  const [connectionDialogOpen, setConnectionDialogOpen] = React.useState(false);
 
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
@@ -553,9 +554,9 @@ export function DynamicAgentEditor({
   // Harness Engine persists a complete, immutable blueprint independently of
   // the legacy Dynamic Agents document. The catalog drives this form.
   const [harnessId, setHarnessId] = React.useState(
-    source?.execution_harness_id || initialHarness?.id || "dynamic_agents",
+    source?.execution_harness_id || "dynamic_agents",
   );
-  const [harnessProfileId, setHarnessProfileId] = React.useState(initialHarness?.profileId ?? "");
+  const [harnessProfileId, setHarnessProfileId] = React.useState("");
   const [harnessOptions, setHarnessOptions] = React.useState<Record<string, unknown>>({});
   const [harnessDescriptors, setHarnessDescriptors] = React.useState<HarnessDescriptor[]>([]);
   const [catalogRevision, setCatalogRevision] = React.useState<string | null>(null);
@@ -597,6 +598,24 @@ export function DynamicAgentEditor({
     const descriptor = harnessDescriptors.find((item) => item.id === nextHarnessId);
     setHarnessProfileId(draft?.profileId ?? descriptor?.profiles.find((profile) => profile.available)?.id ?? "");
   }, [harnessDescriptors, harnessId, harnessOptions, harnessProfileId]);
+
+  async function selectConnectedAgentCore(profileId: string) {
+    const response = await fetch("/api/harness-engine/harnesses", { cache: "no-store" });
+    const result = await response.json().catch(() => null);
+    const descriptors = result?.data?.harnesses as HarnessDescriptor[] | undefined;
+    if (!response.ok || !result?.success || !Array.isArray(descriptors) ||
+        !descriptors.some((item) => item.id === "agentcore" && item.availability === "available" && item.certification !== "blocked" && item.profiles.some((profile) => profile.id === profileId && profile.available))) {
+      throw new Error("Connection was registered, but its profile could not be loaded. Reopen the editor to select it.");
+    }
+    harnessDrafts.current.set(harnessId, { profileId: harnessProfileId, options: harnessOptions });
+    setHarnessDescriptors(descriptors);
+    setCatalogRevision(result.data.catalog_revision);
+    setHarnessId("agentcore");
+    setHarnessProfileId(profileId);
+    setHarnessOptions({});
+    setHarnessLoadError(null);
+    toast("AgentCore connection selected. Save this agent to use it.", "success");
+  }
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt =
@@ -1779,7 +1798,10 @@ export function DynamicAgentEditor({
                     <Select
                       id="harnessId"
                       value={harnessId}
-                      onChange={(event) => selectHarness(event.target.value)}
+                      onChange={(event) => {
+                        if (event.target.value === "__add_existing_agentcore__") setConnectionDialogOpen(true);
+                        else selectHarness(event.target.value);
+                      }}
                       disabled={loading || harnessLoading || !!readOnly}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -1801,6 +1823,11 @@ export function DynamicAgentEditor({
                           {descriptor.display_name}
                         </option>
                       ))}
+                      {connectionConfigured !== null && (
+                        <option value="__add_existing_agentcore__" disabled={!connectionConfigured}>
+                          Add existing AgentCore agent{connectionConfigured ? "…" : " (Harness Engine not configured)"}
+                        </option>
+                      )}
                     </Select>
                     {selectedHarness && (
                       <div className="space-y-2">
@@ -3035,6 +3062,7 @@ export function DynamicAgentEditor({
         )}
       </div>
 
+      <ConnectAgentCoreDialog open={connectionDialogOpen} onOpenChange={setConnectionDialogOpen} onConnected={selectConnectedAgentCore} />
       <UnsavedChangesDialog
         open={pendingClose}
         onCancel={handleCancelDiscard}

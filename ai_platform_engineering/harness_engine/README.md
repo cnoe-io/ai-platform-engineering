@@ -36,15 +36,15 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 
 ## Connect an existing AgentCore deployment
 
-- In **Agents**, a platform administrator chooses **Add existing AgentCore
-  agent**, enters a connection ID beginning with `existing-`, a Harness or
+- In **Agent Builder → Execution harness**, a platform administrator chooses
+  **Add existing AgentCore agent**, enters a connection ID beginning with `existing-`, a Harness or
   Runtime ARN, its matching AWS Region, and a qualifier.
 - Registration saves an immutable `shared` operator profile in
   `harness_agentcore_profiles`. MongoDB preserves it across restarts; the
   development memory backend does not. Identical retries reuse the connection;
   an existing ID cannot be pointed at a different target.
-- The Agent Builder opens with AgentCore and the connection selected. Its
-  normal instructions, owner-team and sharing controls create the CAIPE agent.
+- The current Builder selects AgentCore and the connection, preserving the
+  draft's instructions, owner-team and sharing choices. Save the agent to apply it.
   The connection also remains available in the operator profile picker.
 - Registration checks ARN syntax and Region consistency. The Engine uses its
   existing AWS credentials; IAM invocation permission is checked when chatting.

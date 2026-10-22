@@ -5,21 +5,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getErrorMessage } from "@/lib/error-utils";
-import { Link2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import React from "react";
 
 const endpoint = "/api/admin/harness-engine/agentcore-connections";
 
-export function ConnectAgentCoreButton({ onConnected }: { onConnected: (profileId: string) => void }) {
+export function useAgentCoreConnectionAccess() {
   const [configured, setConfigured] = React.useState<boolean | null>(null);
-  const [open, setOpen] = React.useState(false);
-  const [profileId, setProfileId] = React.useState("");
-  const [arn, setArn] = React.useState("");
-  const [region, setRegion] = React.useState("");
-  const [qualifier, setQualifier] = React.useState("DEFAULT");
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
   React.useEffect(() => {
     let cancelled = false;
     fetch(endpoint, { cache: "no-store" }).then(async (response) => {
@@ -29,6 +21,20 @@ export function ConnectAgentCoreButton({ onConnected }: { onConnected: (profileI
     }).catch((cause) => console.warn("AgentCore connection permission could not be loaded", cause));
     return () => { cancelled = true; };
   }, []);
+  return configured;
+}
+
+export function ConnectAgentCoreDialog({ open, onOpenChange, onConnected }: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  onConnected: (profileId: string) => Promise<void>;
+}) {
+  const [profileId, setProfileId] = React.useState("");
+  const [arn, setArn] = React.useState("");
+  const [region, setRegion] = React.useState("");
+  const [qualifier, setQualifier] = React.useState("DEFAULT");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function connect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,8 +52,8 @@ export function ConnectAgentCoreButton({ onConnected }: { onConnected: (profileI
           : result?.detail;
         throw new Error(result?.error || detail || `Connection could not be registered (HTTP ${response.status})`);
       }
-      setOpen(false);
-      onConnected(result.data.profile_id);
+      await onConnected(result.data.profile_id);
+      onOpenChange(false);
     } catch (cause) {
       setError(getErrorMessage(cause, "Connection could not be registered"));
     } finally {
@@ -55,17 +61,12 @@ export function ConnectAgentCoreButton({ onConnected }: { onConnected: (profileI
     }
   }
 
-  if (configured === null) return null;
-  return <>
-    <Button size="sm" variant="outline" disabled={!configured} title={configured ? undefined : "Configure Harness Engine to connect an existing AgentCore deployment"} onClick={() => { setError(null); setOpen(true); }}>
-      <Link2 className="mr-2 h-4 w-4" /> Add existing AgentCore agent
-    </Button>
-    <Dialog open={open} onOpenChange={(value) => { if (!saving) setOpen(value); }}>
+  return <Dialog open={open} onOpenChange={(value) => { if (!saving) onOpenChange(value); }}>
       <DialogContent className="sm:max-w-xl">
         <form onSubmit={connect} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Connect an existing AgentCore deployment</DialogTitle>
-            <DialogDescription>Register a shared connection, then create a CAIPE agent to assign ownership and chat access. The existing AWS deployment remains externally managed.</DialogDescription>
+            <DialogDescription>Register a shared connection and select it for this agent. Review ownership and chat access in Agent Builder, then save the agent. The AWS deployment remains externally managed.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="agentcore-connection-id">Connection ID</Label>
@@ -93,11 +94,10 @@ export function ConnectAgentCoreButton({ onConnected }: { onConnected: (profileI
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Connect and configure agent</Button>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Connect and select</Button>
           </DialogFooter>
         </form>
       </DialogContent>
-    </Dialog>
-  </>;
+    </Dialog>;
 }

@@ -38,7 +38,6 @@ import { Select } from "@/components/ui/select";
 import { AgentAvatar } from "./AgentAvatar";
 import { AgentEditorSkeleton,AgentsListSkeleton } from "./AgentsLoadingSkeleton";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
-import { ConnectAgentCoreButton } from "./ConnectAgentCoreButton";
 import type { AgentSetupStep } from "./deep-linking";
 
 const DEFAULT_ROW_PERMISSIONS = {
@@ -86,7 +85,6 @@ export function DynamicAgentsTab({
   const selectionRequestRef = React.useRef(0);
   const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
-  const [connectedProfileId, setConnectedProfileId] = React.useState<string | null>(null);
   const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
@@ -338,7 +336,6 @@ export function DynamicAgentsTab({
     loadedSelectionIdRef.current = null;
     setEditingAgent(null);
     setIsCreating(false);
-    setConnectedProfileId(null);
     setCloningAgent(null);
     setSelectionError(null);
     setSelectionLoading(false);
@@ -393,7 +390,6 @@ export function DynamicAgentsTab({
         key={editingAgent?._id ?? (cloningAgent ? `clone-${cloningAgent._id}` : "new")}
         agent={editingAgent}
         cloneFrom={cloningAgent}
-        initialHarness={connectedProfileId ? { id: "agentcore", profileId: connectedProfileId } : undefined}
         readOnly={Boolean(editingAgent?.config_driven || (editingAgent && !agentCanEdit(editingAgent)))}
         readOnlyReason={editingAgent?.config_driven ? "config" : "permissions"}
         initialStep={initialStep}
@@ -428,7 +424,6 @@ export function DynamicAgentsTab({
             <Plus className="mr-2 h-4 w-4" />
             New Agent
           </Button>
-          <ConnectAgentCoreButton onConnected={(profileId) => { setConnectedProfileId(profileId); setIsCreating(true); }} />
         </div>
       </WorkspacePageActions>
       <Card className="rounded-none border-0 bg-transparent shadow-none">
