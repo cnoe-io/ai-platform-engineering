@@ -2804,7 +2804,7 @@ export function ChatPanel({
 
             <div
               className={cn(
-                "relative flex flex-col gap-2 bg-card rounded-xl border p-3 transition-all duration-200",
+                "relative flex flex-col gap-1 rounded-3xl border bg-card px-3 py-2.5 shadow-sm transition-all duration-200 focus-within:border-foreground/30",
                 isDraggingFiles
                   ? "border-primary ring-2 ring-primary/40"
                   : "border-border",
@@ -2817,13 +2817,13 @@ export function ChatPanel({
                 <div
                   key={`max-effort-armor-${maxEffortAnimationKey}`}
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-xl"
+                  className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-3xl"
                   data-testid="max-effort-animation"
                 >
                   {!prefersReducedMotion && (
                     <>
                       <motion.span
-                        className="absolute inset-y-1 left-0 w-[calc(50%+4rem)] rounded-r-xl border-y border-l border-white/20"
+                        className="absolute inset-y-1 left-0 w-[calc(50%+4rem)] rounded-r-3xl border-y border-l border-white/20"
                         style={{
                           background: `linear-gradient(115deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
                           boxShadow: `inset 0 0 18px rgb(255 255 255 / 0.24), 0 0 14px ${maxEffortTheme.to}`,
@@ -2836,7 +2836,7 @@ export function ChatPanel({
                         transition={{ duration: 2.4, times: [0, 0.2, 0.4, 0.78, 1], ease: "easeInOut" }}
                       />
                       <motion.span
-                        className="absolute inset-y-1 right-0 w-[calc(50%+4rem)] rounded-l-xl border-y border-r border-white/20"
+                        className="absolute inset-y-1 right-0 w-[calc(50%+4rem)] rounded-l-3xl border-y border-r border-white/20"
                         style={{
                           background: `linear-gradient(245deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
                           boxShadow: `inset 0 0 18px rgb(255 255 255 / 0.24), 0 0 14px ${maxEffortTheme.to}`,
@@ -2881,7 +2881,7 @@ export function ChatPanel({
                     </>
                   )}
                   <motion.span
-                    className="absolute inset-0 rounded-xl border-2"
+                    className="absolute inset-0 rounded-3xl border-2"
                     style={{ borderColor: maxEffortTheme.to }}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: prefersReducedMotion ? [0, 0.75, 0] : [0, 1, 0.55, 0] }}
@@ -2909,7 +2909,7 @@ export function ChatPanel({
               {composerHeader}
               <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
 
-              <div className="relative z-20 flex items-end gap-3">
+              <div className="relative z-20 flex items-center">
                 <AnimatePresence initial={false} mode="wait">
                   {effortStatus && (
                     <motion.span
@@ -2946,70 +2946,75 @@ export function ChatPanel({
                       ? `Type to queue another message${queuedMessages.length > 0 ? ` (${queuedMessages.length} queued)` : ""}, or Cmd+Enter to send now...`
                       : placeholder ?? `Ask anything, or type / to see commands, skills, and agents...`
                   }
-                  className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                  className="min-h-10 w-full resize-none bg-transparent px-1.5 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
                   minRows={1}
                   maxRows={10}
                 />
-                <div className="relative flex shrink-0 items-center gap-2 pt-5">
-                  <span
-                    className="absolute right-0 top-0 flex max-w-56 items-center gap-1 whitespace-nowrap text-[10px] font-medium text-muted-foreground max-sm:max-w-40"
-                    title={`${agent?.model?.id || "Model"} · ${reasoningEffort}`}
-                    data-testid="composer-model-effort"
-                  >
-                    <span className="truncate">{agent?.model?.id || "Model"}</span>
-                    <span aria-hidden="true">·</span>
-                    <span
-                      className={cn("text-foreground/80", reasoningEffort === "max" && "font-bold")}
-                      style={reasoningEffort === "max"
-                        ? {
-                            background: `linear-gradient(90deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
-                            backgroundClip: "text",
-                            color: "transparent",
-                            WebkitBackgroundClip: "text",
-                            WebkitTextFillColor: "transparent",
-                          }
-                        : undefined}
-                    >
-                      {reasoningEffort}
-                    </span>
-                  </span>
+              </div>
 
-                  {/* Attach files */}
-                  <div className="shrink-0">
+              <div className="relative z-20 flex min-h-9 items-center justify-end gap-2">
+                <span
+                  className="flex min-w-0 max-w-56 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground max-sm:max-w-40"
+                  title={`${agent?.model?.id || "Model"} · ${reasoningEffort}`}
+                  data-testid="composer-model-effort"
+                >
+                  <span className="truncate">{agent?.model?.id || "Model"}</span>
+                  <span aria-hidden="true">·</span>
+                  <span
+                    className={cn("text-foreground/80", reasoningEffort === "max" && "font-bold")}
+                    style={reasoningEffort === "max"
+                      ? {
+                          background: `linear-gradient(90deg, ${maxEffortTheme.from}, ${maxEffortTheme.to})`,
+                          backgroundClip: "text",
+                          color: "transparent",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                        }
+                      : undefined}
+                  >
+                    {reasoningEffort}
+                  </span>
+                </span>
+
+                {/* Attach files */}
+                <div className="shrink-0">
+                  <Button
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    variant="ghost"
+                    className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
+                    title="Attach files"
+                    aria-label="Attach files"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Send/Stop button - toggles based on streaming state */}
+                <div className="shrink-0">
+                  {isThisConversationStreaming ? (
                     <Button
                       size="icon"
-                      onClick={() => fileInputRef.current?.click()}
-                      variant="ghost"
-                      title="Attach files"
-                      aria-label="Attach files"
+                      onClick={handleStop}
+                      variant="destructive"
+                      className="h-8 w-8 rounded-full"
+                      title="Stop generating"
+                      aria-label="Stop generating"
                     >
-                      <Paperclip className="h-4 w-4" />
+                      <Square className="h-4 w-4" />
                     </Button>
-                  </div>
-
-                  {/* Send/Stop button - toggles based on streaming state */}
-                  <div className="shrink-0">
-                    {isThisConversationStreaming ? (
-                      <Button
-                        size="icon"
-                        onClick={handleStop}
-                        variant="destructive"
-                        title="Stop generating"
-                      >
-                        <Square className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <Button
-                        size="icon"
-                        onClick={() => handleSubmit(false)}
-                        disabled={isRemoteResponse || (!input.trim() && attachments.length === 0)}
-                        variant="default"
-                        title="Send message"
-                      >
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
+                  ) : (
+                    <Button
+                      size="icon"
+                      onClick={() => handleSubmit(false)}
+                      disabled={isRemoteResponse || (!input.trim() && attachments.length === 0)}
+                      className="h-8 w-8 rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-muted disabled:text-muted-foreground"
+                      title="Send message"
+                      aria-label="Send message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
