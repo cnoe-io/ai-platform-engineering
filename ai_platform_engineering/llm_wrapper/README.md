@@ -82,6 +82,23 @@ workflow for a consuming image must pass `context: .`.
 
 ## Reaching LiteLLM (and anything else a gateway fronts)
 
+### Proxies without streaming support
+
+Set `LLM_STREAMING=false` in the consuming service's environment when its LLM
+endpoint supports only ordinary JSON responses. The wrapper sets LangChain's
+`disable_streaming=True`, so model calls use `invoke`/`ainvoke` even when a
+LangGraph caller requests message streaming. Tool calling remains available;
+the browser still receives agent events over SSE, with each model answer
+arriving after that model request completes.
+
+For a Helm install, set `dynamic-agents.config.LLM_STREAMING` to the string
+`"false"`. The installer accepts `LLM_STREAMING=false bash setup-caipe.sh ...`
+and forwards it to that Helm value. A running service must restart to pick up
+the new environment. The runtime image must contain this wrapper support;
+setting the variable alone on an older image has no effect.
+
+### Provider configuration
+
 Set the `openai-compatible` provider at a LiteLLM Proxy, Bifrost, Portkey, or
 any other OpenAI-compatible endpoint:
 

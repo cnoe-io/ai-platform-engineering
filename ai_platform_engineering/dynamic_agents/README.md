@@ -151,6 +151,7 @@ The API documentation is available at:
 | `PORT` | Server port | `8001` |
 | `METRICS_PORT` | Dedicated port for `/metrics` (0 = same as `PORT`) | `0` |
 | `DEBUG` | Enable debug mode / hot reload | `false` |
+| `LLM_STREAMING` | Set `false` to disable streaming requests to the model provider; browser chat events still use SSE | `true` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |
 | `DYNAMIC_AGENTS_COLLECTION` | Agents collection name | `dynamic_agents` |
