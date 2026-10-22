@@ -91,9 +91,16 @@ async function callGet(version: string) {
   return res.json();
 }
 
+const originalAllowedRepositories = process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+afterEach(() => {
+  if (originalAllowedRepositories === undefined) delete process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+  else process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = originalAllowedRepositories;
+});
+
 describe("/api/release-notes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = "https://github.com/example/repository";
     mockAuth.mockResolvedValue({ user: { role: "user" }, session: { role: "user" } });
   });
 
@@ -222,6 +229,24 @@ describe("/api/release-notes", () => {
 
     expect(response.status).toBe(400);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks stored unapproved repositories and rechecks policy before serving a warm cache", async () => {
+    jest.resetModules();
+    mockGetCollection.mockResolvedValue({ findOne: jest.fn().mockResolvedValue({ release_notes: {
+      repository_url: "https://github.com/example/repository", previous_commit: "1111111", latest_commit: "2222222",
+    } }) });
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ commits: [] }) })) as unknown as typeof fetch;
+    const { GET } = await import("../route");
+    const request = () => new NextRequest("https://app.example.test/api/release-notes?version=1&compare=platform&repository_url=https://github.com/example/repository");
+    expect((await GET(request())).status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = "https://github.com/example/secondary";
+    const response = await GET(request());
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).body).toBeNull();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([401, 403])("rejects denied compare readers before DB/network work (%s)", async (status) => {

@@ -6,6 +6,7 @@
 import { ApiError,requireRbacPermission,withAuth,withErrorHandler } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import { isValidReleaseNotesRef, parseReleaseNotesRepository } from '@/lib/release-notes-ref';
+import { approvedReleaseNotesRepository, getReleaseNotesAllowedRepositories } from '@/lib/release-notes-config';
 import {
 normalizePlatformDefaultAgentId,
 PLATFORM_AGENT_ID_PATTERN,
@@ -244,6 +245,16 @@ function validateReleaseNotesConfig(config: ReleaseNotesNotificationConfig): voi
     );
   }
 
+  const repository = approvedReleaseNotesRepository(config.repository_url as string);
+  if (!repository) {
+    throw new ApiError(
+      'Choose a release notes repository approved by the deployment configuration',
+      400,
+      'RELEASE_NOTES_REPOSITORY_NOT_ALLOWED',
+    );
+  }
+  config.repository_url = repository;
+
   if (!isValidReleaseNotesRef(config.previous_commit as string)) {
     throw new ApiError(
       'release notes previous_commit must be a valid Git ref',
@@ -312,6 +323,7 @@ async function getPlatformConfig(request: NextRequest) {
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
+        release_notes_allowed_repositories: getReleaseNotesAllowedRepositories(),
         slack_discovery_cache_ttl_minutes: slackDiscoveryTtlMinutes,
         webex_discovery_cache_ttl_minutes: webexDiscoveryTtlMinutes,
         // Default (no config saved yet) is "enable all" so built-in providers

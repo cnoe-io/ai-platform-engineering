@@ -20,10 +20,17 @@ jest.mock("@/lib/mongodb", () => ({ getCollection: (...args: unknown[]) => mockC
 // Exercise the real shared authentication helper, not a route-level auth mock.
 import { GET } from "../route";
 
+const originalAllowedRepositories = process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+afterEach(() => {
+  if (originalAllowedRepositories === undefined) delete process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+  else process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = originalAllowedRepositories;
+});
+
 describe("configured release notes authentication", () => {
   const originalFetch = global.fetch;
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = "https://github.com/example/repository";
     mockSsoEnabled = true;
     mockDevelopmentAuth = false;
     mockSession.mockResolvedValue(null);

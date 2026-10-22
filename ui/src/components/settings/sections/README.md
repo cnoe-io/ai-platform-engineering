@@ -2,10 +2,30 @@
 
 - The platform announcement switch and each user's notification preference are
   independent. Existing deployed-version release notes remain the default.
-- Administrators may configure `repository_url`, `previous_commit`, and
+- Deployment operators approve comparison repositories through the server-side
+  `RELEASE_NOTES_ALLOWED_REPOSITORIES` environment variable (comma-separated
+  HTTPS GitHub repository URLs, up to 32). Unset permits only the canonical
+  upstream repository. An explicit value replaces that default; an empty or
+  malformed list permits no comparisons. Matching ignores case and `.git`.
+- Administrators select an approved `repository_url` and configure `previous_commit` and
   `latest_commit` together, or clear all three. Refs may be commit SHAs,
   ordinary branch names, or tags. Repository URLs must identify GitHub
   owner/repository coordinates, without credentials, ports, query or fragment.
+- Both configuration writes and comparison reads enforce the deployment list.
+  Removing a repository blocks existing stored ranges and cached comparisons.
+  Changing the policy requires a deployment rollout; the admin API cannot edit it.
+- Forks can use this umbrella Helm values override (the existing UI ConfigMap
+  injects `caipe-ui.config` as environment variables):
+
+  ```yaml
+  caipe-ui:
+    config:
+      RELEASE_NOTES_ALLOWED_REPOSITORIES: "https://github.com/example/platform-fork"
+  ```
+
+  After rollout, select that repository and save its refs in Release announcements.
+  This controls commit comparisons; deployed-version release posts keep their
+  existing resolution behavior. For the standalone UI chart, use `config` directly.
 - The announcement toggle PATCH changes only `release_notes.enabled`. A range
   PATCH changes only its three fields, so concurrent toggle/range writes cannot
   overwrite one another. Edits made during a save remain dirty.

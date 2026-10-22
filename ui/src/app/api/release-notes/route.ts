@@ -6,6 +6,7 @@ import { getCollection } from "@/lib/mongodb";
 import { PLATFORM_CONFIG_ID } from "@/lib/platform-default-agent";
 import { ApiError, getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import { isValidReleaseNotesRef, parseReleaseNotesRepository } from "@/lib/release-notes-ref";
+import { approvedReleaseNotesRepository } from "@/lib/release-notes-config";
 
 export const dynamic = "force-dynamic";
 
@@ -115,7 +116,10 @@ async function readConfiguredGithubCompare(): Promise<ConfiguredGithubCompare | 
   const repositoryUrl = typeof config.repository_url === "string" ? config.repository_url.trim() : "";
   const previousCommit = typeof config.previous_commit === "string" ? config.previous_commit.trim() : "";
   const latestCommit = typeof config.latest_commit === "string" ? config.latest_commit.trim() : "";
-  const repository = parseGithubRepositoryUrl(repositoryUrl);
+  // Recheck deployment policy before consulting the compare cache or GitHub.
+  // Existing DB settings must not retain access after a repository is removed.
+  const approvedRepository = approvedReleaseNotesRepository(repositoryUrl);
+  const repository = approvedRepository ? parseGithubRepositoryUrl(approvedRepository) : null;
   if (
     !repository ||
     !isValidReleaseNotesRef(previousCommit) ||

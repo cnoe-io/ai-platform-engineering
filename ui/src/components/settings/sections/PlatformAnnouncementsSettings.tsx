@@ -7,6 +7,7 @@ import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { isValidReleaseNotesRef, parseReleaseNotesRepository } from "@/lib/release-notes-ref";
 import { Loader2,Megaphone } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
@@ -48,6 +49,7 @@ export function PlatformAnnouncementsSettings({
   const committedRef = useRef(true);
 
   const [repositoryUrl,setRepositoryUrl] = useState("");
+  const [allowedRepositories,setAllowedRepositories] = useState<string[]>([]);
   const [savedRepositoryUrl,setSavedRepositoryUrl] = useState("");
   const [previousCommit,setPreviousCommit] = useState("");
   const [savedPreviousCommit,setSavedPreviousCommit] = useState("");
@@ -109,6 +111,7 @@ export function PlatformAnnouncementsSettings({
         }
         if (cancelled) return;
         const config = data.data?.release_notes;
+        setAllowedRepositories(data.data?.release_notes_allowed_repositories ?? []);
         const value = config?.enabled !== false;
         const nextCompare: CompareFields = {
           repositoryUrl: config?.repository_url?.trim() ?? "",
@@ -151,12 +154,15 @@ export function PlatformAnnouncementsSettings({
 
   const saveCompareConfig = async (): Promise<void> => {
     if (readOnly || loading || loadError || savingConfig) return;
+    const snapshot = { ...compareRef.current };
     const fields = {
-      repositoryUrl: compareRef.current.repositoryUrl.trim(),
-      previousCommit: compareRef.current.previousCommit.trim(),
-      latestCommit: compareRef.current.latestCommit.trim(),
+      repositoryUrl: snapshot.repositoryUrl.trim(),
+      previousCommit: snapshot.previousCommit.trim(),
+      latestCommit: snapshot.latestCommit.trim(),
     };
-    const validationError = validateCompareFields(fields);
+    const validationError = validateCompareFields(fields) ||
+      (fields.repositoryUrl && !allowedRepositories.includes(fields.repositoryUrl)
+        ? "Choose a repository approved by the deployment configuration." : null);
     if (validationError) {
       setConfigSaveResult("error");
       setConfigSaveError(validationError);
@@ -182,9 +188,9 @@ export function PlatformAnnouncementsSettings({
       if (!response.ok || !data.success) {
         throw new Error(data.error?.message || data.error || "Could not save release notes configuration");
       }
-      setSavedRepositoryUrl(fields.repositoryUrl);
-      setSavedPreviousCommit(fields.previousCommit);
-      setSavedLatestCommit(fields.latestCommit);
+      setSavedRepositoryUrl(snapshot.repositoryUrl);
+      setSavedPreviousCommit(snapshot.previousCommit);
+      setSavedLatestCommit(snapshot.latestCommit);
       setConfigSaveResult("success");
     } catch (reason) {
       setConfigSaveResult("error");
@@ -247,15 +253,32 @@ export function PlatformAnnouncementsSettings({
             </div>
             <label className="block space-y-1 text-xs font-medium" htmlFor="release-notes-repository-url">
               <span>Repository URL</span>
-              <Input
+              <Select
                 id="release-notes-repository-url"
+                aria-describedby="release-notes-repository-help"
                 value={repositoryUrl}
-                onChange={(event) => setCompareField("repositoryUrl",event.target.value)}
-                placeholder="https://github.com/example/repository"
+                onChange={(event) => {
+                  setCompareField("repositoryUrl",event.target.value);
+                  if (!event.target.value) {
+                    setCompareField("previousCommit","");
+                    setCompareField("latestCommit","");
+                  }
+                }}
                 disabled={readOnly}
-                spellCheck={false}
-              />
+              >
+                <option value="">Use deployed-version release notes</option>
+                {repositoryUrl && !allowedRepositories.includes(repositoryUrl) ? (
+                  <option value={repositoryUrl} disabled>{repositoryUrl} (not approved)</option>
+                ) : null}
+                {allowedRepositories.map((repository) => (
+                  <option key={repository} value={repository}>{repository}</option>
+                ))}
+              </Select>
             </label>
+            <p id="release-notes-repository-help" className="text-xs text-muted-foreground">
+              {allowedRepositories.length ? "Only repositories approved by your deployment are available." :
+                "No repositories are approved for commit comparisons. Contact your deployment administrator."}
+            </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-1 text-xs font-medium" htmlFor="release-notes-previous-commit">
                 <span>Previous upgraded commit</span>
