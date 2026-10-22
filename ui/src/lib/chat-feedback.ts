@@ -15,7 +15,7 @@ export function captureChatFeedbackContext(conversation: Conversation, origin: s
   const question = conversation.messages[questionIndex];
   const answer = conversation.messages.slice(questionIndex + 1)
     .findLast(message => message.role === "assistant" && message.content.trim());
-  const partial = streaming || answer?.isInterrupted || answer?.isFinal === false;
+  const partial = streaming || answer?.isInterrupted || answer?.turnStatus === "interrupted" || answer?.isFinal === false;
   return [
     `Conversation: ${conversation.id}`,
     `Chat URL: ${origin}/chat/${encodeURIComponent(conversation.id)}`,
