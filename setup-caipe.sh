@@ -6530,6 +6530,11 @@ DAEOF
     OIDC_ISSUER: "${da_oidc_issuer}"
     OIDC_CLIENT_ID: "${da_oidc_client_id}"
     CORS_ORIGINS: '["$(_ui_public_url)", "http://localhost:3000"]'
+    # Dynamic agents ignores an MCP server's credential_sources unless this is
+    # true. The scheduler and Knowledge Base MCP servers need the signed-in
+    # user's token (caller_token), so without it their tools fail with
+    # "requires an authenticated caller token".
+    USE_IMPERSONATION_TOKENS: "true"
 DAEOF
       # Pass OIDC_REQUIRED_ADMIN_GROUP to dynamic-agents so it matches the UI's
       # admin group. When unset, it falls back to generic pattern matching
@@ -6657,6 +6662,29 @@ DAEOF
 DAEOF
       _seeded+=("$_a")
     done
+    # Scheduler MCP: the scheduler service derives the schedule owner from the
+    # caller's JWT, so dynamic agents must forward the user's token as
+    # X-CAIPE-Caller-Token. Without this credential source the server is only
+    # auto-discovered from AgentGateway and every scheduler tool call fails.
+    if $ENABLE_SCHEDULER && $ENABLE_RBAC_RUNTIME; then
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "scheduler"
+        name: "Scheduler"
+        description: "Cron-style scheduled Dynamic Agents chat fires."
+        transport: "http"
+        enabled: true
+        credential_sources:
+          - kind: "caller_token"
+            name: "X-CAIPE-Caller-Token"
+            target: "header"
+        endpoint: "http://caipe-agentgateway:4000/mcp/scheduler"
+        source: "agentgateway"
+        agentgateway_discovered: false
+        agentgateway_endpoint: "http://caipe-agentgateway:4000/mcp/scheduler"
+        agentgateway_target_endpoint: "http://mcp-scheduler.${ns}.svc.cluster.local:8000/mcp"
+DAEOF
+    fi
+
     # Enabled agents from _AGENT_TAGS
     for _a in "${_AGENT_TAGS[@]}"; do
       [[ -n "${_MCP_META[$_a]+_}" ]] || continue
@@ -6689,6 +6717,13 @@ DAEOF
         transport: "http"
         endpoint: "http://rag-server.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${RAG_SERVER_PORT}/mcp"
         enabled: true
+        # The RAG server enforces its own OIDC auth: forward the caller's token
+        # for per-user access, or a service token when there is no caller (probes).
+        credential_sources:
+          - kind: "caller_token"
+            name: "X-CAIPE-Provider-Token"
+            target: "header"
+            fallback_client_credentials: true
 DAEOF
     fi
 
@@ -6897,6 +6932,15 @@ DAEOF
       # with the service running. Set the UI flag explicitly.
       --set "caipe-ui.config.SCHEDULER_ENABLED=true"
     )
+    # The scheduler service validates the caller's JWT (it derives the schedule
+    # owner from it). Left empty it answers 503 "caller authentication is not
+    # configured". The issuer is the token's `iss`; keys are fetched in-cluster.
+    if $ENABLE_RBAC_RUNTIME && [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      helm_args+=(
+        --set "scheduler.auth.issuer=$(_idp_public_url)/realms/caipe"
+        --set "scheduler.auth.jwksUrl=http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+      )
+    fi
     log "Scheduler enabled (scheduled runs + cron-runner + scheduler MCP)"
   fi
 
