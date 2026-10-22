@@ -1,3 +1,22 @@
+## 1.3.0-rc.14 (2026-10-22)
+
+### Feat
+
+- **chat**: expose native feedback and opt-in chat excerpts (#3038)
+- **app-sdk**: expose authorized native conversation controls (#3037)
+- **helm**: select shared database credentials (#3024)
+
+### Fix
+
+- **ci**: limit MCP registry publishing concurrency (#3027)
+
+## 1.3.0-rc.13 (2026-10-21)
+
+### Feat
+
+- **chat**: add personal folders and agent grouping (#3019)
+- **agentic-apps**: unify assistant overlay and app-owned chat routing (#2693)
+
 ## 1.3.0-rc.12 (2026-10-19)
 
 ### Feat

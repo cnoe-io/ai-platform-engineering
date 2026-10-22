@@ -33,7 +33,7 @@ export interface NativeExtensionModule {
 /** Host owns streaming, history persistence and activity across native screens. */
 export interface NativeHostChat {
   Panel: ComponentType<NativeHostChatPanelProps>;
-  /** Optional per-conversation history controls reuse GRID sharing and recoverable archive. */
+  /** Optional controls reuse host sharing and recoverable archive. */
   ConversationActions?: ComponentType<NativeHostConversationActionsProps>;
 }
 export interface NativeHostConversationActionsProps {
@@ -55,8 +55,8 @@ export interface NativeHostChatPanelProps {
   emptyStateTitle?: string;
   /** Whether to show the agent identity row. Defaults to true; embedded surfaces may opt out. */
   showAgentHeader?: boolean;
-  /** Show the configured audit logging notice. Defaults to true; this does not change audit logging. */
+  /** Show the configured audit logging notice. Defaults to true; does not change audit logging. */
   showAuditNotice?: boolean;
-  /** Replace the default disclaimer with a link to the host feedback form, when reporting is enabled. */
+  /** App-owned copy linking to the host feedback form when reporting is enabled. */
   feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }
