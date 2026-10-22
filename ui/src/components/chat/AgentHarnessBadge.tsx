@@ -48,7 +48,10 @@ export function AgentHarnessBadge({
               alt=""
               width={20}
               height={20}
-              className="h-full w-full object-contain"
+              className={cn(
+                "h-full w-full object-contain",
+                identity.logoSrc === "/provider-logos/agentcore.svg" && "origin-[48%_55%] scale-150",
+              )}
               aria-hidden="true"
             />
           ) : (
