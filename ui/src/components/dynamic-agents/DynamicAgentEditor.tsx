@@ -526,6 +526,9 @@ export function DynamicAgentEditor({
   const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
     source?.model?.reasoning_effort || "medium",
   );
+  const [modelStreaming, setModelStreaming] = React.useState<boolean | null>(
+    source?.model?.streaming ?? null,
+  );
   const [supportedReasoningEfforts, setSupportedReasoningEfforts] = React.useState<ReasoningEffort[] | null>(null);
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default",
@@ -902,6 +905,7 @@ export function DynamicAgentEditor({
       modelId,
       modelProvider,
       reasoningEffort,
+      modelStreaming,
       gradientTheme,
     }),
     [
@@ -923,6 +927,7 @@ export function DynamicAgentEditor({
       modelId,
       modelProvider,
       reasoningEffort,
+      modelStreaming,
       gradientTheme,
     ],
   );
@@ -1006,7 +1011,7 @@ export function DynamicAgentEditor({
                   }))
                 : undefined,
           },
-          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort, streaming: modelStreaming },
           ...(instruction ? { instruction } : {}),
           ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
         }),
@@ -1235,7 +1240,7 @@ export function DynamicAgentEditor({
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
           ...knowledgeFields,
-          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort, streaming: modelStreaming },
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
@@ -1287,7 +1292,7 @@ export function DynamicAgentEditor({
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
           ...knowledgeFields,
-          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort },
+          model: { id: modelId, provider: modelProvider, reasoning_effort: reasoningEffort, streaming: modelStreaming },
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
@@ -1573,6 +1578,27 @@ export function DynamicAgentEditor({
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="modelStreaming">Model response streaming</Label>
+                  <Select
+                    id="modelStreaming"
+                    value={modelStreaming === null ? "default" : String(modelStreaming)}
+                    onChange={(event) => setModelStreaming(
+                      event.target.value === "default" ? null : event.target.value === "true",
+                    )}
+                    disabled={loading || !!readOnly}
+                    aria-describedby="modelStreaming-help"
+                  >
+                    <option value="default">Use deployment default</option>
+                    <option value="true">Enabled</option>
+                    <option value="false">Disabled</option>
+                  </Select>
+                  <p id="modelStreaming-help" className="text-xs text-muted-foreground">
+                    Disable if your model provider or proxy does not support streaming.
+                    Saved changes apply to the next chat turn. Responses already running are unchanged.
+                  </p>
                 </div>
 
                 <div className="space-y-2">

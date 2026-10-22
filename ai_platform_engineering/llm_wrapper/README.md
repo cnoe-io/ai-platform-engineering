@@ -97,6 +97,12 @@ and forwards it to that Helm value. A running service must restart to pick up
 the new environment. The runtime image must contain this wrapper support;
 setting the variable alone on an older image has no effect.
 
+An explicit `disable_streaming` argument to `build_chat_model` overrides this
+environment default. Dynamic Agents expose this override as `model.streaming`:
+`false` passes `disable_streaming=True`, `true` passes `False`, and `null` or an
+omitted field inherits the environment. Agent editors can change this from
+**Basic Info → Model response streaming**, without restarting the service.
+
 ### Provider configuration
 
 Set the `openai-compatible` provider at a LiteLLM Proxy, Bifrost, Portkey, or

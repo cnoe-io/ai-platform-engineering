@@ -708,6 +708,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
     throw new ApiError("Invalid model.reasoning_effort", 400);
   }
+  if (body.model.streaming != null && typeof body.model.streaming !== "boolean") {
+    throw new ApiError("model.streaming must be a boolean or null", 400);
+  }
   const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
   const requestedOwnerTeamId = normalizeString(body.owner_team_id);
   // Coerce any legacy 'private' on the wire to 'team' (private visibility was
@@ -945,6 +948,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     body.model.reasoning_effort ??= "medium";
     if (!["low", "medium", "high", "max"].includes(body.model.reasoning_effort)) {
       throw new ApiError("Invalid model.reasoning_effort", 400);
+    }
+    if (body.model.streaming != null && typeof body.model.streaming !== "boolean") {
+      throw new ApiError("model.streaming must be a boolean or null", 400);
     }
   }
   const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);

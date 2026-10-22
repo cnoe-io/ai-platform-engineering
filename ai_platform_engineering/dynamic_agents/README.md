@@ -163,6 +163,24 @@ The API documentation is available at:
 
 ### Models Configuration
 
+#### Change streaming from the UI
+
+Open **Agents → Agents**, edit an agent, and find **Model response streaming**
+on **Basic Info**:
+
+- **Use deployment default**: inherit `LLM_STREAMING` (enabled when unset).
+- **Enabled**: request streaming responses from the model provider.
+- **Disabled**: request complete responses, for proxies without streaming support.
+
+Save the agent. Its next chat turn uses the new setting without a pod restart;
+an already running turn keeps its existing model. This setting is stored as
+`model.streaming` (`true`, `false`, or `null` for inheritance) and takes precedence
+over the deployment default. Existing agent editing permissions still apply.
+Subagents use their own saved model settings. The browser continues to receive
+agent progress events over SSE in every mode.
+
+#### Available models
+
 Available LLM models are configured in `src/dynamic_agents/services/config.yaml`:
 
 ```yaml
