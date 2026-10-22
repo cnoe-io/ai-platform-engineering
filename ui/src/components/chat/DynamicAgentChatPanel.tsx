@@ -118,6 +118,8 @@ interface ChatPanelProps {
   placeholder?: string;
   emptyStateTitle?: string;
   showAgentHeader?: boolean;
+  /** Show the audit logging notice when configured. Defaults to true. */
+  showAuditNotice?: boolean;
   /** App-owned copy for the host correction form; omitted for the standard disclaimer. */
   feedbackPrompt?: { message: string; actionLabel: string; trailingText?: string };
 }
@@ -132,7 +134,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
-  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true, feedbackPrompt,
+  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true, showAuditNotice = true, feedbackPrompt,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -3013,7 +3015,7 @@ export function ChatPanel({
           <div className="relative flex min-h-6 items-center justify-center">
             <p className="px-28 text-center text-xs text-muted-foreground max-sm:px-0 max-sm:pr-24">
               {showFeedbackPrompt && feedbackPrompt ? <>
-                {feedbackPrompt.message}{" "}
+                {feedbackPrompt.message && <>{feedbackPrompt.message}{" "}</>}
                 <button type="button" className="underline underline-offset-2 hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     const current = conversation?.id === (conversationId ?? activeConversationId) ? conversation : undefined;
@@ -3026,7 +3028,7 @@ export function ChatPanel({
                 </button>
                 {feedbackPrompt.trailingText && <> {feedbackPrompt.trailingText}</>}
               </> : <>{getConfig('appName')} can make mistakes. Verify important info.</>}
-              {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
+              {showAuditNotice && getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
             </p>
             {showContextUsage && contextUsage && (
               <div className="absolute right-0">
