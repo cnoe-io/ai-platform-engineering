@@ -94,6 +94,7 @@ interface DynamicAgentEditorProps {
   readOnly?: boolean; // true for view-only mode
   readOnlyReason?: "config" | "permissions"; // why readOnly is true
   initialStep?: AgentSetupStep;
+  initialHarness?: { id: string; profileId: string };
   onStepChange?: (step: AgentSetupStep) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -438,6 +439,7 @@ export function DynamicAgentEditor({
   readOnly,
   readOnlyReason,
   initialStep = "basic",
+  initialHarness,
   onStepChange,
   onSave,
   onCancel,
@@ -551,9 +553,9 @@ export function DynamicAgentEditor({
   // Harness Engine persists a complete, immutable blueprint independently of
   // the legacy Dynamic Agents document. The catalog drives this form.
   const [harnessId, setHarnessId] = React.useState(
-    source?.execution_harness_id || "dynamic_agents",
+    source?.execution_harness_id || initialHarness?.id || "dynamic_agents",
   );
-  const [harnessProfileId, setHarnessProfileId] = React.useState("");
+  const [harnessProfileId, setHarnessProfileId] = React.useState(initialHarness?.profileId ?? "");
   const [harnessOptions, setHarnessOptions] = React.useState<Record<string, unknown>>({});
   const [harnessDescriptors, setHarnessDescriptors] = React.useState<HarnessDescriptor[]>([]);
   const [catalogRevision, setCatalogRevision] = React.useState<string | null>(null);

@@ -96,6 +96,19 @@ visibility does not reduce the text width.
 4. The UI stores conversation messages and stream events in MongoDB-backed state.
 5. MCP tools are reached through configured MCP server rows, usually via AgentGateway.
 
+## Existing AgentCore agents
+
+- **Agents → Add existing AgentCore agent** is available to callers authorized
+  to administer platform configuration. It registers an existing Harness or
+  Runtime ARN as an immutable shared operator profile, then opens the existing
+  Agent Builder with that connection selected.
+- Assign instructions, ownership and access in the Builder. Registration does
+  not copy AWS tools, permissions or history and does not provision AWS resources.
+- Connection IDs start with `existing-`. The AWS Region must match the ARN.
+  AWS invocation permission is checked when chatting using Engine credentials.
+- See the [Harness Engine connection contract](../ai_platform_engineering/harness_engine/README.md#connect-an-existing-agentcore-deployment)
+  for lifecycle and authorization details.
+
 ## Related Docs
 
 - [UI overview](../docs/docs/ui/index.md)

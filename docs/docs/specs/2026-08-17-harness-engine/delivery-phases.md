@@ -24,6 +24,7 @@ Phase 1 is an experimental additional-harness foundation. Later phases add capab
 - Saved execution ownership must win over a later app declaration or harness default. Provider failure cannot silently switch execution backends.
 - An optional engine outage must not block unmigrated Deep Agents conversations.
 - Expose supported provider profiles/options. Disable or hide unsupported Deep Agents-specific controls for other harnesses; explain settings owned by an operator profile. Preserve incompatible saved values for review.
+- Platform administrators can connect an existing AgentCore Harness or Runtime by ARN as an immutable shared operator profile, then use the existing Builder for instructions, ownership and access. Registration does not import AWS configuration, IAM/tool permissions or history; the external deployment remains unmanaged by CAIPE.
 - Experimental SDK adapters do not claim portable tools, full HITL/attachments, sandbox isolation or cross-harness delegation before those features are implemented and qualified.
 - Resolve current-path review findings and obtain scope agreement. A phase label is not a resolution of a correctness finding.
 

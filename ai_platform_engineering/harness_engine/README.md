@@ -34,6 +34,34 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - Missing Engine configuration returns `503` for saved SDK agents or pinned
   Engine conversations. Legacy/default agents still use Dynamic Agents.
 
+## Connect an existing AgentCore deployment
+
+- In **Agents**, a platform administrator chooses **Add existing AgentCore
+  agent**, enters a connection ID beginning with `existing-`, a Harness or
+  Runtime ARN, its matching AWS Region, and a qualifier.
+- Registration saves an immutable `shared` operator profile in
+  `harness_agentcore_profiles`. MongoDB preserves it across restarts; the
+  development memory backend does not. Identical retries reuse the connection;
+  an existing ID cannot be pointed at a different target.
+- The Agent Builder opens with AgentCore and the connection selected. Its
+  normal instructions, owner-team and sharing controls create the CAIPE agent.
+  The connection also remains available in the operator profile picker.
+- Registration checks ARN syntax and Region consistency. The Engine uses its
+  existing AWS credentials; IAM invocation permission is checked when chatting.
+  Registering does not discover AWS resources or import configuration/history.
+- Managed Harness calls use CAIPE instructions. Custom Runtimes must accept
+  the adapter's request/response contract. Native provider tools keep their AWS
+  permissions; CAIPE tool grants do not automatically constrain them.
+- Registration requires both `admin_ui#admin` and CAS management permission on
+  `system_config:platform` in the BFF. The internal endpoint additionally
+  requires the service credential and an admin marker set only by that route.
+  The normal catalog exposes profile aliases, never ARNs or credentials.
+- Connections extend the operator allowlist for agent builders. Chat/run access
+  still requires current CAIPE agent and conversation permissions. Each caller,
+  agent and conversation keeps its own Engine binding/provider session.
+- Shared connections never create, update or delete the AWS deployment. Removing
+  a CAIPE agent removes its CAIPE records; the imported target remains external.
+
 ## App-owned chat streams
 
 - The BFF's start, resume, cancel and status routes share one dispatcher after
