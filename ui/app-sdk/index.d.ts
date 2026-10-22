@@ -53,4 +53,6 @@ export interface NativeHostChatPanelProps {
   composerHeader?: import("react").ReactNode;
   placeholder?: string;
   emptyStateTitle?: string;
+  /** Whether to show the agent identity row. Defaults to true; embedded surfaces may opt out. */
+  showAgentHeader?: boolean;
 }

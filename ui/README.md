@@ -97,3 +97,5 @@ entries open each task's delivery timeline.
 - [UI configuration](../docs/docs/ui/configuration.md)
 - [Dynamic Agents API](../docs/docs/api/dynamic-agents-mcp.md)
 - [Helm chart reference](../docs/docs/installation/helm-charts/ai-platform-engineering/caipe-ui.md)
+
+Native app chat panels may pass `showAgentHeader: false` when their own toolbar already identifies the assistant. The default is `true`, preserving the agent identity row in regular chat.

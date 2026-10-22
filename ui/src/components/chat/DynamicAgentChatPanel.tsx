@@ -115,6 +115,7 @@ interface ChatPanelProps {
   composerHeader?: React.ReactNode;
   placeholder?: string;
   emptyStateTitle?: string;
+  showAgentHeader?: boolean;
 }
 
 export function ChatPanel({
@@ -127,7 +128,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
-  requestOptions, composerHeader, placeholder, emptyStateTitle,
+  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -2255,7 +2256,7 @@ export function ChatPanel({
 
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
-      <div
+      {showAgentHeader && <div
         className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
         aria-label={`Talking to ${agentName || agentId}`}
       >
@@ -2280,7 +2281,7 @@ export function ChatPanel({
         ) : (
           <Skeleton className="h-6 w-24 rounded-full" />
         )}
-      </div>
+      </div>}
 
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
