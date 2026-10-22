@@ -6478,6 +6478,7 @@ deploy_caipe() {
       # Inject the shared LLM secret (ANTHROPIC_API_KEY / AWS_* / AZURE_*) so
       # dynamic-agents can call the LLM backend.
       --set "dynamic-agents.llmSecret=llm-secret"
+      --set-string "dynamic-agents.config.LLM_STREAMING=${LLM_STREAMING:-true}"
     )
 
     # Auth + OIDC: enable when a public domain + OIDC issuer are configured.
@@ -8873,7 +8874,7 @@ BANNER
   # collect_credentials picks the right provider without requiring the caller
   # to also export them as shell environment variables.
   if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
-    local _llm_vars=(LLM_PROVIDER
+    local _llm_vars=(LLM_PROVIDER LLM_STREAMING
       ANTHROPIC_API_KEY ANTHROPIC_MODEL_NAME
       AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION
       AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
@@ -9295,6 +9296,7 @@ Re-run behavior:
 
 Environment variables (all optional):
   LLM_PROVIDER            LLM provider: anthropic-claude (default) | aws-bedrock | openai
+  LLM_STREAMING           Set false for non-streaming model requests (default: true)
   OPENAI_API_KEY          Pre-set OpenAI API key (skips prompt)
   OPENAI_MODEL_NAME       OpenAI model (default: gpt-5.2; used by llm_wrapper)
   ANTHROPIC_API_KEY       Pre-set Anthropic API key (skips prompt)

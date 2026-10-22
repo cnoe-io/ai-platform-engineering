@@ -196,6 +196,11 @@ class ModelConfig(BaseModel):
         "medium",
         description="Portable default reasoning effort; ignored when the model does not support configurable reasoning",
     )
+    streaming: bool | None = Field(
+        None,
+        strict=True,
+        description="Stream model responses; null inherits the LLM_STREAMING deployment default",
+    )
 
 
 # =============================================================================
