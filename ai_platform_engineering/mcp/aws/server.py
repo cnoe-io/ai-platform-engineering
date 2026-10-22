@@ -6,7 +6,8 @@
 AWS MCP Server
 
 Provides a Model Context Protocol (MCP) interface for AWS CLI and EKS kubectl
-operations. Exposes read-only AWS CLI execute logic as MCP tools.
+operations. Exposes read-only AWS CLI execute logic plus one IAM-scoped EC2
+stop action as MCP tools.
 """
 
 import asyncio
@@ -21,6 +22,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+import jwt
+from mcp_agent_auth.middleware import MCPAuthMiddleware
+from mcp_agent_auth.token_context import current_bearer_token
+from starlette.middleware import Middleware
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +136,16 @@ def _validate_aws_command(command: str) -> tuple[bool, str]:
     parts = command.split()
     if not parts:
         return False, "Empty command provided."
+    # Stopping one developer VM is the only write action allowed. Keep its
+    # argument shape strict; IAM checks ownership/admin and VPC tags.
+    if parts[:2] == ["ec2", "stop-instances"]:
+        if (
+            len(parts) == 4
+            and parts[2] == "--instance-ids"
+            and re.fullmatch(r"i-[0-9a-f]{8,17}", parts[3])
+        ):
+            return True, ""
+        return False, "Only one EC2 instance ID may be stopped per request."
     for pattern in BLOCKED_COMMAND_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return False, f"Command matches blocked pattern '{pattern}'. Destructive operations are disabled."
@@ -149,6 +164,120 @@ def _validate_aws_command(command: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _authenticated_username() -> str | None:
+    """Return preferred_username from the JWT already verified by middleware."""
+    token = current_bearer_token.get()
+    if not token:
+        return None
+    try:
+        claims = jwt.decode(
+            token,
+            options={"verify_signature": False, "verify_exp": False, "verify_aud": False},
+        )
+    except jwt.InvalidTokenError:
+        return None
+
+    username = claims.get("preferred_username")
+    if (
+        not isinstance(username, str)
+        or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", username)
+        or username.lower().startswith("service-account-")
+    ):
+        return None
+    return username
+
+
+async def _stop_owned_developer_vm(instance_id: str, username: str) -> str:
+    """Assume the target role with a trusted username tag, then stop one VM."""
+    accounts: dict[str, str] = {}
+    for entry in os.getenv("AWS_ACCOUNT_LIST", "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" in entry:
+            account_name, account_id = entry.split(":", 1)
+            accounts[account_name.strip()] = account_id.strip()
+        else:
+            accounts[entry] = entry
+    account_id = accounts.get("outshift-common-dev")
+    if not account_id:
+        return "❌ outshift-common-dev is not configured for the AWS agent."
+
+    role_name = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
+    role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
+    session_name = re.sub(r"[^A-Za-z0-9_+=,.@-]", "_", f"caipe-{username}")[:64]
+
+    source_env = {**os.environ}
+    source_env.pop("AWS_PROFILE", None)
+    source_env.pop("AWS_DEFAULT_PROFILE", None)
+    assume_role_command = [
+        "aws", "sts", "assume-role",
+        "--role-arn", role_arn,
+        "--role-session-name", session_name,
+        "--tags", f"Key=username,Value={username}",
+        "--transitive-tag-keys", "username",
+        "--duration-seconds", "900",
+        "--output", "json",
+    ]
+
+    try:
+        assume_proc = await asyncio.create_subprocess_exec(
+            *assume_role_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=source_env,
+        )
+        try:
+            assume_out, assume_err = await asyncio.wait_for(
+                assume_proc.communicate(), timeout=AWS_CLI_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            assume_proc.kill()
+            await assume_proc.wait()
+            raise
+        if assume_proc.returncode != 0:
+            return f"❌ Could not assume the tagged developer VM role: {assume_err.decode(errors='replace')}"
+        credentials = json.loads(assume_out).get("Credentials", {})
+        if not all(credentials.get(key) for key in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
+            return "❌ AWS STS did not return temporary credentials."
+
+        stop_env = {**source_env}
+        stop_env.pop("AWS_ROLE_ARN", None)
+        stop_env.pop("AWS_WEB_IDENTITY_TOKEN_FILE", None)
+        stop_env.update({
+            "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
+            "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
+            "AWS_SESSION_TOKEN": credentials["SessionToken"],
+            "AWS_REGION": "us-east-2",
+            "AWS_DEFAULT_REGION": "us-east-2",
+        })
+        stop_proc = await asyncio.create_subprocess_exec(
+            "aws", "ec2", "stop-instances", "--instance-ids", instance_id,
+            "--region", "us-east-2", "--output", "json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=stop_env,
+        )
+        try:
+            stop_out, stop_err = await asyncio.wait_for(
+                stop_proc.communicate(), timeout=AWS_CLI_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            stop_proc.kill()
+            await stop_proc.wait()
+            raise
+        if stop_proc.returncode != 0:
+            return f"❌ Could not stop {instance_id}: {stop_err.decode(errors='replace')}"
+        return stop_out.decode(errors="replace") or f"✅ Stop request sent for {instance_id}."
+    except asyncio.TimeoutError:
+        return f"❌ AWS operation timed out after {AWS_CLI_TIMEOUT} seconds."
+    except FileNotFoundError:
+        return "❌ AWS CLI not found. Ensure it is installed in the container."
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("AWS stop-instance operation failed: %s", exc)
+        return "❌ AWS stop-instance operation failed."
+
+
 async def aws_cli_execute(
     command: str,
     profile: str,
@@ -157,11 +286,12 @@ async def aws_cli_execute(
     jq_filter: Optional[str] = None,
 ) -> str:
     """
-    Execute an AWS CLI read-only command against a specific AWS account.
+    Execute a read-only AWS CLI command, or stop one owned developer VM.
 
     The 'aws' prefix must be omitted — pass only the service and subcommand.
-    All write/destructive operations (create, delete, update, terminate, …) are
-    blocked. Use describe-*, list-*, get-* operations.
+    All write/destructive operations are blocked except a single
+    ``ec2 stop-instances --instance-ids i-...`` request, which is limited to
+    ``outshift-common-dev`` in ``us-east-2`` and authorized by instance tags.
 
     Args:
         command: AWS CLI command without the 'aws' prefix.
@@ -172,7 +302,8 @@ async def aws_cli_execute(
             If AWS_ACCOUNT_LIST is not configured, pass an empty string to use
             environment-variable credentials directly.
         region: AWS region override. Defaults to AWS_REGION / AWS_DEFAULT_REGION
-            environment variable, or 'us-west-2' if neither is set.
+            environment variable, or 'us-west-2' if neither is set. Stopping a
+            developer VM requires profile='outshift-common-dev' and region='us-east-2'.
         output_format: CLI output format — json (default), text, table, or yaml.
         jq_filter: Optional jq expression applied to JSON output. Useful for
             extracting specific fields, e.g.
@@ -188,6 +319,15 @@ async def aws_cli_execute(
 
     configured_profiles = _get_configured_profiles()
     profile_prefix = f"--profile {profile} " if (configured_profiles and profile) else ""
+
+    if command.split()[:2] == ["ec2", "stop-instances"]:
+        if profile != "outshift-common-dev" or aws_region != "us-east-2":
+            return "❌ Stop requests are limited to outshift-common-dev in us-east-2."
+        username = _authenticated_username()
+        if not username:
+            return "❌ Stop requests require a verified Keycloak user identity."
+        async with _aws_cli_semaphore:
+            return await _stop_owned_developer_vm(command.split()[3], username)
 
     if "--region" in command:
         full_command = f"aws {profile_prefix}{command} --output {output_fmt}"
@@ -499,7 +639,15 @@ def main():
     mcp.tool()(eks_kubectl_execute)
 
     if MCP_MODE.lower() in ["sse", "http"]:
-        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+        if MCP_MODE.lower() == "http":
+            mcp.run(
+                transport="http",
+                host=MCP_HOST,
+                port=MCP_PORT,
+                middleware=[Middleware(MCPAuthMiddleware)],
+            )
+        else:
+            mcp.run(transport="sse", host=MCP_HOST, port=MCP_PORT)
     else:
         mcp.run(transport=MCP_MODE.lower())
 
