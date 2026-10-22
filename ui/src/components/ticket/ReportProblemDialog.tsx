@@ -334,9 +334,8 @@ export function ReportProblemDialog({
                       if (event.target.checked && !chatContextDraft) setChatContextDraft(chatContext);
                     }}
                     className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary focus:ring-2 focus:ring-primary/50" />
-                  <span>Include the latest question and response</span>
+                  <span>Include your chat</span>
                 </label>
-                <p className="text-xs text-muted-foreground">Check to preview the text and remove anything sensitive before submitting. Tools and attachments are excluded.</p>
                 {includeChatContext && (
                   <textarea aria-label="Chat context to include" value={chatContextDraft} maxLength={14000}
                     onChange={event => setChatContextDraft(event.target.value)}
