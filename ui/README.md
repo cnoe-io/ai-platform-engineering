@@ -102,7 +102,8 @@ The small layout button beside the history filter switches between two layouts:
   width, agent name and date/live status below, and hover actions on a third line.
 
 The choice is saved per user in this browser. Neither layout grows on hover.
-The app/harness logo sits on the avatar corner. Folder, rename, share, and
+The app/harness logo has its own slot beneath the avatar so neither icon is
+obscured. Folder, rename, share, and
 archive actions appear when that row is hovered or contains keyboard focus;
 touch devices and an active rename keep them visible. Coarse pointers receive
 larger touch targets on an additional action line. Scheduled and autonomous task
