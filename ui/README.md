@@ -91,7 +91,7 @@ order, with icons and search. Automation choices appear when their platform
 features are enabled. The selected view persists in browser storage; webhook
 entries open each task's delivery timeline.
 
-Collapsible agent and folder group names use 14px text; their chat counts remain
+Collapsible agent and folder group names use 16px text; their chat counts remain
 smaller secondary labels. Long names truncate with the full name on hover.
 
 History rows give the conversation title its own line and show the agent name
