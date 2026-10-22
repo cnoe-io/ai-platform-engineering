@@ -984,7 +984,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
                     >
                     <div
-                      className={cn("relative flex w-8 shrink-0 flex-col items-center gap-0.5", !collapsed && "col-start-1 row-start-1 row-span-2")}
+                      className={cn("relative shrink-0", !collapsed && "col-start-1 row-start-1 row-span-2")}
                       title={titleBadge?.title}
                     >
                       {titleBadge && <span className="sr-only">{titleBadge.title}</span>}
@@ -1031,7 +1031,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                           harnessId={conversationAgent.execution_harness_id}
                           presentation={conversationAgent.presentation}
                           compact
-                          className="flex h-4 w-4 items-center justify-center"
+                          className="absolute -bottom-2.5 -right-1.5 rounded-sm bg-card ring-2 ring-card"
                         />
                       )}
                       {(isLive || isInputRequired || isUnviewed) && (

@@ -96,8 +96,8 @@ smaller secondary labels. Long names truncate with the full name on hover.
 
 History rows use the Inline actions layout: 56px desktop rows, with title and
 date/live status above the agent name and hover actions. Rows do not grow on hover.
-The app/harness logo has its own slot beneath the avatar so neither icon is
-obscured. Folder, rename, share, and
+The app/harness logo sits at the avatar's lower-right corner, offset outward to
+keep the avatar glyph visible. Folder, rename, share, and
 archive actions appear when that row is hovered or contains keyboard focus;
 touch devices and an active rename keep them visible. Coarse pointers receive
 larger touch targets on an additional action line. Scheduled and autonomous task
