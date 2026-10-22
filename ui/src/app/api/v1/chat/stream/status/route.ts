@@ -1,7 +1,7 @@
 /** Read-only app turn status; same caller and conversation boundary as start. */
 import { NextRequest, NextResponse } from "next/server";
 
-import { proxyAgenticAppAssistantStream } from "@/lib/agentic-apps/assistant-stream";
+import { dispatchChatStream } from "../../_stream-gateway";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { authorizeConversationWriteAccess } from "../../_conversation-authz";
 import { authenticateRequest } from "../../_helpers";
@@ -20,8 +20,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const denied = await requireAgentUsePermission({ subject: auth.subject, email: auth.email,
     agentId: body.agent_id, isServiceAccount: auth.isServiceAccount, tenantId: auth.tenantId });
   if (denied) return denied;
-  const access = await authorizeConversationWriteAccess(auth, body.conversation_id);
+  const access = await authorizeConversationWriteAccess(auth, body.conversation_id, body.agent_id);
   if (access.denial) return access.denial;
-  return await proxyAgenticAppAssistantStream(forwarded, auth, access.conversation, body, "status")
-    ?? NextResponse.json({ error: "Status is not available for this runtime" }, { status: 501 });
+  return dispatchChatStream(forwarded, auth, access.conversation, body, "status");
 }

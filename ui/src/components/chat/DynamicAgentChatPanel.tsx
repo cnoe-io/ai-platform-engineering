@@ -2,11 +2,13 @@
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { ContextUsageIndicator } from "@/components/chat/ContextUsageIndicator";
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
@@ -115,6 +117,7 @@ interface ChatPanelProps {
   composerHeader?: React.ReactNode;
   placeholder?: string;
   emptyStateTitle?: string;
+  showAgentHeader?: boolean;
   /** Show the audit logging notice when configured. Defaults to true. */
   showAuditNotice?: boolean;
   /** App-owned copy for the host correction form; omitted for the standard disclaimer. */
@@ -131,7 +134,7 @@ export function ChatPanel({
   isLoadingMessages,
   onAgentRelinked,
   clientContext: suppliedClientContext,
-  requestOptions, composerHeader, placeholder, emptyStateTitle, showAuditNotice = true, feedbackPrompt,
+  requestOptions, composerHeader, placeholder, emptyStateTitle, showAgentHeader = true, showAuditNotice = true, feedbackPrompt,
 }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
@@ -379,6 +382,9 @@ export function ChatPanel({
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
+  const conversationTitle = useChatStore((state) => state.conversations
+    .find((item) => item.id === (conversationId ?? state.activeConversationId))
+    ?.title?.trim()) || "New chat";
   const isAutonomousHistory = conversation?.source === "autonomous";
   const autonomousFollowUps = useAutonomousFollowUps(
     isAutonomousHistory && !panelReadOnly ? conversation?.task_id : undefined,
@@ -2267,6 +2273,33 @@ export function ChatPanel({
 
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
+      {showAgentHeader && <div
+        className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
+        aria-label={`Chat: ${conversationTitle}`}
+      >
+        <AgentAvatar
+          agent={agent}
+          agentId={agentId}
+          rounded="rounded-lg"
+          size="h-9 w-9"
+          iconSize="h-4 w-4"
+          isLoading={!agent && !readOnly}
+        />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold" title={conversationTitle}>
+            {conversationTitle}
+          </h1>
+          <p className="truncate text-xs text-muted-foreground" title={agentName || agentId}>
+            {agentName || agentId}
+          </p>
+        </div>
+        {agent ? (
+          <AgentHarnessBadge harnessId={agent.execution_harness_id} presentation={agent.presentation} />
+        ) : (
+          <Skeleton className="h-6 w-24 rounded-full" />
+        )}
+      </div>}
+
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>

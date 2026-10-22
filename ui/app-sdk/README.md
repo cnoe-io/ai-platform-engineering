@@ -144,6 +144,14 @@ chat store, persistence, stop action and green live-response bar. Removing the
 native screen does not abort its turn. Native packages should not render their
 bundled chat consumer alongside this panel.
 
+Hosts may also expose `props.chat.ConversationActions`. Feature-detect this
+optional component in each history row and pass that row's conversation/agent IDs
+and `onArchived` (refresh history; select or create another chat only when the
+archived chat was active). It reuses GRID's share control and recoverable archive
+API without adding an archive browser. Only owners see share/archive actions;
+all mutations still use host conversation authorization.
+Apps must not add a second sharing or archive implementation.
+
 Apps may supply a composer header and bounded per-question `requestOptions`; these
 are forwarded as `forwarded_props` and must be validated by the app. Agent binding
 and authorization remain server-owned.
@@ -167,6 +175,34 @@ catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
 agents. App proxy calls still validate the live catalog and fail closed when it
 is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
 the snapshot; a UI restart revalidates it before serving traffic.
+
+## App identity in agent catalogs
+
+- `catalog.icon` names a same-origin asset: `/app-icons/<app-id>/<filename>`.
+  Supported extensions: `svg`, `png`, `webp`, `jpg`, `jpeg`. URLs, query strings,
+  encoded paths and traversal are rejected. Legacy symbolic icon names remain valid
+  and use the generic app icon.
+- Native publishers include the asset at `public/app-icons/<app-id>/<filename>`
+  in the pinned npm package. The host copies the declared file during generation;
+  missing files, symlinks outside the package and images over 256 KiB fail the build.
+  Hosted installations may provision the same public asset namespace on the host.
+  Logos are public, reviewed assets; never put private content in this directory.
+- Authorized agent responses include read-only `presentation: { app: { id, name,
+  icon? }, available }`. The BFF derives it from the resolved
+  `bindings.resources.assistant` identity. Stored or submitted presentation fields
+  are ignored. Runtime origins and stream paths are not exposed in this projection.
+- App agents use their packaged app logo with an `App: Example App` tooltip.
+  Missing, invalid, or broken logos fall back to a filled app tile with a large
+  cutout spark. The hub heading and generic app fallbacks use this same mark.
+  Catalog cards also display packaged app branding. The Apps sidebar destination
+  retains the nine-dot launcher; legacy `layout-grid` navigation keeps its grid icon.
+  The app's internal SDK is not inferred from an absent `execution_harness_id`.
+  Legacy platform agents keep their existing Deep Agents fallback.
+- Agent CAS permissions still apply. App role/launch policy further restricts the
+  chat catalog; an app stream also requires an interactive user. Disabled or
+  uninstalled apps are excluded from new-chat choices, while authorized details
+  retain app identity with `available: false`. Duplicate assistant claims fail
+  closed. Presentation never selects a runtime or grants access.
 
 ## Native conversation controls
 

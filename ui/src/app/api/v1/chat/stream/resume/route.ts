@@ -5,19 +5,14 @@
  * Response: SSE stream (text/event-stream)
  */
 
+import { NextRequest, NextResponse } from "next/server";
+
+import { authenticateRequest } from "@/lib/da-proxy";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
-import { proxyAgenticAppAssistantStream } from "@/lib/agentic-apps/assistant-stream";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
-import { NextRequest,NextResponse } from "next/server";
-import {
-authorizeConversationWriteAccess,
-resolveConversationRuntimeId,
-} from "../../_conversation-authz";
-import {
-authenticateRequest,
-getDynamicAgentsConfig,
-proxySSEStream,
-} from "../../_helpers";
+
+import { authorizeConversationWriteAccess } from "../../_conversation-authz";
+import { dispatchChatStream } from "../../_stream-gateway";
 
 export const runtime = "nodejs";
 export const maxDuration = 960; // App deadlines may exceed the default agent deadline.
@@ -27,7 +22,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
 
-  const appRequest = request.clone();
+  const forwardedRequest = request.clone();
   // Parse body
   let body: Record<string, unknown>;
   try {
@@ -62,31 +57,11 @@ export async function POST(request: NextRequest): Promise<Response> {
   const conversationAuthz = await authorizeConversationWriteAccess(
     authResult,
     String(body.conversation_id),
+    body.agent_id,
   );
   if (conversationAuthz.denial) return conversationAuthz.denial;
 
-  const appResponse = await proxyAgenticAppAssistantStream(
-    appRequest, authResult, conversationAuthz.conversation, body, "resume",
-  );
-  if (appResponse) return appResponse;
-
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
-
-  body = {
-    ...body,
-    conversation_id: await resolveConversationRuntimeId(
-      conversationAuthz.conversation,
-    ),
-  };
-
-  // Forward body as-is to DA backend (same path, same body format)
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/resume`;
-
-  return proxySSEStream(
-    backendUrl,
-    JSON.stringify(body),
-    authResult,
-    "[stream/resume]",
+  return dispatchChatStream(
+    forwardedRequest, authResult, conversationAuthz.conversation, body, "resume",
   );
 }

@@ -73,6 +73,16 @@ function emptyCapabilities() {
   };
 }
 
+/** Only reviewed, same-origin assets in the owning app's namespace are rendered. */
+export function resolveAgenticAppIcon(appId, icon) {
+  if (typeof appId !== "string" || !ID.test(appId) || typeof icon !== "string" || icon.length > 200) return undefined;
+  const prefix = `/app-icons/${appId}/`;
+  if (!icon.startsWith(prefix)) return undefined;
+  const filename = icon.slice(prefix.length);
+  return /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*\.(?:svg|png|webp|jpe?g)$/.test(filename) && !filename.includes("..")
+    ? icon : undefined;
+}
+
 /** Validate publisher declarations. Permission requests never become grants here. */
 export function validateAgenticAppManifest(value) {
   const app = record(
@@ -396,8 +406,12 @@ export function validateAgenticAppManifest(value) {
     for (const field of ["categories", "capabilities"])
       if (app.catalog[field] !== undefined)
         strings(app.catalog[field], `catalog.${field}`);
-    if (app.catalog.icon !== undefined)
-      string(app.catalog.icon, "catalog.icon");
+    if (app.catalog.icon !== undefined) {
+      const icon = string(app.catalog.icon, "catalog.icon");
+      // Legacy symbolic icons remain valid and render the generic app mark.
+      if (!resolveAgenticAppIcon(app.id, icon) && !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(icon))
+        throw new Error("catalog.icon must be an asset under /app-icons/<app-id>/ or a legacy icon name");
+    }
     if (app.catalog.supportUrl !== undefined) {
       const url = new URL(string(app.catalog.supportUrl, "catalog.supportUrl"));
       if (

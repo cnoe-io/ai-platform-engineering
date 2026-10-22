@@ -71,6 +71,7 @@ export interface ConfiguredAgenticApp {
 
 export interface PublicAgenticApp {
   appId: string;
+  icon?: string;
   displayName: string;
   description: string;
   href: string;

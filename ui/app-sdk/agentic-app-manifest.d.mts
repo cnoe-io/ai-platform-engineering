@@ -67,10 +67,12 @@ export interface AgenticAppManifest {
   catalog?: {
     categories?: string[];
     capabilities?: string[];
+    /** Same-origin /app-icons/<app-id>/<filename> asset; legacy names use a generic icon. */
     icon?: string;
     supportUrl?: string;
   };
 }
+export function resolveAgenticAppIcon(appId: string, icon?: string): string | undefined;
 export function resolveAgenticAppHttpPolicyAction(
   manifest: AgenticAppManifest,
   method: string,
