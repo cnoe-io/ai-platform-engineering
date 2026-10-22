@@ -13,11 +13,10 @@ type Organization = ReturnType<typeof useChatHistoryOrganization>;
 export type OrganizationDialog = { kind: "create" } | { kind: "rename"; id: string; name: string }
   | { kind: "move"; id: string; title: string };
 
-export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sources, source, onSourceChange, allowFolders = true, allowGrouping = true, toolbarActions }: {
+export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sources, source, onSourceChange, allowFolders = true, allowGrouping = true }: {
   state: Organization; dialog: OrganizationDialog | null; onDialog: (value: OrganizationDialog | null) => void;
   sources: ReadonlyArray<{ value: string; label: string; content: ReactNode }>;
   source: string; onSourceChange: (value: string) => void; allowFolders?: boolean; allowGrouping?: boolean;
-  toolbarActions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -54,7 +53,6 @@ export function ChatHistoryOrganizationControls({ state, dialog, onDialog, sourc
           </div>
         </PopoverContent>
       </Popover>
-      {toolbarActions}
       {allowFolders && <Button size="icon" variant="ghost" aria-label="New chat folder" title="New chat folder" className="h-8 w-8 shrink-0"
         disabled={!state.ready || state.saving || state.value.folders.length >= 100} onClick={() => onDialog({ kind: "create" })}>
         <FolderPlus className="h-4 w-4" />

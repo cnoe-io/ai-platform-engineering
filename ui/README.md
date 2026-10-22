@@ -94,14 +94,8 @@ entries open each task's delivery timeline.
 Collapsible agent and folder group names use 16px text; their chat counts remain
 smaller secondary labels. Long names truncate with the full name on hover.
 
-The small layout button beside the history filter switches between two layouts:
-
-- **Inline actions** (default): 56px desktop rows, with title and date/live status
-  above the agent name and hover actions.
-- **Full-width title**: 68px desktop rows, with a title across the available text
-  width, agent name and date/live status below, and hover actions on a third line.
-
-The choice is saved per user in this browser. Neither layout grows on hover.
+History rows use the Inline actions layout: 56px desktop rows, with title and
+date/live status above the agent name and hover actions. Rows do not grow on hover.
 The app/harness logo has its own slot beneath the avatar so neither icon is
 obscured. Folder, rename, share, and
 archive actions appear when that row is hovered or contains keyboard focus;
