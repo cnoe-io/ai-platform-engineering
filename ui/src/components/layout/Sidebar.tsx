@@ -49,6 +49,8 @@ MessageSquare,
 Pencil,
 Plus,
 Radio,
+Rows2,
+Rows3,
 Shield,
 Sparkles,
 TrendingUp,
@@ -88,6 +90,7 @@ interface ConversationTitleBadge {
 }
 
 type ConversationHistoryFilter = ConversationListFilter | "webhook";
+type ChatHistoryLayout = "inline" | "full-width";
 
 const CONVERSATION_HISTORY_FILTERS: ReadonlyArray<{
   icon: typeof MessageSquare;
@@ -108,6 +111,7 @@ const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 500;
 const SIDEBAR_WIDTH_STORAGE_KEY = "caipe-chat-sidebar-width";
 const HISTORY_FILTER_STORAGE_KEY = "caipe-chat-history-filter";
+const HISTORY_LAYOUT_STORAGE_KEY = "caipe-chat-history-layout";
 const CHAT_HISTORY_ACTION_CLASS_NAME =
   "h-5 w-5 shrink-0 [&_svg]:size-3.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11";
 
@@ -152,6 +156,16 @@ function persistHistoryFilter(filter: ConversationHistoryFilter): void {
     window.localStorage.setItem(HISTORY_FILTER_STORAGE_KEY, filter);
   } catch {
     // Browser storage may be unavailable; filtering still works for this page load.
+  }
+}
+
+function readStoredHistoryLayout(identity: string | undefined): ChatHistoryLayout {
+  if (!identity) return "inline";
+  try {
+    return window.localStorage.getItem(`${HISTORY_LAYOUT_STORAGE_KEY}:${identity}`) === "full-width"
+      ? "full-width" : "inline";
+  } catch {
+    return "inline";
   }
 }
 
@@ -254,6 +268,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const { data: session } = useSession();
   const organizationIdentity = session?.user?.email ?? (!getConfig("ssoEnabled") ? "local" : undefined);
   const [historyFilter, setHistoryFilter] = useState<ConversationHistoryFilter>('all');
+  const [historyLayout, setHistoryLayout] = useState<ChatHistoryLayout>("inline");
+  const fullWidthTitles = historyLayout === "full-width";
   const organizationScope = historyFilter === "autonomous" || historyFilter === "scheduled" ? historyFilter : "chats";
   const allowChatFolders = !["autonomous", "scheduled", "webhook"].includes(historyFilter);
   const organization = useChatHistoryOrganization(organizationIdentity, organizationScope);
@@ -327,6 +343,21 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     setHistoryFilter(unavailable ? "all" : storedFilter);
     setHistoryFilterHydrated(true);
   }, [schedulerEnabled, autonomousEnabled]);
+
+  useEffect(() => {
+    setHistoryLayout(readStoredHistoryLayout(organizationIdentity));
+  }, [organizationIdentity]);
+
+  const toggleHistoryLayout = () => {
+    const nextLayout = fullWidthTitles ? "inline" : "full-width";
+    setHistoryLayout(nextLayout);
+    if (!organizationIdentity) return;
+    try {
+      window.localStorage.setItem(`${HISTORY_LAYOUT_STORAGE_KEY}:${organizationIdentity}`, nextLayout);
+    } catch {
+      // The layout remains usable when browser storage is unavailable.
+    }
+  };
 
   // Agent name lookup for dynamic agent conversations
   const [agentMap, setAgentMap] = useState<Record<string, SidebarAgent>>({});
@@ -741,6 +772,24 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                 onDialog={setOrganizationDialog} allowFolders={allowChatFolders} allowGrouping={historyFilter !== "webhook"}
                 source={selectedHistoryFilter.value}
                 onSourceChange={value => handleHistoryFilterChange(value as ConversationHistoryFilter)}
+                toolbarActions={historyFilter !== "webhook" && (
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button type="button" size="icon" variant="ghost"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          aria-label="Full-width chat titles" aria-pressed={fullWidthTitles}
+                          disabled={!organizationIdentity} onClick={toggleHistoryLayout}>
+                          {fullWidthTitles ? <Rows3 className="h-4 w-4" /> : <Rows2 className="h-4 w-4" />}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>{fullWidthTitles ? "Full-width title" : "Inline actions"}</p>
+                        <p className="text-xs text-muted-foreground">Switch to {fullWidthTitles ? "inline actions" : "full-width titles"}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
                 sources={availableHistoryFilters.map(filter => {
                   const Icon = filter.icon;
                   return { value: filter.value, label: filter.label, content: <>
@@ -915,6 +964,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                     key={conv.id}
                     className={cn("group/conv", draggedChatId === conv.id && "opacity-50")}
                     data-chat-conversation-id={conv.id}
+                    data-chat-history-layout={historyLayout}
                   >
                     <TooltipProvider delayDuration={150}>
                     <Tooltip className="block w-full">
@@ -952,7 +1002,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         "group relative gap-x-2 rounded-lg cursor-pointer transition-colors min-w-0",
                         collapsed
                           ? "flex items-center p-2"
-                          : "grid grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.25rem] items-center px-2 py-[7px] [@media(pointer:coarse)]:grid-rows-[1.25rem_1.25rem_auto]",
+                          : fullWidthTitles
+                            ? "grid grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1rem_1.25rem] items-center px-2 py-[5px] [@media(pointer:coarse)]:grid-rows-[1.25rem_1rem_auto]"
+                            : "grid grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.25rem] items-center px-2 py-[7px] [@media(pointer:coarse)]:grid-rows-[1.25rem_1.25rem_auto]",
                         organization.value.view === "folders" && organization.ready && !organization.saving && !isEditingTitle && "cursor-grab active:cursor-grabbing select-none",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
@@ -984,7 +1036,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
                     >
                     <div
-                      className={cn("relative shrink-0", !collapsed && "col-start-1 row-start-1 row-span-2")}
+                      className={cn("relative shrink-0", !collapsed && (fullWidthTitles
+                        ? "col-start-1 row-start-1 row-span-3 self-start mt-0.5"
+                        : "col-start-1 row-start-1 row-span-2"))}
                       title={titleBadge?.title}
                     >
                       {titleBadge && <span className="sr-only">{titleBadge.title}</span>}
@@ -1052,7 +1106,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
                     {!collapsed && (
                       <>
-                        <div className="col-start-2 row-start-1 min-w-0">
+                        <div className={cn("col-start-2 row-start-1 min-w-0", fullWidthTitles && "col-span-2")}>
                           <div className="flex items-center gap-1 min-w-0">
                             {isEditingTitle ? (
                               <input
@@ -1084,7 +1138,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         </div>
                         <span
                           className={cn(
-                            "col-start-3 row-start-1 whitespace-nowrap text-right text-[11px] leading-5",
+                            "col-start-3 whitespace-nowrap text-right text-[11px]",
+                            fullWidthTitles ? "row-start-2 leading-4" : "row-start-1 leading-5",
                             isLive
                               ? "text-emerald-600 dark:text-emerald-400 font-medium"
                               : isInputRequired
@@ -1109,7 +1164,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 />
                               ) : (
                                 <span
-                                  className="min-w-0 flex-1 truncate text-xs leading-5 text-foreground/75"
+                                  className={cn("min-w-0 flex-1 truncate text-xs text-foreground/75", fullWidthTitles ? "leading-4" : "leading-5")}
                                   title={conversationAgentName}
                                 >
                                   {conversationAgentName}
@@ -1117,7 +1172,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               )
                             )}
                         </div>
-                        <div className="col-start-3 row-start-2 flex min-w-0 items-center justify-end [@media(pointer:coarse)]:col-start-2 [@media(pointer:coarse)]:col-span-2 [@media(pointer:coarse)]:row-start-3">
+                        <div className={cn("flex min-w-0 items-center justify-end",
+                          fullWidthTitles ? "col-start-2 col-span-2 row-start-3"
+                            : "col-start-3 row-start-2 [@media(pointer:coarse)]:col-start-2 [@media(pointer:coarse)]:col-span-2 [@media(pointer:coarse)]:row-start-3")}>
                           <div
                             role="group"
                             aria-label={`Actions for ${conv.title}`}
@@ -1196,7 +1253,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                   </Tooltip>
                                 </TooltipProvider>
                               )}
-                              <div className="shrink-0">
+                              <div className="flex shrink-0">
                                 <ShareButton
                                   conversationId={conv.id}
                                   conversationTitle={conv.title}

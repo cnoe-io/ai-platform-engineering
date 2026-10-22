@@ -94,9 +94,15 @@ entries open each task's delivery timeline.
 Collapsible agent and folder group names use 16px text; their chat counts remain
 smaller secondary labels. Long names truncate with the full name on hover.
 
-History rows use a compact two-line layout: title and date/live status above the
-agent name and inline actions. Desktop rows are 56px tall without growing on
-hover. The app/harness logo sits on the avatar corner. Folder, rename, share, and
+The small layout button beside the history filter switches between two layouts:
+
+- **Inline actions** (default): 56px desktop rows, with title and date/live status
+  above the agent name and hover actions.
+- **Full-width title**: 68px desktop rows, with a title across the available text
+  width, agent name and date/live status below, and hover actions on a third line.
+
+The choice is saved per user in this browser. Neither layout grows on hover.
+The app/harness logo sits on the avatar corner. Folder, rename, share, and
 archive actions appear when that row is hovered or contains keyboard focus;
 touch devices and an active rename keep them visible. Coarse pointers receive
 larger touch targets on an additional action line. Scheduled and autonomous task
