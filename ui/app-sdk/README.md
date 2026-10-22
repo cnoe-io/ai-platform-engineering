@@ -158,3 +158,11 @@ catalog read does not send app-owned chats to Dynamic Agents or block unclaimed
 agents. App proxy calls still validate the live catalog and fail closed when it
 is unavailable. Successful `loadConfiguredAgenticApps()` calls explicitly refresh
 the snapshot; a UI restart revalidates it before serving traffic.
+
+## Native conversation controls
+
+- `chat.ConversationActions` is optional. Feature-detect it before rendering history actions.
+- Pass `conversationId`, `agentId`, `onArchived`, and optional `disabled`. The host renders Share and Archive for owners using its existing dialogs and store.
+- The host checks app launch access, agent availability and conversation binding before restoring the panel or its actions. Server authorization still applies to every mutation.
+- Closing a native view restores the previous selection while the host retains the stream. Native packages do not own another chat store.
+- Hosts without `ConversationActions` continue to support `chat.Panel`; older native packages need no changes.

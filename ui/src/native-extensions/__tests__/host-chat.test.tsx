@@ -17,8 +17,10 @@ jest.mock("@/store/chat-store", () => ({ useChatStore: {
 const originalFetch = global.fetch;
 beforeEach(() => {
   jest.clearAllMocks(); mockState.conversations = [];
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ item: {
-    canLaunch: true, assistantAgentId: "example-agent" } }) });
+  global.fetch = jest.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () =>
+    url === "/api/dynamic-agents/available" ? { success: true, data: [{ _id: "example-agent", name: "Example Assistant",
+      presentation: { app: { id: "example-app", name: "Example App" }, available: true } }] } : { item: {
+      canLaunch: true, assistantAgentId: "example-agent" } } }));
   mockGet.mockResolvedValue({ _id: "example-chat", title: "Example", participants: [{ type: "agent", id: "example-agent" }],
     metadata: { agent_id: "example-agent" }, created_at: "2026-01-01", updated_at: "2026-01-01" });
   mockLoad.mockResolvedValue(undefined);
