@@ -91,6 +91,9 @@ order, with icons and search. Automation choices appear when their platform
 features are enabled. The selected view persists in browser storage; webhook
 entries open each task's delivery timeline.
 
+Collapsible agent and folder group names use 14px text; their chat counts remain
+smaller secondary labels. Long names truncate with the full name on hover.
+
 History rows give the conversation title its own line and show the agent name
 beside the date or live status. The app/harness logo sits on the avatar corner.
 Folder, rename, share, and archive actions occupy a separate line, so their

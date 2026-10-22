@@ -776,11 +776,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         disabled={!organization.ready || organization.saving} viewport={conversationScrollViewportRef.current}
                         onMove={moveHistoryGroup} onTarget={setGroupDrop} />
                       <button type="button" aria-expanded={expanded} disabled={organization.saving}
-                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-xs font-medium"
+                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-2 text-left text-sm font-medium"
                         onClick={() => void organization.update(v => ({ ...v, collapsed: expanded ? [...v.collapsed, item.key] : v.collapsed.filter(k => k !== item.key) }))}>
                         {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                         {organization.value.view === "folders" && <Folder className="h-3.5 w-3.5 shrink-0" />}
-                        <span className="truncate" title={item.label}>{item.label}</span><span className="ml-auto tabular-nums text-muted-foreground">{item.count}</span>
+                        <span className="truncate" title={item.label}>{item.label}</span><span className="ml-auto text-xs tabular-nums text-muted-foreground">{item.count}</span>
                       </button>
                       {item.folderId && <>
                         <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
