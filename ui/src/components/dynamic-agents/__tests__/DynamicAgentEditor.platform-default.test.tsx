@@ -315,7 +315,7 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     await flushAsync();
 
     expect(
-      screen.getByRole("option", { name: "LangChain Deep Agents (default)" }),
+      screen.getByRole("option", { name: "LangChain Deep Agents (default) — Stable" }),
     ).toHaveValue("dynamic_agents");
     expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
     expect(

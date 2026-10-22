@@ -13,6 +13,7 @@ import {
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { HarnessOptionsForm } from "@/components/harness-engine/HarnessOptionsForm";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -153,6 +154,24 @@ const VISIBILITY_OPTIONS: {
     description: "Available to all users; owner-team admins manage it.",
   },
 ];
+
+const HARNESS_STATUS_PRESENTATION: Record<
+  HarnessDescriptor["certification"],
+  { label: string; className: string }
+> = {
+  certified: {
+    label: "Stable",
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  },
+  experimental: {
+    label: "Experimental",
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  },
+  blocked: {
+    label: "Blocked",
+    className: "border-destructive/30 bg-destructive/10 text-destructive",
+  },
+};
 
 interface TeamOption {
   _id: string;
@@ -571,6 +590,9 @@ export function DynamicAgentEditor({
     [harnessDescriptors, harnessId],
   );
   const isDeepAgents = harnessId === "dynamic_agents";
+  const selectedHarnessStatus = isDeepAgents
+    ? HARNESS_STATUS_PRESENTATION.certified
+    : selectedHarness && HARNESS_STATUS_PRESENTATION[selectedHarness.certification];
   const toolCapability = selectedHarness?.capabilities["tools.broker"];
   const supportsTools =
     isDeepAgents || toolCapability?.level === "native" || toolCapability?.level === "emulated";
@@ -1793,7 +1815,14 @@ export function DynamicAgentEditor({
             {activeStep === "basic" && (
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
-                  <Label htmlFor="harnessId">Execution harness</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="harnessId">Execution harness</Label>
+                    {selectedHarnessStatus && (
+                      <Badge variant="outline" className={selectedHarnessStatus.className}>
+                        {selectedHarnessStatus.label}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
                     <Select
                       id="harnessId"
@@ -1806,7 +1835,7 @@ export function DynamicAgentEditor({
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="dynamic_agents">
-                        LangChain Deep Agents (default)
+                        LangChain Deep Agents (default) — Stable
                       </option>
                       {!isDeepAgents && !selectedHarness && (
                         <option value={harnessId}>{harnessId} (unavailable)</option>
@@ -1820,7 +1849,7 @@ export function DynamicAgentEditor({
                             descriptor.certification === "blocked"
                           }
                         >
-                          {descriptor.display_name}
+                          {descriptor.display_name} — {HARNESS_STATUS_PRESENTATION[descriptor.certification].label}
                         </option>
                       ))}
                       {connectionConfigured !== null && (

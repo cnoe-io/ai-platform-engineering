@@ -34,6 +34,14 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - Missing Engine configuration returns `503` for saved SDK agents or pinned
   Engine conversations. Legacy/default agents still use Dynamic Agents.
 
+## Agent Builder harness status
+
+- LangChain Deep Agents is the **Stable** default.
+- Claude SDK and AgentCore are **Experimental** CAIPE integrations. Agent Builder
+  shows the catalog's certification status in the harness dropdown and beside
+  the selected harness. `certified` is labeled **Stable**; `blocked` is labeled
+  **Blocked** and remains disabled.
+
 ## Connect an existing AgentCore deployment
 
 - In **Agent Builder → Execution harness**, a platform administrator chooses
