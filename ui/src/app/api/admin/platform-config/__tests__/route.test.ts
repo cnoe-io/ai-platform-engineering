@@ -50,9 +50,16 @@ function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
 
+const originalAllowedRepositories = process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+afterEach(() => {
+  if (originalAllowedRepositories === undefined) delete process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES;
+  else process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = originalAllowedRepositories;
+});
+
 describe("admin platform-config route", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = "https://github.com/example/repository";
     delete process.env.DEFAULT_AGENT_ID;
     mockWithAuth.mockImplementation((_request, handler) =>
       handler(_request, { email: "admin@example.com" }, { sub: "admin-sub", role: "admin" }),
@@ -120,6 +127,9 @@ describe("admin platform-config route", () => {
 
     expect(body.data.release_notes).toEqual({
       enabled: true,
+      repository_url: null,
+      previous_commit: null,
+      latest_commit: null,
     });
   });
 
@@ -316,13 +326,112 @@ describe("admin platform-config route", () => {
       { _id: "platform_settings" },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release_notes: { enabled: false },
+          'release_notes.enabled': false,
         }),
       }),
       { upsert: true },
     );
     expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty("default_agent_id");
     expect(body.data.release_notes).toEqual({ enabled: false });
+    expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty('release_notes');
+    expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty('release_notes.repository_url');
+  });
+
+  it("persists a GitHub commit range for release notes", async () => {
+    const collection = {
+      findOne: jest.fn().mockResolvedValue(null),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          release_notes: {
+            enabled: true,
+            repository_url: "https://github.com/example/repository",
+            previous_commit: "1111111",
+            latest_commit: "2222222",
+          },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.release_notes).toEqual({
+      enabled: true,
+      repository_url: "https://github.com/example/repository",
+      previous_commit: "1111111",
+      latest_commit: "2222222",
+    });
+  });
+
+  it("rejects an incomplete release notes commit range", async () => {
+    const { PATCH } = await import("../route");
+
+    await expect(
+      PATCH(
+        request("/api/admin/platform-config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            release_notes: { previous_commit: "1111111" },
+          }),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "INCOMPLETE_RELEASE_NOTES_COMPARE" });
+  });
+
+  it("rejects unapproved repositories before DB access even if the caller supplies an allowlist", async () => {
+    const { PATCH } = await import("../route");
+    await expect(PATCH(request("/api/admin/platform-config", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        release_notes_allowed_repositories: ["https://github.com/example/unapproved"],
+        release_notes: { repository_url: "https://github.com/example/unapproved", previous_commit: "1111111", latest_commit: "2222222" },
+      }),
+    }))).rejects.toMatchObject({ code: "RELEASE_NOTES_REPOSITORY_NOT_ALLOWED" });
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it("returns deployment-approved choices for the repository selector", async () => {
+    const { GET } = await import("../route");
+    const response = await GET(request("/api/admin/platform-config?repositories=test"));
+    expect((await response.json()).data.release_notes_allowed_repositories).toEqual([
+      "https://github.com/example/repository",
+    ]);
+  });
+
+  it("canonicalizes an approved fork URL and permits clearing a stale range", async () => {
+    const collection = { updateOne: jest.fn().mockResolvedValue({ acknowledged: true }) };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+    const save = (repository: string | null, ref: string | null) => PATCH(request("/api/admin/platform-config", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ release_notes: { repository_url: repository, previous_commit: ref, latest_commit: ref } }),
+    }));
+    await save("https://github.com/EXAMPLE/repository.git", "primary");
+    expect(collection.updateOne.mock.calls[0][1].$set['release_notes.repository_url']).toBe("https://github.com/example/repository");
+    process.env.RELEASE_NOTES_ALLOWED_REPOSITORIES = "";
+    await save(null, null);
+    expect(collection.updateOne.mock.calls[1][1].$set['release_notes.repository_url']).toBeNull();
+  });
+
+  it("updates only the range without resetting a disabled announcement toggle", async () => {
+    const collection = { findOne: jest.fn(), updateOne: jest.fn().mockResolvedValue({ acknowledged: true }) };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+    await PATCH(request("/api/admin/platform-config", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ release_notes: {
+      repository_url: "https://github.com/example/repository", previous_commit: "release/primary", latest_commit: "v2.0.0",
+    } }) }));
+    const update = collection.updateOne.mock.calls[0][1].$set;
+    expect(update).toMatchObject({ 'release_notes.previous_commit': 'release/primary', 'release_notes.latest_commit': 'v2.0.0' });
+    expect(update).not.toHaveProperty('release_notes.enabled');
+    expect(update).not.toHaveProperty('release_notes');
   });
 
   it("checks coarse admin before system_config manage on updates", async () => {
