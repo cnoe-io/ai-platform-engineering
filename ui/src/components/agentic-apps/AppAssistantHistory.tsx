@@ -56,8 +56,8 @@ export function AppAssistantHistory({ appId, agentId, selectedId, onSelect, onAr
     {items.map(item => <div key={item.id} className="group flex items-center gap-2 rounded-lg p-2 hover:bg-accent" data-selected={selectedId === item.id}>
       <button type="button" disabled={pending} aria-current={selectedId === item.id ? "true" : undefined}
         className="min-w-0 flex-1 truncate p-1 text-left text-sm" onClick={() => void select(item.id)}>{item.title}</button>
-      <HostConversationActions appId={appId} agentId={agentId} conversationId={item.id} disabled={pending}
-        onHistoryChange={() => setRefresh(n => n + 1)} onArchived={() => { onArchived(item.id); setRefresh(n => n + 1); }} />
+      <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100"><HostConversationActions appId={appId} agentId={agentId} conversationId={item.id} disabled={pending}
+        onHistoryChange={() => setRefresh(n => n + 1)} onArchived={() => { onArchived(item.id); setRefresh(n => n + 1); }} /></div>
     </div>)}
     {!error && !items.length && <p className="p-3 text-sm text-muted-foreground">No saved chats.</p>}
   </div>;

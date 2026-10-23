@@ -5,7 +5,6 @@ import { agenticAppForHostPath } from "@/lib/agentic-apps/host-routes";
 import { AGENTIC_APP_PUBLIC_BASE, AGENTIC_APP_RUNTIME_BASE } from "@/lib/agentic-apps/runtime";
 import {
   nativeExtensionForApiPath,
-  nativeExtensionForHostPath,
 } from "@/native-extensions/runtime";
 
 const APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -46,13 +45,6 @@ export function proxy(request: NextRequest): NextResponse {
       return NextResponse.json({ error: "Application route configuration unavailable" }, { status: 503 });
     }
   }
-  const nativeHostExtension = !isAgenticAppsEnabled() ? nativeExtensionForHostPath(pathname) : null;
-  if (nativeHostExtension) {
-    const extensionUrl = request.nextUrl.clone();
-    extensionUrl.pathname = `/native-extensions/${nativeHostExtension.id}${pathname}`;
-    return NextResponse.rewrite(extensionUrl);
-  }
-
   const appPath = parseAgenticAppPath(pathname);
 
   if (!appPath || isHostShellRequest(request)) {

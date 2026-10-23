@@ -27,7 +27,7 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
   const [open, setOpen] = useState(false);
   const [context, setContext] = useState<AgenticAppAssistantContextRecord | null>(null);
   const key = `${identity}:${extensionId}`;
-  const app = binding?.key === key ? binding.app : null;
+  const app = status === "authenticated" && binding?.key === key ? binding.app : null;
   useEffect(() => {
     if (status !== "authenticated") return;
     const controller = new AbortController();

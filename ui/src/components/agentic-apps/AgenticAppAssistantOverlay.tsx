@@ -161,7 +161,7 @@ export function AgenticAppAssistantOverlay({
   ]);
 
   useEffect(() => {
-    if (!open || conversationActionPending || conversationError?.key === conversationKey) return;
+    if (!open || view === "history" || conversationActionPending || conversationError?.key === conversationKey) return;
     let cancelled = false;
     const session = selectionSessionRef.current;
 
@@ -210,17 +210,19 @@ export function AgenticAppAssistantOverlay({
     findOrCreateAppConversation,
     activate,
     open,
+    view,
     setActiveConversation,
   ]);
 
   const handleNewChat = useCallback(async (): Promise<void> => {
-    if (assistantConversation?.key !== conversationKey || conversationActionPending) return;
+    if ((view !== "history" && assistantConversation?.key !== conversationKey) || conversationActionPending) return;
     const session = selectionSessionRef.current;
     setConversationActionPending(true);
     setConversationError(null);
     try {
       const id = await createAppConversation();
       if (selectionSessionRef.current !== session) return;
+      setView("chat");
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
       if (activate(id, session)) {
         setAssistantConversation({ key: conversationKey, id });
@@ -241,6 +243,7 @@ export function AgenticAppAssistantOverlay({
     activate,
     conversationKey,
     createAppConversation,
+    view,
   ]);
 
   const handleClearChat = useCallback(async (): Promise<void> => {
@@ -389,7 +392,7 @@ export function AgenticAppAssistantOverlay({
                 type="button"
                 aria-label="Start new assistant chat"
                 title="New chat"
-                disabled={assistantConversation?.key !== conversationKey || conversationActionPending}
+                disabled={(view !== "history" && assistantConversation?.key !== conversationKey) || conversationActionPending}
                 onClick={() => void handleNewChat()}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
               >

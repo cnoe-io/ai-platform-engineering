@@ -1,6 +1,6 @@
 /** Standalone iframe client. No host stores, tokens, or singleton runtimes are imported. */
 export function createAgenticAppBridge({ appId, onNavigate, onStatus, timeoutMs = 5000 }) {
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(appId)) throw new Error("Invalid application ID");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(appId)) throw new Error("Invalid application ID");
   const origin = window.location.origin;
   let capabilities = null;
   let disposed = false;

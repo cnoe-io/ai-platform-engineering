@@ -199,7 +199,8 @@ export function AgenticAppShell({
         const url = new URL(href, window.location.origin);
         const roots = [...(app.hostPaths ?? []), `/apps/${appId}`];
         if (url.origin !== window.location.origin || !roots.some(root => ownsAppPath(root, url.pathname))) { reply("route_not_owned"); return; }
-        router.push(href, { scroll: false });
+        if (url.pathname.startsWith("/apps/")) window.location.assign(href);
+        else router.push(href, { scroll: false });
         return;
       }
       if (!assistantConfigured) { reply("assistant_unavailable_or_app_owned"); return; }
@@ -251,7 +252,9 @@ export function AgenticAppShell({
     );
   }
 
-  const query = searchParams.toString();
+  const runtimeSearch = new URLSearchParams(search);
+  runtimeSearch.delete("assistant_chat");
+  const query = runtimeSearch.toString();
   const runtimePath = `${buildAgenticAppPublicPath(appId, path)}${query ? `?${query}` : ""}${hash}`;
   return (
     <div className="flex min-h-0 flex-1 flex-col">

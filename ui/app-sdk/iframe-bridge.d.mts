@@ -1,4 +1,4 @@
-import type { AppAssistantContext } from "./index";
+import type { AppAssistantContext } from "./index.js";
 export interface AgenticAppBridgeCapabilities {
   assistant: boolean;
   context: boolean;
