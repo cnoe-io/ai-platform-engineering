@@ -32,7 +32,7 @@ import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { buildParticipants,ChatMessage as ChatMessageType,Conversation,type MessageAttachment,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig,ReasoningEffort } from "@/types/dynamic-agent";
 import { AnimatePresence,motion,useReducedMotion } from "framer-motion";
-import { Activity,AlertTriangle,ArrowDown,ArrowLeft,Check,Copy,Loader2,Paperclip,Pencil,Send,ShieldCheck,Sparkles,Square,User,X } from "lucide-react";
+import { Activity,AlertTriangle,ArrowDown,ArrowLeft,Check,Copy,Loader2,Paperclip,Pencil,RotateCcw,Send,ShieldCheck,Sparkles,Square,User,X } from "lucide-react";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
@@ -1474,6 +1474,29 @@ export function ChatPanel({
     [submitMessageBatch],
   );
 
+  // Retry re-sends a prompt as a new turn and keeps the existing history; edit
+  // (below) rewinds the conversation instead.
+  const handleRetry = useCallback((messages: ChatMessageType[]) => {
+    if (isThisConversationStreaming) return;
+    if (messages.some((message) => message.attachments?.some((attachment) => !attachment.data))) {
+      toast(
+        "This prompt has an attachment that is no longer available. Re-upload it in a new message instead.",
+        "error",
+        8000,
+      );
+      return;
+    }
+    void submitMessageBatch(messages.map((message) => ({
+      id: generateId(),
+      text: message.content,
+      files: (message.attachments ?? []).map((attachment) => ({
+        mime_type: attachment.mime_type,
+        name: attachment.name,
+        data: attachment.data!,
+      })),
+    })));
+  }, [isThisConversationStreaming, submitMessageBatch, toast]);
+
   const startEditingMessage = useCallback((message: ChatMessageType) => {
     setIsRewindConfirmationOpen(false);
     setEditingMessageId(message.id);
@@ -2386,6 +2409,32 @@ export function ChatPanel({
                         !pendingUserInput &&
                         !pendingToolApproval;
 
+                      // Queued user bubbles share one turnId and produce one response.
+                      // Regenerate the whole batch; older messages may lack that binding.
+                      const canRetryMessage = !panelReadOnly &&
+                        !isAutonomousHistory &&
+                        !isThisConversationStreaming &&
+                        !isRemoteResponse &&
+                        !pendingUserInput &&
+                        !pendingToolApproval;
+                      const getRetryMessages = (): ChatMessageType[] => {
+                        if (msg.role === "user") return [msg];
+                        if (msg.turnId) {
+                          const batch = arr.slice(0, index).filter(
+                            (message) => message.role === "user" && message.turnId === msg.turnId,
+                          );
+                          if (batch.length > 0) return batch;
+                        }
+                        for (let i = index - 1; i >= 0; i--) {
+                          if (arr[i].role === "user") return [arr[i]];
+                        }
+                        return [];
+                      };
+                      const retryMessages = canRetryMessage ? getRetryMessages() : [];
+                      const hasRetryPrompt = retryMessages.some(
+                        (message) => message.content.trim() || message.attachments?.length,
+                      );
+
                       // Check if this is the last assistant message (latest answer)
                       const isLastAssistantMessage = msg.role === "assistant" &&
                         index === arr.length - 1;
@@ -2428,6 +2477,7 @@ export function ChatPanel({
                           onEditDraftChange={setEditDraft}
                           onCancelEdit={cancelEditingMessage}
                           onSaveEdit={requestEditedMessageSave}
+                          onRetry={hasRetryPrompt ? () => handleRetry(retryMessages) : undefined}
                           isCopied={copiedId === msg.id}
                           isStreaming={isAssistantStreaming}
                           isLatestAnswer={isLastAssistantMessage}
@@ -3106,6 +3156,8 @@ interface ChatMessageProps {
   onEditDraftChange?: (value: string) => void;
   onCancelEdit?: () => void;
   onSaveEdit?: () => void;
+  /** Re-send the prompt behind this message as a new turn. */
+  onRetry?: () => void;
   isCopied: boolean;
   isStreaming?: boolean;
   isLatestAnswer?: boolean;
@@ -3147,6 +3199,7 @@ const ChatMessage = React.memo(function ChatMessage({
   onEditDraftChange,
   onCancelEdit,
   onSaveEdit,
+  onRetry,
   isCopied,
   isStreaming = false,
   isLatestAnswer = false,
@@ -3359,7 +3412,27 @@ const ChatMessage = React.memo(function ChatMessage({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        Edit message and rewind conversation
+                        Edit message and rewind conversation (removes later messages)
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                          onClick={onRetry}
+                          aria-label="Retry this prompt"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Retry this prompt: send it again and keep the history
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -3416,6 +3489,17 @@ const ChatMessage = React.memo(function ChatMessage({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">Response was interrupted</p>
                     </div>
+                    {onRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
+                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Retry
+                      </Button>
+                    )}
                   </>
                 )}
               </motion.div>
@@ -3456,6 +3540,26 @@ const ChatMessage = React.memo(function ChatMessage({
                 animate={{ opacity: isHovered ? 1 : 0.8 }}
                 className="flex items-center gap-1 mt-2"
               >
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                          onClick={onRetry}
+                          aria-label="Regenerate response"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Regenerate response: ask again and keep the history
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>

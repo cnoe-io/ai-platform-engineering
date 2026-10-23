@@ -611,13 +611,12 @@ describe("admin platform-config route", () => {
   //
   // Controls which built-in provider tiles the Add Server catalog dialog
   // shows. Default (no config document, or a document that has never
-  // touched this field) must be "disable all" — operators opt in per
-  // provider rather than every built-in appearing unconfigured. An
-  // explicit `enabled_providers: null` is a distinct, deliberate "Enable
-  // all" admin action and must keep meaning "show every provider".
+  // touched this field) is "enable all" so the catalog is ready to use.
+  // An explicit `enabled_providers: null` continues to mean "show every
+  // provider"; an array remains an explicit allowlist.
   // ---------------------------------------------------------------------
 
-  it("defaults remote_mcp_catalog.enabled_providers to [] (disable all) when no config document exists", async () => {
+  it("defaults remote_mcp_catalog.enabled_providers to null (enable all) when no config document exists", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
       updateOne: jest.fn(),
@@ -626,10 +625,10 @@ describe("admin platform-config route", () => {
 
     const body = await (await GET(request("/api/admin/platform-config"))).json();
 
-    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: [], custom_entries: [] });
+    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: null, custom_entries: [] });
   });
 
-  it("defaults remote_mcp_catalog.enabled_providers to [] when the document exists but never set this field", async () => {
+  it("defaults remote_mcp_catalog.enabled_providers to null when the document exists but never set this field", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-default" }),
       updateOne: jest.fn(),
@@ -638,7 +637,7 @@ describe("admin platform-config route", () => {
 
     const body = await (await GET(request("/api/admin/platform-config"))).json();
 
-    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: [], custom_entries: [] });
+    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: null, custom_entries: [] });
   });
 
   it("persists an explicit 'Enable all' (enabled_providers: null) and echoes it back on PATCH", async () => {
