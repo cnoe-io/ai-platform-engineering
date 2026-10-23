@@ -1481,10 +1481,26 @@ export function ChatPanel({
 
   // Retry re-sends a prompt as a new turn and keeps the existing history; edit
   // (below) rewinds the conversation instead.
-  const handleRetry = useCallback((content: string) => {
+  const handleRetry = useCallback((messages: ChatMessageType[]) => {
     if (isThisConversationStreaming) return;
-    submitMessage(content);
-  }, [isThisConversationStreaming, submitMessage]);
+    if (messages.some((message) => message.attachments?.some((attachment) => !attachment.data))) {
+      toast(
+        "This prompt has an attachment that is no longer available. Re-upload it in a new message instead.",
+        "error",
+        8000,
+      );
+      return;
+    }
+    void submitMessageBatch(messages.map((message) => ({
+      id: generateId(),
+      text: message.content,
+      files: (message.attachments ?? []).map((attachment) => ({
+        mime_type: attachment.mime_type,
+        name: attachment.name,
+        data: attachment.data!,
+      })),
+    })));
+  }, [isThisConversationStreaming, submitMessageBatch, toast]);
 
   const startEditingMessage = useCallback((message: ChatMessageType) => {
     setIsRewindConfirmationOpen(false);
@@ -2400,21 +2416,30 @@ export function ChatPanel({
                         !pendingUserInput &&
                         !pendingToolApproval;
 
-                      // Retry re-sends the prompt behind this message: the message itself
-                      // for a user turn, the preceding user message for an assistant turn.
+                      // Queued user bubbles share one turnId and produce one response.
+                      // Regenerate the whole batch; older messages may lack that binding.
                       const canRetryMessage = !panelReadOnly &&
                         !isAutonomousHistory &&
                         !isThisConversationStreaming &&
                         !pendingUserInput &&
                         !pendingToolApproval;
-                      const getRetryContent = (): string | null => {
-                        if (msg.role === "user") return msg.content;
-                        for (let i = index - 1; i >= 0; i--) {
-                          if (arr[i].role === "user") return arr[i].content;
+                      const getRetryMessages = (): ChatMessageType[] => {
+                        if (msg.role === "user") return [msg];
+                        if (msg.turnId) {
+                          const batch = arr.slice(0, index).filter(
+                            (message) => message.role === "user" && message.turnId === msg.turnId,
+                          );
+                          if (batch.length > 0) return batch;
                         }
-                        return null;
+                        for (let i = index - 1; i >= 0; i--) {
+                          if (arr[i].role === "user") return [arr[i]];
+                        }
+                        return [];
                       };
-                      const retryContent = canRetryMessage ? getRetryContent() : null;
+                      const retryMessages = canRetryMessage ? getRetryMessages() : [];
+                      const hasRetryPrompt = retryMessages.some(
+                        (message) => message.content.trim() || message.attachments?.length,
+                      );
 
                       // Check if this is the last assistant message (latest answer)
                       const isLastAssistantMessage = msg.role === "assistant" &&
@@ -2458,7 +2483,7 @@ export function ChatPanel({
                           onEditDraftChange={setEditDraft}
                           onCancelEdit={cancelEditingMessage}
                           onSaveEdit={requestEditedMessageSave}
-                          onRetry={retryContent ? () => handleRetry(retryContent) : undefined}
+                          onRetry={hasRetryPrompt ? () => handleRetry(retryMessages) : undefined}
                           isCopied={copiedId === msg.id}
                           isStreaming={isAssistantStreaming}
                           isLatestAnswer={isLastAssistantMessage}

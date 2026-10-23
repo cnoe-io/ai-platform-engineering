@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { apiClient } from "@/lib/api-client";
 import type { ChatMessage, Conversation } from "@/types/a2a";
 import { ChatPanel } from "../DynamicAgentChatPanel";
 
@@ -14,8 +15,15 @@ const mockChatState = {
   get conversations() { return [mockConversation]; },
   isConversationStreaming: () => mockStreaming,
   consumePendingMessage: () => null,
-  addMessage: jest.fn(() => "typed-message"),
-  updateMessage: jest.fn(),
+  addMessage: jest.fn((_conversationId: string, value: Omit<ChatMessage, "id" | "timestamp">, turnId?: string) => {
+    const id = `new-message-${mockConversation.messages.length}`;
+    mockConversation.messages.push(message(id, value.role as "user" | "assistant", value.content, { ...value, turnId }));
+    return id;
+  }),
+  updateMessage: jest.fn((_conversationId: string, id: string, updates: Partial<ChatMessage>) => {
+    const target = mockConversation.messages.find((item) => item.id === id);
+    if (target) Object.assign(target, updates);
+  }),
   appendToMessage: jest.fn(),
   clearStreamEvents: jest.fn(),
   setConversationStreaming: jest.fn(),
@@ -75,6 +83,8 @@ function setConversation(messages: ChatMessage[], extra: Partial<Conversation> =
 }
 
 const lastRequest = () => mockStreamMessage.mock.calls.at(-1)?.[0];
+const mockRewind = jest.spyOn(apiClient, "rewindConversation");
+const mockAttachment = { mime_type: "text/plain", name: "example.txt", data: "ZXhhbXBsZQ==", size: 7 };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -97,11 +107,17 @@ describe("retry alongside edit", () => {
   });
 
   it("re-sends a user prompt as a new turn without rewinding", async () => {
+    const history = mockConversation.messages.map((item) => ({ ...item }));
     render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
     fireEvent.click(screen.getAllByRole("button", { name: "Retry this prompt" })[0]);
     await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
     expect(lastRequest()).toEqual(expect.objectContaining({ conversationId: "chat-1", message: "first question" }));
-    expect(screen.queryByText(/rewind/i)).toBeNull();
+    expect(mockRewind).not.toHaveBeenCalled();
+    expect(mockConversation.messages.slice(0, history.length)).toEqual(history);
+    expect(mockConversation.messages.slice(history.length)).toEqual([
+      expect.objectContaining({ role: "user", content: "first question" }),
+      expect.objectContaining({ role: "assistant" }),
+    ]);
   });
 
   it("regenerates an answer from the prompt that preceded it", async () => {
@@ -109,6 +125,93 @@ describe("retry alongside edit", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Regenerate response" })[1]);
     await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
     expect(lastRequest()).toEqual(expect.objectContaining({ message: "second question" }));
+  });
+
+  it.each(["Retry this prompt", "Regenerate response"])("preserves attachments with %s", async (action) => {
+    setConversation([
+      message("u1", "user", "read this", { attachments: [mockAttachment] }),
+      message("a1", "assistant", "answer"),
+    ]);
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
+    expect(lastRequest()).toEqual(expect.objectContaining({
+      message: "read this",
+      files: [{ mime_type: mockAttachment.mime_type, name: mockAttachment.name, data: mockAttachment.data }],
+    }));
+    expect(mockConversation.messages[2].attachments).toEqual([expect.objectContaining({
+      mime_type: mockAttachment.mime_type, name: mockAttachment.name, data: mockAttachment.data,
+    })]);
+    expect(mockRewind).not.toHaveBeenCalled();
+  });
+
+  it("retries an attachment-only message", async () => {
+    setConversation([message("u1", "user", "", { attachments: [mockAttachment] })]);
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry this prompt" }));
+    await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
+    expect(lastRequest()).toEqual(expect.objectContaining({ message: "", files: [expect.objectContaining({ data: mockAttachment.data })] }));
+  });
+
+  it.each(["Retry this prompt", "Regenerate response"])("explains unavailable attachments with %s without sending a partial prompt", (action) => {
+    setConversation([
+      message("u1", "user", "read this", { attachments: [{ ...mockAttachment, data: undefined }] }),
+      message("a1", "assistant", "answer"),
+    ]);
+    const history = [...mockConversation.messages];
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("Re-upload"), "error", 8000);
+    expect(mockStreamMessage).not.toHaveBeenCalled();
+    expect(mockChatState.addMessage).not.toHaveBeenCalled();
+    expect(mockConversation.messages).toEqual(history);
+    expect(mockRewind).not.toHaveBeenCalled();
+  });
+
+  it("regenerates the complete queued batch in order with its attachments", async () => {
+    setConversation([
+      message("old-user", "user", "unrelated", { turnId: "old-turn" }),
+      message("old-answer", "assistant", "older answer", { turnId: "old-turn" }),
+      message("u1", "user", "first queued", { turnId: "batch", attachments: [mockAttachment] }),
+      message("u2", "user", "second queued", { turnId: "batch" }),
+      message("a1", "assistant", "batch answer", { turnId: "batch" }),
+    ]);
+    const history = mockConversation.messages.map((item) => ({ ...item }));
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Regenerate response" })[1]);
+    await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
+    expect(lastRequest()).toEqual(expect.objectContaining({
+      message: "[Queued message 1]\nfirst queued\n\n[Queued message 2]\nsecond queued",
+      files: [expect.objectContaining({ data: mockAttachment.data })],
+    }));
+    expect(mockConversation.messages.slice(0, history.length)).toEqual(history);
+    expect(mockConversation.messages.slice(history.length).map((item) => item.content)).toEqual(["first queued", "second queued", ""]);
+    expect(mockRewind).not.toHaveBeenCalled();
+  });
+
+  it("does not regenerate a batch when an earlier queued attachment is unavailable", () => {
+    setConversation([
+      message("u1", "user", "first queued", { turnId: "batch", attachments: [{ ...mockAttachment, data: undefined }] }),
+      message("u2", "user", "second queued", { turnId: "batch" }),
+      message("a1", "assistant", "batch answer", { turnId: "batch" }),
+    ]);
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("Re-upload"), "error", 8000);
+    expect(mockStreamMessage).not.toHaveBeenCalled();
+    expect(mockChatState.addMessage).not.toHaveBeenCalled();
+    expect(mockRewind).not.toHaveBeenCalled();
+  });
+
+  it("regenerates legacy messages without turn IDs", async () => {
+    setConversation([
+      message("u1", "user", "legacy prompt", { turnId: undefined }),
+      message("a1", "assistant", "legacy answer", { turnId: undefined }),
+    ]);
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+    await waitFor(() => expect(mockStreamMessage).toHaveBeenCalledTimes(1));
+    expect(lastRequest()).toEqual(expect.objectContaining({ message: "legacy prompt" }));
   });
 
   it("offers retry on an interrupted response", async () => {
