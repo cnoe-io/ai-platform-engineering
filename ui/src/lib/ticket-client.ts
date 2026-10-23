@@ -151,7 +151,7 @@ export interface CreateTicketOptions {
 export async function createTicketViaAgent(
   options: CreateTicketOptions
 ): Promise<TicketResult | null> {
-  const { request, accessToken, onEvent, onResult, signal } = options;
+  const { request, onEvent, onResult, signal } = options;
   const prompt = buildPrompt(request);
 
   let finalContent = "";
@@ -178,7 +178,6 @@ export async function createTicketViaAgent(
 
   const adapter = createStreamAdapter({
     protocol: "custom",
-    accessToken,
   });
 
   if (signal?.aborted) {
