@@ -1,16 +1,16 @@
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode } from "@/lib/storage-config";
+import { getAgentId } from "@/types/a2a";
 import type { Conversation } from "@/types/a2a";
 
 /** Search explicit web history without changing the user's sidebar filter. */
 export async function findLatestAppConversation(
-  local: Conversation[], appId: string, agentId: string,
+  local: Conversation[], appId: string, agentId: string, includeLegacy = false,
 ): Promise<Conversation | null> {
-  const matches = (metadata: Record<string, unknown> | undefined) =>
-    metadata?.conversation_surface === "agentic-app" &&
-    metadata.agentic_app_id === appId && metadata.agentic_app_agent_id === agentId;
+  const matches = (agent: string | null | undefined, metadata?: Record<string, unknown>) =>
+    matchesAssistantConversation(appId, agentId, agent, metadata, includeLegacy);
   if (getStorageMode() !== "mongodb") {
-    return local.filter((conversation) => matches(conversation.metadata))
+    return local.filter((conversation) => (!conversation.accessLevel || conversation.accessLevel === "owner") && matches(getAgentId(conversation), conversation.metadata))
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
   }
   // The API returns newest first. Stop at the first owned match; never create
@@ -20,7 +20,7 @@ export async function findLatestAppConversation(
       page, page_size: 100, source: "web", client_type: "webui", archived: false,
     });
     const found = response.items.find((conversation) =>
-      matches(conversation.metadata) && conversation.access_level === "owner",
+      matches(getAgentId(conversation), conversation.metadata) && conversation.access_level === "owner",
     );
     if (found) return {
       id: found._id, title: found.title, createdAt: new Date(found.created_at),
@@ -30,4 +30,11 @@ export async function findLatestAppConversation(
     if (!response.has_more) return null;
   }
   throw new Error("Assistant history scan limit reached; no new conversation was created.");
+}
+
+/** Filtering only: call after API authorization. Metadata never confers access. */
+export function matchesAssistantConversation(appId: string, agentId: string, agent: string | null | undefined,
+  metadata?: Record<string, unknown>, includeLegacy = false): boolean {
+  if (agent !== agentId || (metadata?.agentic_app_id && metadata.agentic_app_id !== appId)) return false;
+  return metadata?.agentic_app_id === appId || (includeLegacy && !metadata?.agentic_app_id);
 }

@@ -5,6 +5,12 @@ import type { Conversation } from "@/types/a2a";
 
 import { AgenticAppAssistantOverlay } from "../AgenticAppAssistantOverlay";
 
+jest.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
+jest.mock("@/native-extensions/host-chat", () => ({ loadHostConversation: async (_appId: string, _agentId: string, id: string) => {
+  const item = mockChatStoreState.conversations.find(conversation => conversation.id === id)!;
+  return { saved: { _id: item.id, title: item.title, participants: item.participants, metadata: item.metadata,
+    created_at: item.createdAt, updated_at: item.updatedAt, access_level: "owner" } };
+} }));
 const mockCreateConversation = jest.fn();
 const mockDeleteConversation = jest.fn();
 const mockLoadConversationsFromServer = jest.fn();
@@ -178,7 +184,7 @@ describe("AgenticAppAssistantOverlay", () => {
       "latest",
     );
     expect(mockCreateConversation).not.toHaveBeenCalled();
-    expect(mockLoadMessagesFromServer).toHaveBeenCalledWith("latest");
+    expect(mockLoadMessagesFromServer).toHaveBeenCalledWith("latest", { force: true });
   });
 
   it("unmounts a deleted chat and shows replacement failure, then retries safely", async () => {
@@ -276,7 +282,7 @@ describe("AgenticAppAssistantOverlay", () => {
     await waitFor(() => expect(screen.getByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "first-app-chat"));
     rerender(<AgenticAppAssistantOverlay {...props} appId="secondary-app" />);
     await waitFor(() => expect(screen.getByTestId("chat-panel")).toHaveAttribute("data-conversation-id", "second-app-chat"));
-    expect(mockFindConversation).toHaveBeenLastCalledWith([], "secondary-app", "agent-example");
+    expect(mockFindConversation).toHaveBeenLastCalledWith([], "secondary-app", "agent-example", undefined);
   });
 
   it("retries a failed initialization when the assistant is reopened", async () => {

@@ -1,11 +1,13 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
+import { validateAssistantConfiguration, type AssistantConfiguration } from "../../app-sdk/assistant-options.mjs";
+import { readAssistantDeepLink } from "@/lib/agentic-apps/assistant-links";
 import { validateAssistantContextMessage } from "@/lib/agentic-apps/assistant-context";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
-import { HOST_ASSISTANT_EVENT } from "@/lib/agentic-apps/assistant-events";
+import { HOST_ASSISTANT_EVENT, HOST_ASSISTANT_STATE_EVENT } from "@/lib/agentic-apps/assistant-events";
 import type { AgenticAppAssistantContextRecord, PublicAgenticApp } from "@/types/agentic-app";
 import type { NativeExtensionManifest } from "./types";
 
@@ -13,7 +15,7 @@ const AgenticAppAssistantOverlay = lazy(() => import("@/components/agentic-apps/
   .then(module => ({ default: module.AgenticAppAssistantOverlay })));
 
 /** Native and iframe renderers share one host popup and conversation lifecycle. */
-export function NativeExtensionAssistant({ extensionId, pathname, search = "" }: {
+function NativeAssistantSession({ assistant, extensionId, pathname, search = "" }: {
   assistant: NonNullable<NativeExtensionManifest["assistant"]>;
   extensionId: string;
   pathname: string;
@@ -23,6 +25,7 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
   const identity = session?.user?.email
     ? JSON.stringify([session.sub ?? session.user.email, session.org ?? "", session.role ?? ""])
     : undefined;
+  const [configuration, setConfiguration] = useState<AssistantConfiguration | null>(null);
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [binding, setBinding] = useState<{ key: string; app: PublicAgenticApp } | null>(null);
@@ -46,15 +49,22 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
     return () => controller.abort();
   }, [key, extensionId, status, retry]);
   useEffect(() => {
-    queueMicrotask(() => { setOpen(false); setContext(null); });
-  }, [key]);
-  useEffect(() => {
-    if (app?.canLaunch && new URLSearchParams(search).has("assistant_chat")) queueMicrotask(() => setOpen(true));
+    if (app?.canLaunch && readAssistantDeepLink(search, app.assistantOptions).requested) queueMicrotask(() => setOpen(true));
   }, [app, search]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     function onRequest(event: Event) {
       const detail = (event as CustomEvent).detail;
       if (detail?.appId !== extensionId) return;
+      if (detail.configuration) {
+        try {
+          validateAssistantConfiguration(detail.configuration, assistant.hostOptions);
+          setConfiguration(detail.configuration);
+          if (!detail.configuration.visible) setOpen(false);
+        } catch (reason) {
+          setError({ key, message: reason instanceof Error ? reason.message : "Unsupported assistant configuration" });
+        }
+        return;
+      }
       if (detail.context) {
         const result = validateAssistantContextMessage({ appId: extensionId, message: {
           type: "caipe.agenticApp.context.v1", version: "1.0", appId: extensionId, context: detail.context,
@@ -63,17 +73,33 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
         setContext(result.record);
       }
       if (detail.open) setOpen(true);
+      if (detail.close) setOpen(false);
     }
     window.addEventListener(HOST_ASSISTANT_EVENT, onRequest);
     return () => window.removeEventListener(HOST_ASSISTANT_EVENT, onRequest);
-  }, [extensionId]);
+  }, [extensionId, assistant.hostOptions, key]);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(HOST_ASSISTANT_STATE_EVENT, { detail: { appId: extensionId, open } }));
+  }, [extensionId, open]);
   if (error?.key === key) return <div role="alert" className="fixed bottom-6 right-6 z-40 rounded-lg border bg-background p-3 text-sm">
     {error.message} <button type="button" onClick={() => setRetry(n => n + 1)} className="underline">Retry assistant</button>
   </div>;
   if (!app?.canLaunch || !app.assistantAgentId || app.assistantOverlay === "app") return null;
+  if (!(configuration?.visible ?? !app.assistantOptions?.requireConfiguration)) return null;
   return <Suspense fallback={<p role="status" className="p-3 text-sm">Loading assistant…</p>}><AgenticAppAssistantOverlay key={`${key}:${app.assistantAgentId}`}
+    options={app.assistantOptions} configuration={configuration ?? undefined}
     appId={app.appId} appName={app.displayName} assistantLabel={app.assistantLabel}
     assistantAgentName={app.assistantAgentName} assistantIcon={app.icon}
     assistantAgentId={app.assistantAgentId} open={open} onOpenChange={setOpen}
     activeContext={context?.route === pathname ? context : null} onClearContext={() => setContext(null)} /></Suspense>;
+}
+
+/** Remount the complete controller on account/role changes, including runtime configuration. */
+export function NativeExtensionAssistant(props: {
+  assistant: NonNullable<NativeExtensionManifest["assistant"]>;
+  extensionId: string; pathname: string; search?: string;
+}) {
+  const { data: session, status } = useSession();
+  const key = JSON.stringify([status, session?.sub, session?.user?.email, session?.org, session?.role, props.extensionId]);
+  return <NativeAssistantSession key={key} {...props} />;
 }

@@ -1,8 +1,14 @@
 "use client";
 
-import { Bot, LoaderCircle, MessageCircle, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Bot, LoaderCircle, Maximize2, MoreHorizontal, MessageCircle, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { AssistantOptions, AssistantConfiguration } from "../../../app-sdk/assistant-options.mjs";
+import { useAssistantComposerOptions } from "./AssistantComposerOptions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select } from "@/components/ui/select";
+import { useSearchParams } from "next/navigation";
+import { readAssistantDeepLink } from "@/lib/agentic-apps/assistant-links";
 import Image from "next/image";
 import { AppAssistantHistory } from "./AppAssistantHistory";
 import { loadHostConversation } from "@/native-extensions/host-chat";
@@ -20,6 +26,8 @@ const GLASS_MODE_STORAGE_KEY = "agentic-app-assistant-glass";
 const AGENTIC_APP_CONVERSATION_KIND = "agentic-app";
 
 export interface AgenticAppAssistantOverlayProps {
+  options?: AssistantOptions;
+  configuration?: AssistantConfiguration;
   appId: string;
   appName: string;
   assistantIcon?: string;
@@ -33,6 +41,7 @@ export interface AgenticAppAssistantOverlayProps {
 }
 
 export function AgenticAppAssistantOverlay({
+  options, configuration,
   appId,
   appName,
   assistantLabel,
@@ -49,7 +58,11 @@ export function AgenticAppAssistantOverlay({
     assistantAgentName?.trim() || `CAIPE assistant for ${appName}`
   ).slice(0, 64);
   const [view, setView] = useState<"chat" | "history">("chat");
-  const [panelSize, setPanelSize] = useState(DEFAULT_PANEL_SIZE);
+  const defaultSize = { width: options?.presentation?.width ?? DEFAULT_PANEL_SIZE.width, height: options?.presentation?.height ?? DEFAULT_PANEL_SIZE.height };
+  const [panelSize, setPanelSize] = useState(defaultSize);
+  const [expanded, setExpanded] = useState(false);
+  const [fontScale, setFontScale] = useState(options?.presentation?.fontScale ?? "default");
+  const { requestOptions, composerHeader } = useAssistantComposerOptions(options, configuration);
   const [glassMode, setGlassMode] = useState(readStoredGlassMode);
   const [assistantConversation, setAssistantConversation] = useState<{
     key: string;
@@ -60,6 +73,8 @@ export function AgenticAppAssistantOverlay({
     message: string;
   } | null>(null);
   const [conversationActionPending, setConversationActionPending] = useState(false);
+  const selectedAccess = useChatStore(state => state.conversations.find(c => c.id === assistantConversation?.id)?.accessLevel);
+  const canClear = !selectedAccess || selectedAccess === "owner";
   const selectionSessionRef = useRef<{ previous: string | null; owned: string | null } | null>(null);
   const conversationRequestRef = useRef<{
     key: string;
@@ -69,7 +84,9 @@ export function AgenticAppAssistantOverlay({
   const deleteConversation = useChatStore((state) => state.deleteConversation);
   const loadMessagesFromServer = useChatStore((state) => state.loadMessagesFromServer);
   const setActiveConversation = useChatStore((state) => state.setActiveConversation);
-  const conversationKey = `${appId}:${assistantAgentId}`;
+  const searchParams = useSearchParams();
+  const deepLink = readAssistantDeepLink(searchParams.toString(), options);
+  const conversationKey = `${appId}:${assistantAgentId}:${deepLink.error ?? deepLink.id ?? "latest"}`;
   const conversationTitle = `${appName} Assistant`.slice(0, 120);
   const conversationMetadata = useMemo(
     () => ({
@@ -121,43 +138,45 @@ export function AgenticAppAssistantOverlay({
     [assistantAgentId, conversationMetadata, conversationTitle, createConversation],
   );
 
-  const restoreConversation = useCallback(async (id: string): Promise<string> => {
+  const restoreConversation = useCallback(async (id: string, personalHistory = false): Promise<string> => {
     const session = selectionSessionRef.current;
-    const { saved } = await loadHostConversation(appId, assistantAgentId, id);
+    const { saved } = await loadHostConversation(appId, assistantAgentId, id, personalHistory);
     if (!session || selectionSessionRef.current !== session) throw new Error("Assistant session changed");
-    useChatStore.setState(state => ({ conversations: state.conversations.some(item => item.id === saved._id)
-      ? state.conversations : [...state.conversations, { id: saved._id, title: saved.title, participants: saved.participants,
+    useChatStore.setState(state => {
+      const previous = state.conversations.find(item => item.id === saved._id);
+      return { conversations: [...state.conversations.filter(item => item.id !== saved._id), {
+        ...previous, id: saved._id, title: saved.title, participants: saved.participants,
         createdAt: new Date(saved.created_at), updatedAt: new Date(saved.updated_at), metadata: saved.metadata,
-        accessLevel: saved.access_level, sharing: saved.sharing, messages: [], streamEvents: [] }] }));
+        accessLevel: saved.access_level, sharing: saved.sharing,
+        messages: previous?.messages ?? [], streamEvents: previous?.streamEvents ?? [],
+      }] };
+    });
     await loadMessagesFromServer(saved._id, { force: true });
     return saved._id;
   }, [appId, assistantAgentId, loadMessagesFromServer]);
 
   const findOrCreateAppConversation = useCallback(async (): Promise<string> => {
     const session = selectionSessionRef.current;
-    const requestedId = new URLSearchParams(window.location.search).get("assistant_chat");
+    if (deepLink.error) throw new Error(deepLink.error);
+    const requestedId = deepLink.id;
     // Invalid/unauthorized deep links report an error; never fall back to another chat.
     if (requestedId) return restoreConversation(requestedId);
     const existing = await findLatestAppConversation(
       useChatStore.getState().conversations,
       appId,
       assistantAgentId,
+      options?.includeLegacyAgentHistory,
     );
     if (!session || selectionSessionRef.current !== session) throw new Error("Assistant session changed");
     if (!existing) return createAppConversation();
 
-    useChatStore.setState((state) => ({
-      conversations: state.conversations.some((item) => item.id === existing.id)
-        ? state.conversations : [existing, ...state.conversations],
-    }));
-    await loadMessagesFromServer(existing.id);
-    return existing.id;
+    return restoreConversation(existing.id, true);
   }, [
     appId,
     assistantAgentId,
     createAppConversation,
     restoreConversation,
-    loadMessagesFromServer,
+    deepLink.id, deepLink.error, options?.includeLegacyAgentHistory,
   ]);
 
   useEffect(() => {
@@ -185,6 +204,7 @@ export function AgenticAppAssistantOverlay({
       .then((id) => {
         if (cancelled || conversationRequestRef.current !== request || !activate(id, session)) return;
         setAssistantConversation({ key: conversationKey, id });
+        if (deepLink.requested) updateAssistantDeepLink(id, options?.legacyConversationQueryParams);
       })
       .catch((error: unknown) => {
         // A rejected lookup is not a cached result. Reopening can safely retry
@@ -211,6 +231,7 @@ export function AgenticAppAssistantOverlay({
     activate,
     open,
     view,
+    deepLink.requested, options?.legacyConversationQueryParams,
     setActiveConversation,
   ]);
 
@@ -226,7 +247,7 @@ export function AgenticAppAssistantOverlay({
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
       if (activate(id, session)) {
         setAssistantConversation({ key: conversationKey, id });
-        updateAssistantDeepLink(id);
+        updateAssistantDeepLink(id, options?.legacyConversationQueryParams);
       }
     } catch (error: unknown) {
       if (selectionSessionRef.current !== session) return;
@@ -243,11 +264,12 @@ export function AgenticAppAssistantOverlay({
     activate,
     conversationKey,
     createAppConversation,
+    options?.legacyConversationQueryParams,
     view,
   ]);
 
   const handleClearChat = useCallback(async (): Promise<void> => {
-    if (assistantConversation?.key !== conversationKey || conversationActionPending) return;
+    if (assistantConversation?.key !== conversationKey || conversationActionPending || !canClear) return;
     if (
       !window.confirm(
         "Clear this chat? The current conversation will move to Trash and a new chat will start.",
@@ -272,7 +294,7 @@ export function AgenticAppAssistantOverlay({
       conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(id) };
       if (activate(id, session)) {
         setAssistantConversation({ key: conversationKey, id });
-        updateAssistantDeepLink(id);
+        updateAssistantDeepLink(id, options?.legacyConversationQueryParams);
       }
     } catch (error: unknown) {
       if (selectionSessionRef.current !== session) return;
@@ -289,28 +311,29 @@ export function AgenticAppAssistantOverlay({
     activate,
     conversationKey,
     createAppConversation,
-    deleteConversation,
+    deleteConversation, canClear,
+    options?.legacyConversationQueryParams,
   ]);
 
   async function selectHistory(id: string): Promise<void> {
     const session = selectionSessionRef.current;
-    const restoredId = await restoreConversation(id);
+    const restoredId = await restoreConversation(id, true);
     if (!activate(restoredId, session)) return;
     conversationRequestRef.current = { key: conversationKey, promise: Promise.resolve(restoredId) };
     setAssistantConversation({ key: conversationKey, id: restoredId });
-    updateAssistantDeepLink(restoredId);
+    updateAssistantDeepLink(restoredId, options?.legacyConversationQueryParams);
     setView("chat");
   }
   function onArchived(id: string) {
     if (assistantConversation?.id !== id) return;
-    updateAssistantDeepLink(null);
+    updateAssistantDeepLink(null, options?.legacyConversationQueryParams);
     conversationRequestRef.current = null;
     setAssistantConversation(null);
     if (selectionSessionRef.current) selectionSessionRef.current.owned = null;
   }
   useEffect(() => {
     if (!open) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onOpenChange(false); };
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) onOpenChange(false); };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [open, onOpenChange]);
@@ -318,6 +341,7 @@ export function AgenticAppAssistantOverlay({
   const handleResizeStart = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
+      setExpanded(false);
       const startPoint = { x: event.clientX, y: event.clientY };
       const startSize = panelSize;
       document.body.style.cursor = "nwse-resize";
@@ -346,7 +370,7 @@ export function AgenticAppAssistantOverlay({
   );
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3" style={{ bottom: configuration?.bottomInset }}>
       {open ? (
         <section
           role="dialog"
@@ -358,8 +382,8 @@ export function AgenticAppAssistantOverlay({
               : "border-cyan-300/20 bg-slate-950/95 shadow-cyan-950/40",
           )}
           style={{
-            width: `min(${panelSize.width}px, calc(100vw - 2rem))`,
-            height: `min(${panelSize.height}px, calc(100vh - 7rem))`,
+            width: expanded ? "calc(100vw - 3rem)" : `min(${panelSize.width}px, calc(100vw - 3rem))`,
+            height: expanded ? `calc(100dvh - ${112 + (configuration?.bottomInset ?? 0)}px)` : `min(${panelSize.height}px, calc(100dvh - ${112 + (configuration?.bottomInset ?? 0)}px))`,
           }}
         >
           <button
@@ -388,6 +412,15 @@ export function AgenticAppAssistantOverlay({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Popover><PopoverTrigger asChild><button type="button" aria-label="Assistant display settings" className="rounded p-2 hover:bg-white/10"><MoreHorizontal className="h-4 w-4" /></button></PopoverTrigger>
+              <PopoverContent align="end" className="w-56 space-y-2">
+              <label className="block text-sm">Text size<Select aria-label="Assistant text size" className="h-8 w-auto text-xs" value={fontScale}
+                onChange={event => setFontScale(event.target.value as typeof fontScale)}>
+                <option value="compact">Small</option><option value="default">Default</option><option value="large">Large</option>
+              </Select></label>
+              <button type="button" aria-label="Expand assistant" aria-pressed={expanded} onClick={() => setExpanded(value => !value)} className="rounded p-2 hover:bg-white/10"><Maximize2 className="h-4 w-4" /></button>
+              <button type="button" aria-label="Reset assistant size" onClick={() => { setExpanded(false); setPanelSize(defaultSize); }} className="rounded p-2 hover:bg-white/10"><RotateCcw className="h-4 w-4" /></button>
+              </PopoverContent></Popover>
               <button
                 type="button"
                 aria-label="Start new assistant chat"
@@ -406,7 +439,7 @@ export function AgenticAppAssistantOverlay({
                 type="button"
                 aria-label="Clear assistant chat"
                 title="Clear chat"
-                disabled={assistantConversation?.key !== conversationKey || conversationActionPending}
+                disabled={assistantConversation?.key !== conversationKey || conversationActionPending || !canClear}
                 onClick={() => void handleClearChat()}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-red-400/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -465,9 +498,12 @@ export function AgenticAppAssistantOverlay({
             <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} className="rounded px-3 py-1 text-sm hover:bg-white/10">Chat</button>
             <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")} className="rounded px-3 py-1 text-sm hover:bg-white/10">History</button>
           </div>
-          {view === "history" ? <AppAssistantHistory appId={appId} agentId={assistantAgentId}
+          {view === "history" ? <AppAssistantHistory appId={appId} agentId={assistantAgentId} includeLegacy={options?.includeLegacyAgentHistory}
             selectedId={assistantConversation?.id} onSelect={selectHistory} onArchived={onArchived} /> :
-          <div className="min-h-0 flex-1 [&>div]:bg-transparent">
+          <div className="min-h-0 flex-1 [&>div]:bg-transparent" style={{
+            "--text-sm": fontScale === "large" ? "1rem" : fontScale === "compact" ? "0.8125rem" : "0.875rem",
+            "--text-base": fontScale === "large" ? "1.125rem" : fontScale === "compact" ? "0.875rem" : "1rem",
+          } as React.CSSProperties}>
             {conversationError?.key === conversationKey ? (
               <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-red-200">
                 {conversationError.message}
@@ -478,6 +514,10 @@ export function AgenticAppAssistantOverlay({
                 key={assistantConversation.id}
                 conversationId={assistantConversation.id}
                 agentId={assistantAgentId}
+                requestOptions={requestOptions} composerHeader={composerHeader}
+                placeholder={options?.presentation?.placeholder}
+                showAuditNotice={options?.presentation?.showAuditNotice}
+                feedbackPrompt={options?.presentation?.feedbackPrompt}
                 clientContext={clientContext}
                 suggestedPrompts={activeContext?.suggestedPrompts}
               />
@@ -523,8 +563,9 @@ function readStoredGlassMode(): boolean {
   return raw === null ? true : raw === "true";
 }
 
-function updateAssistantDeepLink(id: string | null): void {
+function updateAssistantDeepLink(id: string | null, aliases: string[] = []): void {
   const url = new URL(window.location.href);
+  for (const alias of aliases) url.searchParams.delete(alias);
   if (id) url.searchParams.set("assistant_chat", id);
   else url.searchParams.delete("assistant_chat");
   window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);

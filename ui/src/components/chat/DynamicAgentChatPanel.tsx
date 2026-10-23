@@ -1995,7 +1995,7 @@ export function ChatPanel({
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, reasoningEffort: requestReasoningEffort, clientContext },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, reasoningEffort: requestReasoningEffort, clientContext, forwardedProps: requestOptions },
         callbacks,
       );
 
@@ -2012,7 +2012,7 @@ export function ChatPanel({
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       appendToMessage, addStreamEvent, setConversationStreaming,
       clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop,
-      suppliedClientContext, requestReasoningEffort]);
+      suppliedClientContext, requestReasoningEffort, requestOptions]);
 
   // Handle tool approval decisions (approve/reject/edit)
   // Shows cards sequentially; only resumes after all tools are decided.
@@ -2117,7 +2117,7 @@ export function ChatPanel({
     try {
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, reasoningEffort: requestReasoningEffort, clientContext },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, reasoningEffort: requestReasoningEffort, clientContext, forwardedProps: requestOptions },
         callbacks,
       );
       finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
@@ -2131,7 +2131,7 @@ export function ChatPanel({
     }
   }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       addStreamEvent, setConversationStreaming, clearStreamEvents, getActiveConversation,
-      buildStreamCallbacks, finalizeStreamLoop, suppliedClientContext, requestReasoningEffort]);
+      buildStreamCallbacks, finalizeStreamLoop, suppliedClientContext, requestReasoningEffort, requestOptions]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -2512,6 +2512,7 @@ export function ChatPanel({
                           conversationId: activeConversationId,
                           agentId: pendingUserInput.agentId,
                           resumeData: dismissalPayload,
+                          forwardedProps: requestOptions,
                           reasoningEffort: requestReasoningEffort,
                         },
                         {}, // No callbacks — we don't render the response

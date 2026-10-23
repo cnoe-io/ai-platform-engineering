@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { NativeExtensionHost } from "../NativeExtensionHost";
 import { installedNativeExtensions } from "../installed.generated";
 
+jest.mock("next-auth/react", () => ({ useSession: () => ({ status: "authenticated", data: { sub: "test-user", user: { email: "test-user@example.test" } } }) }));
+
 jest.mock("../host-chat", () => ({ createHostChatCapability: () => ({ Panel: () => null }) }));
 
 jest.mock("next/navigation", () => ({
