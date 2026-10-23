@@ -146,6 +146,7 @@ access token to the selected runtime. The browser does not attach a bearer token
 
 - Session-authenticated stream requests require `Origin` to match `NEXTAUTH_URL`
   (or the request origin when unset). An expired or missing session requires sign-in.
+  The explicitly enabled non-production anonymous development provider retains its existing behavior.
 - Explicit bearer credentials retain precedence, including when a cookie is also
   present. Invalid credentials never fall back to the cookie. API callers keep
   their bearer identity and do not inherit browser administrator privileges.

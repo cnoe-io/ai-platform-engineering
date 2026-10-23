@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { DEV_AUTH_SUBJECT, isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import { authenticateRequest, type AuthResult } from "@/lib/da-proxy";
 
 /** Browser streams use the session; explicit API credentials retain bearer precedence. */
@@ -14,7 +15,9 @@ export async function authenticateChatStreamRequest(
   const auth = await authenticateRequest(request);
   if (auth instanceof NextResponse) return auth;
 
-  if (auth.authenticatedUser?.session.authMethod === "session") {
+  const session = auth.authenticatedUser?.session;
+  const anonymousDevelopment = isDevAnonymousAuthEnabled() && session?.sub === DEV_AUTH_SUBJECT;
+  if (session?.authMethod === "session" && !anonymousDevelopment) {
     const expectedOrigin = new URL(process.env.NEXTAUTH_URL || request.url).origin;
     if (request.headers.get("origin") !== expectedOrigin ||
         request.headers.get("sec-fetch-site") === "cross-site") {
