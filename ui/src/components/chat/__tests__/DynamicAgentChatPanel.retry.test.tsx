@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { apiClient } from "@/lib/api-client";
+import type { ExternalChatActivity } from "@/store/chat-store";
 import type { ChatMessage, Conversation } from "@/types/a2a";
 import { ChatPanel } from "../DynamicAgentChatPanel";
 
@@ -28,7 +29,7 @@ const mockChatState = {
   clearStreamEvents: jest.fn(),
   setConversationStreaming: jest.fn(),
   loadMessagesFromServer: jest.fn(),
-  externalActivity: {},
+  externalActivity: {} as Record<string, ExternalChatActivity>,
   contextUsageByConversation: {},
   messageHistory: {},
   setContextUsage: jest.fn(),
@@ -93,6 +94,7 @@ const mockAttachment = { mime_type: "text/plain", name: "example.txt", data: "ZX
 beforeEach(() => {
   jest.clearAllMocks();
   mockStreaming = false;
+  mockChatState.externalActivity = {};
   HTMLElement.prototype.scrollIntoView = jest.fn();
   setConversation([
     message("u1", "user", "first question"),
@@ -240,6 +242,12 @@ describe("retry is unavailable when it would be unsafe", () => {
 
   it("hides retry while a response is streaming", () => {
     mockStreaming = true;
+    render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
+    expectNoRetry();
+  });
+
+  it("hides retry while another client is streaming the conversation", () => {
+    mockChatState.externalActivity["chat-1"] = { agentId: "example-agent", turnId: "external-turn", state: "running" };
     render(<ChatPanel agentId="example-agent" conversationId="chat-1" />);
     expectNoRetry();
   });

@@ -2421,6 +2421,7 @@ export function ChatPanel({
                       const canRetryMessage = !panelReadOnly &&
                         !isAutonomousHistory &&
                         !isThisConversationStreaming &&
+                        !isRemoteResponse &&
                         !pendingUserInput &&
                         !pendingToolApproval;
                       const getRetryMessages = (): ChatMessageType[] => {
