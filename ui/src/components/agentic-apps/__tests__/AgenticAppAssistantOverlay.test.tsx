@@ -7,7 +7,10 @@ import { AgenticAppAssistantOverlay } from "../AgenticAppAssistantOverlay";
 
 jest.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
 jest.mock("@/native-extensions/host-chat", () => ({ loadHostConversation: async (_appId: string, _agentId: string, id: string) => {
-  const item = mockChatStoreState.conversations.find(conversation => conversation.id === id)!;
+  const item = mockChatStoreState.conversations.find(conversation => conversation.id === id) ?? {
+    id, title: "Example chat", participants: [{ type: "agent", id: "agent-example" }],
+    metadata: { agentic_app_id: "example-app" }, createdAt: new Date(), updatedAt: new Date(),
+  };
   return { saved: { _id: item.id, title: item.title, participants: item.participants, metadata: item.metadata,
     created_at: item.createdAt, updated_at: item.updatedAt, access_level: "owner" } };
 } }));
