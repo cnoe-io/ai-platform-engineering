@@ -138,6 +138,7 @@ function extractTicketResult(text: string): TicketResult | null {
 
 export interface CreateTicketOptions {
   request: TicketRequest;
+  /** @deprecated Browser requests authenticate with the session cookie; this value is ignored. */
   accessToken?: string;
   onEvent?: (event: TicketStreamEvent, logLine: string) => void;
   onResult?: (result: TicketResult) => void;
