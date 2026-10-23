@@ -12,6 +12,9 @@ import type { FeedbackContext } from "@/lib/ticket-client";
 export type TicketReportSource = "header" | "chat-feedback";
 
 export interface GitHubTicketInput {
+  /** Approved service-desk title; feedback callers retain generated titles. */
+  title?: string;
+  assignees?: string[];
   description: string;
   userEmail: string;
   contextUrl: string;
@@ -55,6 +58,7 @@ function truncate(text: string, max: number): string {
 }
 
 export function titleFor(input: GitHubTicketInput): string {
+  if (input.title?.trim()) return input.title.trim();
   const prefix = "[Platform Report]";
   const areaTag = input.area ? `[${input.area}]` : null;
   const typeTag = input.issueType ? `[${input.issueType}]` : null;
@@ -153,6 +157,7 @@ export async function createGitHubTicket(
     title: titleFor(input),
     body: buildGitHubIssueBody(input),
     labels: [...new Set(labels.filter(Boolean))],
+    ...(input.assignees?.length ? { assignees: input.assignees } : {}),
   });
 
   const number = res.data.number;

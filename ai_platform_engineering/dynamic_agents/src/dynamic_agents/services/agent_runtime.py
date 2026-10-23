@@ -88,6 +88,7 @@ from dynamic_agents.services.model_capabilities import (
     ModelCapabilities,
     get_model_capabilities,
 )
+from dynamic_agents.services.service_desk import create_service_desk_tool
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
@@ -1258,6 +1259,15 @@ class AgentRuntime:
 
         if not config.builtin_tools:
             return tools
+
+        service_desk_config = config.builtin_tools.service_desk
+        if service_desk_config and service_desk_config.enabled and self.settings.caipe_api_url and self._auth_bearer:
+            tools.append(create_service_desk_tool(
+                base_url=self.settings.caipe_api_url,
+                token_provider=lambda: self._auth_bearer or "",
+                conversation_id=self._session_id or "",
+            ))
+            config_summary["service_desk"] = {}
 
         # fetch_url tool (disabled by default)
         fetch_url_config = config.builtin_tools.fetch_url

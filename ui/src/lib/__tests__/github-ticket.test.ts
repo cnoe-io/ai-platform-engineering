@@ -3,6 +3,7 @@ const mockGetBranch = jest.fn();
 const mockCreateOrUpdateFileContents = jest.fn();
 const mockGetRef = jest.fn();
 const mockCreateRef = jest.fn();
+const mockIssuesCreate = jest.fn();
 
 jest.mock("@octokit/rest", () => ({
   Octokit: jest.fn().mockImplementation(() => ({
@@ -15,11 +16,13 @@ jest.mock("@octokit/rest", () => ({
       getRef: (...args: unknown[]) => mockGetRef(...args),
       createRef: (...args: unknown[]) => mockCreateRef(...args),
     },
+    issues: { create: (...args: unknown[]) => mockIssuesCreate(...args) },
   })),
 }));
 
 import {
   buildGitHubIssueBody,
+  createGitHubTicket,
   parseGitHubRepo,
   titleFor,
   uploadScreenshotToGitHub,
@@ -57,6 +60,16 @@ describe("github-ticket", () => {
     expect(titleFor({ ...baseInput, source: "header", area: "Chat" })).toMatch(
       /^\[Platform Report\] \[Chat\] \[Bug\]:/
     );
+  });
+
+  it("preserves the approved service-desk title and configured assignee", async () => {
+    mockIssuesCreate.mockResolvedValue({ data: { number: 7, html_url: "https://example.test/issues/7" } });
+    await createGitHubTicket("example/support", "service-token", {
+      ...baseInput, title: "Approved request", assignees: ["example-bot"], label: "service-desk",
+    });
+    expect(mockIssuesCreate).toHaveBeenCalledWith(expect.objectContaining({
+      owner: "example", repo: "support", title: "Approved request", assignees: ["example-bot"],
+    }));
   });
 
   it("includes chat feedback block when provided", () => {

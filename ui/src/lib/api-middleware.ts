@@ -457,6 +457,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   if (
     pathname.startsWith('/api/feedback') ||
     pathname === '/api/tickets/report' ||
+    pathname === '/api/tickets/service-desk' ||
     pathname === '/api/tickets/jira'
   ) {
     return { resource: 'feedback', scope: 'submit' };

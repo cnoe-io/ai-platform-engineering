@@ -99,6 +99,12 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
     """
     return [
         BuiltinToolDefinition(
+            id="service_desk",
+            name="Service Desk",
+            description="Submit an approved support request when the user's GitHub connection cannot create issues.",
+            enabled_by_default=False,
+        ),
+        BuiltinToolDefinition(
             id="fetch_url",
             name="Fetch URL",
             description="Simple tool to fetch web pages.",

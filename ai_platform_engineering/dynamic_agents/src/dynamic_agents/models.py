@@ -331,6 +331,12 @@ class UserInfoToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class ServiceDeskToolConfig(BaseModel):
+    """Opt-in submission to the BFF's configured service desk."""
+
+    enabled: bool = False
+
+
 class WaitToolConfig(BaseModel):
     """Configuration for the wait built-in tool."""
 
@@ -375,6 +381,10 @@ class BuiltinToolsConfig(BaseModel):
     user_info: UserInfoToolConfig | None = Field(
         None,
         description="Configuration for the user_info tool (returns info about the current user)",
+    )
+    service_desk: ServiceDeskToolConfig | None = Field(
+        None,
+        description="Opt-in service-desk submission using the BFF's configured ticket credential",
     )
     wait: WaitToolConfig | None = Field(
         None,

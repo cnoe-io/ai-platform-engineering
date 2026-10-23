@@ -211,6 +211,7 @@ export interface SleepToolConfig {
  * Each tool config is optional - if not present, tool uses defaults.
  */
 export interface BuiltinToolsConfig {
+  service_desk?: { enabled: boolean };
   fetch_url?: FetchUrlToolConfig;
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;

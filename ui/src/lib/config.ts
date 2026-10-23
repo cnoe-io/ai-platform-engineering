@@ -183,6 +183,11 @@ export interface Config {
   githubTicketLabel: string;
   /** Optional repository used to host report screenshots. */
   githubScreenshotsRepo: string | null;
+  /** Opt-in support submission; separate from product feedback routing. */
+  serviceDeskGithubEnabled: boolean;
+  serviceDeskGithubRepo: string | null;
+  serviceDeskGithubLabel: string;
+  serviceDeskDefaultAssignee: string;
   /**
    * Streaming protocol used by agent servers: "custom" (default) or "agui".
    * Controls the ?protocol= query param sent to the backend streaming endpoints.
@@ -297,6 +302,10 @@ const DEFAULT_CONFIG: Config = {
   githubTicketRepo: null,
   githubTicketLabel: 'caipe-reported',
   githubScreenshotsRepo: null,
+  serviceDeskGithubEnabled: false,
+  serviceDeskGithubRepo: null,
+  serviceDeskGithubLabel: 'service-desk',
+  serviceDeskDefaultAssignee: '',
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
@@ -506,6 +515,10 @@ export function getServerConfig(): Config {
     githubTicketRepo,
     githubTicketLabel,
     githubScreenshotsRepo,
+    serviceDeskGithubEnabled: env('SERVICE_DESK_GITHUB_ENABLED') === 'true',
+    serviceDeskGithubRepo: env('SERVICE_DESK_GITHUB_REPO') || null,
+    serviceDeskGithubLabel: env('SERVICE_DESK_GITHUB_LABEL') || 'service-desk',
+    serviceDeskDefaultAssignee: env('SERVICE_DESK_DEFAULT_ASSIGNEE') || '',
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,

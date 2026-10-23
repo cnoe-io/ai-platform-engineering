@@ -59,6 +59,19 @@ describe('getServerConfig', () => {
     process.env = originalEnv;
   });
 
+  it('keeps service-desk submission opt-in and separate from product feedback', () => {
+    clearEnv('SERVICE_DESK_GITHUB_ENABLED', 'SERVICE_DESK_GITHUB_REPO', 'SERVICE_DESK_DEFAULT_ASSIGNEE');
+    expect(getServerConfig().serviceDeskGithubEnabled).toBe(false);
+    process.env.SERVICE_DESK_GITHUB_ENABLED = 'true';
+    process.env.SERVICE_DESK_GITHUB_REPO = 'example/support';
+    process.env.GITHUB_TICKET_REPO = 'example/product-feedback';
+    process.env.SERVICE_DESK_DEFAULT_ASSIGNEE = 'example-bot';
+    expect(getServerConfig()).toMatchObject({
+      serviceDeskGithubEnabled: true, serviceDeskGithubRepo: 'example/support',
+      serviceDeskDefaultAssignee: 'example-bot', githubTicketRepo: 'example/product-feedback',
+    });
+  });
+
   // ---------- Default values ----------
 
   describe('defaults (no env vars set)', () => {
@@ -170,6 +183,7 @@ describe('getServerConfig', () => {
         'scheduleEditorAgentId',
         'schedulerAdminOnly',
         'schedulerEnabled',
+        'serviceDeskGithubEnabled', 'serviceDeskGithubRepo', 'serviceDeskGithubLabel', 'serviceDeskDefaultAssignee',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -936,6 +950,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'scheduleEditorAgentId',
       'schedulerAdminOnly',
       'schedulerEnabled',
+        'serviceDeskGithubEnabled', 'serviceDeskGithubRepo', 'serviceDeskGithubLabel', 'serviceDeskDefaultAssignee',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

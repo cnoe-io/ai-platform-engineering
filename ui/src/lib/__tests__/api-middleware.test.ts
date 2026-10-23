@@ -1307,6 +1307,7 @@ describe('withAuth', () => {
       ['/api/settings/preferences', 'GET', 'can_manage_self'],
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
+      ['/api/tickets/service-desk', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
       ['/api/dynamic-agents/models', 'GET', 'can_chat'],
       ['/api/dynamic-agents/available', 'GET', 'can_chat'],

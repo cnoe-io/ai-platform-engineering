@@ -80,3 +80,19 @@ ui/src/types/               Shared TypeScript types
 - [UI configuration](../docs/docs/ui/configuration.md)
 - [Dynamic Agents API](../docs/docs/api/dynamic-agents-mcp.md)
 - [Helm chart reference](../docs/docs/installation/helm-charts/ai-platform-engineering/caipe-ui.md)
+
+### Chat service-desk fallback
+
+The opt-in Dynamic Agents `service_desk` tool uses `/api/tickets/service-desk`
+when the caller's GitHub connection cannot create an approved support request.
+It shares the existing service-desk routing and feedback storage; product feedback
+keeps its existing destination.
+
+`SERVICE_DESK_GITHUB_TOKEN` is an optional, server-only credential dedicated to
+the configured service-desk repository. If absent, the route uses
+`REPORT_PROBLEM_GITHUB_TOKEN`, `GITHUB_TICKET_TOKEN`, then `GITHUB_TOKEN`.
+No `NEXT_PUBLIC_` credential is accepted by the service-desk route.
+
+Chat submissions derive the chat URL from `NEXTAUTH_URL` and require a stable
+`requestId`. MongoDB reservations prevent repeated tool calls from creating
+multiple issues, including after an uncertain network result.

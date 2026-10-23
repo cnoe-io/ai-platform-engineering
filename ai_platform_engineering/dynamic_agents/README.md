@@ -362,3 +362,30 @@ dynamic_agents/
 - [SSE_EVENTS.md](./SSE_EVENTS.md) - SSE event types and streaming protocol
 - [UI Integration](../../ui/src/components/dynamic-agents/) - Frontend components
 - [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol specification
+
+### Service-desk issue fallback
+
+Set `builtin_tools.service_desk.enabled: true` only on agents that submit support
+requests. The `submit_service_desk_ticket(title, description)` tool calls the
+existing `/api/tickets/service-desk` BFF endpoint with the authenticated caller's
+bearer. It does not expose a GitHub token or accept a repository argument.
+
+- Use after explicit user approval, when their GitHub connection is unavailable
+  or issue creation definitively fails with 401, 403, or 404.
+- Keep ordinary repository operations on the user's GitHub connection.
+- Never fallback after a timeout or uncertain result: check for an existing issue
+  first. Report success only with the returned issue URL.
+- Requires `CAIPE_API_URL` on Dynamic Agents and
+  `SERVICE_DESK_GITHUB_ENABLED=true`, `SERVICE_DESK_GITHUB_REPO=example/support`
+  on the UI. Configure `SERVICE_DESK_GITHUB_TOKEN` with issue-write permission on
+  that repository, or use the existing feedback credential fallback chain.
+- BFF authorization requires `feedback:submit`. Reporter identity comes from the
+  authenticated caller; the server selects repository, labels, and assignee.
+- Chat submissions reserve a caller-scoped request ID in MongoDB before the
+  GitHub write. Identical retries return the saved issue. Pending or uncertain
+  writes return 409; they never trigger another automatic write. An operator must
+  reconcile an unresolved `service_desk_submissions` record against GitHub before
+  clearing it. Do not add a TTL that could enable duplicate submissions.
+
+The tool is disabled by default. Existing product feedback and wiki feedback
+continue using their existing routes.
