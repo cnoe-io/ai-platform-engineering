@@ -80,6 +80,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       ...(params.reasoningEffort && { reasoning_effort: params.reasoningEffort }),
       ...(params.turnId && { turn_id: params.turnId }),
       protocol: "custom",
+      ...(params.forwardedProps && { forwarded_props: params.forwardedProps }),
       ...(params.clientContext && { client_context: params.clientContext }),
       ...(params.files?.length && { files: params.files }),
     });
@@ -95,6 +96,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       ...(params.reasoningEffort && { reasoning_effort: params.reasoningEffort }),
       resume_data: params.resumeData,
       protocol: "custom",
+      ...(params.forwardedProps && { forwarded_props: params.forwardedProps }),
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 

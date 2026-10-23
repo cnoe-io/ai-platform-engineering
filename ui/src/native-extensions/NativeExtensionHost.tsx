@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { isSupportedNativeContractVersion } from "../../app-sdk/contract-version.mjs";
 
@@ -23,6 +24,8 @@ export function NativeExtensionHost({
   slot?: boolean;
 }): React.ReactElement {
   const router = useRouter();
+  const { data: session, status } = useSession();
+  const identity = JSON.stringify([status, session?.sub, session?.user?.email, session?.org, session?.role]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = searchParams.toString();
@@ -34,7 +37,7 @@ export function NativeExtensionHost({
     [extensionId],
   );
   const chat = useMemo(() => createHostChatCapability(extensionId,
-    Boolean(extension?.manifest.assistant && extension.manifest.assistant.overlay !== "app")), [extensionId, extension]);
+    Boolean(extension?.manifest.assistant && extension.manifest.assistant.overlay !== "app"), extension?.manifest.assistant?.hostOptions), [extensionId, extension]);
   const [breadcrumbs, setBreadcrumbs] = useState<
     NativeExtensionBreadcrumb[]
   >(() =>
@@ -79,7 +82,7 @@ export function NativeExtensionHost({
       {!slot && <HeaderBreadcrumbPortal>
         <WorkspaceBreadcrumbs breadcrumbs={breadcrumbs} portal={false} />
       </HeaderBreadcrumbPortal>}
-      <Component
+      <Component key={identity}
         apiBasePath={extension.manifest.api.basePath}
         pathname={pathname}
         search={search}
