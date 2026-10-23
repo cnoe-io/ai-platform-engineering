@@ -131,6 +131,10 @@ describe("POST /api/notifications", () => {
     ["no event key", { eventKey: undefined }],
     ["an absolute link", { href: "https://example.com/x" }],
     ["a protocol-relative link", { href: "//example.com/x" }],
+    ["a backslash authority", { href: "/\\example.com/login" }],
+    ["a tab-hidden authority", { href: "/\t/example.com/login" }],
+    ["a newline-hidden authority", { href: "/\n/example.com/login" }],
+    ["a control character in a path", { href: "/example/\u0000report" }],
     ["an unknown severity", { severity: "loud" }],
   ])("rejects %s", async (_name, change) => {
     const response = await post({ ...valid, ...change });
@@ -148,5 +152,11 @@ describe("POST /api/notifications", () => {
 
     expect(response.status).toBe(201);
     expect(mockCreate.mock.calls[0][0]).toMatchObject({ severity: "info", href: undefined });
+  });
+
+  it("accepts a local link with a query and fragment", async () => {
+    const href = "/example/report?view=summary#results";
+    expect((await post({ ...valid, href })).status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].href).toBe(href);
   });
 });

@@ -1,4 +1,4 @@
-import { NextRequest,after } from "next/server";
+import { NextRequest, after } from "next/server";
 
 import {
   ApiError,
@@ -70,8 +70,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError(`recipientUserSubjects needs 1 to ${MAX_RECIPIENTS} subjects`, 400, "BAD_REQUEST");
   }
   const href = body.href === undefined ? undefined : text(body.href, "href");
-  if (href && (!href.startsWith("/") || href.startsWith("//"))) {
-    throw new ApiError("href must be a relative path", 400, "BAD_REQUEST");
+  if (href !== undefined) {
+    const origin = "https://example.invalid";
+    if (
+      !href.startsWith("/") ||
+      href.startsWith("//") ||
+      /[\\\u0000-\u001f\u007f]/.test(href) ||
+      new URL(href, origin).origin !== origin
+    ) {
+      throw new ApiError("href must be a relative path", 400, "BAD_REQUEST");
+    }
   }
   const severity = body.severity ?? "info";
   if (!SEVERITIES.includes(severity as Severity)) {
