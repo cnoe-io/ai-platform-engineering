@@ -28,6 +28,7 @@ const mockChatState = {
   clearStreamEvents: jest.fn(),
   setConversationStreaming: jest.fn(),
   loadMessagesFromServer: jest.fn(),
+  externalActivity: {},
   contextUsageByConversation: {},
   messageHistory: {},
   setContextUsage: jest.fn(),
@@ -35,7 +36,10 @@ const mockChatState = {
 };
 
 jest.mock("@/store/chat-store", () => ({
-  useChatStore: Object.assign(() => mockChatState, { getState: () => mockChatState }),
+  useChatStore: Object.assign(
+    (selector?: (state: typeof mockChatState) => unknown) => selector ? selector(mockChatState) : mockChatState,
+    { getState: () => mockChatState },
+  ),
 }));
 jest.mock("@/store/feature-flag-store", () => ({
   useFeatureFlagStore: (selector: (state: unknown) => unknown) => selector({
