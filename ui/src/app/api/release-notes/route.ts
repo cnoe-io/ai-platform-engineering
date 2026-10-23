@@ -74,6 +74,7 @@ interface CachedCompare {
 let listingCache: CachedListing | null = null;
 const contentCache = new Map<string, CachedContent>();
 const compareCache = new Map<string, CachedCompare>();
+const compareRequests = new Map<string, Promise<CompareReleaseNotes | null>>();
 
 export interface ReleaseNotesResponse {
   requestedVersion: string;
@@ -219,10 +220,31 @@ async function readGithubCompareReleaseNotes(
   previousCommit: string,
   latestCommit: string,
 ): Promise<CompareReleaseNotes | null> {
-  const cacheKey = `${repository.owner}/${repository.repository}:${previousCommit}...${latestCommit}`;
+  const cacheKey = JSON.stringify([repository.owner, repository.repository, previousCommit, latestCommit]);
   const cached = compareCache.get(cacheKey);
   if (cached && Date.now() - cached.at < COMPARE_TTL_MS) return cached.notes;
+  const inProgress = compareRequests.get(cacheKey);
+  if (inProgress) return inProgress;
 
+  const request = fetchGithubCompareReleaseNotes(repository, previousCommit, latestCommit)
+    .then((notes) => {
+      if (notes) {
+        // Only one platform range is active; do not retain previous private ranges.
+        compareCache.clear();
+        compareCache.set(cacheKey, { at: Date.now(), notes });
+      }
+      return notes;
+    })
+    .finally(() => compareRequests.delete(cacheKey));
+  compareRequests.set(cacheKey, request);
+  return request;
+}
+
+async function fetchGithubCompareReleaseNotes(
+  repository: GithubRepository,
+  previousCommit: string,
+  latestCommit: string,
+): Promise<CompareReleaseNotes | null> {
   const commits: GithubCompareCommit[] = [];
   const compareRange = `${encodeURIComponent(previousCommit)}...${encodeURIComponent(latestCommit)}`;
   const compareUrl = `https://github.com/${repository.owner}/${repository.repository}/compare/${compareRange}`;
@@ -284,9 +306,6 @@ async function readGithubCompareReleaseNotes(
     body: renderCompareMarkdown(commits, repository, previousCommit, latestCommit, compareUrl),
     changelogUrl: compareUrl,
   };
-  // Only one platform range is active; do not retain previous private ranges.
-  compareCache.clear();
-  compareCache.set(cacheKey, { at: Date.now(), notes });
   return notes;
 }
 

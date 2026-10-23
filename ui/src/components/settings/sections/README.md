@@ -39,6 +39,10 @@
 - The server uses `RELEASE_NOTES_GITHUB_TOKEN`, then `GITHUB_TOKEN`, then
   `GITHUB_PERSONAL_ACCESS_TOKEN`. Private responses are `private, no-store`.
   The bounded in-process compare cache is not an authentication cache.
+- Concurrent reads of the same repository and ref pair share one in-progress
+  comparison per UI process. Failed requests are not cached and can be retried.
+- Session skips and permanent dismissals include the deployed version, repository
+  and both refs. Changing any of these identifies a new announcement.
 - Requests do not accept arbitrary repository coordinates. GitHub redirects are
   rejected, fetch and response-body reads are timed out, and pagination fails
   rather than silently returning a partial comparison at its limit.

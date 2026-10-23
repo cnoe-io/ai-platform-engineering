@@ -115,7 +115,9 @@ describe("useReleaseUpgradePrompt", () => {
     expect(global.fetch).toHaveBeenCalledWith("/api/release-notes?version=0.5.1&compare=platform");
     await act(async () => { await result.current.dismissPermanently(); });
     expect(global.fetch).toHaveBeenCalledWith("/api/settings/preferences", expect.objectContaining({
-      body: JSON.stringify({ releaseNotesDismissedVersions: ["0.5.1:2222222"] }),
+      body: JSON.stringify({ releaseNotesDismissedVersions: [JSON.stringify([
+        "0.5.1", "https://github.com/example/repository", "1111111", "2222222",
+      ])] }),
     }));
   });
 

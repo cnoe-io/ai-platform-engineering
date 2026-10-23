@@ -207,7 +207,12 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         const activeReleaseVersion = deployedReleaseVersion;
         const customCompareConfigured = hasConfiguredReleaseNotesCompare(releaseNotesConfig);
         const activeAnnouncementId = customCompareConfigured
-          ? `${activeReleaseVersion}:${releaseNotesConfig.latest_commit}`
+          ? JSON.stringify([
+              activeReleaseVersion,
+              releaseNotesConfig.repository_url,
+              releaseNotesConfig.previous_commit,
+              releaseNotesConfig.latest_commit,
+            ])
           : activeReleaseVersion;
         setReleaseVersion(activeReleaseVersion);
         setAnnouncementId(activeAnnouncementId);
