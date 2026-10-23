@@ -377,10 +377,6 @@ export function ChatPanel({
   // Slash command registry
   const slashCommands = useSlashCommands(agentSkills, agent?.allowed_tools, agent?.subagents);
 
-  // Get access token from session (if SSO is enabled and user is authenticated)
-  const ssoEnabled = getConfig('ssoEnabled');
-  const accessToken = ssoEnabled ? session?.accessToken : undefined;
-
   const conversation = getActiveConversation();
   const conversationTitle = useChatStore((state) => state.conversations
     .find((item) => item.id === (conversationId ?? state.activeConversationId))
@@ -1398,7 +1394,6 @@ export function ChatPanel({
     // Create protocol-agnostic adapter
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
-      accessToken,
     });
 
     const loopState: StreamLoopState = {
@@ -1468,7 +1463,7 @@ export function ChatPanel({
       });
       setConversationStreaming(convId, null);
     }
-  }, [isAutonomousHistory, isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast, requestOptions, isRemoteResponse]);
+  }, [isAutonomousHistory, isThisConversationStreaming, activeConversationId, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, requestReasoningEffort, session?.user, showAuthErrorToast, suppliedClientContext, toast, requestOptions, isRemoteResponse]);
 
   const submitMessage = useCallback(
     (messageToSend: string, filesToSend: InputFile[] = []) => submitMessageBatch([{
@@ -1982,7 +1977,6 @@ export function ChatPanel({
     // Create protocol-agnostic adapter for resume
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
-      accessToken,
     });
 
     // Build client context for system prompt rendering and user_info tool
@@ -2030,7 +2024,7 @@ export function ChatPanel({
       updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
       setConversationStreaming(activeConversationId, null);
     }
-  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+  }, [pendingUserInput, activeConversationId, agentProtocol, addMessage, updateMessage,
       appendToMessage, addStreamEvent, setConversationStreaming,
       clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop,
       suppliedClientContext, requestReasoningEffort]);
@@ -2087,7 +2081,6 @@ export function ChatPanel({
 
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
-      accessToken,
     });
 
     const clientContext: Record<string, unknown> = {
@@ -2150,7 +2143,7 @@ export function ChatPanel({
       });
       setConversationStreaming(activeConversationId, null);
     }
-  }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+  }, [pendingToolApproval, activeConversationId, agentProtocol, addMessage, updateMessage,
       addStreamEvent, setConversationStreaming, clearStreamEvents, getActiveConversation,
       buildStreamCallbacks, finalizeStreamLoop, suppliedClientContext, requestReasoningEffort]);
 
@@ -2545,7 +2538,6 @@ export function ChatPanel({
                     if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
                       const dismissAdapter = createStreamAdapter({
                         protocol: agentProtocol as "custom" | "agui",
-                        accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
                       const dismissalPayload = JSON.stringify({ type: "form_input", dismissed: true });
