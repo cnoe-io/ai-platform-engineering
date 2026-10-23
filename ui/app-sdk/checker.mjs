@@ -1,3 +1,4 @@
+import { validateAssistantOptions } from "./assistant-options.mjs";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { nativeUiDescriptor, validateAgenticAppManifest } from "./agentic-app-manifest.mjs";
@@ -100,9 +101,10 @@ export function validateManifest(moduleName, manifest) {
       || typeof assistant.agentId !== "string" || !ID.test(assistant.agentId)
       || typeof assistant.label !== "string" || !assistant.label.trim() || assistant.label.length > 48
       || typeof assistant.name !== "string" || !assistant.name.trim() || assistant.name.length > 80
-      || Object.keys(assistant).some((key) => !["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay"].includes(key))) {
+      || Object.keys(assistant).some((key) => !["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay", "hostOptions"].includes(key))) {
       fail("assistant must declare a valid agentId, label, and name");
     }
+    if (assistant.hostOptions !== undefined) validateAssistantOptions(assistant.hostOptions);
     if (assistant.overlay !== undefined && !["host", "app"].includes(assistant.overlay)) {
       fail("assistant overlay must be host or app");
     }
