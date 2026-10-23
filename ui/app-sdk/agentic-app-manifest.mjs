@@ -1,3 +1,4 @@
+import { validateAssistantOptions } from "./assistant-options.mjs";
 import {
   RESERVED_HOST_PATHS,
   RESERVED_API_PATHS,
@@ -214,10 +215,11 @@ export function validateAgenticAppManifest(value) {
   if (ui.assistant !== undefined) {
     const assistant = record(
       ui.assistant,
-      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay"],
+      ["agentId", "label", "name", "streamPath", "resumePath", "cancelPath", "statusPath", "overlay", "hostOptions"],
       "ui.assistant",
     );
     identifier(assistant.agentId, "ui.assistant.agentId");
+    if (assistant.hostOptions !== undefined) validateAssistantOptions(assistant.hostOptions);
     if (assistant.overlay !== undefined && !["host", "app"].includes(assistant.overlay))
       throw new Error("assistant overlay must be host or app");
     if (
