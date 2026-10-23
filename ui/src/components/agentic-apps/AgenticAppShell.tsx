@@ -36,7 +36,9 @@ export function AgenticAppShell({
 }): React.ReactElement {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  const identity = session?.user?.email;
+  const identity = session?.user?.email
+    ? JSON.stringify([session.sub ?? session.user.email, session.org ?? "", session.role ?? ""])
+    : undefined;
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantRetry, setAssistantRetry] = useState(0);
   const [bridgeError, setBridgeError] = useState<string | null>(null);

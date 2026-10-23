@@ -18,7 +18,9 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
   search?: string;
 }): React.ReactElement | null {
   const { data: session, status } = useSession();
-  const identity = session?.user?.email;
+  const identity = session?.user?.email
+    ? JSON.stringify([session.sub ?? session.user.email, session.org ?? "", session.role ?? ""])
+    : undefined;
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [binding, setBinding] = useState<{ key: string; app: PublicAgenticApp } | null>(null);

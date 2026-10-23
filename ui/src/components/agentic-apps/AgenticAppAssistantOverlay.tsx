@@ -122,7 +122,9 @@ export function AgenticAppAssistantOverlay({
   );
 
   const restoreConversation = useCallback(async (id: string): Promise<string> => {
+    const session = selectionSessionRef.current;
     const { saved } = await loadHostConversation(appId, assistantAgentId, id);
+    if (!session || selectionSessionRef.current !== session) throw new Error("Assistant session changed");
     useChatStore.setState(state => ({ conversations: state.conversations.some(item => item.id === saved._id)
       ? state.conversations : [...state.conversations, { id: saved._id, title: saved.title, participants: saved.participants,
         createdAt: new Date(saved.created_at), updatedAt: new Date(saved.updated_at), metadata: saved.metadata,
@@ -132,6 +134,7 @@ export function AgenticAppAssistantOverlay({
   }, [appId, assistantAgentId, loadMessagesFromServer]);
 
   const findOrCreateAppConversation = useCallback(async (): Promise<string> => {
+    const session = selectionSessionRef.current;
     const requestedId = new URLSearchParams(window.location.search).get("assistant_chat");
     // Invalid/unauthorized deep links report an error; never fall back to another chat.
     if (requestedId) return restoreConversation(requestedId);
@@ -140,6 +143,7 @@ export function AgenticAppAssistantOverlay({
       appId,
       assistantAgentId,
     );
+    if (!session || selectionSessionRef.current !== session) throw new Error("Assistant session changed");
     if (!existing) return createAppConversation();
 
     useChatStore.setState((state) => ({
@@ -472,6 +476,7 @@ export function AgenticAppAssistantOverlay({
                 conversationId={assistantConversation.id}
                 agentId={assistantAgentId}
                 clientContext={clientContext}
+                suggestedPrompts={activeContext?.suggestedPrompts}
               />
             ) : (
               <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-300">

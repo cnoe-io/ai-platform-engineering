@@ -169,7 +169,9 @@ function ApplicationNavigationContents({
   const hydrated = useHydrated();
   const shouldReduceMotion = useReducedMotion();
   const { data: session, status: sessionStatus } = useSession();
-  const identity = session?.user?.email;
+  const identity = session?.user?.email
+    ? JSON.stringify([session.sub ?? session.user.email, session.org ?? "", session.role ?? ""])
+    : undefined;
   const [navigationCatalog, setNavigationCatalog] = React.useState<{ identity: string; apps: PublicAgenticApp[]; hostPaths: string[] } | null>(null);
   const navigationApps = sessionStatus === "authenticated" && navigationCatalog?.identity === identity ? navigationCatalog.apps : [];
   const { isAdmin } = useAdminRole();
