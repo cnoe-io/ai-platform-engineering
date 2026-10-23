@@ -49,7 +49,7 @@ export function AgenticAppShell({
   const assistantAgent =
     assistantBinding?.bindingKey === assistantBindingKey ? assistantBinding.agent : null;
   const assistantConfigured =
-    state.status === "ready" && state.app.assistantEnabled === true;
+    state.status === "ready" && state.app.assistantEnabled === true && state.app.assistantOverlay !== "app";
 
   useEffect(() => {
     let cancelled = false;

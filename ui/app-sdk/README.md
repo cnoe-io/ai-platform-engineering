@@ -211,3 +211,10 @@ the snapshot; a UI restart revalidates it before serving traffic.
 - The host checks app launch access, agent availability and conversation binding before restoring the panel or its actions. Server authorization still applies to every mutation.
 - Closing a native view restores the previous selection while the host retains the stream. Native packages do not own another chat store.
 - Hosts without `ConversationActions` continue to support `chat.Panel`; older native packages need no changes.
+
+## Assistant overlay ownership
+
+`ui.assistant.overlay` defaults to `host`. Set it to `app` when the app owns
+its launcher and popup. Native and iframe renderers both honor this declaration.
+App ownership suppresses only the host popup; assistant registration, agent-use
+authorization and app-defined stream routing remain available.
