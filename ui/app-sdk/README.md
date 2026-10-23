@@ -110,6 +110,44 @@ token mode. Service accounts cannot substitute for an interactive user.
 Declaring a stream grants no access. A conflicting/unavailable app configuration,
 a denial, or an upstream failure does not invoke a different agent runtime.
 
+### Webex native streams
+
+`ui.assistant.supportedClients` defaults to `["webui"]`. Apps explicitly enable
+Webex with `["webui", "webex"]`. `webexGroupChat: true` is a separate opt-in for
+apps that enforce group-safe data access; absent/false rejects group spaces.
+The publication checkers retain and validate both capabilities. Catalog discovery
+uses the verified OAuth client identity to omit unsupported app assistants.
+
+- The Webex bot continues using its linked human OBO token. The host validates
+  the signature-verified `azp` against `KEYCLOAK_WEBEX_BOT_CLIENT_ID`.
+- Configure the same `WEBEX_LINK_HMAC_SECRET` (at least 32 bytes) on bot and host.
+  The bot signs the exact POST bytes, bearer-token hash, room, space, thread,
+  conversation, agent and timestamp after the existing event/room/identity gates.
+  Public `client_context` or `X-Client-Source` alone never grants this authority.
+- The host checks the proof against the stored thread and authenticated request,
+  after the existing agent-use and conversation-write gates. It then applies the
+  app's ordinary role, HTTP-action and token policies without admin elevation.
+- The private runtime receives `X-CAIPE-Assistant-Context`: an app-audience JWT
+  signed with the existing `AGENTIC_APP_TOKEN_SECRET`, valid for 60 seconds. It
+  has `purpose: "assistant-stream"` and `assistant_context` containing `client`,
+  `kind`, `conversationId`, `agentId`, `roomId`, `spaceId`, `threadId`, `method`,
+  target `path`, exact `bodyHash` and upstream bearer `tokenHash` (SHA-256 hex).
+- Apps verify issuer, audience, signature, expiry, purpose, caller subject, body,
+  path and stored conversation/room bindings before accepting Webex. Then they
+  enforce their own project/tool permissions and room-data policy. Client type
+  stays `webex`. Service-account credentials cannot stand in for the human.
+- The proxy strips caller-supplied `X-CAIPE-*` headers before adding its own proof.
+  Missing/expired/mismatched proofs and unsupported clients fail closed, without
+  falling back to Dynamic Agents. Bot output limits and existing AG-UI rendering
+  remain in force. Disconnect/cancellation continues through the existing stream.
+
+Keep the legacy agent and thread route until the app has adopted this contract.
+Changing the default route affects new threads; migrating existing threads must
+also update the stored agent participant and `thread_owner_agent_id`, preserve
+messages and access controls, and clear the bot's thread-owner cache. Provider
+checkpoints are runtime-specific and must not be copied to the native runtime;
+the app should load authorized recent transcript context for a fresh session.
+
 A missing resume/cancel capability returns `501`; it never resumes or cancels a
 Dynamic Agents run. Without an app stream claim, existing Dynamic Agents behavior
 continues. Start/resume permit up to 16 minutes at the host boundary; applications
