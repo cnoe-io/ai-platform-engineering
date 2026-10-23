@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
-import { AgenticAppAssistantOverlay } from "@/components/agentic-apps/AgenticAppAssistantOverlay";
 import { validateAssistantContextMessage } from "@/lib/agentic-apps/assistant-context";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { HOST_ASSISTANT_EVENT } from "@/lib/agentic-apps/assistant-events";
 import type { AgenticAppAssistantContextRecord, PublicAgenticApp } from "@/types/agentic-app";
 import type { NativeExtensionManifest } from "./types";
+
+const AgenticAppAssistantOverlay = lazy(() => import("@/components/agentic-apps/AgenticAppAssistantOverlay")
+  .then(module => ({ default: module.AgenticAppAssistantOverlay })));
 
 /** Native and iframe renderers share one host popup and conversation lifecycle. */
 export function NativeExtensionAssistant({ extensionId, pathname, search = "" }: {
@@ -69,9 +71,9 @@ export function NativeExtensionAssistant({ extensionId, pathname, search = "" }:
     {error.message} <button type="button" onClick={() => setRetry(n => n + 1)} className="underline">Retry assistant</button>
   </div>;
   if (!app?.canLaunch || !app.assistantAgentId || app.assistantOverlay === "app") return null;
-  return <AgenticAppAssistantOverlay key={`${key}:${app.assistantAgentId}`}
+  return <Suspense fallback={<p role="status" className="p-3 text-sm">Loading assistant…</p>}><AgenticAppAssistantOverlay key={`${key}:${app.assistantAgentId}`}
     appId={app.appId} appName={app.displayName} assistantLabel={app.assistantLabel}
     assistantAgentName={app.assistantAgentName} assistantIcon={app.icon}
     assistantAgentId={app.assistantAgentId} open={open} onOpenChange={setOpen}
-    activeContext={context?.route === pathname ? context : null} onClearContext={() => setContext(null)} />;
+    activeContext={context?.route === pathname ? context : null} onClearContext={() => setContext(null)} /></Suspense>;
 }
