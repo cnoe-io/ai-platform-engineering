@@ -145,7 +145,7 @@ Every agent and subagent checks model output before executing tools:
 
 - Output-limit stops (`length` / `max_tokens`), invalid tool-call JSON, and invalid
   Pydantic tool arguments trigger recovery. Remote JSON-schema tools are checked
-  for missing required top-level arguments.
+  for missing required top-level arguments and malformed `required` metadata.
 - The entire defective parallel batch is rejected, including otherwise complete
   calls. Rejected calls never run and raw tool-use blocks are removed from history.
 - The model gets one repair attempt, with feedback to use smaller file edits.

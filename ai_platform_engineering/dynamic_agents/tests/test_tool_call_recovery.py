@@ -181,6 +181,56 @@ def test_schema_validation_omits_injected_fields_and_secret_values() -> None:
     assert "content" in _failure_reason(missing, [remote])
 
 
+@pytest.mark.parametrize("required", [None, "content", {}, 1, True, [None], [1], [{}], [[]], ["content", 1]])
+def test_remote_schema_rejects_malformed_required_without_leaking_values(required: Any) -> None:
+    remote = StructuredTool(
+        name="remote",
+        description="Remote tool",
+        func=lambda **kwargs: "ok",
+        args_schema={"type": "object", "required": required},
+    )
+    message = AIMessage(content="", tool_calls=[{"name": "remote", "args": {"private": "private-value"}, "id": "r"}])
+    assert _failure_reason(message, [remote]) == (
+        "Tool remote has an invalid input schema: 'required' must be an array of strings."
+    )
+
+
+@pytest.mark.parametrize("schema", [{"type": "object"}, {"type": "object", "required": []}])
+def test_remote_schema_allows_omitted_or_empty_required(schema: dict[str, Any]) -> None:
+    remote = StructuredTool(name="remote", description="Remote tool", func=lambda **kwargs: "ok", args_schema=schema)
+    message = AIMessage(content="", tool_calls=[{"name": "remote", "args": {}, "id": "r"}])
+    assert _failure_reason(message, [remote]) is None
+
+
+@pytest.mark.asyncio
+async def test_malformed_remote_schema_rejects_entire_batch_and_exhausts_recovery() -> None:
+    writes: list[str] = []
+    remote_calls: list[dict[str, Any]] = []
+
+    def remote_call(**kwargs: Any) -> str:
+        remote_calls.append(kwargs)
+        return "called"
+
+    remote = StructuredTool(
+        name="remote", description="Remote tool", func=remote_call,
+        args_schema={"type": "object", "required": None},
+    )
+    failed = AIMessage(content="", tool_calls=[
+        {"name": "write_file", "args": {"file_path": "example.md", "content": "unsafe"}, "id": "w"},
+        {"name": "remote", "args": {}, "id": "r"},
+    ])
+    model = _Model(responses=[failed, failed])
+    graph = create_agent(
+        model, tools=[_writer(writes), remote],
+        middleware=[ToolCallRecoveryMiddleware(), ModelRetryMiddleware(max_retries=5)],
+    )
+    with pytest.raises(ToolCallRecoveryError, match="invalid input schema"):
+        await graph.ainvoke({"messages": [HumanMessage(content="Write the file and call the remote tool")]})
+    assert len(model.seen) == 2
+    assert writes == []
+    assert remote_calls == []
+
+
 def test_guard_cannot_be_disabled_by_config_and_valid_response_is_unchanged() -> None:
     features = FeaturesConfig(middleware=[MiddlewareEntry(type="model_retry", enabled=False)])
     assert isinstance(build_middleware(features)[0], ToolCallRecoveryMiddleware)

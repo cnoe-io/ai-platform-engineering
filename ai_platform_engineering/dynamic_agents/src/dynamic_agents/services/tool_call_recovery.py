@@ -49,7 +49,10 @@ def _failure_reason(message: AIMessage, tools: list[Any]) -> str | None:
             continue  # ToolNode owns unknown-tool errors.
         schema = tool.tool_call_schema  # Excludes injected runtime/state arguments.
         if isinstance(schema, dict):
-            missing = sorted(set(schema.get("required", [])) - call["args"].keys())
+            required = schema.get("required", [])
+            if not isinstance(required, list) or not all(isinstance(field, str) for field in required):
+                return f"Tool {tool.name} has an invalid input schema: 'required' must be an array of strings."
+            missing = sorted(set(required) - call["args"].keys())
             if missing:
                 return f"Tool {tool.name} is missing required arguments: {', '.join(missing)}."
         else:
