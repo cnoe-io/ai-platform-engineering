@@ -169,7 +169,9 @@ An installed app can create in-app notifications for named users.
   token and `{ eventKey, recipientUserSubjects, title, message, href?, severity? }`.
 - Only an installed, enabled app that declares the capability and is bound to the
   calling client may create notifications. Anything else is a `403`.
-- Recipients are user subjects only (1 to 50). `href` must be a relative path.
+- Recipients are user subjects only (1 to 50). `href` must be a host-local path
+  starting with `/`. Absolute URLs, `//`, backslashes, and control characters
+  are rejected.
 - The host prefixes `eventKey` with `app:<app_id>:` and sets the source label to
   the app's display name. A repeated `eventKey` creates nothing: `201` when
   created, `200` when already there.
