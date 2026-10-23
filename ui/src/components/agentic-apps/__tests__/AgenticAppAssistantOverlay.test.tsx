@@ -57,6 +57,7 @@ describe("AgenticAppAssistantOverlay", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
     mockChatStoreState.activeConversationId = "previous-conversation";
     mockChatStoreState.conversations = [];
     mockCreateConversation.mockResolvedValue("assistant-conversation");
@@ -108,7 +109,7 @@ describe("AgenticAppAssistantOverlay", () => {
       />,
     );
 
-    expect(screen.getByRole("region", { name: "Example Assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Example Assistant" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disable translucent assistant mode" }))
       .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Starting Ask Example…")).toBeInTheDocument();

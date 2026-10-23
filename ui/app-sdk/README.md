@@ -211,3 +211,97 @@ the snapshot; a UI restart revalidates it before serving traffic.
 - The host checks app launch access, agent availability and conversation binding before restoring the panel or its actions. Server authorization still applies to every mutation.
 - Closing a native view restores the previous selection while the host retains the stream. Native packages do not own another chat store.
 - Hosts without `ConversationActions` continue to support `chat.Panel`; older native packages need no changes.
+
+## Iframe navigation, host routes and the shared assistant
+
+All supported renderers use the same installation access policy and public app
+catalog. `ui.navigation` contributes one entry after Chat in expanded and collapsed
+navigation. The entry is omitted for disabled, hidden, uninstalled or unauthorized
+apps. Optional installation `navigation_overrides` supports `visible`, `label` and
+numeric `order`; it cannot change the target into another app's route.
+
+### Host route takeover
+
+A publisher declares `ui.routes`; an operator must explicitly approve iframe host
+claims on the installation:
+
+```yaml
+# Installation of a publisher manifest declaring /projects.
+- app_id: example-app
+  installed: true
+  enabled: true
+  selected_ui_profile: hosted
+  host_route_claims: [/projects]
+  navigation_overrides:
+    label: Example Projects
+    order: 20
+  bindings:
+    runtimeOrigin: http://example-app.example.svc:3000
+```
+
+- `/projects` and nested paths render the iframe inside the host shell. The address
+  bar stays at the public route, including query parameters and fragments.
+- The iframe still loads through `/apps/example-app/projects/...`; its private
+  runtime origin is never sent to the browser. Build assets and API URLs for that
+  gateway mount. Same-origin iframe hosting is a trust boundary, not JavaScript
+  isolation from the host.
+- `/apps/example-app` redirects to the approved public entry; nested aliases retain
+  owned deep links. With no approved host routes, the normal `/apps` entry remains.
+- Native packages retain their compiled route contract. Switching to an iframe
+  profile uses the same public routes when those routes are approved.
+- Conflicting active owners fail closed with a configuration error. Reserved host,
+  authentication and API routes cannot be claimed by an iframe.
+- Disabling/uninstalling the installation or removing its claims restores normal
+  host routing. Refresh an open page after an operator changes its UI profile.
+- App admission is enforced at the host route and gateway. An alias or route claim
+  never grants access to an app or its downstream resources.
+
+### One assistant owner
+
+`ui.assistant.overlay` defaults to `host`. Set it to `app` only when the app owns
+its launcher and popup. Both renderers honor this; app ownership does not remove
+the assistant's registration, agent-use policy or stream binding.
+
+For one consistent experience, select `host` and use the host capability:
+
+```ts
+// Native package. Optional capabilities must be checked before use.
+props.chat?.assistant?.open({ route: props.pathname, title: "Selected project" });
+```
+
+```ts
+// Iframe: import the standalone client, not host stores or UI source.
+import { createAgenticAppBridge } from "@caipe-io/app-sdk/iframe-bridge";
+const bridge = createAgenticAppBridge({
+  appId: "example-app",
+  onStatus: status => showBridgeStatus(status),
+  onNavigate: href => synchronizeAppRouter(href),
+});
+// Enable Ask only after onStatus("ready") and handle unavailable capabilities.
+bridge.openAssistant({ route: "/projects/example", title: "Selected project" });
+bridge.navigate("/projects/example?view=wiki#overview");
+// On unmount:
+bridge.dispose();
+```
+
+The host validates exact iframe source, same origin, app ID, bridge version and
+owned navigation paths. Context uses the existing size/secret filters and is
+forwarded as untrusted user-visible data, never instructions or an access grant.
+The host advertises bridge `1.0` capabilities; version mismatch, unavailable
+assistant and unsupported composer extensions produce explicit errors. This uses
+the existing context/open protocol and does not implement the broader bridge
+lifecycle proposal in #2948.
+
+Native and iframe host assistants share popup sizing, branding, chat history,
+rename/share/archive controls and conversation binding. Deep links to owned chats
+can still use the main Chat page. The shared popup also restores an authorized
+`?assistant_chat=<conversation-id>` deep link; an invalid link never creates a
+replacement conversation. History selection validates the installation,
+agent and conversation again before loading it. Account changes remount assistant
+state; authorization is enforced again on every API operation.
+
+Host-owned popups currently support validated page context and suggested prompts.
+App-specific source pickers and other composer controls remain available through
+native `chat.Panel` composition (`composerHeader`/`requestOptions`); they are not
+negotiated into the host popup. Iframe requests for these extensions are rejected
+explicitly. An app requiring its own controls can retain `overlay: "app"`.
