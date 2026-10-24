@@ -15,7 +15,7 @@ dependencies = [
     "llm-wrapper",
     # LLM provider integrations. Add one here only if this image serves it.
     "langchain==1.4.6",
-    "langchain-core==1.6.12",
+    "langchain-core==1.7.0",
     "langchain-aws==1.5.0",
     "langchain-anthropic==1.4.6",
     "langchain-openai==1.6.2",
